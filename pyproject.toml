@@ -1,0 +1,109 @@
+[project]
+name = 'snowtool'
+description = 'Snow analysis tool for basin forecasting'
+readme = 'README.md'
+requires-python = '>=3.14'
+dynamic = [
+    'version',
+]
+dependencies = [
+    "click>=8.2.1",
+    "fastapi>=0.116.1",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "uvicorn>=0.35.0",
+]
+
+[project.scripts]
+snowtool = "snowtool.__main__:cli"
+
+[build-system]
+requires = [
+    "hatchling",
+    "hatch-vcs",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/snowtool/__version__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/snowtool"]
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+select = [
+    'B',
+    'BLE',
+    'C4',
+    'C90',
+    'COM',
+    'DTZ',
+    'E',
+    'ERA',
+    'F',
+    'FA',
+    'G',
+    'I',
+    'INP',
+    'N',
+    'NPY',
+    'PT',
+    'PTH',
+    'RET',
+    'RUF',
+    'S',
+    'SIM',
+    'T20',
+    'UP',
+    'W',
+
+]
+exclude = ['docs/**/*']
+
+[tool.ruff.lint.per-file-ignores]
+'__init__.py' = ['E402']
+'tests/**/*' = ['T201', 'S101']
+
+[tool.ruff.lint.isort]
+lines-between-types = 1
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+scripts_are_modules = true
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = 'function'
+addopts = [
+    "--cov=snowtool",
+    "--import-mode=importlib",
+]
+testpaths = 'tests'
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+sort = "Cover"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=1.18.1",
+    "pre-commit>=4.3.0",
+    "pre-commit-hooks>=6.0.0",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.0",
+]
