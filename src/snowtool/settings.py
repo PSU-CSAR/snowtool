@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -26,3 +28,9 @@ class Settings(BaseSettings):
         return init_settings, env_settings, file_secret_settings
 
     model_config = SettingsConfigDict(env_prefix='snowtool_')
+
+    # Filesystem location of the raster database (COGs, AOI rasters, etc.)
+    rasterdb_path: Path
+
+    # Max number of open async-tiff handles kept in the read-path LRU cache.
+    tiff_cache_size: int = 16384

@@ -3,14 +3,15 @@ from typing import Any, Self
 
 from fastapi import FastAPI
 
-
-from .settings import Settings
+from snowtool.rasterdb.tiff_cache import TiffCache
+from snowtool.settings import Settings
 
 
 class RequestState(Mapping):
     def __init__(self, app: FastAPI, settings: Settings) -> None:
         self.app = app
         self.settings = settings
+        self.tiff_cache = TiffCache(settings.tiff_cache_size)
 
     async def __aenter__(self) -> Self:
         return self

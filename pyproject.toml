@@ -7,10 +7,17 @@ dynamic = [
     'version',
 ]
 dependencies = [
+    "affine>=2.4.0",
+    "async-lru>=2.3.0",
+    "async-tiff>=0.7.2",
     "click>=8.2.1",
     "fastapi>=0.116.1",
+    "griffine[crs]>=0.1.0",
+    "numpy>=2.4.6",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
+    "rasterio>=1.5.0",
+    "shapely>=2.1.2",
     "uvicorn>=0.35.0",
 ]
 
@@ -70,6 +77,9 @@ exclude = ['docs/**/*']
 [tool.ruff.lint.per-file-ignores]
 '__init__.py' = ['E402']
 'tests/**/*' = ['T201', 'S101']
+# types.py intentionally keeps the Django/ninja API-response helpers commented
+# out pending the FastAPI rewrite; allow that commented code.
+'src/snowtool/types.py' = ['ERA001']
 
 [tool.ruff.lint.isort]
 lines-between-types = 1

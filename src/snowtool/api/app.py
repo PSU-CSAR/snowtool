@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from snowtool.settings import Settings
+
 from .exceptions import APIError, api_error_handler
 from .request_state import RequestState
 from .routers.root import router as root_router
-from .settings import Settings
 from .tags import Tags
 
 
