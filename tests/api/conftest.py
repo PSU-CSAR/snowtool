@@ -6,13 +6,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from snowtool.api.app import get_app
-from snowtool.api.settings import Settings
-
-
-@pytest.fixture
-def test_settings(
-) -> Settings:
-    return Settings()
 
 
 @pytest.fixture
