@@ -190,6 +190,30 @@ class AOIRasterWithArea(AOIRaster):
     area: numpy.typing.NDArray[numpy.float32]
 
     @classmethod
+    def with_constant_area(
+        cls: type[Self],
+        aoi_raster: AOIRaster,
+        cell_area: float,
+    ) -> Self:
+        """Attach a constant per-pixel area (projected grids have no area raster).
+
+        On a projected/linear grid every cell has identical planar area, so the
+        per-pixel area is just ``spec.cell_area`` broadcast over the window --
+        no ``areas.tif`` is read. Keeping ``area`` an in-memory ndarray (as on
+        geographic grids) lets the zonal-stats reduction stay uniform.
+        """
+        area = numpy.full_like(aoi_raster.array, cell_area, dtype=numpy.float32)
+        return cls(
+            area=area,
+            path=aoi_raster.path,
+            array=aoi_raster.array,
+            tiles=aoi_raster.tiles,
+            origin=aoi_raster.origin,
+            min_elevation=aoi_raster.min_elevation,
+            max_elevation=aoi_raster.max_elevation,
+        )
+
+    @classmethod
     async def from_aoi_raster(
         cls: type[Self],
         aoi_raster: AOIRaster,

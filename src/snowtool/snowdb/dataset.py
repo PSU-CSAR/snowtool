@@ -16,17 +16,19 @@ from snowtool.exceptions import SNODASError
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import WGS84, write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
-from snowtool.snowdb.grid import tile_base_origin
+from snowtool.snowdb.grid import bounding_tiles, tile_base_origin
 from snowtool.snowdb.input_rasters import SNODASInputRasterSet
-from snowtool.snowdb.raster import DEM, AOIRaster, AreaRaster
+from snowtool.snowdb.raster import DEM, AOIRaster, AOIRasterWithArea, AreaRaster
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from affine import Affine
     from griffine.grid import AffineGridTile, TiledAffineGrid
+    from shapely import Geometry
 
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.variables import DatasetVariable
 
 
@@ -36,7 +38,10 @@ def make_geometry_mask(
     out_shape: tuple[int, int],
     transform: Affine,
 ) -> numpy.typing.NDArray[numpy.bool_]:
-    """Rasterize ``geometry`` (assumed WGS84) to a boolean mask, True inside."""
+    """Rasterize ``geometry`` to a boolean mask, True inside.
+
+    ``geometry`` must already be in the grid/``transform`` CRS.
+    """
     burned = rasterize(
         [geometry],
         out_shape=out_shape,
@@ -50,7 +55,7 @@ def make_geometry_mask(
 
 def write_aoi_raster(
     path: Path,
-    aoi: AOI,
+    geometry: Geometry,
     dem: DEM,
     start_tile: AffineGridTile,
     end_tile: AffineGridTile,
@@ -67,8 +72,9 @@ def write_aoi_raster(
     # base (full) resolution.
     transform = start_tile.transform
 
+    # ``geometry`` is already in the grid CRS (see Dataset.rasterize_aoi).
     aoi_mask = make_geometry_mask(
-        aoi.geometry,
+        geometry,
         out_shape=(height, width),
         transform=transform,
     )
@@ -124,6 +130,10 @@ class Dataset:
     def grid(self: Self) -> TiledAffineGrid:
         return self.spec.grid
 
+    @property
+    def grid_crs(self: Self) -> rasterio.crs.CRS:
+        return rasterio.crs.CRS.from_user_input(self.spec.grid_params.crs)
+
     def validate(self: Self) -> Self:
         if not self.path.exists():
             raise FileNotFoundError(f'Unable to read directory: {self.path}')
@@ -147,7 +157,11 @@ class Dataset:
             self.path.mkdir(exist_ok=force)
             self._aoi_rasters.mkdir(exist_ok=force)
             self._cogs.mkdir(exist_ok=force)
-            self.make_area_raster(force=force)
+            # A per-pixel area raster only carries information on a geographic
+            # grid (geodesic area varies by latitude); a projected grid has a
+            # constant cell area, supplied at read time from spec.cell_area.
+            if self.spec.is_geographic:
+                self.make_area_raster(force=force)
             self.create_resampled_dem(input_dem_path, force=force)
         except FileExistsError as e:
             raise FileExistsError(
@@ -159,6 +173,25 @@ class Dataset:
 
     def area_raster(self: Self) -> AreaRaster:
         return AreaRaster(self._area_raster)
+
+    async def load_aoi_with_area(
+        self: Self,
+        aoi_raster: AOIRaster,
+        cache: TiffCache,
+    ) -> AOIRasterWithArea:
+        """Attach per-pixel area to an AOI raster, however this grid stores it.
+
+        Geographic grids read the per-row geodesic ``areas.tif``; projected grids
+        have no area raster and use the constant ``spec.cell_area`` instead (see
+        :meth:`AOIRasterWithArea.with_constant_area`).
+        """
+        if self.spec.is_geographic:
+            return await AOIRasterWithArea.from_aoi_raster(
+                aoi_raster,
+                self.area_raster(),
+                cache,
+            )
+        return AOIRasterWithArea.with_constant_area(aoi_raster, self.spec.cell_area)
 
     def make_area_raster(self: Self, force: bool = False) -> None:
         if not force and self._area_raster.exists():
@@ -215,6 +248,7 @@ class Dataset:
         base = self.grid.base_grid
         dst_transform = base.transform
         dst_shape = (base.rows, base.cols)
+        dst_crs = self.grid_crs
 
         with rasterio.open(input_raster_path) as src:
             dtype = src.dtypes[0]
@@ -238,7 +272,7 @@ class Dataset:
                 src_crs=src.crs,
                 src_nodata=src_nodata,
                 dst_transform=dst_transform,
-                dst_crs=WGS84,
+                dst_crs=dst_crs,
                 dst_nodata=src_nodata,
                 resampling=Resampling.average,
             )
@@ -247,7 +281,7 @@ class Dataset:
             output_raster_path,
             destination,
             transform=dst_transform,
-            crs=WGS84,
+            crs=dst_crs,
             nodata=src_nodata,
             tile_size=self.spec.grid_params.tile_size,
         )
@@ -290,11 +324,14 @@ class Dataset:
                 'Remove and try again or use `force=True`.',
             )
 
-        ul_tile, br_tile = aoi.to_tile_extent(self.grid)
+        # The AOI is stored in WGS84; reproject it into this grid's CRS so its
+        # tile extent and pixel mask are computed in the grid's own coordinates.
+        geometry = aoi.geometry_in_crs(self.grid.crs)
+        ul_tile, br_tile = bounding_tiles(self.grid, geometry.bounds)
 
         write_aoi_raster(
             path,
-            aoi,
+            geometry,
             DEM.open(self._dem),
             ul_tile,
             br_tile,

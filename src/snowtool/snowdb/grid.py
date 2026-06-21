@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from griffine import Affine, Grid
+from griffine import Affine, Grid, Point
 from griffine.grid import AffineGridTile, TiledAffineGrid
 
 
@@ -69,3 +69,19 @@ def tiles_in_bbox(
         for row in range(ul_row, br_row + 1)
         for col in range(ul_col, br_col + 1)
     ]
+
+
+def bounding_tiles(
+    grid: TiledAffineGrid,
+    bounds: tuple[float, float, float, float],
+) -> tuple[AffineGridTile, AffineGridTile]:
+    """The upper-left and lower-right tiles covering a world-coord bbox.
+
+    ``bounds`` is ``(minx, miny, maxx, maxy)`` in the grid's own CRS (reproject
+    geographic geometry first).
+    """
+    minx, miny, maxx, maxy = bounds
+    return (
+        grid.point_to_tile(Point(minx, maxy)),
+        grid.point_to_tile(Point(maxx, miny)),
+    )
