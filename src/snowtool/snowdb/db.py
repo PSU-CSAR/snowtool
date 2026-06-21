@@ -1,15 +1,21 @@
 """The snow database root: the global ``aois/`` plus per-dataset ``data/``.
 
-``SnowDb`` is configured with the dataset specs it supports (passed in) and
-discovers which of them are present under ``data/`` by binding each directory to
-its :class:`DatasetSpec`. It is constructed per entrypoint (the API builds one at
-app-lifespan scope, the CLI one per invocation); the built-in spec set lives in
+``SnowDb`` is configured with the dataset specs it supports (passed in) and binds
+every one of them to its ``data/<name>/`` directory, present on disk or not: a
+dataset is defined by its spec, and a missing directory just means it has no data
+yet. The read path therefore tolerates an un-initialized root (it serves no data
+and logs a warning); :meth:`SnowDb.initialize` -- driven by ``snowtool snowdb
+init`` -- is the one place that creates the base layout. It is constructed per
+entrypoint (the API builds one at app-lifespan scope, the CLI one per
+invocation); the built-in spec set lives in
 :data:`snowtool.snowdb.datasets.DEFAULT_DATASET_SPECS`. It also owns the
 :class:`~snowtool.snowdb.tiff_cache.TiffCache` shared by all of its datasets'
 reads.
 """
 
 from __future__ import annotations
+
+import logging
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
@@ -25,6 +31,9 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
 
 
+logger = logging.getLogger(__name__)
+
+
 class SnowDb:
     def __init__(
         self: Self,
@@ -37,44 +46,108 @@ class SnowDb:
         self.aois_path = self.path / 'aois'
         self.data_path = self.path / 'data'
         self._specs = self._index_specs(specs)
-        self.datasets = self._discover()
+        # Datasets are defined by their specs, not by what's on disk: every
+        # configured spec is always bound to its data/<name>/ dir, present or
+        # not. A dataset with no directory simply has no data yet, which keeps
+        # the read path resilient to an un-initialized root.
+        self.datasets = self._bind_datasets()
         # One COG-handle cache shared across all datasets' reads (keyed by path).
         # Injected so the entrypoint can size it from settings; defaulted so
         # tests/CLI can build a SnowDb without wiring one up.
         self.tiff_cache = tiff_cache if tiff_cache is not None else TiffCache()
+        self._warn_if_uninitialized()
 
     @staticmethod
     def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:
         indexed: dict[str, DatasetSpec] = {}
+        # Generated response-model names come from spec.model_prefix, and names
+        # that differ only by case or -/_ collapse to the same prefix. Reject
+        # such collisions here so two datasets can't share an OpenAPI schema name.
+        prefixes: dict[str, str] = {}
         for spec in specs:
             if spec.name in indexed:
                 raise ValueError(f'Duplicate dataset spec name: {spec.name!r}')
+            if spec.model_prefix in prefixes:
+                raise ValueError(
+                    f'Dataset specs {prefixes[spec.model_prefix]!r} and '
+                    f'{spec.name!r} generate the same response-model name '
+                    f'{spec.model_prefix!r} (their names differ only by case or '
+                    "-/_ separators). Rename one.",
+                )
+            prefixes[spec.model_prefix] = spec.name
             indexed[spec.name] = spec
         return indexed
 
-    def _discover(self: Self) -> dict[str, Dataset]:
-        if not self.data_path.is_dir():
-            raise FileNotFoundError(
-                f'No data directory in snow database: {self.data_path}',
+    def _bind_datasets(self: Self) -> dict[str, Dataset]:
+        return {
+            name: Dataset(spec, self.data_path / name)
+            for name, spec in self._specs.items()
+        }
+
+    def _missing_dirs(self: Self) -> list[Path]:
+        """Base/dataset directories the root is expected to have but doesn't."""
+        missing = [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
+        # Only enumerate per-dataset dirs when data/ exists; a missing data/
+        # already implies every dataset dir is absent.
+        if self.data_path.is_dir():
+            missing.extend(
+                dataset.path
+                for dataset in self.datasets.values()
+                if not dataset.path.is_dir()
+            )
+        return missing
+
+    def _warn_if_uninitialized(self: Self) -> None:
+        missing = self._missing_dirs()
+        if missing:
+            logger.warning(
+                'snowdb at %s is missing expected directories (%s); affected '
+                'datasets will serve no data. Run `snowtool snowdb init` to '
+                'create the layout.',
+                self.path,
+                ', '.join(str(p) for p in missing),
             )
 
-        datasets: dict[str, Dataset] = {}
-        for entry in sorted(self.data_path.iterdir()):
-            # Skip stray files and hidden entries (e.g. macOS .DS_Store).
-            if not entry.is_dir() or entry.name.startswith('.'):
-                continue
+    def require_initialized(self: Self) -> Self:
+        """Raise unless the root has its base structure (``aois/`` + ``data/``).
 
-            try:
-                spec = self._specs[entry.name]
-            except KeyError as e:
-                raise ValueError(
-                    f'Unknown dataset directory {entry.name!r} in {self.data_path}: '
-                    f'not in the configured specs ({sorted(self._specs)}).',
-                ) from e
+        Read paths tolerate a missing layout (they just serve no data), but
+        management commands that write call this first so they refuse to operate
+        on a root that was never ``snowdb init``-ed rather than silently creating
+        the base directories themselves.
+        """
+        missing = [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
+        if missing:
+            raise FileNotFoundError(
+                f'{self.path} is not an initialized snowdb (missing '
+                f'{", ".join(str(p) for p in missing)}). '
+                'Run `snowtool snowdb init` first.',
+            )
+        return self
 
-            datasets[entry.name] = Dataset(spec, entry)
+    @classmethod
+    def initialize(
+        cls: type[Self],
+        path: Path,
+        specs: Iterable[DatasetSpec],
+        *,
+        tiff_cache: TiffCache | None = None,
+    ) -> Self:
+        """Create the base snowdb layout at ``path`` and return a SnowDb over it.
 
-        return datasets
+        The one entry point that creates the root structure -- ``aois/``,
+        ``data/``, and a ``data/<name>/`` directory per configured spec. Other
+        (management) commands may create missing dataset dirs but never the base
+        ``aois/``/``data/`` dirs (see :meth:`require_initialized`). Idempotent.
+        """
+        specs = list(specs)
+        path = Path(path)
+        (path / 'aois').mkdir(parents=True, exist_ok=True)
+        data_path = path / 'data'
+        data_path.mkdir(parents=True, exist_ok=True)
+        for spec in specs:
+            (data_path / spec.name).mkdir(parents=True, exist_ok=True)
+        return cls(path, specs, tiff_cache=tiff_cache)
 
     def rasterize_aoi(
         self: Self,

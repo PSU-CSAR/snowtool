@@ -132,7 +132,10 @@ class Dataset:
 
     @property
     def grid_crs(self: Self) -> rasterio.crs.CRS:
-        return rasterio.crs.CRS.from_user_input(self.spec.grid_params.crs)
+        # The rasterio view of the grid's CRS, used when writing COGs. Derived
+        # from the spec's single parsed CRS (not re-parsed from grid_params) so
+        # the pyproj and rasterio sides can never disagree.
+        return rasterio.crs.CRS.from_user_input(self.spec.crs)
 
     def validate(self: Self) -> Self:
         if not self.path.exists():
@@ -220,7 +223,10 @@ class Dataset:
             self._area_raster,
             area_array,
             transform=base.transform,
-            crs=WGS84,
+            # Match the DEM/COGs: the area raster shares the grid's CRS, not a
+            # hardcoded WGS84 (identical for a 4326 grid, correct for any other
+            # geographic CRS).
+            crs=self.grid_crs,
             tile_size=self.spec.grid_params.tile_size,
             predictor=3,
         )
@@ -317,6 +323,11 @@ class Dataset:
         return self._aoi_rasters / f'{station_triplet.replace(":", "_")}.tif'
 
     def rasterize_aoi(self, aoi: AOI, force: bool = False) -> AOIRaster:
+        # A management (write) op may run against a dataset that has no data yet,
+        # so create the aoi-rasters dir if it is missing (but never the base
+        # snowdb dirs -- those are SnowDb.initialize's job).
+        self._aoi_rasters.mkdir(parents=True, exist_ok=True)
+
         path = self.aoi_raster_path_from_triplet(aoi.station_triplet)
         if not force and path.exists():
             raise FileExistsError(

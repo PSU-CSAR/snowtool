@@ -43,13 +43,6 @@ class ZonalStatBase(BaseModel):
         }
 
 
-def _model_prefix(spec: DatasetSpec) -> str:
-    """A CamelCase model-name prefix from the dataset name (e.g. ``Snodas``)."""
-    return ''.join(
-        part.capitalize() for part in spec.name.replace('-', '_').split('_')
-    )
-
-
 def build_zonal_stat_model(spec: DatasetSpec) -> type[BaseModel]:
     """Build the per-elevation-band zonal-stat model for ``spec``."""
     fields: dict[str, Any] = {
@@ -61,7 +54,7 @@ def build_zonal_stat_model(spec: DatasetSpec) -> type[BaseModel]:
         fields[variable.stat_name] = (float | None, None)
 
     return create_model(
-        f'{_model_prefix(spec)}ZonalStat',
+        f'{spec.model_prefix}ZonalStat',
         __base__=ZonalStatBase,
         **fields,
     )
@@ -73,7 +66,7 @@ def build_zonal_stats_model(
 ) -> type[BaseModel]:
     """Build the per-date wrapper model (``date`` + a list of ``stat_model``)."""
     return create_model(
-        f'{_model_prefix(spec)}ZonalStats',
+        f'{spec.model_prefix}ZonalStats',
         date=(date, ...),
         zones=(list[stat_model], ...),  # type: ignore[valid-type]
     )

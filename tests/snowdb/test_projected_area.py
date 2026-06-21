@@ -131,6 +131,32 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
         assert 0 <= tile.col < SIZE // TILE
 
 
+def test_cell_area_converts_non_metre_units_to_m2():
+    # A projected CRS measured in US survey feet: griffine's planar cell area is
+    # ft^2, which cell_area must convert to m^2 so all area output is metres.
+    us_foot_to_metre = 0.30480060960121924  # EPSG:2225 linear unit
+    px_feet = 1000.0
+    spec = DatasetSpec(
+        name='stateplane',
+        grid_params=GridParams(
+            origin_x=2_000_000.0,
+            origin_y=500_000.0,
+            px_size=px_feet,
+            cols=SIZE,
+            rows=SIZE,
+            tile_size=TILE,
+            crs=2225,  # NAD83 / California zone 2 (US survey feet)
+        ),
+        dem_min_m=0.0,
+        dem_max_m=1000.0,
+    )
+
+    assert spec.is_geographic is False
+    assert spec.cell_area == pytest.approx((px_feet * us_foot_to_metre) ** 2)
+    # ...and emphatically not the raw planar ft^2 value.
+    assert spec.cell_area != pytest.approx(px_feet * px_feet)
+
+
 def test_load_aoi_with_area_uses_constant_cell_area(dataset):
     aoi_raster = AOIRaster(
         path=dataset.path / 'fake.tif',
@@ -147,3 +173,6 @@ def test_load_aoi_with_area_uses_constant_cell_area(dataset):
     assert result.area.shape == aoi_raster.array.shape
     assert (result.area == numpy.float32(dataset.spec.cell_area)).all()
     assert dataset.spec.cell_area == pytest.approx(PX * PX)
+    # The constant area is a zero-copy broadcast view, not a materialized
+    # N-pixel array, so it carries no per-pixel storage.
+    assert result.area.flags['OWNDATA'] is False

@@ -109,7 +109,7 @@ class Product(StrEnum):
 
 # SNODAS variables, one per product. All are intensive quantities (depths,
 # temperature) reported as area-weighted means; reads are int16 with the SNODAS
-# nodata sentinel. (Switching any to an INTEGRAL total is a future, domain-driven
+# nodata sentinel. (Switching any to a TOTAL basin total is a future, domain-driven
 # change -- see the plan's reduced-unit note.)
 SNODAS_VARIABLES = tuple(
     DatasetVariable(

@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 import csv
+import math
 
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from itertools import pairwise
 from typing import IO, TYPE_CHECKING, Self
 
 import numpy
@@ -81,6 +85,21 @@ class ZonalStats:
                 'Ensure all data was processed and added to results successfully.',
             )
 
+    def _zone_stats(self: Self, date_idx: int, band_idx: int) -> dict[str, float]:
+        """The scaled per-zone stat values (``area_m2`` + each variable) for one
+        (date, band) cell -- the single source the JSON (:meth:`dump`) and CSV
+        (:meth:`dump_to_csv`) serializers share, so both apply the same unit
+        scaling and ``float`` coercion. The keys are ordered ``area_m2`` first
+        then the variables in ``_variables_index`` order, matching the CSV
+        header. A band with no valid pixels carries ``nan``, which each
+        serializer renders as its own 'missing' token (JSON null / empty cell).
+        """
+        zone = self._array[date_idx][band_idx]
+        values = {'area_m2': float(zone[0])}
+        for variable, var_idx in self._variables_index.items():
+            values[variable.stat_name] = float(variable.unit.scale(zone[var_idx]))
+        return values
+
     def dump(self: Self) -> list[BaseModel]:
         self.validate()
         stat_model = self.spec.zonal_stat_model
@@ -89,24 +108,18 @@ class ZonalStats:
         for date_, date_idx in self._dates_index.items():
             zones: list[BaseModel] = []
             for band, band_idx in self._elevation_bands_index.items():
-                results = {
-                    'area_m2': float(self._array[date_idx][band_idx][0]),
-                }
-                for variable, var_idx in self._variables_index.items():
-                    results[variable.stat_name] = variable.unit.scale(
-                        self._array[date_idx][band_idx][var_idx],
-                    )
                 zones.append(
                     stat_model(
                         min_elevation_ft=band.min,
                         max_elevation_ft=band.max,
-                        **results,
+                        **self._zone_stats(date_idx, band_idx),
                     ),
                 )
             stats.append(stats_model(date=date_, zones=zones))
         return stats
 
     def dump_to_csv(self: Self, out: IO) -> None:
+        self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
         headers: list[str] = ['date']
@@ -120,17 +133,12 @@ class ZonalStats:
         for date_, date_idx in self._dates_index.items():
             row: list[str] = [date_.isoformat()]
             for band_idx in self._elevation_bands_index.values():
-                row.append(
-                    self._array[date_idx][band_idx][0],
+                # Empty cell for a no-data band (nan), matching dump()'s JSON
+                # null -- never the literal 'nan'.
+                row.extend(
+                    '' if math.isnan(value) else str(value)
+                    for value in self._zone_stats(date_idx, band_idx).values()
                 )
-                for variable, var_idx in self._variables_index.items():
-                    row.append(
-                        str(
-                            variable.unit.scale(
-                                self._array[date_idx][band_idx][var_idx],
-                            ),
-                        ),
-                    )
             writer.writerow(row)
 
     @classmethod
@@ -149,11 +157,16 @@ class ZonalStats:
             ),
         )
 
+        # The band geometry (which pixel is in which band, and each band's total
+        # area) depends only on the AOI -- not on any variable or date -- so it
+        # is computed once here and reused by every raster's reduction.
+        band_index = _BandIndex.build(aoi, elevation_bands)
+
         # Fan out across the raster set; each raster's tile reads fan out
         # further inside _calc. The handle cache dedupes/bounds open COGs.
         per_raster = await asyncio.gather(
             *(
-                cls._calc(aoi, variable, raster, elevation_bands, cache)
+                cls._calc(aoi, variable, raster, band_index, cache)
                 for variable, variable_rasters in rasters.items()
                 for raster in variable_rasters
             ),
@@ -175,7 +188,7 @@ class ZonalStats:
         aoi: AOIRasterWithArea,
         variable: DatasetVariable,
         raster: DataRaster,
-        elevation_bands: Iterable[ElevationBand],
+        band_index: _BandIndex,
         cache: TiffCache,
     ) -> list[Result]:
         date_ = raster.date
@@ -184,52 +197,96 @@ class ZonalStats:
 
         await aoi.load_raster_tiles_into_array(raster, values_array, cache)
 
-        results: list[Result] = []
-        for band in elevation_bands:
-            # The band's geographic area is variable-independent: every pixel
-            # whose elevation falls in the band, regardless of whether this
-            # variable has data there.
-            band_selection: numpy.typing.NDArray[numpy.bool_] = (
-                aoi.array >= band.min_meters
-            ) & (aoi.array < band.max_meters)
-            # The reduction runs only over pixels that actually have data.
-            value_selection = band_selection & (values_array != variable.nodata)
+        # The reduction runs only over in-band pixels that actually have data;
+        # everything else (band geometry, band areas) was precomputed once.
+        selection = band_index.in_band & (values_array != variable.nodata)
+        values = band_index.reduce(variable.reducer, values_array, aoi.area, selection)
 
-            area = float(numpy.sum(aoi.area[band_selection]))
-            value = _reduce(
-                variable.reducer,
-                values_array[value_selection],
-                aoi.area[value_selection],
+        return [
+            Result(
+                date=date_,
+                variable=variable,
+                elevation_band=band,
+                value=float(values[idx]),
+                area=float(band_index.areas[idx]),
             )
-
-            results.append(
-                Result(
-                    date=date_,
-                    variable=variable,
-                    elevation_band=band,
-                    value=value,
-                    area=area,
-                ),
-            )
-
-        return results
+            for idx, band in enumerate(band_index.bands)
+        ]
 
 
-def _reduce(
-    reducer: Reducer,
-    values: numpy.typing.NDArray,
-    areas: numpy.typing.NDArray,
-) -> float:
-    """Reduce the selected (value, per-pixel area) pairs to a single number.
+@dataclass
+class _BandIndex:
+    """Per-pixel elevation-band membership for one AOI, computed once and reused.
 
-    Area weighting is automatic from the grid CRS (``areas`` is geodesic on a
-    geographic grid, constant on a projected one), so MEAN degenerates to a plain
-    mean when cells are equal-area. Returns ``nan`` when no pixels are selected.
+    ``index`` maps every pixel to its band ordinal (``-1``/``>= n`` for pixels
+    below/above all bands); ``in_band`` is the boolean of in-range pixels;
+    ``areas[b]`` is band ``b``'s total geographic area. Reused across every
+    (variable, date) raster so the band masks and areas are not recomputed per
+    raster -- only each raster's data-dependent reduction is.
     """
-    if values.size == 0:
-        return numpy.nan
-    match reducer:
-        case Reducer.MEAN:
-            return float(numpy.average(values, weights=areas))
-        case Reducer.INTEGRAL:
-            return float(numpy.sum(values * areas))
+
+    bands: tuple[ElevationBand, ...]
+    index: numpy.typing.NDArray[numpy.int16]
+    in_band: numpy.typing.NDArray[numpy.bool_]
+    areas: numpy.typing.NDArray[numpy.float64]
+
+    @classmethod
+    def build(
+        cls: type[Self],
+        aoi: AOIRasterWithArea,
+        elevation_bands: Iterable[ElevationBand],
+    ) -> Self:
+        bands = tuple(sorted(elevation_bands))
+        n = len(bands)
+        # ElevationBand.generate yields contiguous, ascending bands, so their
+        # meter boundaries form one monotonic edge vector for digitize.
+        if any(a.max != b.min for a, b in pairwise(bands)):
+            raise ValueError('Elevation bands must be contiguous and ascending.')
+        edges = numpy.array(
+            [band.min_meters for band in bands] + [bands[-1].max_meters],
+            dtype=numpy.float64,
+        )
+        # digitize: 0 below all bands, n above; shift to 0..n-1 in-band. Band
+        # ordinals are tiny, so int16 keeps this full-size array cheap.
+        index = (numpy.digitize(aoi.array, edges) - 1).astype(numpy.int16)
+        in_band = (index >= 0) & (index < n)
+        areas = numpy.bincount(
+            index[in_band],
+            weights=aoi.area[in_band],
+            minlength=n,
+        )
+        return cls(bands=bands, index=index, in_band=in_band, areas=areas)
+
+    def reduce(
+        self: Self,
+        reducer: Reducer,
+        values_array: numpy.typing.NDArray,
+        area_array: numpy.typing.NDArray[numpy.float32],
+        selection: numpy.typing.NDArray[numpy.bool_],
+    ) -> numpy.typing.NDArray[numpy.float64]:
+        """Area-weighted reduction for every band at once, over ``selection``.
+
+        One pass via ``bincount`` instead of a per-band masked reduction. Area
+        weighting is automatic from the grid CRS (``area`` is geodesic on a
+        geographic grid, constant on a projected one), so MEAN degenerates to a
+        plain mean when cells are equal-area. A band with no selected pixels is
+        ``nan`` (as a per-pixel empty reduction would be).
+        """
+        n = len(self.bands)
+        idx = self.index[selection]
+        values = values_array[selection]
+        areas = area_array[selection]
+        weighted = numpy.bincount(idx, weights=values * areas, minlength=n)
+
+        match reducer:
+            case Reducer.MEAN:
+                area_sum = numpy.bincount(idx, weights=areas, minlength=n)
+                with numpy.errstate(invalid='ignore', divide='ignore'):
+                    result = weighted / area_sum
+            case Reducer.TOTAL:
+                result = weighted
+
+        # Empty bands divide to nan for MEAN already, but TOTAL needs it set
+        # explicitly so a no-data band reads nan rather than a spurious 0.
+        result[numpy.bincount(idx, minlength=n) == 0] = numpy.nan
+        return result

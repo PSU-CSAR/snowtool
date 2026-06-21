@@ -12,8 +12,10 @@ from snowtool.snowdb.constants import (
 @total_ordering
 @dataclass
 class ElevationBand:
-    min: int | float
-    max: int | float
+    # Elevation zones for US water forecasting are whole-foot bands (1000 ft,
+    # 500 ft, ...), so bounds are integer feet.
+    min: int
+    max: int
 
     @property
     def min_meters(self: Self) -> float:
@@ -42,7 +44,7 @@ class ElevationBand:
     @classmethod
     def generate(
         cls: type[Self],
-        size_ft: int | float = 1000,
+        size_ft: int = 1000,
         *,
         min_elevation: int | float,
         max_elevation: int | float,

@@ -15,7 +15,10 @@ from typing import Self
 
 class Reducer(StrEnum):
     MEAN = 'mean'  # area-weighted average over valid pixels
-    INTEGRAL = 'integral'  # area-weighted sum over valid pixels -- a basin total
+    # area-weighted accumulation Sum(value*area) over valid pixels -- a basin
+    # total (an extensive whole-basin quantity, e.g. a volume), NOT a bare
+    # Sum(value): the area weighting is what makes it meaningful.
+    TOTAL = 'total'
 
 
 @dataclass(frozen=True)

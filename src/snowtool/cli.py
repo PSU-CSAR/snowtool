@@ -15,6 +15,33 @@ def version() -> None:
 
 
 @cli.group()
+def snowdb() -> None:
+    """Snow-database management commands."""
+
+
+@snowdb.command('init')
+@click.argument(
+    'path',
+    required=False,
+    type=click.Path(file_okay=False, path_type=Path),
+)
+def snowdb_init(path: Path | None) -> None:
+    """Create the base snowdb layout at PATH (defaults to the snowdb_path setting).
+
+    Lays out ``aois/``, ``data/``, and a ``data/<dataset>/`` directory for every
+    configured dataset. This is the only command that creates the base
+    ``aois/``/``data/`` directories, and it is idempotent.
+    """
+    from snowtool.settings import Settings
+    from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
+    from snowtool.snowdb.db import SnowDb
+
+    root = Settings().snowdb_path if path is None else path
+    SnowDb.initialize(root, DEFAULT_DATASET_SPECS)
+    click.echo(f'initialized snowdb: {root}')
+
+
+@cli.group()
 def migration() -> None:
     """Data-migration commands."""
 
