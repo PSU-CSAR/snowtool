@@ -134,8 +134,8 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
     """
     artifacts = dataset.artifact_status()
     missing: list[str] = []
-    if not artifacts.dem:
-        missing.append('dem')
+    if not artifacts.terrain:
+        missing.append('terrain')
     if artifacts.area is False:
         missing.append('area')
     if not artifacts.cogs:
@@ -176,7 +176,6 @@ class AoiRasterHealth:
 
 def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
     """Open each AOI raster and classify any that won't read cleanly."""
-    from snowtool.exceptions import SNODASError
     from snowtool.snowdb.raster import AOIRaster
 
     findings: list[AoiRasterHealth] = []
@@ -184,13 +183,16 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
         triplet = path.stem.replace('_', ':')
         issue: str | None = None
         try:
-            AOIRaster.open(path, dataset.grid)
-        except SNODASError:
-            issue = 'no DEM overlap (AOI raster is all-nodata)'
+            aoi_raster = AOIRaster.open(path, dataset.grid)
         except ValueError:
             issue = 'missing SNOWTOOL_TILE_BBOX tag (run `migration aoi-tags`)'
         except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
             issue = f'unreadable: {e}'
+        else:
+            # The mask burned to all-zero: the AOI polygon falls outside the grid,
+            # so it would contribute no pixels to any query.
+            if not aoi_raster.array.any():
+                issue = 'empty mask (AOI does not overlap the grid)'
         findings.append(
             AoiRasterHealth(dataset.spec.name, triplet, issue is None, issue),
         )

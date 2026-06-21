@@ -13,7 +13,7 @@ def test_status_json_for_uncreated_dataset(runner, cli_obj):
     assert len(rows) == 1
     row = rows[0]
     assert row['dataset'] == 'test'
-    assert row['dem'] is False
+    assert row['terrain'] is False
     assert row['dates'] == 0
 
 
@@ -27,7 +27,7 @@ def test_status_reflects_created_dataset(runner, cli_obj, source_dem):
     result = runner.invoke(cli, ['snowdb', 'status', '--format', 'json'], obj=cli_obj)
 
     row = json.loads(result.output)[0]
-    assert row['dem'] is True
+    assert row['terrain'] is True
     assert row['area'] is True  # geographic grid has an area raster
     assert row['cogs'] is True
 

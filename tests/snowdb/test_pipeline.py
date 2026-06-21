@@ -3,13 +3,10 @@
 import asyncio
 
 import numpy
-import pytest
 import rasterio
 
-from snowtool.exceptions import SNODASError
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.cog import write_cog
-from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.constants import AOI_MASK_INSIDE, TILE_BBOX_TAG
 from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.tiff_cache import TiffCache
@@ -18,13 +15,13 @@ from snowtool.snowdb.zonal_stats import ZonalStats
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 
-def test_resampled_dem(dataset, grid):
-    with rasterio.open(dataset._dem) as ds:
+def test_terrain_elevation(dataset, grid):
+    with rasterio.open(dataset.terrain.elevation_path) as ds:
         assert ds.shape == (SIZE, SIZE)
         assert ds.crs == rasterio.CRS.from_epsg(4326)
         assert ds.transform == grid.base_grid.transform
         data = ds.read(1)
-    # uniform input -> uniform resample
+    # uniform terrain fixture -> uniform elevation
     assert numpy.allclose(data, DEM_ELEVATION_M)
 
 
@@ -84,12 +81,9 @@ def test_rasterize_aoi(dataset, aoi_geojson):
     assert len(bbox) == 4
     assert len(aoi_raster.tiles) >= 1
 
-    # inside-polygon pixels carry the DEM elevation; min/max == uniform value
-    assert aoi_raster.min_elevation == DEM_ELEVATION_M
-    assert aoi_raster.max_elevation == DEM_ELEVATION_M
-
-    # the masked-in pixel count is positive and less than the full window
-    inside = aoi_raster.array == DEM_ELEVATION_M
+    # The AOI raster is a bare boolean mask (decoupled from the DEM): inside
+    # pixels are AOI_MASK_INSIDE, and there are some but not the whole window.
+    inside = aoi_raster.array == AOI_MASK_INSIDE
     assert 0 < inside.sum() < TILE * TILE
 
 
@@ -127,6 +121,7 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
             collection,
             cache,
             dataset.spec,
+            dataset.terrain.elevation_raster(),
         )
         return aoi_with_area, stats
 
@@ -144,7 +139,7 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     assert band.mean_swe_mm == SWE_VALUE
 
     # area equals the summed geodesic area of the in-AOI pixels
-    inside = aoi_with_area.array == DEM_ELEVATION_M
+    inside = aoi_with_area.array == AOI_MASK_INSIDE
     expected_area = float(aoi_with_area.area[inside].sum())
     assert band.area_m2 == expected_area
 
@@ -159,22 +154,26 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
         assert math.isnan(zone.mean_swe_mm)
 
 
-def test_aoi_raster_open_raises_clear_error_when_all_nodata(tmp_path, grid):
-    """An AOI not overlapping valid DEM has no STATISTICS_* tags on reopen."""
-    nodata = -9999.0
-    path = tmp_path / 'empty_aoi.tif'
-    # Entire window is nodata, so write_cog embeds no band statistics.
+def test_aoi_raster_open_reads_mask_without_dem(tmp_path, grid):
+    """A bare mask reopens cleanly -- AOI rasters no longer depend on a DEM."""
+    from snowtool.snowdb.cog import write_cog
+
+    path = tmp_path / 'mask_aoi.tif'
+    mask = numpy.zeros((TILE, TILE), dtype=numpy.uint8)
+    mask[10:20, 10:20] = AOI_MASK_INSIDE
     write_cog(
         path,
-        numpy.full((TILE, TILE), nodata, dtype=numpy.float32),
+        mask,
         transform=grid.base_grid[0, 0].transform,
         tile_size=TILE,
-        nodata=nodata,
+        nodata=0,
         tags={TILE_BBOX_TAG: '0 0 0 0'},
+        compute_stats=False,
     )
 
-    with pytest.raises(SNODASError, match='does not overlap any valid DEM'):
-        AOIRaster.open(path, grid)
+    aoi_raster = AOIRaster.open(path, grid)
+    assert aoi_raster.array.shape == (TILE, TILE)
+    assert (aoi_raster.array == AOI_MASK_INSIDE).sum() == 100
 
 
 class _SingleDateQuery:

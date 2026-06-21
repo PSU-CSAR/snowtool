@@ -14,6 +14,7 @@ from typing import NamedTuple
 
 from griffine import Affine, Grid, Point
 from griffine.grid import AffineGridTile, TiledAffineGrid
+from rasterio.warp import transform_bounds
 
 
 def make_grid(
@@ -69,6 +70,27 @@ def tiles_in_bbox(
         for row in range(ul_row, br_row + 1)
         for col in range(ul_col, br_col + 1)
     ]
+
+
+def grid_extent_4326(
+    grid: TiledAffineGrid,
+) -> tuple[float, float, float, float]:
+    """The grid's full extent as ``(west, south, east, north)`` in EPSG:4326.
+
+    Used to tell a DEM source which geographic area to fetch. The extent is
+    computed in the grid's own CRS then transformed to lon/lat.
+    """
+    base = grid.base_grid
+    t = base.transform
+    xmin = t.c
+    ymax = t.f
+    xmax = t.c + base.cols * t.a
+    ymin = t.f + base.rows * t.e
+    crs = grid.crs
+    if crs is None:  # pragma: no cover - make_grid always sets a CRS
+        raise ValueError('grid has no CRS')
+    west, south, east, north = transform_bounds(crs, 4326, xmin, ymin, xmax, ymax)
+    return (west, south, east, north)
 
 
 def bounding_tiles(

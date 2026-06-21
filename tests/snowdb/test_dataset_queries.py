@@ -61,17 +61,17 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
     status = dataset.artifact_status()
 
     assert status == DatasetArtifacts(
-        dem=True,
+        terrain=True,
         aoi_rasters=True,
         cogs=True,
         area=True,
     )
 
 
-def test_artifact_status_reports_missing_dem(dataset):
-    dataset._dem.unlink()
+def test_artifact_status_reports_missing_terrain(dataset):
+    dataset.terrain.elevation_path.unlink()
 
-    assert dataset.artifact_status().dem is False
+    assert dataset.artifact_status().terrain is False
 
 
 def test_dates_before_filters_strictly(dataset):
@@ -97,7 +97,7 @@ def test_remove_absent_date_is_a_noop(dataset):
     assert dataset.remove_date(date(2018, 1, 1)) is False
 
 
-def test_artifact_status_area_is_none_on_projected_grid(tmp_path, source_dem):
+def test_artifact_status_area_is_none_on_projected_grid(tmp_path):
     # A projected grid stores no areas.tif, so `area` is reported as None
     # (not applicable) rather than False.
     from snowtool.snowdb.dataset import Dataset
@@ -115,6 +115,6 @@ def test_artifact_status_area_is_none_on_projected_grid(tmp_path, source_dem):
             crs=32611,
         ),
     )
-    dataset = Dataset.create(spec, tmp_path / 'utm', source_dem)
+    dataset = Dataset.create(spec, tmp_path / 'utm')
 
     assert dataset.artifact_status().area is None

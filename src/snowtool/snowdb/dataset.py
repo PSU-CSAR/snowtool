@@ -12,15 +12,15 @@ import numpy.typing
 import rasterio
 
 from rasterio.features import rasterize
-from rasterio.warp import Resampling, reproject
 
 from snowtool import types
 from snowtool.exceptions import SNODASError
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.cog import WGS84, write_cog
-from snowtool.snowdb.constants import TILE_BBOX_TAG
-from snowtool.snowdb.grid import bounding_tiles, tile_base_origin
-from snowtool.snowdb.raster import DEM, AOIRaster, AOIRasterWithArea, AreaRaster
+from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
+from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326, tile_base_origin
+from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea, AreaRaster
+from snowtool.snowdb.terrain import TerrainSet
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -29,8 +29,10 @@ if TYPE_CHECKING:
     from griffine.grid import AffineGridTile, TiledAffineGrid
     from shapely import Geometry
 
+    from snowtool.snowdb.dem_source import DemSource
     from snowtool.snowdb.ingest import WritableRaster
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.terrain_generate import TerrainTarget
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.variables import DatasetVariable
 
@@ -42,10 +44,11 @@ class DatasetArtifacts:
     A read-only snapshot used by the diagnostics/report commands. ``area`` is
     ``None`` when an area raster is not applicable (a projected grid has a
     constant cell area and stores no ``areas.tif``); otherwise it reflects
-    whether ``areas.tif`` exists.
+    whether ``areas.tif`` exists. ``terrain`` is whether the complete terrain set
+    (elevation + aspect layers) is present.
     """
 
-    dem: bool
+    terrain: bool
     aoi_rasters: bool
     cogs: bool
     area: bool | None
@@ -75,11 +78,20 @@ def make_geometry_mask(
 def write_aoi_raster(
     path: Path,
     geometry: Geometry,
-    dem: DEM,
+    crs: rasterio.crs.CRS,
     start_tile: AffineGridTile,
     end_tile: AffineGridTile,
     tile_size: int,
+    geometry_hash: str,
 ) -> None:
+    """Burn ``geometry`` to a boolean AOI mask COG over its tile-bbox window.
+
+    The AOI raster is a bare in/out-of-polygon mask (1 inside, 0 outside) -- it
+    is deliberately decoupled from the DEM. Elevation (for banding) and any other
+    terrain variable are read live from the dataset's terrain set at query time,
+    so a terrain rebuild never invalidates an AOI raster: its only provenance axis
+    is the AOI geometry (the ``SNOWTOOL_AOI_HASH`` tag).
+    """
     start = tile_base_origin(start_tile)
     end_origin = tile_base_origin(end_tile)
     end_row = end_origin.row + end_tile.rows
@@ -98,34 +110,27 @@ def write_aoi_raster(
         transform=transform,
     )
 
-    masked = numpy.where(
-        aoi_mask,
-        dem.array[start.row : end_row, start.col : end_col],
-        dem.nodata,
-    )
-
-    # floating points stuff messes up nodata
-    masked = numpy.where(
-        masked > -10000,
-        masked,
-        dem.nodata,
-    )
-
     tags = {
         TILE_BBOX_TAG: (
             f'{start_tile.row} {start_tile.col} {end_tile.row} {end_tile.col}'
         ),
+        # Records which AOI geometry this raster was burned from, so a changed
+        # basin can be detected (and re-rasterized) by a cheap tag read.
+        AOI_HASH_TAG: geometry_hash,
     }
 
     write_cog(
         path,
-        masked.astype(dem.dtype),
+        aoi_mask.astype('uint8'),
         transform=transform,
-        crs=dem.crs or WGS84,
-        nodata=dem.nodata,
+        crs=crs,
+        # 0 = outside the AOI; the mask carries no other information so stats are
+        # pointless.
+        nodata=AOI_MASK_NODATA,
         tile_size=tile_size,
-        predictor=3,
+        predictor=2,
         tags=tags,
+        compute_stats=False,
     )
 
 
@@ -133,7 +138,7 @@ class Dataset:
     """A :class:`DatasetSpec` bound to its ``data/<name>/`` directory.
 
     Owns the per-dataset filesystem layout (``aoi-rasters/``, ``areas.tif``,
-    ``dem.tif``, ``cogs/``) and the operations on it; grid/variables are reached
+    ``terrain/``, ``cogs/``) and the operations on it; grid/variables are reached
     through ``self.spec``.
     """
 
@@ -143,7 +148,7 @@ class Dataset:
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
         self._area_raster = self.path / 'areas.tif'
-        self._dem = self.path / 'dem.tif'
+        self.terrain = TerrainSet(self.path / 'terrain')
 
     @property
     def grid(self: Self) -> TiledAffineGrid:
@@ -170,17 +175,23 @@ class Dataset:
         cls: type[Self],
         spec: DatasetSpec,
         path: Path,
-        input_dem_path: Path,
         force: bool = False,
     ) -> Self:
+        """Create the dataset's directory skeleton and area raster.
+
+        Terrain (the DEM-derived elevation + aspect layers) is *not* built here:
+        it needs a DEM source and is generated separately by
+        :meth:`generate_terrain` (so generation can share one source read across
+        every dataset -- see :meth:`SnowDb.generate_terrain`).
+        """
         self = cls(spec, path)
 
         try:
             # The dataset dir itself may already exist as an empty skeleton from
             # `snowdb init`, so tolerate it; whether the dataset is already
             # *populated* is enforced by the artifact guards below (the
-            # aoi-rasters/cogs dirs and the area/DEM rasters), which still refuse
-            # to clobber existing data without force.
+            # aoi-rasters/cogs dirs and the area raster), which still refuse to
+            # clobber existing data without force.
             self.path.mkdir(parents=True, exist_ok=True)
             self._aoi_rasters.mkdir(exist_ok=force)
             self._cogs.mkdir(exist_ok=force)
@@ -189,7 +200,6 @@ class Dataset:
             # constant cell area, supplied at read time from spec.cell_area.
             if self.spec.is_geographic:
                 self.make_area_raster(force=force)
-            self.create_resampled_dem(input_dem_path, force=force)
         except FileExistsError as e:
             raise FileExistsError(
                 f'Could not create {self.spec.name} dataset: {self.path} already '
@@ -219,6 +229,17 @@ class Dataset:
                 cache,
             )
         return AOIRasterWithArea.with_constant_area(aoi_raster, self.spec.cell_area)
+
+    def ensure_area_raster(self: Self) -> bool:
+        """Build the area raster if it is needed and missing; True if it was built.
+
+        Idempotent (drives ``snowdb init``): a projected grid needs none, and an
+        existing one is left untouched.
+        """
+        if not self.spec.is_geographic or self._area_raster.exists():
+            return False
+        self.make_area_raster()
+        return True
 
     def make_area_raster(self: Self, force: bool = False) -> None:
         if not force and self._area_raster.exists():
@@ -255,66 +276,41 @@ class Dataset:
             predictor=3,
         )
 
-    def create_resampled_dem(
-        self: Self,
-        input_dem_path: Path,
-        force: bool = False,
-    ) -> None:
-        self.resample_to_grid(input_dem_path, self._dem, force=force)
+    def terrain_target(self: Self) -> TerrainTarget:
+        """This dataset's grid as a target for the terrain-generation engine."""
+        from snowtool.snowdb.terrain_generate import TerrainTarget
 
-    def resample_to_grid(
-        self: Self,
-        input_raster_path: Path,
-        output_raster_path: Path,
-        force: bool = False,
-    ) -> None:
-        if not force and output_raster_path.exists():
-            raise FileExistsError(
-                'Could not create output raster: '
-                f'{output_raster_path} already exists. '
-                'Remove and try again or use `force=True`.',
-            )
-
-        base = self.grid.base_grid
-        dst_transform = base.transform
-        dst_shape = (base.rows, base.cols)
-        dst_crs = self.grid_crs
-
-        with rasterio.open(input_raster_path) as src:
-            dtype = src.dtypes[0]
-            src_nodata = src.nodata
-            if src_nodata is None:
-                raise SNODASError(
-                    f'Cannot resample {input_raster_path}: the source has no '
-                    'nodata value. Resampling to the dataset grid can leave '
-                    'cells uncovered by the source, and without a nodata value '
-                    'there is no safe way to mark them. Define a nodata value '
-                    'on the source raster and try again.',
-                )
-            # Pre-fill with nodata so any destination cell the reprojection does
-            # not cover is marked nodata rather than left as uninitialized
-            # memory.
-            destination = numpy.full(dst_shape, src_nodata, dtype=dtype)
-            reproject(
-                source=rasterio.band(src, 1),
-                destination=destination,
-                src_transform=src.transform,
-                src_crs=src.crs,
-                src_nodata=src_nodata,
-                dst_transform=dst_transform,
-                dst_crs=dst_crs,
-                dst_nodata=src_nodata,
-                resampling=Resampling.average,
-            )
-
-        write_cog(
-            output_raster_path,
-            destination,
-            transform=dst_transform,
-            crs=dst_crs,
-            nodata=src_nodata,
+        return TerrainTarget(
+            name=self.spec.name,
+            grid=self.grid,
             tile_size=self.spec.grid_params.tile_size,
+            directory=self.terrain.directory,
         )
+
+    def generate_terrain(
+        self: Self,
+        source: DemSource,
+        *,
+        force: bool = False,
+    ) -> str:
+        """Generate this dataset's terrain set from ``source``.
+
+        A single-grid pass over the source (binning only into this grid); for the
+        multi-grid shared-source pass, see :meth:`SnowDb.generate_terrain`.
+        Returns the terrain set's provenance hash.
+        """
+        from snowtool.snowdb.terrain_generate import generate_terrain
+
+        bounds = grid_extent_4326(self.grid)
+        with source.open(bounds) as src:
+            hashes = generate_terrain(
+                src,
+                [self.terrain_target()],
+                work_crs=source.work_crs,
+                work_resolution=source.work_resolution,
+                force=force,
+            )
+        return hashes[self.spec.name]
 
     @staticmethod
     def _format_date(date: date) -> str:
@@ -367,13 +363,65 @@ class Dataset:
         write_aoi_raster(
             path,
             geometry,
-            DEM.open(self._dem),
+            self.grid_crs,
             ul_tile,
             br_tile,
             tile_size=self.spec.grid_params.tile_size,
+            geometry_hash=aoi.geometry_hash,
         )
 
         return AOIRaster.open(path, self.grid)
+
+    def aoi_raster_hash(
+        self: Self,
+        station_triplet: types.StationTriplet,
+    ) -> str | None:
+        """The AOI-geometry hash an existing AOI raster was burned from.
+
+        Reads only the COG's tags (no array decode); returns ``None`` if the
+        raster does not exist or predates the ``AOI_HASH_TAG`` tagging.
+        """
+        path = self.aoi_raster_path_from_triplet(station_triplet)
+        if not path.is_file():
+            return None
+        with rasterio.open(path) as ds:
+            return ds.tags().get(AOI_HASH_TAG)
+
+    def aoi_raster_is_current(self: Self, aoi: AOI) -> bool:
+        """Whether a burned AOI raster exists AND matches ``aoi``'s geometry.
+
+        ``False`` means missing or stale -- either way :meth:`rasterize_aoi`
+        should (re)build it.
+        """
+        return self.aoi_raster_hash(aoi.station_triplet) == aoi.geometry_hash
+
+    def rasterize_aoi_if_needed(
+        self: Self,
+        aoi: AOI,
+        *,
+        rebuild: bool = False,
+    ) -> bool:
+        """Build the AOI raster when missing or stale; True if it was (re)built.
+
+        ``rebuild=True`` forces a rebuild regardless of current state. The
+        converge-by-default path (``rebuild=False``) skips a raster only when it
+        is already current (a matching :attr:`AOI.geometry_hash` tag).
+        """
+        if not rebuild and self.aoi_raster_is_current(aoi):
+            return False
+        self.rasterize_aoi(aoi, force=True)
+        return True
+
+    def remove_aoi_raster(
+        self: Self,
+        station_triplet: types.StationTriplet,
+    ) -> bool:
+        """Delete this dataset's burned AOI raster for ``triplet``; True if present."""
+        path = self.aoi_raster_path_from_triplet(station_triplet)
+        if not path.is_file():
+            return False
+        path.unlink()
+        return True
 
     def ingest(self: Self, source: Path, *, force: bool = False) -> list[date]:
         """Ingest a source artifact into per-date COGs, via this dataset's ingester.
@@ -492,7 +540,7 @@ class Dataset:
     def artifact_status(self: Self) -> DatasetArtifacts:
         """Which of this dataset's on-disk artifacts currently exist."""
         return DatasetArtifacts(
-            dem=self._dem.is_file(),
+            terrain=self.terrain.present(),
             aoi_rasters=self._aoi_rasters.is_dir(),
             cogs=self._cogs.is_dir(),
             area=self._area_raster.is_file() if self.spec.is_geographic else None,

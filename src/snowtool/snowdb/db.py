@@ -16,23 +16,72 @@ reads.
 from __future__ import annotations
 
 import logging
+import shutil
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from snowtool import types
+from snowtool.exceptions import AOIPruneDestinationRequiredError, GeoJSONValidationError
+from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.aoi_index import AOIIndex
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.tiff_cache import TiffCache
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    from snowtool import types
-    from snowtool.snowdb.aoi import AOI
+    from snowtool.snowdb.dem_source import DemSource
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
 
 
 logger = logging.getLogger(__name__)
+
+
+def _combined_extent(
+    extents: Iterable[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float]:
+    """Union of ``(west, south, east, north)`` extents."""
+    boxes = list(extents)
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
+@dataclass(frozen=True)
+class AOIImportResult:
+    """The outcome of an additive ``aoi import``.
+
+    ``imported`` are the triplets written to ``records/`` (polygon-bearing AOIs);
+    ``skipped`` are point-only pourpoints (valid pourpoints, not AOIs);
+    ``invalid`` pairs each unparseable source path with its error message.
+    """
+
+    imported: list[types.StationTriplet]
+    skipped: list[types.StationTriplet]
+    invalid: list[tuple[Path, str]]
+
+
+@dataclass(frozen=True)
+class AOISyncResult(AOIImportResult):
+    """An :class:`AOIImportResult` plus the triplets pruned (or, in a dry run,
+    that would be pruned) because they are absent from the synced directory."""
+
+    pruned: list[types.StationTriplet]
+
+
+@dataclass(frozen=True)
+class AOIRasterizeResult:
+    """Per (AOI, dataset) rasterize outcomes: ``(triplet, dataset_name)`` pairs
+    that were (re)built vs. skipped as already current."""
+
+    built: list[tuple[types.StationTriplet, str]]
+    skipped: list[tuple[types.StationTriplet, str]]
 
 
 class SnowDb:
@@ -42,9 +91,14 @@ class SnowDb:
         specs: Iterable[DatasetSpec],
         *,
         tiff_cache: TiffCache | None = None,
+        dem_source: DemSource | None = None,
     ) -> None:
         self.path = Path(path)
         self.aois_path = self.path / 'aois'
+        # Per-AOI source-of-truth geojson live in a records/ subdir; the derived
+        # FeatureCollection manifest sits beside it at aois/index.geojson.
+        self.aoi_records_path = self.aois_path / 'records'
+        self.aoi_index_path = self.aois_path / 'index.geojson'
         self.data_path = self.path / 'data'
         self._specs = self._index_specs(specs)
         # Datasets are defined by their specs, not by what's on disk: every
@@ -56,6 +110,15 @@ class SnowDb:
         # Injected so the entrypoint can size it from settings; defaulted so
         # tests/CLI can build a SnowDb without wiring one up.
         self.tiff_cache = tiff_cache if tiff_cache is not None else TiffCache()
+        # The DEM source terrain generation reads from. It belongs to the whole
+        # database (one source bins into every grid in a single pass), not to any
+        # one dataset; defaulted to 3DEP so `init` works out of the box, and
+        # injectable so the CLI can override it per run (e.g. a local file).
+        if dem_source is None:
+            from snowtool.snowdb.dem_source import ThreeDEP
+
+            dem_source = ThreeDEP()
+        self.dem_source = dem_source
         self._warn_if_uninitialized()
 
     @staticmethod
@@ -137,6 +200,7 @@ class SnowDb:
         specs: Iterable[DatasetSpec],
         *,
         tiff_cache: TiffCache | None = None,
+        dem_source: DemSource | None = None,
     ) -> Self:
         """Create the base snowdb layout at ``path`` and return a SnowDb over it.
 
@@ -147,12 +211,13 @@ class SnowDb:
         """
         specs = list(specs)
         path = Path(path)
-        (path / 'aois').mkdir(parents=True, exist_ok=True)
+        # aois/ holds the index.geojson manifest; aois/records/ the per-AOI files.
+        (path / 'aois' / 'records').mkdir(parents=True, exist_ok=True)
         data_path = path / 'data'
         data_path.mkdir(parents=True, exist_ok=True)
         for spec in specs:
             (data_path / spec.name).mkdir(parents=True, exist_ok=True)
-        return cls(path, specs, tiff_cache=tiff_cache)
+        return cls(path, specs, tiff_cache=tiff_cache, dem_source=dem_source)
 
     def rasterize_aoi(
         self: Self,
@@ -171,24 +236,277 @@ class SnowDb:
             for name, dataset in self.datasets.items()
         }
 
+    def generate_terrain(
+        self: Self,
+        names: Iterable[str] | None = None,
+        *,
+        source: DemSource | None = None,
+        force: bool = False,
+    ) -> dict[str, str]:
+        """Generate terrain for several datasets in one streaming pass.
+
+        Reads ``source`` (default: this database's :attr:`dem_source`) once over
+        the combined extent of the selected datasets' grids and bins it into all
+        of them -- aspect must be computed at the source resolution, so sharing
+        the read is the whole point. ``names`` selects datasets (default: all).
+        Returns each dataset's terrain provenance hash, keyed by name.
+        """
+        from snowtool.snowdb.grid import grid_extent_4326
+        from snowtool.snowdb.terrain_generate import generate_terrain
+
+        selected = (
+            list(self.datasets.values())
+            if names is None
+            else [self.datasets[name] for name in names]
+        )
+        if not selected:
+            return {}
+
+        source = source if source is not None else self.dem_source
+        targets = [ds.terrain_target() for ds in selected]
+        bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
+
+        with source.open(bounds) as src:
+            return generate_terrain(
+                src,
+                targets,
+                work_crs=source.work_crs,
+                work_resolution=source.work_resolution,
+                force=force,
+            )
+
     # --- global AOI query helpers (drive the aoi/report commands) -------------
 
     def aoi_paths(self: Self) -> list[Path]:
-        """The global AOI geojson files under ``aois/``, sorted by path."""
-        if not self.aois_path.is_dir():
+        """The per-AOI record geojson under ``aois/records/``, sorted by path."""
+        if not self.aoi_records_path.is_dir():
             return []
-        return sorted(self.aois_path.glob('*.geojson'))
+        return sorted(self.aoi_records_path.glob('*.geojson'))
 
     def aois(self: Self) -> Iterator[AOI]:
-        """Parse and yield every global AOI under ``aois/``."""
-        from snowtool.snowdb.aoi import AOI
-
+        """Parse and yield every stored AOI record."""
         for path in self.aoi_paths():
             yield AOI.from_geojson(path)
 
     def aoi_triplets(self: Self) -> set[types.StationTriplet]:
-        """The station triplets of every global AOI."""
+        """The station triplets of every stored AOI record (parsed from the id)."""
         return {aoi.station_triplet for aoi in self.aois()}
+
+    def aoi_record_path(self: Self, triplet: types.StationTriplet) -> Path:
+        """The canonical ``records/<triplet>.geojson`` path (``:`` -> ``_``)."""
+        return self.aoi_records_path / f'{triplet.replace(":", "_")}.geojson'
+
+    def _stored_triplets(self: Self) -> set[types.StationTriplet]:
+        """Stored triplets read straight from record filenames (no geojson parse).
+
+        Record files are written named for the AOI's own triplet, so the filename
+        is authoritative -- cheaper than :meth:`aoi_triplets` for set diffs.
+        """
+        return {
+            types.StationTriplet(path.stem.replace('_', ':'))
+            for path in self.aoi_paths()
+        }
+
+    def load_aoi(self: Self, triplet: types.StationTriplet) -> AOI:
+        """Parse the stored AOI record for ``triplet`` (raises if it is absent)."""
+        path = self.aoi_record_path(triplet)
+        if not path.is_file():
+            raise FileNotFoundError(f'No stored AOI for triplet {triplet!r}.')
+        return AOI.from_geojson(path)
+
+    def aoi_index(self: Self) -> AOIIndex:
+        """Load the persisted ``index.geojson`` manifest (empty if absent).
+
+        Serves ``aoi list`` without parsing the (large) basin records. The index
+        is maintained by import/sync/remove/reindex; run ``aoi reindex`` if the
+        ``records/`` dir was edited out of band.
+        """
+        return AOIIndex.load(self.aoi_index_path)
+
+    def reindex_aois(self: Self) -> AOIIndex:
+        """Rebuild ``index.geojson`` from the ``records/`` dir and persist it."""
+        index = AOIIndex.from_records(self.aoi_records_path)
+        index.save(self.aoi_index_path)
+        return index
+
+    # --- AOI import / sync / lifecycle ----------------------------------------
+
+    def _resolve_sources(self: Self, src: Path) -> list[Path]:
+        """A file SRC -> ``[src]``; a directory SRC -> its sorted ``*.geojson``."""
+        src = Path(src)
+        if src.is_dir():
+            return sorted(src.glob('*.geojson'))
+        if src.is_file():
+            return [src]
+        raise FileNotFoundError(f'No such file or directory: {src}')
+
+    @staticmethod
+    def _classify_sources(
+        sources: Iterable[Path],
+    ) -> tuple[
+        list[tuple[Path, AOI]],
+        list[types.StationTriplet],
+        list[tuple[Path, str]],
+    ]:
+        """Split source paths into importable AOIs, skipped point-only, invalid.
+
+        Pure (no writes): the caller decides whether to persist the result, so a
+        dry run and a real run classify identically.
+        """
+        to_import: list[tuple[Path, AOI]] = []
+        skipped: list[types.StationTriplet] = []
+        invalid: list[tuple[Path, str]] = []
+        for path in sources:
+            try:
+                aoi = AOI.from_geojson(path)
+            except GeoJSONValidationError as e:
+                invalid.append((path, str(e)))
+                continue
+            if aoi.polygon is None:
+                # A valid pourpoint, but with no basin it is not an AOI.
+                skipped.append(aoi.station_triplet)
+                continue
+            to_import.append((path, aoi))
+        return to_import, skipped, invalid
+
+    def _write_records(self: Self, to_import: Iterable[tuple[Path, AOI]]) -> None:
+        """Copy each source geojson verbatim to its canonical record path."""
+        self.aoi_records_path.mkdir(parents=True, exist_ok=True)
+        for path, aoi in to_import:
+            shutil.copyfile(path, self.aoi_record_path(aoi.station_triplet))
+
+    def import_aois(
+        self: Self,
+        src: Path,
+        *,
+        dry_run: bool = False,
+    ) -> AOIImportResult:
+        """Additively import AOI(s) from a file or directory into ``records/``.
+
+        Imports only polygon-bearing pourpoints (skips point-only ones, reports
+        unparseable ones); never removes anything. Idempotent: re-importing a
+        triplet overwrites its record. Rebuilds the index unless ``dry_run``.
+        """
+        to_import, skipped, invalid = self._classify_sources(
+            self._resolve_sources(src),
+        )
+        imported = [aoi.station_triplet for _, aoi in to_import]
+        if not dry_run:
+            self._write_records(to_import)
+            self.reindex_aois()
+        return AOIImportResult(imported, skipped, invalid)
+
+    def sync_aois(
+        self: Self,
+        src: Path,
+        *,
+        prune_to: Path | None = None,
+        dry_run: bool = False,
+    ) -> AOISyncResult:
+        """Mirror a directory into storage: import it, then prune absent records.
+
+        Imports ``src`` (directory only), then removes every stored AOI whose
+        triplet is not present in ``src`` -- dumping each to ``prune_to`` first.
+        Removal is gated: if any AOI would be pruned and ``prune_to`` is ``None``
+        (and not a dry run), raises :class:`AOIPruneDestinationRequiredError` before
+        writing anything, so the destructive step is never silent.
+        """
+        src = Path(src)
+        if not src.is_dir():
+            raise NotADirectoryError(f'aoi sync requires a directory: {src}')
+
+        to_import, skipped, invalid = self._classify_sources(
+            sorted(src.glob('*.geojson')),
+        )
+        imported = [aoi.station_triplet for _, aoi in to_import]
+        # Both AOIs and point-only pourpoints in the source represent triplets the
+        # source "has"; only stored triplets absent from that set are pruned.
+        source_triplets = set(imported) | set(skipped)
+        to_prune = sorted(
+            t for t in self._stored_triplets() if t not in source_triplets
+        )
+
+        if to_prune and not dry_run and prune_to is None:
+            raise AOIPruneDestinationRequiredError(to_prune)
+
+        if not dry_run:
+            self._write_records(to_import)
+            for triplet in to_prune:
+                self._remove_aoi_files(triplet, dump_to=prune_to)
+            self.reindex_aois()
+
+        return AOISyncResult(imported, skipped, invalid, to_prune)
+
+    def dump_aoi(self: Self, triplet: types.StationTriplet, dest_dir: Path) -> Path:
+        """Copy a stored AOI record out to ``dest_dir`` (round-trip / archive)."""
+        source = self.aoi_record_path(triplet)
+        if not source.is_file():
+            raise FileNotFoundError(f'No stored AOI for triplet {triplet!r}.')
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / source.name
+        shutil.copyfile(source, dest)
+        return dest
+
+    def _remove_aoi_files(
+        self: Self,
+        triplet: types.StationTriplet,
+        *,
+        dump_to: Path | None = None,
+    ) -> None:
+        """Delete a record and cascade to every dataset's burned AOI raster.
+
+        Optionally dumps the record to ``dump_to`` first (the reversible prune
+        path). Does not touch the index -- callers reindex once after a batch.
+        """
+        if dump_to is not None:
+            self.dump_aoi(triplet, dump_to)
+        self.aoi_record_path(triplet).unlink(missing_ok=True)
+        for dataset in self.datasets.values():
+            dataset.remove_aoi_raster(triplet)
+
+    def remove_aoi(
+        self: Self,
+        triplet: types.StationTriplet,
+        *,
+        dry_run: bool = False,
+    ) -> bool:
+        """Remove a stored AOI and its per-dataset rasters; True if it existed.
+
+        Cascade-deletes the record plus every ``aoi-rasters/<triplet>.tif`` and
+        rebuilds the index. Idempotent: removing an absent AOI is a no-op success.
+        """
+        existed = self.aoi_record_path(triplet).is_file()
+        if not dry_run:
+            self._remove_aoi_files(triplet)
+            self.reindex_aois()
+        return existed
+
+    def rasterize_aois(
+        self: Self,
+        aois: Iterable[AOI],
+        datasets: Iterable[Dataset],
+        *,
+        rebuild: bool = False,
+    ) -> AOIRasterizeResult:
+        """Burn each AOI onto each dataset's grid when missing or stale.
+
+        Builds the cartesian product of ``aois`` x ``datasets``, (re)building a
+        raster only when absent or its :attr:`AOI.geometry_hash` tag no longer
+        matches (``rebuild=True`` forces all). Returns the built vs. skipped
+        ``(triplet, dataset_name)`` pairs.
+        """
+        datasets = list(datasets)
+        built: list[tuple[types.StationTriplet, str]] = []
+        skipped: list[tuple[types.StationTriplet, str]] = []
+        for aoi in aois:
+            for dataset in datasets:
+                pair = (aoi.station_triplet, dataset.spec.name)
+                if dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
+                    built.append(pair)
+                else:
+                    skipped.append(pair)
+        return AOIRasterizeResult(built, skipped)
 
     def __getitem__(self: Self, name: str) -> Dataset:
         return self.datasets[name]

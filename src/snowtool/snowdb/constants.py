@@ -11,6 +11,27 @@ Dataset-specific values (grid geometry, DEM range, nodata) live on the dataset's
 # command rewrites those to this tag -- see snowtool.migration.aoi_tags.)
 TILE_BBOX_TAG = 'SNOWTOOL_TILE_BBOX'
 
+# AOI rasters are bare geometry masks: 1 inside the basin polygon, 0 (= nodata)
+# outside. Elevation/aspect are read live from the terrain set at query time, so
+# the mask itself carries no DEM-derived values.
+AOI_MASK_INSIDE = 1
+AOI_MASK_NODATA = 0
+
+# AOI raster provenance: the hex sha256 of the AOI basin polygon's WKB the raster
+# was burned from (see AOI.geometry_hash). An AOI raster is stale when this tag no
+# longer matches the AOI's current geometry hash -- a cheap tag-only read drives
+# `aoi rasterize`'s missing-or-stale rebuild without opening the full raster.
+AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
+
+# Terrain provenance: the hex sha256 of the generated mean-elevation array, stamped
+# on every layer of a dataset's terrain set (elevation + aspect). It identifies the
+# DEM the whole set was derived from, so a terrain set can be reconciled against the
+# source it came from. Unlike the AOI hash, this never rides on AOI rasters: AOI
+# rasters are bare geometry masks (decoupled from the DEM), so elevation/aspect are
+# read live from the terrain set at query time and a terrain rebuild needs no AOI
+# rebuild.
+DEM_HASH_TAG = 'SNOWTOOL_DEM_HASH'
+
 # Feet <-> meters, for elevation-band math.
 M_TO_FT = 3.28084
 FT_TO_M = 0.3048

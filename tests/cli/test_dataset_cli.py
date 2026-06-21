@@ -53,7 +53,7 @@ def test_info_after_create(runner, cli_obj, source_dem):
     info = _json(result)
     assert info['name'] == 'test'
     assert info['present'] is True
-    assert info['dem'] is True
+    assert info['terrain'] is True
     assert info['is_geographic'] is True
     assert 'swe' in info['variables']
 
@@ -61,7 +61,7 @@ def test_info_after_create(runner, cli_obj, source_dem):
 # --- create ------------------------------------------------------------------
 
 
-def test_create_builds_dem(runner, cli_obj, initialized_root, source_dem):
+def test_create_builds_terrain(runner, cli_obj, initialized_root, source_dem):
     result = runner.invoke(
         cli,
         ['dataset', 'create', 'test', '--dem', str(source_dem)],
@@ -70,7 +70,11 @@ def test_create_builds_dem(runner, cli_obj, initialized_root, source_dem):
 
     assert result.exit_code == 0
     assert 'created dataset test' in result.output
-    assert (initialized_root / 'data' / 'test' / 'dem.tif').is_file()
+    assert 'generated terrain for test' in result.output
+    terrain = initialized_root / 'data' / 'test' / 'terrain'
+    assert (terrain / 'elevation.tif').is_file()
+    assert (terrain / 'aspect_majority.tif').is_file()
+    assert (terrain / 'aspect_components.tif').is_file()
 
 
 def test_create_is_idempotent(runner, cli_obj, source_dem):
@@ -156,21 +160,21 @@ def test_ingest_delegates_to_spec_ingester(runner, tmp_path, spec, source_dem):
     assert len(ingester.calls) == 1
 
 
-# --- set-dem / rebuild-area --------------------------------------------------
+# --- generate / rebuild-area -------------------------------------------------
 
 
-def test_set_dem_is_idempotent(runner, cli_obj, source_dem):
+def test_generate_is_idempotent(runner, cli_obj, source_dem):
     _create(runner, cli_obj, source_dem)
 
-    # Running set-dem repeatedly overwrites and always succeeds (idempotent).
+    # Running generate repeatedly overwrites and always succeeds (idempotent).
     for _ in range(2):
         result = runner.invoke(
             cli,
-            ['dataset', 'set-dem', 'test', str(source_dem)],
+            ['dataset', 'generate', 'test', '--source', str(source_dem)],
             obj=cli_obj,
         )
         assert result.exit_code == 0
-        assert 'set dem for test' in result.output
+        assert 'generated terrain for test' in result.output
 
 
 def test_rebuild_area_geographic_is_idempotent(runner, cli_obj, source_dem):
