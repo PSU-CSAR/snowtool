@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self
+
+import shapely
 
 from pyproj import CRS, Transformer
 from shapely import Geometry
@@ -101,6 +104,19 @@ class AOI:
             raise ValueError('AOI does not have a polygon')
 
         return shape(self.polygon)
+
+    @property
+    def geometry_hash(self: Self) -> str:
+        """A stable hex sha256 of the basin polygon, identifying its raster.
+
+        Hashes the polygon's canonical WKB (fixed little-endian byte order so the
+        digest is machine-independent). Only the basin polygon is hashed -- the
+        pourpoint and properties do not affect the burned AOI raster -- so this is
+        exactly the signal that should trigger a re-rasterize (see
+        ``constants.AOI_HASH_TAG``). Raises if the AOI has no polygon.
+        """
+        wkb = shapely.to_wkb(self.geometry, byte_order=1)
+        return hashlib.sha256(wkb).hexdigest()
 
     def geometry_in_crs(self: Self, crs: Any) -> Geometry:
         """This AOI's polygon reprojected from WGS84 (geojson lon/lat) to ``crs``.

@@ -125,7 +125,7 @@ def aoi_coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> No
 @format_option
 @pass_snowdb
 def aoi_health(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
-    """AOI rasters that won't read cleanly (bad tag / no DEM overlap / etc.)."""
+    """AOI rasters that won't read cleanly (missing tile-bbox tag / unreadable)."""
     rows = []
     for ds in resolve_datasets(snowdb, dataset_names):
         for finding in diagnostics.aoi_health_report(ds):

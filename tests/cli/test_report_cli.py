@@ -55,7 +55,7 @@ def test_missing_files_flags_uncreated_dataset(runner, cli_obj):
 
     rows = json.loads(result.output)
     assert rows[0]['dataset'] == 'test'
-    assert 'dem' in rows[0]['missing']
+    assert 'terrain' in rows[0]['missing']
 
 
 def test_grid_report(runner, cli_obj):
@@ -119,7 +119,7 @@ def test_aoi_coverage_cli_flags_unrasterized(
     import shutil
 
     _create(runner, cli_obj, source_dem)
-    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'pp.geojson')
+    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'records' / 'pp.geojson')
 
     result = runner.invoke(
         cli,
@@ -161,7 +161,7 @@ def test_validate_ok_on_clean_created_dataset(runner, cli_obj, source_dem):
 
 
 def test_validate_exits_nonzero_on_missing_files(runner, cli_obj):
-    # Dataset not created -> missing dem/area/cogs/aoi-rasters.
+    # Dataset not created -> missing terrain/area/cogs/aoi-rasters.
     result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
 
     assert result.exit_code == 1
@@ -182,7 +182,7 @@ def test_validate_rolls_up_completeness_and_aoi_coverage(
     # A date dir with no variables (completeness finding).
     (initialized_root / 'data' / 'test' / 'cogs' / '20180101').mkdir(parents=True)
     # A global AOI with no raster (aoi-coverage finding).
-    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'pp.geojson')
+    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'records' / 'pp.geojson')
 
     result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
 

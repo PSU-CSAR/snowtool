@@ -36,11 +36,13 @@ def write_cog(
     predictor: int | None = None,
     compute_stats: bool = True,
     tags: dict[str, str] | None = None,
+    band_descriptions: tuple[str, ...] | None = None,
 ) -> None:
     """Write ``array`` to ``path`` as a tiled, DEFLATE-compressed COG.
 
     ``array`` may be 2D (single band) or 3D ``(bands, rows, cols)``. ``tags`` are
     written as dataset-level metadata (e.g. AOI tile quadkeys).
+    ``band_descriptions``, when given, names each band (one per band, in order).
     """
     if array.ndim == 2:
         array = array[numpy.newaxis, ...]
@@ -69,6 +71,9 @@ def write_cog(
         dst.write(array)
         if tags:
             dst.update_tags(**tags)
+        if band_descriptions:
+            for idx, description in enumerate(band_descriptions):
+                dst.set_band_description(idx + 1, description)
         if compute_stats:
             _embed_stats(dst, array, nodata)
 

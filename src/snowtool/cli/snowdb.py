@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_snowdb
-from snowtool.cli._datasets import dataset_option, resolve_datasets
+from snowtool.cli._context import CliContext, pass_snowdb
+from snowtool.cli._datasets import dataset_option, get_dataset, resolve_datasets
 from snowtool.cli._render import FORMATS, _emit
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
             {
                 'dataset': status.name,
                 'present': status.present,
-                'dem': artifacts.dem,
+                'terrain': artifacts.terrain,
                 'area': 'n/a' if artifacts.area is None else artifacts.area,
                 'cogs': artifacts.cogs,
                 'aoi_rasters': artifacts.aoi_rasters,
@@ -95,17 +95,80 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     required=False,
     type=click.Path(file_okay=False, path_type=Path),
 )
-def snowdb_init(path: Path | None) -> None:
+@click.option(
+    '--quick',
+    is_flag=True,
+    help='Create the directory skeleton only; skip area + terrain generation.',
+)
+@click.option(
+    '--dataset-dem',
+    'dataset_dems',
+    nargs=2,
+    multiple=True,
+    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
+    metavar='DATASET PATH',
+    help='Generate DATASET terrain from a local DEM file instead of the default '
+    'source (repeatable).',
+)
+@click.pass_obj
+def snowdb_init(
+    cli_ctx: CliContext,
+    path: Path | None,
+    quick: bool,
+    dataset_dems: tuple[tuple[str, Path], ...],
+) -> None:
     """Create the base snowdb layout at PATH (defaults to the snowdb_path setting).
 
     Lays out ``aois/``, ``data/``, and a ``data/<dataset>/`` directory for every
-    configured dataset. This is the only command that creates the base
-    ``aois/``/``data/`` directories, and it is idempotent.
+    configured dataset, then ensures each dataset's area raster (geographic grids
+    only) and terrain set exist. Terrain is generated from the database's default
+    DEM source in one shared pass, unless ``--dataset-dem`` overrides a dataset
+    with a local file. ``--quick`` skips all generation (skeleton only). Idempotent
+    -- existing area rasters and terrain sets are left untouched.
+
+    Generation is heavy: it reprojects the whole DEM source to a 10 m work grid
+    and keeps per-grid accumulators for every dataset in the shared pass resident
+    at once, so a full multi-dataset run over a continental source is memory- and
+    bandwidth-intensive (the default 3DEP source streams from S3). Use ``--quick``
+    for a fast skeleton, or ``dataset generate`` per dataset to bound the work.
     """
     from snowtool.settings import Settings
-    from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.dem_source import LocalFile
 
-    root = Settings().snowdb_path if path is None else path
-    SnowDb.initialize(root, DEFAULT_DATASET_SPECS)
+    if path is not None:
+        root = path
+    elif cli_ctx.root is not None:
+        root = cli_ctx.root
+    else:
+        root = Settings().snowdb_path
+
+    db = SnowDb.initialize(root, cli_ctx.specs, dem_source=cli_ctx.dem_source)
     click.echo(f'initialized snowdb: {root}')
+
+    if quick:
+        return
+
+    for name in sorted(db):
+        if db[name].ensure_area_raster():
+            click.echo(f'built area raster for {name}')
+
+    overrides = {name: Path(p) for name, p in dataset_dems}
+    for name in overrides:
+        get_dataset(db, name)  # validate before doing expensive work
+
+    # Generate every default-source dataset that lacks terrain in one shared pass.
+    default_names = [
+        name
+        for name in sorted(db)
+        if name not in overrides and not db[name].terrain.present()
+    ]
+    if default_names:
+        joined = ', '.join(default_names)
+        click.echo(f'generating terrain (default source) for: {joined}')
+        db.generate_terrain(default_names, force=True)
+
+    # Overrides are explicit, so (re)generate them from the given file.
+    for name, dem_path in overrides.items():
+        click.echo(f'generating terrain for {name} from {dem_path}')
+        db[name].generate_terrain(LocalFile(dem_path), force=True)

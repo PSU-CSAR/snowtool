@@ -17,12 +17,14 @@ from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
 from snowtool.snowdb.elevation_band import ElevationBand
 from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
+from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.terrain import ElevationRaster
     from snowtool.snowdb.tiff_cache import TiffCache
 
 
@@ -149,6 +151,7 @@ class ZonalStats:
         rasters: RasterCollection,
         cache: TiffCache,
         spec: DatasetSpec,
+        elevation: ElevationRaster,
     ) -> Self:
         # Bands span the global elevation bracket (shared by every dataset), so a
         # given band means the same thing across AOIs and datasets; the per-AOI
@@ -161,10 +164,24 @@ class ZonalStats:
             ),
         )
 
+        # Elevation is read live from the dataset's terrain set (the AOI raster is
+        # a bare geometry mask now), windowed to the AOI's tiles.
+        elevation_array = numpy.full(
+            aoi.array.shape,
+            ELEVATION_NODATA,
+            dtype=numpy.float32,
+        )
+        await aoi.load_raster_tiles_into_array(elevation, elevation_array, cache)
+
         # The band geometry (which pixel is in which band, and each band's total
-        # area) depends only on the AOI -- not on any variable or date -- so it
-        # is computed once here and reused by every raster's reduction.
-        band_index = _BandIndex.build(aoi, elevation_bands)
+        # area) depends only on the AOI mask + elevation -- not on any variable or
+        # date -- so it is computed once here and reused by every reduction.
+        band_index = _BandIndex.build(
+            elevation_array,
+            aoi.array,
+            aoi.area,
+            elevation_bands,
+        )
 
         # Fan out across the raster set; each raster's tile reads fan out
         # further inside _calc. The handle cache dedupes/bounds open COGs.
@@ -237,7 +254,9 @@ class _BandIndex:
     @classmethod
     def build(
         cls: type[Self],
-        aoi: AOIRasterWithArea,
+        elevation: numpy.typing.NDArray[numpy.float32],
+        mask: numpy.typing.NDArray[numpy.uint8],
+        area: numpy.typing.NDArray[numpy.float32],
         elevation_bands: Iterable[ElevationBand],
     ) -> Self:
         bands = tuple(sorted(elevation_bands))
@@ -251,12 +270,14 @@ class _BandIndex:
             dtype=numpy.float64,
         )
         # digitize: 0 below all bands, n above; shift to 0..n-1 in-band. Band
-        # ordinals are tiny, so int16 keeps this full-size array cheap.
-        index = (numpy.digitize(aoi.array, edges) - 1).astype(numpy.int16)
-        in_band = (index >= 0) & (index < n)
+        # ordinals are tiny, so int16 keeps this full-size array cheap. The
+        # elevation nodata sentinel sits far below the bracket, so uncovered cells
+        # digitize out of range; the AOI mask further restricts to in-basin cells.
+        index = (numpy.digitize(elevation, edges) - 1).astype(numpy.int16)
+        in_band = (index >= 0) & (index < n) & (mask != 0)
         areas = numpy.bincount(
             index[in_band],
-            weights=aoi.area[in_band],
+            weights=area[in_band],
             minlength=n,
         ).astype(numpy.float64)
         return cls(bands=bands, index=index, in_band=in_band, areas=areas)

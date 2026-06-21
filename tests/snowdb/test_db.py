@@ -149,7 +149,7 @@ def test_default_specs_bind_snodas(tmp_path):
     assert db['snodas'].spec.name == 'snodas'
 
 
-def test_aoi_paths_empty_without_aois_dir(tmp_path):
+def test_aoi_paths_empty_without_records_dir(tmp_path):
     db = SnowDb(tmp_path, [_spec('snodas')])
 
     assert db.aoi_paths() == []
@@ -157,17 +157,20 @@ def test_aoi_paths_empty_without_aois_dir(tmp_path):
 
 def test_aoi_paths_lists_and_sorts_geojson(tmp_path, aoi_geojson):
     db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    shutil.copy(aoi_geojson, db.aois_path / 'b.geojson')
-    shutil.copy(aoi_geojson, db.aois_path / 'a.geojson')
+    shutil.copy(aoi_geojson, db.aoi_records_path / 'b.geojson')
+    shutil.copy(aoi_geojson, db.aoi_records_path / 'a.geojson')
     # A non-geojson file is ignored.
-    (db.aois_path / 'notes.txt').write_text('x')
+    (db.aoi_records_path / 'notes.txt').write_text('x')
 
-    assert db.aoi_paths() == [db.aois_path / 'a.geojson', db.aois_path / 'b.geojson']
+    assert db.aoi_paths() == [
+        db.aoi_records_path / 'a.geojson',
+        db.aoi_records_path / 'b.geojson',
+    ]
 
 
 def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
     db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    shutil.copy(aoi_geojson, db.aois_path / 'pourpoint.geojson')
+    shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
 
     aois = list(db.aois())
 
@@ -177,6 +180,6 @@ def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
 
 def test_aoi_triplets(tmp_path, aoi_geojson):
     db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    shutil.copy(aoi_geojson, db.aois_path / 'pourpoint.geojson')
+    shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
 
     assert db.aoi_triplets() == {'12345:MT:USGS'}

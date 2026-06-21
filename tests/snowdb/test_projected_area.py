@@ -17,10 +17,13 @@ from pyproj import Transformer
 from rasterio.crs import CRS
 
 from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.constants import AOI_MASK_INSIDE
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.grid import PixelCoord
 from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.spec import DatasetSpec, GridParams
+
+from .conftest import write_terrain
 
 PX = 1000.0  # 1 km square pixels -> constant 1e6 m^2 cells
 SIZE = 128
@@ -47,36 +50,21 @@ def spec():
 
 
 @pytest.fixture
-def source_dem(tmp_path, spec):
-    path = tmp_path / 'source_dem.tif'
-    with rasterio.open(
-        path,
-        'w',
-        driver='GTiff',
-        height=SIZE,
-        width=SIZE,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(EPSG),
-        transform=spec.grid.base_grid.transform,
-        nodata=NODATA,
-    ) as dst:
-        dst.write(numpy.full((SIZE, SIZE), DEM_VALUE, dtype=numpy.float32), 1)
-    return path
-
-
-@pytest.fixture
-def dataset(tmp_path, spec, source_dem):
-    return Dataset.create(spec, tmp_path / 'db', source_dem)
+def dataset(tmp_path, spec):
+    ds = Dataset.create(spec, tmp_path / 'db')
+    # Write a uniform terrain set directly (the streaming engine is tested
+    # separately; running it here on a reprojected 10 m grid would be huge).
+    write_terrain(ds, DEM_VALUE)
+    return ds
 
 
 def test_create_skips_area_raster_on_projected_grid(dataset):
     assert dataset.spec.is_geographic is False
     # No areas.tif on a projected grid...
     assert not dataset._area_raster.exists()
-    # ...but the DEM is still resampled, in the grid's own CRS.
-    assert dataset._dem.exists()
-    with rasterio.open(dataset._dem) as ds:
+    # ...and terrain is written in the grid's own CRS.
+    assert dataset.terrain.present()
+    with rasterio.open(dataset.terrain.elevation_path) as ds:
         assert ds.crs == CRS.from_epsg(EPSG)
         assert numpy.allclose(ds.read(1), DEM_VALUE)
 
@@ -120,9 +108,8 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
 
     aoi_raster = dataset.rasterize_aoi(AOI.from_geojson(geojson))
 
-    inside = aoi_raster.array == DEM_VALUE
+    inside = aoi_raster.array == AOI_MASK_INSIDE
     assert 0 < inside.sum() < aoi_raster.array.size
-    assert aoi_raster.min_elevation == DEM_VALUE
     # Every selected tile is within the 2x2-tile grid.
     for tile in aoi_raster.tiles:
         assert 0 <= tile.row < SIZE // TILE
@@ -156,11 +143,9 @@ def test_cell_area_converts_non_metre_units_to_m2():
 def test_load_aoi_with_area_uses_constant_cell_area(dataset):
     aoi_raster = AOIRaster(
         path=dataset.path / 'fake.tif',
-        array=numpy.full((4, 4), DEM_VALUE, dtype=numpy.float32),
+        array=numpy.full((4, 4), AOI_MASK_INSIDE, dtype=numpy.uint8),
         tiles=[],
         origin=PixelCoord(0, 0),
-        min_elevation=DEM_VALUE,
-        max_elevation=DEM_VALUE,
     )
 
     # cache=None proves the projected branch never reads an area raster.

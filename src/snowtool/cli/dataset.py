@@ -1,7 +1,7 @@
 """The ``dataset`` command group: per-dataset management.
 
 Thin wrappers over the ``Dataset`` API: each command resolves the dataset,
-calls a domain method, and renders. Write commands (create/ingest/set-dem/
+calls a domain method, and renders. Write commands (create/ingest/generate/
 rebuild-area/remove-date/prune) first require an initialized snowdb root.
 """
 
@@ -75,7 +75,8 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'band_step_ft': spec.band_step_ft,
         'elevation_bracket_m': f'{MIN_ELEVATION_M} .. {MAX_ELEVATION_M}',
         'variables': sorted(spec.variables),
-        'dem': artifacts.dem,
+        'terrain': artifacts.terrain,
+        'dem_hash': ds.terrain.dem_hash(),
         'area': 'n/a' if artifacts.area is None else artifacts.area,
         'cogs': artifacts.cogs,
         'aoi_rasters': artifacts.aoi_rasters,
@@ -90,31 +91,49 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 @click.argument('name')
 @click.option(
     '--dem',
-    required=True,
+    default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Source DEM to resample onto the dataset grid.',
+    help='Generate terrain from this local DEM file instead of the default source.',
+)
+@click.option(
+    '--quick',
+    is_flag=True,
+    help='Create the directory + area raster only; skip terrain generation.',
 )
 @pass_snowdb
-def create_dataset(snowdb: SnowDb, name: str, dem: Path) -> None:
-    """Create dataset NAME's directory, area raster, and resampled DEM.
+def create_dataset(
+    snowdb: SnowDb,
+    name: str,
+    dem: Path | None,
+    quick: bool,
+) -> None:
+    """Create dataset NAME's directory and area raster, then generate its terrain.
 
-    Idempotent: if the dataset is already created this is a no-op. To replace its
-    DEM or area raster, use ``set-dem`` / ``rebuild-area``.
+    Mirrors ``snowdb init`` for one dataset: terrain comes from the database's
+    default DEM source unless ``--dem`` supplies a local file; ``--quick`` skips
+    terrain. Idempotent -- an existing area raster/terrain set is left untouched.
+    To rebuild, use ``generate`` / ``rebuild-area``.
     """
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.dem_source import LocalFile
 
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
     try:
-        Dataset.create(ds.spec, ds.path, dem)
+        Dataset.create(ds.spec, ds.path)
     except FileExistsError:
-        click.echo(
-            f'dataset {name} already created (use set-dem/rebuild-area to rebuild)',
-        )
+        click.echo(f'dataset {name} already created')
+    else:
+        click.echo(f'created dataset {name} at {ds.path}')
+
+    if quick or ds.terrain.present():
         return
-    except SNODASError as e:
+    source = LocalFile(dem) if dem is not None else snowdb.dem_source
+    try:
+        ds.generate_terrain(source, force=True)
+    except (FileExistsError, SNODASError) as e:
         raise click.ClickException(str(e)) from e
-    click.echo(f'created dataset {name} at {ds.path}')
+    click.echo(f'generated terrain for {name}')
 
 
 @dataset.command('ingest')
@@ -147,19 +166,33 @@ def ingest_dataset(
             click.echo(f'ingested {name} {ingested.isoformat()} from {archive}')
 
 
-@dataset.command('set-dem')
+@dataset.command('generate')
 @click.argument('name')
-@click.argument('dem', type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    '--source',
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help='Generate from this local DEM file instead of the default source.',
+)
 @pass_snowdb
-def set_dem(snowdb: SnowDb, name: str, dem: Path) -> None:
-    """Re-resample dataset NAME's DEM from source DEM (overwrites the existing DEM)."""
+def generate_terrain(snowdb: SnowDb, name: str, source: Path | None) -> None:
+    """(Re)generate dataset NAME's terrain set, overwriting any existing layers.
+
+    Uses the database's default DEM source unless ``--source`` supplies a local
+    file. Terrain is the DEM-derived elevation + aspect layers. Generation is
+    heavy -- it reprojects the whole DEM source to a 10 m work grid -- and the
+    default 3DEP source streams tiles from S3.
+    """
+    from snowtool.snowdb.dem_source import LocalFile
+
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
+    dem_source = LocalFile(source) if source is not None else snowdb.dem_source
     try:
-        ds.create_resampled_dem(dem, force=True)
-    except SNODASError as e:
+        ds.generate_terrain(dem_source, force=True)
+    except (FileExistsError, SNODASError) as e:
         raise click.ClickException(str(e)) from e
-    click.echo(f'set dem for {name} from {dem}')
+    click.echo(f'generated terrain for {name}')
 
 
 @dataset.command('rebuild-area')

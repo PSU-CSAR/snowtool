@@ -10,6 +10,7 @@ dependencies = [
     "affine>=2.4.0",
     "async-lru>=2.3.0",
     "async-tiff>=0.7.2",
+    "boto3>=1.43.34",
     "click>=8.2.1",
     "fastapi>=0.116.1",
     "griffine[crs]>=0.1.0",
@@ -98,6 +99,12 @@ asyncio_default_fixture_loop_scope = 'function'
 addopts = [
     "--cov=snowtool",
     "--import-mode=importlib",
+    # Network tests (real S3) are opt-in: run them with `pytest -m network`.
+    "-m",
+    "not network",
+]
+markers = [
+    "network: test reaches the public internet (deselected by default)",
 ]
 testpaths = 'tests'
 

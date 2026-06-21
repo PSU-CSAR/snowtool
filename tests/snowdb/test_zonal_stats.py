@@ -46,10 +46,17 @@ class _FakeRaster:
 
 
 class _FakeAOI:
-    """Stands in for AOIRasterWithArea; load_* just stamps fixed values."""
+    """Stands in for AOIRasterWithArea; load_* just stamps fixed values.
 
-    def __init__(self, array, area, values) -> None:
-        self.array = array
+    ``array`` is now the boolean AOI mask (decoupled from the DEM); elevation is
+    held separately and fed to the band index, mirroring the real read path where
+    elevation is loaded live from the terrain set. The mask is all-inside here so
+    band selection covers the whole window.
+    """
+
+    def __init__(self, elevation, area, values) -> None:
+        self.elevation = elevation
+        self.array = numpy.ones(elevation.shape, dtype=numpy.uint8)
         self.area = area
         self._values = values
 
@@ -58,7 +65,7 @@ class _FakeAOI:
 
 
 def _run_calc(aoi, variable, raster, bands):
-    band_index = _BandIndex.build(aoi, bands)
+    band_index = _BandIndex.build(aoi.elevation, aoi.array, aoi.area, bands)
     return asyncio.run(ZonalStats._calc(aoi, variable, raster, band_index, cache=None))
 
 
@@ -171,7 +178,12 @@ def test_band_index_rejects_noncontiguous_bands():
         numpy.zeros((1, 1), dtype=numpy.int16),
     )
     with pytest.raises(ValueError, match='contiguous'):
-        _BandIndex.build(aoi, [ElevationBand(0, 1000), ElevationBand(2000, 3000)])
+        _BandIndex.build(
+            aoi.elevation,
+            aoi.array,
+            aoi.area,
+            [ElevationBand(0, 1000), ElevationBand(2000, 3000)],
+        )
 
 
 def _spec_with(variable: DatasetVariable) -> DatasetSpec:

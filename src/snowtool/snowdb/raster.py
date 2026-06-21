@@ -11,7 +11,6 @@ import numpy.typing
 import rasterio
 
 from snowtool import types
-from snowtool.exceptions import SNODASError
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.grid import (
     PixelCoord,
@@ -123,12 +122,17 @@ def tiles_from_tags(
 
 @dataclass
 class AOIRaster:
+    """A burned AOI: a boolean in/out-of-polygon mask over its tile-bbox window.
+
+    Decoupled from the DEM -- ``array`` is a ``uint8`` mask (1 inside the basin,
+    0 outside), not elevation. Elevation banding and any other terrain variable
+    are read live from the dataset's terrain set at query time.
+    """
+
     path: Path
-    array: numpy.typing.NDArray[numpy.float32]
+    array: numpy.typing.NDArray[numpy.uint8]
     tiles: list[AffineGridTile]
     origin: PixelCoord
-    min_elevation: float
-    max_elevation: float
 
     @property
     def station_triplet(self: Self) -> types.StationTriplet:
@@ -143,28 +147,13 @@ class AOIRaster:
         with rasterio.open(path) as ds:
             tags = ds.tags()
             origin, tiles = tiles_from_tags(grid, tags)
-
-            band_tags = ds.tags(1)
-            try:
-                min_ = float(band_tags['STATISTICS_MINIMUM'])
-                max_ = float(band_tags['STATISTICS_MAXIMUM'])
-            except KeyError as e:
-                # write_cog omits the STATISTICS_* tags when a band is entirely
-                # nodata, which for an AOI raster means the AOI polygon does not
-                # overlap any valid DEM pixel.
-                raise SNODASError(
-                    f'AOI raster {path} has no elevation statistics; the AOI '
-                    'does not overlap any valid DEM data.',
-                ) from e
-            array: numpy.typing.NDArray[numpy.float32] = ds.read(1)
+            array: numpy.typing.NDArray[numpy.uint8] = ds.read(1)
 
         return cls(
             path=path,
             array=array,
             tiles=tiles,
             origin=origin,
-            min_elevation=min_,
-            max_elevation=max_,
         )
 
     async def load_raster_tiles_into_array(

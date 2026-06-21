@@ -15,4 +15,5 @@ from ..conftest import (  # noqa: F401
     SWE_VALUE,
     TILE,
     snodas_swe_name,
+    write_terrain,
 )

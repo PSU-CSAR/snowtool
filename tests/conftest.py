@@ -6,6 +6,7 @@ griffine code on hand-computable data, with no system GDAL and no large inputs.
 These live at the top level so both the ``snowdb`` and ``cli`` suites reuse them.
 """
 
+import hashlib
 import json
 
 import numpy
@@ -16,9 +17,16 @@ from rasterio.crs import CRS
 
 from snowtool.settings import Settings
 from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.spec import DatasetSpec, GridParams
+from snowtool.snowdb.terrain import (
+    ASPECT_COMPONENTS,
+    ASPECT_FLAT,
+    ASPECT_MAJORITY,
+    ELEVATION,
+)
 
 # Small synthetic grid parameters.
 ORIGIN_X = -120.0
@@ -80,10 +88,66 @@ def source_dem(tmp_path, grid):
     return path
 
 
+def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
+    """Write a uniform terrain set onto a dataset's grid (no engine run).
+
+    Mirrors what :func:`generate_terrain` produces -- uniform elevation, all-flat
+    aspect -- so tests that just need terrain present (e.g. elevation banding) get
+    deterministic, hand-computable values without the streaming generation pass.
+    Returns the provenance hash stamped on every layer.
+    """
+    directory = dataset.terrain.directory
+    directory.mkdir(parents=True, exist_ok=True)
+    base = dataset.grid.base_grid
+    shape = (base.rows, base.cols)
+    transform = base.transform
+    crs = dataset.grid_crs
+    tile = dataset.spec.grid_params.tile_size
+
+    elevation = numpy.full(shape, elevation_value, dtype='float32')
+    dem_hash = hashlib.sha256(elevation.tobytes()).hexdigest()
+    tags = {DEM_HASH_TAG: dem_hash}
+
+    write_cog(
+        directory / ELEVATION.filename,
+        elevation,
+        transform=transform,
+        crs=crs,
+        tile_size=tile,
+        nodata=ELEVATION.nodata,
+        tags=tags,
+        band_descriptions=ELEVATION.band_descriptions,
+    )
+    write_cog(
+        directory / ASPECT_MAJORITY.filename,
+        numpy.full(shape, ASPECT_FLAT, dtype='uint8'),
+        transform=transform,
+        crs=crs,
+        tile_size=tile,
+        nodata=ASPECT_MAJORITY.nodata,
+        tags=tags,
+        band_descriptions=ASPECT_MAJORITY.band_descriptions,
+    )
+    write_cog(
+        directory / ASPECT_COMPONENTS.filename,
+        numpy.full((2, *shape), numpy.nan, dtype='float32'),
+        transform=transform,
+        crs=crs,
+        tile_size=tile,
+        nodata=ASPECT_COMPONENTS.nodata,
+        tags=tags,
+        compute_stats=False,
+        band_descriptions=ASPECT_COMPONENTS.band_descriptions,
+    )
+    return dem_hash
+
+
 @pytest.fixture
-def dataset(tmp_path, spec, source_dem):
-    """A fully created Dataset (area raster + resampled DEM)."""
-    return Dataset.create(spec, tmp_path / 'db', source_dem)
+def dataset(tmp_path, spec):
+    """A fully created Dataset: directory, area raster, and a uniform terrain set."""
+    ds = Dataset.create(spec, tmp_path / 'db')
+    write_terrain(ds)
+    return ds
 
 
 @pytest.fixture
