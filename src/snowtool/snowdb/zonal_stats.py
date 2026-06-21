@@ -10,35 +10,38 @@ import numpy
 import numpy.typing
 
 from snowtool import types
-from snowtool.rasterdb.constants import NODATA
-from snowtool.rasterdb.elevation_band import ElevationBand
-from snowtool.rasterdb.fileinfo import Product
-from snowtool.rasterdb.raster import AOIRasterWithArea, SNODASRaster
-from snowtool.rasterdb.raster_collection import RasterCollection
+from snowtool.snowdb.elevation_band import ElevationBand
+from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
+from snowtool.snowdb.raster_collection import RasterCollection
+from snowtool.snowdb.variables import DatasetVariable, Reducer
 
 if TYPE_CHECKING:
-    from snowtool.rasterdb.tiff_cache import TiffCache
+    from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.tiff_cache import TiffCache
 
 
 @dataclass
 class Result:
     date: date
     elevation_band: ElevationBand
-    product: Product
-    mean: float
+    variable: DatasetVariable
+    value: float
     area: float
 
 
 class ZonalStats:
     def __init__(
         self: Self,
-        products: set[Product],
+        variables: set[DatasetVariable],
         elevation_bands: tuple[ElevationBand, ...],
         dates: tuple[date, ...],
         *results: Result,
     ) -> None:
-        self._products_index = {
-            product: idx + 1 for idx, product in enumerate(sorted(products))
+        self._variables_index = {
+            variable: idx + 1
+            for idx, variable in enumerate(
+                sorted(variables, key=lambda v: v.key),
+            )
         }
         self._elevation_bands_index = {
             band: idx for idx, band in enumerate(sorted(elevation_bands))
@@ -48,7 +51,7 @@ class ZonalStats:
             (
                 len(self._dates_index),
                 len(self._elevation_bands_index),
-                len(self._products_index) + 1,
+                len(self._variables_index) + 1,
             ),
             -numpy.inf,
             dtype=numpy.float32,
@@ -62,7 +65,7 @@ class ZonalStats:
         ]
 
         zone[0] = result.area
-        zone[self._products_index[result.product]] = result.mean
+        zone[self._variables_index[result.variable]] = result.value
 
     def add_results(self: Self, *results: Result) -> None:
         for result in results:
@@ -84,10 +87,9 @@ class ZonalStats:
                 results = {
                     'area_m2': self._array[date_idx][band_idx][0],
                 }
-                for product, product_idx in self._products_index.items():
-                    unit = product.unit()
-                    results[f'mean_{product}_{unit.name}'] = unit.scale(
-                        self._array[date_idx][band_idx][product_idx],
+                for variable, var_idx in self._variables_index.items():
+                    results[variable.stat_name] = variable.unit.scale(
+                        self._array[date_idx][band_idx][var_idx],
                     )
                 zones.append(
                     types.SnodasZonalStat(
@@ -110,23 +112,23 @@ class ZonalStats:
         headers: list[str] = ['date']
         for band in self._elevation_bands_index:
             headers.append(f'area_m2_{band}')
-            for product in self._products_index:
-                headers.append(f'{product.value}_{product.unit().name}_{band}')
+            for variable in self._variables_index:
+                headers.append(f'{variable.stat_name}_{band}')
 
         writer.writerow(headers)
 
         for date_, date_idx in self._dates_index.items():
             row: list[str] = [date_.isoformat()]
             for band_idx in self._elevation_bands_index.values():
-                # area
                 row.append(
                     self._array[date_idx][band_idx][0],
                 )
-                for product, product_idx in self._products_index.items():
-                    unit = product.unit()
+                for variable, var_idx in self._variables_index.items():
                     row.append(
                         str(
-                            unit.scale(self._array[date_idx][band_idx][product_idx]),
+                            variable.unit.scale(
+                                self._array[date_idx][band_idx][var_idx],
+                            ),
                         ),
                     )
             writer.writerow(row)
@@ -135,13 +137,15 @@ class ZonalStats:
     async def calculate(
         cls: type[Self],
         aoi: AOIRasterWithArea,
-        snodas_rasters: RasterCollection,
+        rasters: RasterCollection,
         cache: TiffCache,
-        elevation_band_step_feet: int = 1000,
+        spec: DatasetSpec,
     ) -> Self:
         elevation_bands = tuple(
             ElevationBand.generate(
-                size_ft=elevation_band_step_feet,
+                size_ft=spec.band_step_ft,
+                min_elevation=spec.dem_min_m,
+                max_elevation=spec.dem_max_m,
             ),
         )
 
@@ -149,8 +153,9 @@ class ZonalStats:
         # further inside _calc. The handle cache dedupes/bounds open COGs.
         per_raster = await asyncio.gather(
             *(
-                cls._calc(aoi, raster, elevation_bands, cache)
-                for raster in snodas_rasters
+                cls._calc(aoi, variable, raster, elevation_bands, cache)
+                for variable, variable_rasters in rasters.items()
+                for raster in variable_rasters
             ),
         )
         results: list[Result] = [
@@ -158,61 +163,72 @@ class ZonalStats:
         ]
 
         return cls(
-            snodas_rasters.products,
+            rasters.variables,
             elevation_bands,
-            tuple(snodas_rasters.dates),
+            tuple(rasters.dates),
             *results,
         )
 
     @staticmethod
     async def _calc(
         aoi: AOIRasterWithArea,
-        snodas: SNODASRaster,
+        variable: DatasetVariable,
+        raster: DataRaster,
         elevation_bands: Iterable[ElevationBand],
         cache: TiffCache,
     ) -> list[Result]:
-        date_ = snodas.fileinfo.datetime.date()
-        product = snodas.fileinfo.product
-        values_array = numpy.empty_like(
-            aoi.array,
-            dtype=numpy.int16,
-        )
-        values_array[:] = NODATA
+        date_ = raster.date
+        values_array = numpy.empty_like(aoi.array, dtype=variable.dtype)
+        values_array[:] = variable.nodata
 
-        await aoi.load_raster_tiles_into_array(snodas, values_array, cache)
+        await aoi.load_raster_tiles_into_array(raster, values_array, cache)
 
         results: list[Result] = []
         for band in elevation_bands:
-            # The band's geographic area is product-independent: every pixel
+            # The band's geographic area is variable-independent: every pixel
             # whose elevation falls in the band, regardless of whether this
-            # product has data there.
+            # variable has data there.
             band_selection: numpy.typing.NDArray[numpy.bool_] = (
                 aoi.array >= band.min_meters
             ) & (aoi.array < band.max_meters)
-            # The mean is taken only over pixels that actually have product
-            # data, each weighted by its own ground area.
-            value_selection = band_selection & (values_array != NODATA)
+            # The reduction runs only over pixels that actually have data.
+            value_selection = band_selection & (values_array != variable.nodata)
 
             area = float(numpy.sum(aoi.area[band_selection]))
-            mean = (
-                numpy.nan
-                if not value_selection.any()
-                else float(
-                    numpy.average(
-                        values_array[value_selection],
-                        weights=aoi.area[value_selection],
-                    ),
-                )
+            value = _reduce(
+                variable.reducer,
+                values_array[value_selection],
+                aoi.area[value_selection],
             )
 
             results.append(
                 Result(
                     date=date_,
-                    product=product,
+                    variable=variable,
                     elevation_band=band,
-                    mean=mean,
+                    value=value,
                     area=area,
                 ),
             )
 
         return results
+
+
+def _reduce(
+    reducer: Reducer,
+    values: numpy.typing.NDArray,
+    areas: numpy.typing.NDArray,
+) -> float:
+    """Reduce the selected (value, per-pixel area) pairs to a single number.
+
+    Area weighting is automatic from the grid CRS (``areas`` is geodesic on a
+    geographic grid, constant on a projected one), so MEAN degenerates to a plain
+    mean when cells are equal-area. Returns ``nan`` when no pixels are selected.
+    """
+    if values.size == 0:
+        return numpy.nan
+    match reducer:
+        case Reducer.MEAN:
+            return float(numpy.average(values, weights=areas))
+        case Reducer.INTEGRAL:
+            return float(numpy.sum(values * areas))

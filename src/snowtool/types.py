@@ -18,7 +18,7 @@ from pydantic import (
     field_serializer,
 )
 
-from snowtool.rasterdb.fileinfo import Product
+from snowtool.snowdb.datasets import Product
 
 YYYY = r'\d{4}'
 MM = r'(0[1-9]|1[0-2])'

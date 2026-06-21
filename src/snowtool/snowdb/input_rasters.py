@@ -1,21 +1,112 @@
 import gzip
+import re
 import shutil
 import tarfile
 import tempfile
 
 from collections.abc import Iterable, Iterator
-from datetime import date
+from datetime import UTC, date, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
 import rasterio
 
 from snowtool.exceptions import SNODASError
-from snowtool.rasterdb import constants
-from snowtool.rasterdb.cog import WGS84, write_cog
-from snowtool.rasterdb.fileinfo import BaseFileInfo
+from snowtool.snowdb.cog import WGS84, write_cog
+from snowtool.snowdb.datasets import SNODAS_SPEC, Product
 
 HDR_EXTS = ('.Hdr', '.txt')
+
+
+# --- SNODAS filename parser ---------------------------------------------------
+# Ingest is the only place that parses SNODAS filenames; the read path finds a
+# variable's file by its glob and gets the date from the cogs/<date>/ directory.
+
+
+class Region(StrEnum):
+    US = 'us'
+    MASKED = 'zz'
+
+
+class Model(StrEnum):
+    SSM = 'ssm'
+
+
+class Datatype(StrEnum):
+    V0 = 'v0'  # driving input
+    V1 = 'v1'  # model output
+
+
+class Timecode(StrEnum):
+    T0024 = '0024'  # 24 hr integration
+    T0001 = '0001'  # 1 hr snapshot
+
+
+class Interval(StrEnum):
+    HOUR = 'H'
+    DAY = 'D'
+
+
+class Offset(StrEnum):
+    P001 = 'P001'  # value is delta over interval or value at interval end
+    P000 = 'P000'  # value from interval start
+
+
+class BaseFileInfo:
+    regex: ClassVar[re.Pattern[str]] = re.compile(
+        r'^'
+        r'(?P<region>[a-z]{2})_'
+        r'(?P<model>[a-z]{3})'
+        r'(?P<datatype>v\d)'
+        r'(?P<product_code>\d{4})'
+        r'(?P<scaled>S?)'
+        r'(?P<vcode>[a-zA-Z]{2}[\d_]{2})'
+        r'[AT](?P<timecode>00(01|24))'
+        r'TTNATS'
+        r'(?P<year>\d{4})'
+        r'(?P<month>\d{2})'
+        r'(?P<day>\d{2})'
+        r'(?P<hour>\d{2})'
+        r'(?P<interval>H|D)'
+        r'(?P<offset>P00[01])'
+        r'$',
+    )
+
+    def __init__(self: Self, path: Path) -> None:
+        self.path = path
+        self.name = self.path.stem
+        info = self._match(self.name).groupdict()
+
+        try:
+            self.region = Region(info['region'])
+            self.model = Model(info['model'])
+            self.datatype = Datatype(info['datatype'])
+            self.scaled = bool(info['scaled'])
+            self.vcode: str = info['vcode']
+            self.timecode = Timecode(info['timecode'])
+            self.datetime = datetime(
+                year=int(info['year']),
+                month=int(info['month']),
+                day=int(info['day']),
+                hour=int(info['hour']),
+                tzinfo=UTC,
+            )
+            self.interval = Interval(info['interval'])
+            self.offset = Offset(info['offset'])
+            self.product = Product.from_product_codes(
+                int(info['product_code']),
+                self.vcode,
+            )
+        except Exception as e:
+            raise ValueError('invalid value in SNODAS file name') from e
+
+    @classmethod
+    def _match(cls: type[Self], string: str):
+        match = cls.regex.match(string)
+        if not match:
+            raise ValueError('unable to parse SNODAS file path')
+        return match
 
 
 class SNODASInputRaster(BaseFileInfo):
@@ -65,7 +156,7 @@ class SNODASInputRaster(BaseFileInfo):
             transform=transform,
             crs=crs,
             nodata=nodata,
-            tile_size=constants.TILE_SIZE,
+            tile_size=SNODAS_SPEC.grid_params.tile_size,
             predictor=2,
         )
 

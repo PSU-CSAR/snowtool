@@ -1,11 +1,9 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import total_ordering
-from typing import Any, Self, overload
+from typing import Any, Self
 
-from snowtool.rasterdb.constants import (
-    DEM_MAX_M,
-    DEM_MIN_M,
+from snowtool.snowdb.constants import (
     FT_TO_M,
     M_TO_FT,
 )
@@ -41,30 +39,13 @@ class ElevationBand:
     def __lt__(self: Self, other: Self) -> bool:
         return (self.min == other.min and self.max < other.max) or self.min < other.min
 
-    @overload
-    @classmethod
-    def generate(
-        cls: type[Self],
-        size_ft: int,
-        min_elevation: int | float = DEM_MIN_M,
-        max_elevation: int | float = DEM_MAX_M,
-    ) -> Iterator[Self]: ...
-
-    @overload
-    @classmethod
-    def generate(
-        cls: type[Self],
-        size_ft: float,
-        min_elevation: int | float = DEM_MIN_M,
-        max_elevation: int | float = DEM_MAX_M,
-    ) -> Iterator[Self]: ...
-
     @classmethod
     def generate(
         cls: type[Self],
         size_ft: int | float = 1000,
-        min_elevation: int | float = DEM_MIN_M,
-        max_elevation: int | float = DEM_MAX_M,
+        *,
+        min_elevation: int | float,
+        max_elevation: int | float,
     ) -> Iterator[Self]:
         """
         Yields elevation bands of size_ft (default 1000), aligned to 0,

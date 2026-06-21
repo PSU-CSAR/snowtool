@@ -29,8 +29,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix='snowtool_')
 
-    # Filesystem location of the raster database (COGs, AOI rasters, etc.)
-    rasterdb_path: Path
+    # Filesystem location of the snow database root (per-dataset COGs, AOI
+    # rasters, DEMs, plus the global AOIs).
+    snowdb_path: Path
 
     # Max number of open async-tiff handles kept in the read-path LRU cache.
     tiff_cache_size: int = 16384

@@ -5,9 +5,9 @@ import asyncio
 import numpy
 import rasterio
 
-from snowtool.rasterdb.grid import make_snodas_grid
-from snowtool.rasterdb.raster import load_tile
-from snowtool.rasterdb.tiff_cache import TiffCache
+from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.raster import load_tile
+from snowtool.snowdb.tiff_cache import TiffCache
 
 TILE = 256
 
@@ -40,7 +40,7 @@ def _write_block_indexed_cog(path, grid):
 
 
 def _grid():
-    return make_snodas_grid(
+    return make_grid(
         origin_x=-120.0,
         origin_y=45.0,
         px_size=0.01,
@@ -76,7 +76,7 @@ def test_load_tile_reads_correct_block(tmp_path):
 
 
 def test_load_tiles_batched_preserves_order(tmp_path):
-    from snowtool.rasterdb.raster import AreaRaster
+    from snowtool.snowdb.raster import AreaRaster
 
     grid = _grid()
     path = tmp_path / 'blocks.tif'

@@ -5,7 +5,7 @@ equal bands reported both `a == b` and `a > b`. These tests lock the total
 ordering down.
 """
 
-from snowtool.rasterdb.elevation_band import ElevationBand
+from snowtool.snowdb.elevation_band import ElevationBand
 
 
 def test_equal_bands_are_not_greater_or_less():
