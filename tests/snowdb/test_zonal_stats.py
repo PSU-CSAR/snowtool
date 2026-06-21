@@ -185,8 +185,6 @@ def _spec_with(variable: DatasetVariable) -> DatasetSpec:
             rows=8,
             tile_size=8,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
         variables=[variable],
     )
 

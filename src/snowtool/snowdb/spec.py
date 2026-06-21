@@ -1,7 +1,10 @@
 """Dataset specifications: the path-independent *definition* of a dataset kind.
 
-A :class:`DatasetSpec` is the "SNODAS-ness" of a dataset — its grid, DEM
-elevation range, and (later phases) its variables and ingest. The built-in specs
+A :class:`DatasetSpec` is the "SNODAS-ness" of a dataset — its grid and its
+variables (and ingest). Elevation bands span a single global range shared by
+every dataset (:data:`~snowtool.snowdb.constants.MIN_ELEVATION_M` /
+``MAX_ELEVATION_M``), not a per-dataset DEM range, so they stay comparable across
+AOIs and datasets. The built-in specs
 live in :mod:`snowtool.snowdb.datasets` and are passed in to a
 :class:`~snowtool.snowdb.db.SnowDb`; a spec exists with or without data on disk.
 A :class:`Dataset` (see :mod:`snowtool.snowdb.dataset`) binds a spec to a
@@ -26,6 +29,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from snowtool.snowdb.ingest import Ingester
     from snowtool.snowdb.variables import DatasetVariable
 
 
@@ -48,18 +52,19 @@ class DatasetSpec:
         name: str,
         *,
         grid_params: GridParams,
-        dem_min_m: float,
-        dem_max_m: float,
         variables: Iterable[DatasetVariable] = (),
         band_step_ft: int = 1000,
+        ingester: Ingester | None = None,
     ) -> None:
         self.name = name
         self.grid_params = grid_params
-        self.dem_min_m = dem_min_m
-        self.dem_max_m = dem_max_m
         self.band_step_ft = band_step_ft
         self.grid = make_grid(**asdict(self.grid_params))
         self.variables = {variable.key: variable for variable in variables}
+        # How this dataset kind turns a source artifact into per-date COGs;
+        # None means the dataset has no ingest (e.g. read-only / derived). See
+        # snowtool.snowdb.ingest.
+        self.ingester = ingester
 
     @cached_property
     def crs(self) -> CRS:

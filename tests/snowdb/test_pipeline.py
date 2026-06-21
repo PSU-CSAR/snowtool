@@ -57,8 +57,6 @@ def test_area_raster_uses_grid_crs_not_hardcoded_wgs84(tmp_path):
             tile_size=128,
             crs=4269,  # NAD83 geographic
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
     path = tmp_path / 'db'
     path.mkdir()

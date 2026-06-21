@@ -21,8 +21,6 @@ def _spec(name: str) -> DatasetSpec:
             rows=256,
             tile_size=256,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
 
@@ -113,8 +111,6 @@ def test_rasterize_aoi_burns_every_active_dataset(
     spec_b = DatasetSpec(
         name='snodas',
         grid_params=spec.grid_params,
-        dem_min_m=spec.dem_min_m,
-        dem_max_m=spec.dem_max_m,
     )
     # `spec` (name='test') and `spec_b` (name='snodas') share the synthetic grid,
     # so the one source DEM covers both.
@@ -151,3 +147,36 @@ def test_default_specs_bind_snodas(tmp_path):
     db = SnowDb(tmp_path, DEFAULT_DATASET_SPECS)
 
     assert db['snodas'].spec.name == 'snodas'
+
+
+def test_aoi_paths_empty_without_aois_dir(tmp_path):
+    db = SnowDb(tmp_path, [_spec('snodas')])
+
+    assert db.aoi_paths() == []
+
+
+def test_aoi_paths_lists_and_sorts_geojson(tmp_path, aoi_geojson):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    shutil.copy(aoi_geojson, db.aois_path / 'b.geojson')
+    shutil.copy(aoi_geojson, db.aois_path / 'a.geojson')
+    # A non-geojson file is ignored.
+    (db.aois_path / 'notes.txt').write_text('x')
+
+    assert db.aoi_paths() == [db.aois_path / 'a.geojson', db.aois_path / 'b.geojson']
+
+
+def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    shutil.copy(aoi_geojson, db.aois_path / 'pourpoint.geojson')
+
+    aois = list(db.aois())
+
+    assert len(aois) == 1
+    assert aois[0].station_triplet == '12345:MT:USGS'
+
+
+def test_aoi_triplets(tmp_path, aoi_geojson):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    shutil.copy(aoi_geojson, db.aois_path / 'pourpoint.geojson')
+
+    assert db.aoi_triplets() == {'12345:MT:USGS'}

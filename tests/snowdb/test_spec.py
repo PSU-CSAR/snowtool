@@ -16,8 +16,6 @@ def _geographic_spec() -> DatasetSpec:
             rows=512,
             tile_size=256,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
 
@@ -34,8 +32,6 @@ def _projected_spec() -> DatasetSpec:
             tile_size=64,
             crs=32611,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
 
@@ -59,8 +55,6 @@ def _named_spec(name: str) -> DatasetSpec:
             rows=8,
             tile_size=8,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
 

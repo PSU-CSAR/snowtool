@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import date
+import shutil
+
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -17,19 +20,35 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import WGS84, write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.grid import bounding_tiles, tile_base_origin
-from snowtool.snowdb.input_rasters import SNODASInputRasterSet
 from snowtool.snowdb.raster import DEM, AOIRaster, AOIRasterWithArea, AreaRaster
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from affine import Affine
     from griffine.grid import AffineGridTile, TiledAffineGrid
     from shapely import Geometry
 
+    from snowtool.snowdb.ingest import WritableRaster
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.variables import DatasetVariable
+
+
+@dataclass(frozen=True)
+class DatasetArtifacts:
+    """Which of a dataset's on-disk artifacts are present.
+
+    A read-only snapshot used by the diagnostics/report commands. ``area`` is
+    ``None`` when an area raster is not applicable (a projected grid has a
+    constant cell area and stores no ``areas.tif``); otherwise it reflects
+    whether ``areas.tif`` exists.
+    """
+
+    dem: bool
+    aoi_rasters: bool
+    cogs: bool
+    area: bool | None
 
 
 def make_geometry_mask(
@@ -157,7 +176,12 @@ class Dataset:
         self = cls(spec, path)
 
         try:
-            self.path.mkdir(exist_ok=force)
+            # The dataset dir itself may already exist as an empty skeleton from
+            # `snowdb init`, so tolerate it; whether the dataset is already
+            # *populated* is enforced by the artifact guards below (the
+            # aoi-rasters/cogs dirs and the area/DEM rasters), which still refuse
+            # to clobber existing data without force.
+            self.path.mkdir(parents=True, exist_ok=True)
             self._aoi_rasters.mkdir(exist_ok=force)
             self._cogs.mkdir(exist_ok=force)
             # A per-pixel area raster only carries information on a geographic
@@ -351,19 +375,40 @@ class Dataset:
 
         return AOIRaster.open(path, self.grid)
 
-    def import_snodas_rasters(
+    def ingest(self: Self, source: Path, *, force: bool = False) -> list[date]:
+        """Ingest a source artifact into per-date COGs, via this dataset's ingester.
+
+        Delegates to ``spec.ingester`` (the dataset-kind-specific parser); raises
+        if the dataset has no configured ingester. Returns the dates ingested.
+        """
+        ingester = self.spec.ingester
+        if ingester is None:
+            raise SNODASError(
+                f"dataset '{self.spec.name}' has no configured ingester; "
+                'nothing can be ingested into it.',
+            )
+        return ingester.ingest(source, self, force=force)
+
+    def write_date_cogs(
         self: Self,
-        rasters: SNODASInputRasterSet,
+        date: date,
+        rasters: Iterable[WritableRaster],
+        *,
         force: bool = False,
     ) -> None:
-        output_dir = self._cogs / self._format_date(rasters.date)
+        """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/``.
+
+        The dataset-agnostic write side of ingest: it owns the date directory;
+        the rasters (produced by an :class:`~snowtool.snowdb.ingest.Ingester`)
+        know how to write themselves as COGs into it.
+        """
+        output_dir = self.date_dir(date)
 
         try:
-            output_dir.mkdir(exist_ok=force)
+            output_dir.mkdir(parents=True, exist_ok=force)
         except FileExistsError as e:
             raise FileExistsError(
-                'Could not create SNODAS raster dir: '
-                f'{output_dir} already  exists. '
+                f'Could not create raster dir: {output_dir} already exists. '
                 'Remove directory and try again, or use `force=True`.',
             ) from e
 
@@ -375,3 +420,92 @@ class Dataset:
             AOIRaster.open(path, self.grid)
             for path in self._aoi_rasters.glob('*.tif')
         )
+
+    # --- read-only query helpers (drive the report/diagnostics commands) ------
+
+    @staticmethod
+    def _parse_date_dir(name: str) -> date | None:
+        """The ``date`` a ``cogs/<name>/`` dir encodes, or ``None`` if it isn't one.
+
+        ``name`` is a calendar label (``YYYYMMDD``); it is pinned to UTC purely
+        to build a tz-aware value, which does not shift the date.
+        """
+        try:
+            parsed = datetime.strptime(name, '%Y%m%d').replace(tzinfo=UTC)
+        except ValueError:
+            return None
+        return parsed.date()
+
+    def date_dir(self: Self, d: date) -> Path:
+        """The ``cogs/<YYYYMMDD>/`` directory for date ``d`` (may not exist)."""
+        return self._cogs / self._format_date(d)
+
+    def available_dates(self: Self) -> list[date]:
+        """Every date with an ingested ``cogs/<YYYYMMDD>/`` directory, ascending."""
+        if not self._cogs.is_dir():
+            return []
+        dates = (
+            self._parse_date_dir(child.name)
+            for child in self._cogs.iterdir()
+            if child.is_dir()
+        )
+        return sorted(d for d in dates if d is not None)
+
+    def variable_path(
+        self: Self,
+        d: date,
+        variable: DatasetVariable,
+    ) -> Path | None:
+        """The single COG for ``variable`` on date ``d``, or ``None`` if absent."""
+        matching = list(self.date_dir(d).glob(variable.glob))
+        if len(matching) > 1:
+            raise RuntimeError(
+                'Found multiple files matching date / variable '
+                f"'{d}' / '{variable.key}': {matching}",
+            )
+        return matching[0] if matching else None
+
+    def missing_variables(self: Self, d: date) -> set[DatasetVariable]:
+        """Spec variables whose glob matches no file in date ``d``'s cogs dir.
+
+        An absent date directory yields every variable (nothing is present).
+        """
+        return {
+            variable
+            for variable in self.spec.variables.values()
+            if self.variable_path(d, variable) is None
+        }
+
+    def aoi_raster_paths(self: Self) -> list[Path]:
+        """The burned ``aoi-rasters/*.tif`` files, sorted by path."""
+        if not self._aoi_rasters.is_dir():
+            return []
+        return sorted(self._aoi_rasters.glob('*.tif'))
+
+    def aoi_raster_triplets(self: Self) -> set[types.StationTriplet]:
+        """Station triplets that have a burned ``aoi-rasters/<triplet>.tif``."""
+        return {
+            types.StationTriplet(path.stem.replace('_', ':'))
+            for path in self.aoi_raster_paths()
+        }
+
+    def artifact_status(self: Self) -> DatasetArtifacts:
+        """Which of this dataset's on-disk artifacts currently exist."""
+        return DatasetArtifacts(
+            dem=self._dem.is_file(),
+            aoi_rasters=self._aoi_rasters.is_dir(),
+            cogs=self._cogs.is_dir(),
+            area=self._area_raster.is_file() if self.spec.is_geographic else None,
+        )
+
+    def dates_before(self: Self, before: date) -> list[date]:
+        """Ingested dates strictly older than ``before`` (the prune selection)."""
+        return [d for d in self.available_dates() if d < before]
+
+    def remove_date(self: Self, d: date) -> bool:
+        """Delete a date's ``cogs/<YYYYMMDD>/`` directory; True if it existed."""
+        date_dir = self.date_dir(d)
+        if not date_dir.is_dir():
+            return False
+        shutil.rmtree(date_dir)
+        return True

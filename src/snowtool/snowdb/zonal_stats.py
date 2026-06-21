@@ -13,6 +13,7 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
+from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
 from snowtool.snowdb.elevation_band import ElevationBand
 from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
@@ -149,11 +150,14 @@ class ZonalStats:
         cache: TiffCache,
         spec: DatasetSpec,
     ) -> Self:
+        # Bands span the global elevation bracket (shared by every dataset), so a
+        # given band means the same thing across AOIs and datasets; the per-AOI
+        # band geometry below restricts which of them actually carry data.
         elevation_bands = tuple(
             ElevationBand.generate(
                 size_ft=spec.band_step_ft,
-                min_elevation=spec.dem_min_m,
-                max_elevation=spec.dem_max_m,
+                min_elevation=MIN_ELEVATION_M,
+                max_elevation=MAX_ELEVATION_M,
             ),
         )
 
@@ -254,7 +258,7 @@ class _BandIndex:
             index[in_band],
             weights=aoi.area[in_band],
             minlength=n,
-        )
+        ).astype(numpy.float64)
         return cls(bands=bands, index=index, in_band=in_band, areas=areas)
 
     def reduce(
@@ -276,7 +280,9 @@ class _BandIndex:
         idx = self.index[selection]
         values = values_array[selection]
         areas = area_array[selection]
-        weighted = numpy.bincount(idx, weights=values * areas, minlength=n)
+        weighted = numpy.bincount(idx, weights=values * areas, minlength=n).astype(
+            numpy.float64,
+        )
 
         match reducer:
             case Reducer.MEAN:
