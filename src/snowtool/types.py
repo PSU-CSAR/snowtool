@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from math import isnan
 from typing import Annotated, Literal, Protocol, Self
 
 # These back the API-response link helpers (build_links) that are commented out
@@ -16,8 +15,6 @@ from pydantic import (
     WithJsonSchema,
     field_serializer,
 )
-
-from snowtool.snowdb.datasets import Product
 
 YYYY = r'\d{4}'
 MM = r'(0[1-9]|1[0-2])'
@@ -350,177 +347,6 @@ class PourPointStats(BaseModel):
                     'precip_solid': 6.18786387077508,
                     'precip_liquid': 0.03673017090738538,
                     'sublimation_blowing': -6.307803776158206e-8,
-                },
-            ],
-        ],
-    )
-    links: list[Link] = []
-
-    # TODO(fastapi): port to FastAPI URL building.
-    # def build_links(self: Self, request: HttpRequest, api: NinjaAPI) -> Self:
-    #     self.links = [
-    #         Link(
-    #             rel='self',
-    #             type='application/json',
-    #             href=request.build_absolute_uri(),
-    #         ),
-    #         Link(
-    #             rel='root',
-    #             type='application/json',
-    #             href=request.build_absolute_uri(
-    #                 reverse(
-    #                     f'{api.urls_namespace}:api_root',
-    #                 ),
-    #             ),
-    #         ),
-    #     ]
-    #     self.pourpoint.build_links(request, api)
-    #     return self
-
-
-class SnodasZonalStat(BaseModel):
-    min_elevation_ft: float
-    max_elevation_ft: float
-    area_m2: float = Field(..., ge=0)
-    mean_swe_mm: float | None = None
-    mean_depth_mm: float | None = None
-    mean_runoff_mm: float | None = None
-    mean_sublimation_mm: float | None = None
-    mean_precip_solid_kg_per_m2: float | None = None
-    mean_precip_liquid_kg_per_m2: float | None = None
-    mean_sublimation_blowing_mm: float | None = None
-    mean_average_temp_k: float | None = None
-
-    @field_serializer(
-        'mean_swe_mm',
-        'mean_depth_mm',
-        'mean_runoff_mm',
-        'mean_sublimation_mm',
-        'mean_precip_solid_kg_per_m2',
-        'mean_precip_liquid_kg_per_m2',
-        'mean_sublimation_blowing_mm',
-        'mean_average_temp_k',
-        when_used='always',
-    )
-    def serialize_mean_to_valid_json_value(self, mean: float | None) -> float | None:
-        if mean is None or isnan(mean):
-            return None
-        return mean
-
-
-class SnodasZonalStats(BaseModel):
-    date: date
-    zones: list[SnodasZonalStat]
-
-
-class PourPointZonalStats(BaseModel):
-    pourpoint: PourPoint
-    products: list[Product]
-    query: PourPointQuery
-    results: list[SnodasZonalStats] = Field(
-        ...,
-        examples=[
-            [
-                {
-                    'date': '2008-12-14',
-                    'zones': [
-                        {
-                            'min_elevation_ft': -1000,
-                            'max_elevation_ft': 0,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 0,
-                            'max_elevation_ft': 1000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 1000,
-                            'max_elevation_ft': 2000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 2000,
-                            'max_elevation_ft': 3000,
-                            'mean_precip_solid_kg_per_m2': 7.586826324462891,
-                            'area_m2': 584802.375,
-                        },
-                        {
-                            'min_elevation_ft': 3000,
-                            'max_elevation_ft': 4000,
-                            'mean_precip_solid_kg_per_m2': 10.254584312438965,
-                            'area_m2': 588768.5,
-                        },
-                        {
-                            'min_elevation_ft': 4000,
-                            'max_elevation_ft': 5000,
-                            'mean_precip_solid_kg_per_m2': 18.460737228393555,
-                            'area_m2': 589209.5625,
-                        },
-                        {
-                            'min_elevation_ft': 5000,
-                            'max_elevation_ft': 6000,
-                            'mean_precip_solid_kg_per_m2': 28.922319412231445,
-                            'area_m2': 591220.75,
-                        },
-                        {
-                            'min_elevation_ft': 6000,
-                            'max_elevation_ft': 7000,
-                            'mean_precip_solid_kg_per_m2': 51.91190719604492,
-                            'area_m2': 592891.6875,
-                        },
-                        {
-                            'min_elevation_ft': 7000,
-                            'max_elevation_ft': 8000,
-                            'mean_precip_solid_kg_per_m2': 85.651611328125,
-                            'area_m2': 594662.375,
-                        },
-                        {
-                            'min_elevation_ft': 8000,
-                            'max_elevation_ft': 9000,
-                            'mean_precip_solid_kg_per_m2': 125.2992935180664,
-                            'area_m2': 595767.375,
-                        },
-                        {
-                            'min_elevation_ft': 9000,
-                            'max_elevation_ft': 10000,
-                            'mean_precip_solid_kg_per_m2': 118.39726257324219,
-                            'area_m2': 596972.3125,
-                        },
-                        {
-                            'min_elevation_ft': 10000,
-                            'max_elevation_ft': 11000,
-                            'mean_precip_solid_kg_per_m2': 114,
-                            'area_m2': 596847.4375,
-                        },
-                        {
-                            'min_elevation_ft': 11000,
-                            'max_elevation_ft': 12000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 12000,
-                            'max_elevation_ft': 13000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 13000,
-                            'max_elevation_ft': 14000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                        {
-                            'min_elevation_ft': 14000,
-                            'max_elevation_ft': 15000,
-                            'mean_precip_solid_kg_per_m2': None,
-                            'area_m2': 0,
-                        },
-                    ],
                 },
             ],
         ],

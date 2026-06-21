@@ -12,21 +12,17 @@ def snodas_client(test_settings) -> Iterator[TestClient]:
     """A client whose snow database has a (content-free) snodas dataset dir.
 
     DatasetInfo is derived entirely from the spec, so an empty directory is
-    enough for SnowDb to discover and bind the snodas dataset.
+    enough; SnowDb binds the snodas dataset from the configured specs regardless.
     """
     (test_settings.snowdb_path / 'data' / 'snodas').mkdir(parents=True)
     with TestClient(get_app(settings=test_settings)) as client:
         yield client
 
 
-def test_list_datasets_empty(test_client) -> None:
+def test_list_datasets_lists_configured_even_without_data(test_client) -> None:
+    # Datasets come from the configured specs, not from what's on disk, so the
+    # built-in snodas dataset is listed even against an un-initialized root.
     response = test_client.get('/datasets')
-    assert response.status_code == 200
-    assert response.json()['datasets'] == []
-
-
-def test_list_datasets_with_snodas(snodas_client) -> None:
-    response = snodas_client.get('/datasets')
     assert response.status_code == 200
     assert response.json()['datasets'] == ['snodas']
 

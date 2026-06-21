@@ -62,23 +62,55 @@ class DatasetSpec:
         self.variables = {variable.key: variable for variable in variables}
 
     @cached_property
+    def crs(self) -> CRS:
+        """The grid's CRS (pyproj), the single source for every CRS-derived
+        value -- ``is_geographic``, ``cell_area``, and the dataset's rasterio
+        write CRS (:attr:`Dataset.grid_crs`)."""
+        # make_grid always sets a CRS (GridParams.crs defaults to WGS84), so this
+        # narrows the Optional griffine exposes on grid.crs.
+        crs = self.grid.crs
+        if crs is None:  # pragma: no cover - defensive; make_grid always sets one
+            raise ValueError(f'{self.name}: grid has no CRS')
+        return crs
+
+    @cached_property
     def is_geographic(self) -> bool:
         """Whether cell area varies across the grid (geographic CRS) or is
         constant (projected/linear CRS). Drives whether an area raster is
         needed."""
-        return CRS.from_user_input(self.grid_params.crs).is_geographic
+        return self.crs.is_geographic
 
     @cached_property
     def cell_area(self) -> float:
-        """The constant per-cell area, in the grid CRS's units. Only meaningful
-        on a projected grid; raises on a geographic grid, where area varies by
-        latitude and an area raster is required instead."""
+        """The constant per-cell area, in square metres. Only meaningful on a
+        projected grid; raises on a geographic grid, where area varies by
+        latitude and an area raster is required instead.
+
+        griffine reports a projected grid's planar cell area in the CRS's own
+        linear units squared, so it is converted to m^2 here -- every area we
+        emit (the ``area_m2`` field, the CSV column) is metres regardless of the
+        grid's units."""
         if self.is_geographic:
             raise ValueError(
                 f'{self.name}: cell_area is constant only on a projected grid; '
                 'this grid is geographic, so per-cell area varies by latitude.',
             )
-        return abs(self.grid.base_grid[0, 0].area)
+        planar_area = abs(self.grid.base_grid[0, 0].area)
+        meters_per_unit = self.crs.axis_info[0].unit_conversion_factor
+        return planar_area * meters_per_unit**2
+
+    @cached_property
+    def model_prefix(self) -> str:
+        """CamelCase prefix for this dataset's generated response models
+        (e.g. ``snodas`` -> ``Snodas`` -> ``SnodasZonalStat``).
+
+        Names that differ only by case or ``-``/``_`` collapse to the same
+        prefix (``foo-bar`` and ``foo_bar`` both -> ``FooBar``), so SnowDb
+        enforces prefix uniqueness across its specs to avoid OpenAPI
+        schema-name collisions between datasets."""
+        return ''.join(
+            part.capitalize() for part in self.name.replace('-', '_').split('_')
+        )
 
     @cached_property
     def zonal_stat_model(self) -> type[BaseModel]:

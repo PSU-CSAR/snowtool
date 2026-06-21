@@ -6,19 +6,23 @@ the cases the uniform end-to-end pipeline test cannot distinguish:
 
   * area is the band's geographic area, independent of which pixels are nodata,
   * MEAN is area-weighted over only the pixels that have data, and
-  * INTEGRAL is the area-weighted sum (a basin total) over those pixels.
+  * TOTAL is the area-weighted sum (a basin total) over those pixels.
 """
 
 import asyncio
+import csv
+import io
 import math
 
 from datetime import date
 
 import numpy
+import pytest
 
 from snowtool.snowdb.elevation_band import ElevationBand
+from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
-from snowtool.snowdb.zonal_stats import ZonalStats
+from snowtool.snowdb.zonal_stats import Result, ZonalStats, _BandIndex
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
 
@@ -54,7 +58,8 @@ class _FakeAOI:
 
 
 def _run_calc(aoi, variable, raster, bands):
-    return asyncio.run(ZonalStats._calc(aoi, variable, raster, bands, cache=None))
+    band_index = _BandIndex.build(aoi, bands)
+    return asyncio.run(ZonalStats._calc(aoi, variable, raster, band_index, cache=None))
 
 
 def test_calc_area_is_variable_independent_and_mean_is_area_weighted():
@@ -87,12 +92,12 @@ def test_calc_area_is_variable_independent_and_mean_is_area_weighted():
     assert result.value != (100 + 200 + 400) / 3
 
 
-def test_calc_integral_is_area_weighted_sum():
+def test_calc_total_is_area_weighted_sum():
     elevations = numpy.array([[500.0, 1000.0], [1500.0, 2000.0]], dtype=numpy.float32)
     areas = numpy.array([[10.0, 20.0], [30.0, 40.0]], dtype=numpy.float32)
     values = numpy.array([[100, 200], [NODATA, 400]], dtype=numpy.int16)
 
-    variable = _variable(Reducer.INTEGRAL)
+    variable = _variable(Reducer.TOTAL)
     aoi = _FakeAOI(elevations, areas, values)
     raster = _FakeRaster(date(2018, 4, 27))
     band = ElevationBand(0, 10000)
@@ -118,6 +123,106 @@ def test_calc_band_with_terrain_but_no_data_has_area_and_nan_value():
     # The band still covers ground (5 + 7) even though no data exists.
     assert result.area == 12.0
     assert math.isnan(result.value)
+
+
+def test_calc_assigns_pixels_to_their_bands_in_one_pass():
+    # 100 m falls in band (0, 1000) ft; 400 m in (1000, 2000) ft.
+    elevations = numpy.array([[100.0, 400.0]], dtype=numpy.float32)
+    areas = numpy.array([[10.0, 20.0]], dtype=numpy.float32)
+    values = numpy.array([[100, 200]], dtype=numpy.int16)
+
+    aoi = _FakeAOI(elevations, areas, values)
+    raster = _FakeRaster(date(2018, 4, 27))
+    bands = [ElevationBand(0, 1000), ElevationBand(1000, 2000)]
+
+    low, high = _run_calc(aoi, _variable(Reducer.MEAN), raster, bands)
+
+    assert (low.elevation_band, low.value, low.area) == (bands[0], 100.0, 10.0)
+    assert (high.elevation_band, high.value, high.area) == (bands[1], 200.0, 20.0)
+
+
+def test_calc_empty_middle_band_is_nan_with_zero_area():
+    # 100 m -> band 0, 700 m -> band 2; the (1000, 2000) ft middle band is empty.
+    elevations = numpy.array([[100.0, 700.0]], dtype=numpy.float32)
+    areas = numpy.array([[10.0, 20.0]], dtype=numpy.float32)
+    values = numpy.array([[100, 200]], dtype=numpy.int16)
+
+    aoi = _FakeAOI(elevations, areas, values)
+    raster = _FakeRaster(date(2018, 4, 27))
+    bands = [
+        ElevationBand(0, 1000),
+        ElevationBand(1000, 2000),
+        ElevationBand(2000, 3000),
+    ]
+
+    low, mid, high = _run_calc(aoi, _variable(Reducer.TOTAL), raster, bands)
+
+    assert low.value == 100.0 * 10.0
+    assert high.value == 200.0 * 20.0
+    # Empty band reads nan (not a spurious 0) and carries no area.
+    assert math.isnan(mid.value)
+    assert mid.area == 0.0
+
+
+def test_band_index_rejects_noncontiguous_bands():
+    aoi = _FakeAOI(
+        numpy.zeros((1, 1), dtype=numpy.float32),
+        numpy.ones((1, 1), dtype=numpy.float32),
+        numpy.zeros((1, 1), dtype=numpy.int16),
+    )
+    with pytest.raises(ValueError, match='contiguous'):
+        _BandIndex.build(aoi, [ElevationBand(0, 1000), ElevationBand(2000, 3000)])
+
+
+def _spec_with(variable: DatasetVariable) -> DatasetSpec:
+    return DatasetSpec(
+        name='test',
+        grid_params=GridParams(
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=8,
+            rows=8,
+            tile_size=8,
+        ),
+        dem_min_m=0.0,
+        dem_max_m=1000.0,
+        variables=[variable],
+    )
+
+
+def test_dump_to_csv_renders_a_no_data_band_as_an_empty_cell():
+    # One band with data and one in-range-but-no-data band (nan value), so the
+    # CSV path's missing-value rendering is exercised.
+    variable = _variable(Reducer.MEAN)
+    data_band = ElevationBand(0, 10000)
+    nodata_band = ElevationBand(10000, 20000)
+    day = date(2018, 4, 27)
+
+    stats = ZonalStats(
+        _spec_with(variable),
+        {variable},
+        (data_band, nodata_band),
+        (day,),
+        Result(date=day, elevation_band=data_band, variable=variable,
+               value=12.5, area=100.0),
+        Result(date=day, elevation_band=nodata_band, variable=variable,
+               value=float('nan'), area=0.0),
+    )
+
+    out = io.StringIO()
+    stats.dump_to_csv(out)
+    header, row = list(csv.reader(io.StringIO(out.getvalue())))
+
+    # Columns: date, area/mean for data_band, then area/mean for nodata_band.
+    assert header[0] == 'date'
+    assert header[2].startswith('mean_swe_mm')
+    assert row[0] == day.isoformat()
+    assert row[1] == '100.0'  # data band area
+    assert row[2] == '12.5'  # data band mean
+    assert row[3] == '0.0'  # nodata band area
+    assert row[4] == ''  # nodata band mean -> empty, never the literal 'nan'
+    assert 'nan' not in out.getvalue()
 
 
 def test_calc_band_with_no_terrain_has_zero_area_and_nan_value():

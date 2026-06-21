@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -190,6 +190,18 @@ class AOIRasterWithArea(AOIRaster):
     area: numpy.typing.NDArray[numpy.float32]
 
     @classmethod
+    def _with_area(
+        cls: type[Self],
+        aoi_raster: AOIRaster,
+        area: numpy.typing.NDArray[numpy.float32],
+    ) -> Self:
+        """Wrap an AOIRaster with its per-pixel ``area``, forwarding every base
+        field so a new AOIRaster field needs no change at the call sites below.
+        """
+        base = {f.name: getattr(aoi_raster, f.name) for f in fields(AOIRaster)}
+        return cls(area=area, **base)
+
+    @classmethod
     def with_constant_area(
         cls: type[Self],
         aoi_raster: AOIRaster,
@@ -198,20 +210,17 @@ class AOIRasterWithArea(AOIRaster):
         """Attach a constant per-pixel area (projected grids have no area raster).
 
         On a projected/linear grid every cell has identical planar area, so the
-        per-pixel area is just ``spec.cell_area`` broadcast over the window --
-        no ``areas.tif`` is read. Keeping ``area`` an in-memory ndarray (as on
-        geographic grids) lets the zonal-stats reduction stay uniform.
+        per-pixel area is just ``spec.cell_area`` -- no ``areas.tif`` is read.
+        It is exposed as a zero-copy ``broadcast_to`` view (stride 0) rather than
+        a materialized array: the zonal-stats reduction only ever reads
+        ``area`` through boolean masks, so a full N-pixel copy of one constant
+        would waste memory on the long-lived AOI for no information.
         """
-        area = numpy.full_like(aoi_raster.array, cell_area, dtype=numpy.float32)
-        return cls(
-            area=area,
-            path=aoi_raster.path,
-            array=aoi_raster.array,
-            tiles=aoi_raster.tiles,
-            origin=aoi_raster.origin,
-            min_elevation=aoi_raster.min_elevation,
-            max_elevation=aoi_raster.max_elevation,
+        area = numpy.broadcast_to(
+            numpy.float32(cell_area),
+            aoi_raster.array.shape,
         )
+        return cls._with_area(aoi_raster, area)
 
     @classmethod
     async def from_aoi_raster(
@@ -225,15 +234,7 @@ class AOIRasterWithArea(AOIRaster):
             dtype=numpy.float32,
         )
         await aoi_raster.load_raster_tiles_into_array(area_raster, area, cache)
-        return cls(
-            area=area,
-            path=aoi_raster.path,
-            array=aoi_raster.array,
-            tiles=aoi_raster.tiles,
-            origin=aoi_raster.origin,
-            min_elevation=aoi_raster.min_elevation,
-            max_elevation=aoi_raster.max_elevation,
-        )
+        return cls._with_area(aoi_raster, area)
 
 
 @dataclass

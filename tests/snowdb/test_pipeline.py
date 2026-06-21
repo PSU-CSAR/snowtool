@@ -40,6 +40,37 @@ def test_area_raster(dataset, grid):
     assert data[0, 0] == numpy.float32(expected_row0)
 
 
+def test_area_raster_uses_grid_crs_not_hardcoded_wgs84(tmp_path):
+    # A non-4326 geographic CRS (NAD83) proves the area raster is written in the
+    # grid's own CRS, not a hardcoded WGS84.
+    from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.spec import DatasetSpec, GridParams
+
+    spec = DatasetSpec(
+        name='nad83',
+        grid_params=GridParams(
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=128,
+            rows=128,
+            tile_size=128,
+            crs=4269,  # NAD83 geographic
+        ),
+        dem_min_m=0.0,
+        dem_max_m=1000.0,
+    )
+    path = tmp_path / 'db'
+    path.mkdir()
+    dataset = Dataset(spec, path)
+
+    dataset.make_area_raster()
+
+    with rasterio.open(dataset._area_raster) as ds:
+        assert ds.crs.to_epsg() == dataset.grid_crs.to_epsg() == 4269
+        assert ds.crs.to_epsg() != 4326
+
+
 def test_rasterize_aoi(dataset, aoi_geojson):
     aoi = AOI.from_geojson(aoi_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
