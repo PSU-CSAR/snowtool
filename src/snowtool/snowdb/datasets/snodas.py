@@ -1,20 +1,29 @@
-"""The SNODAS dataset definition and the built-in dataset registry.
+"""The SNODAS dataset definition: variables, grid spec, and ingest.
 
-The source of truth for the SNODAS dataset: its variables and its grid/DEM spec
-(the geometry/range literals live here, on ``SNODAS_SPEC``). ``Product`` is the
-SNODAS variable enum, including its filename-code mapping (``to_glob`` /
-``from_product_codes``); the *filename parser* that consumes it lives with the
-ingest in :mod:`snowtool.snowdb.input_rasters` — the only place that parses
-filenames (the read path is dataset-agnostic). ``DEFAULT_DATASET_SPECS`` is what
-the app/CLI pass to a ``SnowDb``. When a second dataset is added, split a
-per-dataset module out of here.
+``Product`` is the SNODAS variable enum, including its filename-code mapping
+(``to_glob`` / ``from_product_codes``); the *filename parser* that consumes it
+lives with the rest of the SNODAS input handling in
+:mod:`snowtool.snowdb.input_rasters` — the only place that parses filenames (the
+read path is dataset-agnostic). ``SNODAS_SPEC`` is the source of truth for the
+SNODAS grid/variables; it is collected into the registry in this package's
+``__init__``.
 """
 
+from __future__ import annotations
+
+import tempfile
+
 from enum import StrEnum
-from typing import Self
+from pathlib import Path
+from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from snowtool.snowdb.dataset import Dataset
 
 # --- SNODAS products: the variables + their filename-code mapping --------------
 
@@ -105,6 +114,34 @@ class Product(StrEnum):
         return _units[self.value]
 
 
+# --- SNODAS ingest ------------------------------------------------------------
+
+
+class SnodasIngester:
+    """Ingests a SNODAS tar archive (one archive == one date) into a dataset.
+
+    The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: it
+    parses the archive into a per-date raster set and hands them to the dataset's
+    generic :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`. The
+    ``SNODASInputRasterSet`` import is local to keep this module free of a
+    load-time dependency on ``input_rasters`` (which imports this one).
+    """
+
+    def ingest(
+        self,
+        source: Path,
+        dataset: Dataset,
+        *,
+        force: bool = False,
+    ) -> list[date]:
+        from snowtool.snowdb.input_rasters import SNODASInputRasterSet
+
+        with tempfile.TemporaryDirectory() as extract_dir:
+            rasters = SNODASInputRasterSet.from_archive(source, Path(extract_dir))
+            dataset.write_date_cogs(rasters.date, rasters, force=force)
+        return [rasters.date]
+
+
 # --- SNODAS variables + spec (the source of truth for SNODAS values) ----------
 
 # SNODAS variables, one per product. All are intensive quantities (depths,
@@ -133,15 +170,6 @@ SNODAS_SPEC = DatasetSpec(
         rows=3351,
         tile_size=256,
     ),
-    # Overall min/max DEM elevation (m); bounds the elevation bands.
-    dem_min_m=-84.833877563477,
-    dem_max_m=4291.7211914062,
     variables=SNODAS_VARIABLES,
+    ingester=SnodasIngester(),
 )
-
-
-# --- registry -----------------------------------------------------------------
-
-# The built-in datasets; the app/CLI pass this to SnowDb. Tests may pass a subset
-# or their own synthetic specs.
-DEFAULT_DATASET_SPECS: tuple[DatasetSpec, ...] = (SNODAS_SPEC,)

@@ -21,10 +21,10 @@ def snodas_client(test_settings) -> Iterator[TestClient]:
 
 def test_list_datasets_lists_configured_even_without_data(test_client) -> None:
     # Datasets come from the configured specs, not from what's on disk, so the
-    # built-in snodas dataset is listed even against an un-initialized root.
+    # built-in datasets are listed (sorted) even against an un-initialized root.
     response = test_client.get('/datasets')
     assert response.status_code == 200
-    assert response.json()['datasets'] == ['snodas']
+    assert response.json()['datasets'] == ['instarr', 'snodas', 'swann-800m']
 
 
 def test_get_dataset_info(snodas_client) -> None:

@@ -43,8 +43,6 @@ def spec():
             tile_size=TILE,
             crs=EPSG,
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
 
@@ -147,8 +145,6 @@ def test_cell_area_converts_non_metre_units_to_m2():
             tile_size=TILE,
             crs=2225,  # NAD83 / California zone 2 (US survey feet)
         ),
-        dem_min_m=0.0,
-        dem_max_m=1000.0,
     )
 
     assert spec.is_geographic is False

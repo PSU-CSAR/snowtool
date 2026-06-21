@@ -1,134 +1,18 @@
-"""Synthetic-grid fixtures for the rasterdb pipeline tests.
+"""Re-export the synthetic-grid constants for tests that import them relatively.
 
-Everything runs on a tiny 512x512 (2x2 tile) grid so the full pipeline —
-resample, area raster, AOI rasterize, zonal stats — exercises real rasterio /
-griffine code on hand-computable data, with no system GDAL and no large inputs.
+The fixtures themselves now live in the top-level ``tests/conftest.py`` so the
+``cli`` suite can reuse them; this keeps ``from .conftest import ...`` working for
+the snowdb tests (e.g. test_pipeline) that pull these constants.
 """
 
-import json
-
-import numpy
-import pytest
-import rasterio
-
-from rasterio.crs import CRS
-
-from snowtool.snowdb.cog import write_cog
-from snowtool.snowdb.dataset import Dataset
-from snowtool.snowdb.datasets import SNODAS_VARIABLES
-from snowtool.snowdb.spec import DatasetSpec, GridParams
-
-# Small synthetic grid parameters.
-ORIGIN_X = -120.0
-ORIGIN_Y = 45.0
-PX = 0.01
-SIZE = 512
-TILE = 256
-
-DEM_ELEVATION_M = 1000.0  # uniform; 1000 m -> ~3280 ft -> band (3000, 4000) ft
-DEM_NODATA = -9999.0
-SWE_VALUE = 50  # uniform int16 SWE value
-
-
-@pytest.fixture
-def spec():
-    """A tiny synthetic DatasetSpec (2x2 tile geographic grid)."""
-    return DatasetSpec(
-        name='test',
-        grid_params=GridParams(
-            origin_x=ORIGIN_X,
-            origin_y=ORIGIN_Y,
-            px_size=PX,
-            cols=SIZE,
-            rows=SIZE,
-            tile_size=TILE,
-        ),
-        dem_min_m=-100.0,
-        dem_max_m=2000.0,
-        variables=SNODAS_VARIABLES,
-    )
-
-
-@pytest.fixture
-def grid(spec):
-    return spec.grid
-
-
-@pytest.fixture
-def source_dem(tmp_path, grid):
-    """A uniform-elevation source DEM on the grid extent."""
-    path = tmp_path / 'source_dem.tif'
-    array = numpy.full((SIZE, SIZE), DEM_ELEVATION_M, dtype=numpy.float32)
-    with rasterio.open(
-        path,
-        'w',
-        driver='GTiff',
-        height=SIZE,
-        width=SIZE,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(4326),
-        transform=grid.base_grid.transform,
-        nodata=DEM_NODATA,
-    ) as dst:
-        dst.write(array, 1)
-    return path
-
-
-@pytest.fixture
-def dataset(tmp_path, spec, source_dem):
-    """A fully created Dataset (area raster + resampled DEM)."""
-    return Dataset.create(spec, tmp_path / 'db', source_dem)
-
-
-@pytest.fixture
-def aoi_geojson(tmp_path):
-    """A pourpoint with a polygon inside tile (0, 0)."""
-    # lon -119.9..-119.0, lat 44.9..44.0 -> well inside the first tile.
-    polygon = {
-        'type': 'Polygon',
-        'coordinates': [
-            [
-                [-119.9, 44.9],
-                [-119.0, 44.9],
-                [-119.0, 44.0],
-                [-119.9, 44.0],
-                [-119.9, 44.9],
-            ],
-        ],
-    }
-    point = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
-    feature = {
-        'type': 'GeometryCollection',
-        'id': '12345:MT:USGS',
-        'geometries': [point, polygon],
-        'properties': {'name': 'Test Basin', 'source': 'test'},
-    }
-    path = tmp_path / 'pourpoint.geojson'
-    path.write_text(json.dumps(feature))
-    return path
-
-
-def snodas_swe_name(date_str: str = '20180427') -> str:
-    """A filename matching the SNODAS SWE regex + product glob."""
-    # region=us model=ssm datatype=v1 code=1034 scaled=S vcode=lL00
-    # T timecode=0001 TTNATS <date> hour=05 interval=H offset=P001
-    return f'us_ssmv11034SlL00T0001TTNATS{date_str}05HP001'
-
-
-@pytest.fixture
-def swe_cog(dataset, grid):
-    """Write a uniform SWE COG for 2018-04-27 into the db's cogs dir."""
-    date_str = '20180427'
-    out_dir = dataset._cogs / date_str
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f'{snodas_swe_name(date_str)}.tif'
-    array = numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16)
-    write_cog(
-        path,
-        array,
-        transform=grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
-    return path
+from ..conftest import (  # noqa: F401
+    DEM_ELEVATION_M,
+    DEM_NODATA,
+    ORIGIN_X,
+    ORIGIN_Y,
+    PX,
+    SIZE,
+    SWE_VALUE,
+    TILE,
+    snodas_swe_name,
+)

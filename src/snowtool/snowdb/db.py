@@ -26,6 +26,7 @@ from snowtool.snowdb.tiff_cache import TiffCache
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    from snowtool import types
     from snowtool.snowdb.aoi import AOI
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
@@ -169,6 +170,25 @@ class SnowDb:
             name: dataset.rasterize_aoi(aoi, force=force)
             for name, dataset in self.datasets.items()
         }
+
+    # --- global AOI query helpers (drive the aoi/report commands) -------------
+
+    def aoi_paths(self: Self) -> list[Path]:
+        """The global AOI geojson files under ``aois/``, sorted by path."""
+        if not self.aois_path.is_dir():
+            return []
+        return sorted(self.aois_path.glob('*.geojson'))
+
+    def aois(self: Self) -> Iterator[AOI]:
+        """Parse and yield every global AOI under ``aois/``."""
+        from snowtool.snowdb.aoi import AOI
+
+        for path in self.aoi_paths():
+            yield AOI.from_geojson(path)
+
+    def aoi_triplets(self: Self) -> set[types.StationTriplet]:
+        """The station triplets of every global AOI."""
+        return {aoi.station_triplet for aoi in self.aois()}
 
     def __getitem__(self: Self, name: str) -> Dataset:
         return self.datasets[name]

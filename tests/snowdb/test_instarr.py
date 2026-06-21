@@ -1,0 +1,179 @@
+"""INSTARR (SPIRES NRT) dataset definition + native-sinusoidal mosaic ingest.
+
+The mosaic write path is covered with small synthetic GeoTIFF "tiles" (no NetCDF
+fixture needed -- InstarrMosaicRaster takes GDAL source URIs, the ingester builds
+the ``netcdf:`` ones); the ingester's tile-grouping is covered via a captured
+``write_date_cogs``. The real multi-tile NetCDF mosaic is verified bit-exact
+against actual SPIRES tiles during development.
+"""
+
+from datetime import date
+
+import numpy
+import pytest
+import rasterio
+
+from rasterio.transform import from_origin
+
+from snowtool.exceptions import SNODASError
+from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
+from snowtool.snowdb.datasets.instarr import (
+    INSTARR_SPEC,
+    INSTARR_VARIABLES,
+    InstarrMosaicRaster,
+)
+from snowtool.snowdb.spec import GridParams
+
+
+def test_spec_is_native_modis_sinusoidal():
+    spec = INSTARR_SPEC
+    assert spec.name == 'instarr'
+    # h08-h10 (3 wide) x v04-v05 (2 tall), 2400 px per tile.
+    assert spec.grid_params.cols == 7200
+    assert spec.grid_params.rows == 4800
+    # 512-cell tiles (vs 256 on the ~925 m geographic grids) so the ~463 m cells
+    # give a comparable ground footprint per read window.
+    assert spec.grid_params.tile_size == 512
+    # Projected (sinusoidal, no EPSG) -> constant cell area, no areas.tif.
+    assert spec.crs.to_epsg() is None
+    assert spec.crs.to_dict().get('proj') == 'sinu'
+    assert spec.is_geographic is False
+    assert spec.cell_area == pytest.approx(463.3127165693847**2)
+    assert spec.ingester is not None
+    assert spec.model_prefix == 'Instarr'
+
+
+def test_all_nine_variables():
+    by_key = {v.key: v for v in INSTARR_VARIABLES}
+    assert set(by_key) == {
+        'snow_fraction',
+        'viewable_snow_fraction',
+        'albedo_dirty_flat',
+        'albedo_dirty_terrain_corrected',
+        'deltavis',
+        'grain_size',
+        'dust_concentration',
+        'snow_cover_duration',
+        'radiative_forcing',
+    }
+    for variable in INSTARR_VARIABLES:
+        assert variable.reducer.value == 'mean'
+        assert variable.glob == f'{variable.key}.tif'
+    # uint8 (%, nodata 255) vs uint16 (nodata 65535) split.
+    assert by_key['snow_fraction'].dtype == 'uint8'
+    assert by_key['snow_fraction'].nodata == 255.0
+    assert by_key['radiative_forcing'].dtype == 'uint16'
+    assert by_key['radiative_forcing'].nodata == 65535.0
+
+
+def test_registered_in_default_specs():
+    assert 'instarr' in {s.name for s in DEFAULT_DATASET_SPECS}
+
+
+def test_ingest_empty_source_raises(tmp_path):
+    ds = Dataset(INSTARR_SPEC, tmp_path)
+    with pytest.raises(SNODASError, match='No SPIRES NRT tiles'):
+        ds.ingest(tmp_path)
+
+
+def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
+    # Two dates, with two and one tiles respectively; ingest groups them and
+    # writes one set of per-variable rasters per date (source never opened).
+    layout = {
+        'h08v04/2026/06/SPIRES_NRT_h08v04_MOD09GA061_20260613_V1.0.nc',
+        'h09v04/2026/06/SPIRES_NRT_h09v04_MOD09GA061_20260613_V1.0.nc',
+        'h08v04/2026/06/SPIRES_NRT_h08v04_MOD09GA061_20260614_V1.0.nc',
+    }
+    for rel in layout:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    ds = Dataset(INSTARR_SPEC, tmp_path)
+    calls: list = []
+    monkeypatch.setattr(
+        ds,
+        'write_date_cogs',
+        lambda d, rasters, **k: calls.append((d, list(rasters))),
+    )
+
+    assert ds.ingest(tmp_path) == [date(2026, 6, 13), date(2026, 6, 14)]
+    written = dict(calls)
+    assert set(written) == {date(2026, 6, 13), date(2026, 6, 14)}
+    # One raster per variable, each over the right number of tile source URIs.
+    day13 = written[date(2026, 6, 13)]
+    assert len(day13) == len(INSTARR_VARIABLES)
+    swe_like = next(r for r in day13 if r.variable.key == 'snow_fraction')
+    assert len(swe_like.source_uris) == 2
+    assert all(uri.endswith(':snow_fraction') for uri in swe_like.source_uris)
+    assert len(written[date(2026, 6, 14)][0].source_uris) == 1
+
+
+def _sinusoidal_tile(path, value, *, left, top, size, px):
+    array = numpy.full((size, size), value, dtype='uint8')
+    transform = from_origin(left, top, px, px)
+    with rasterio.open(
+        path,
+        'w',
+        driver='GTiff',
+        height=size,
+        width=size,
+        count=1,
+        dtype='uint8',
+        crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
+        transform=transform,
+        nodata=255,
+    ) as dst:
+        dst.write(array, 1)
+
+
+def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
+    # A 2x2 tile grid (tile=4px) with only two diagonal tiles present; each lands
+    # in its slot by geographic origin, the other two quadrants stay nodata.
+    px = 463.3127165693847
+    tile_px = 16  # COG blocksize must be a multiple of 16
+    origin_x, origin_y = 0.0, 0.0
+    grid = GridParams(
+        origin_x=origin_x,
+        origin_y=origin_y,
+        px_size=px,
+        cols=2 * tile_px,
+        rows=2 * tile_px,
+        tile_size=tile_px,
+        crs=INSTARR_SPEC.grid_params.crs,
+    )
+
+    # top-left tile (value 10) and bottom-right tile (value 40)
+    tl = tmp_path / 'tl.tif'
+    br = tmp_path / 'br.tif'
+    _sinusoidal_tile(tl, 10, left=origin_x, top=origin_y, size=tile_px, px=px)
+    _sinusoidal_tile(
+        br,
+        40,
+        left=origin_x + tile_px * px,
+        top=origin_y - tile_px * px,
+        size=tile_px,
+        px=px,
+    )
+
+    variable = INSTARR_SPEC.variables['snow_fraction']
+    raster = InstarrMosaicRaster(
+        variable,
+        [str(tl), str(br)],
+        grid,
+        transform=rasterio.transform.from_origin(origin_x, origin_y, px, px),
+        crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
+    )
+    out_dir = tmp_path / 'cogs'
+    out_dir.mkdir()
+    raster.write_cog(out_dir)
+
+    with rasterio.open(out_dir / 'snow_fraction.tif') as cog:
+        mosaic = cog.read(1)
+        assert cog.nodata == 255.0
+    # top-left quadrant == 10, bottom-right == 40, the other two all nodata.
+    assert (mosaic[:tile_px, :tile_px] == 10).all()
+    assert (mosaic[tile_px:, tile_px:] == 40).all()
+    assert (mosaic[:tile_px, tile_px:] == 255).all()
+    assert (mosaic[tile_px:, :tile_px] == 255).all()
