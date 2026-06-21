@@ -84,9 +84,13 @@ class SnowDb:
             for name, spec in self._specs.items()
         }
 
+    def _missing_base_dirs(self: Self) -> list[Path]:
+        """Base directories (``aois/`` + ``data/``) the root lacks."""
+        return [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
+
     def _missing_dirs(self: Self) -> list[Path]:
         """Base/dataset directories the root is expected to have but doesn't."""
-        missing = [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
+        missing = self._missing_base_dirs()
         # Only enumerate per-dataset dirs when data/ exists; a missing data/
         # already implies every dataset dir is absent.
         if self.data_path.is_dir():
@@ -116,7 +120,7 @@ class SnowDb:
         on a root that was never ``snowdb init``-ed rather than silently creating
         the base directories themselves.
         """
-        missing = [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
+        missing = self._missing_base_dirs()
         if missing:
             raise FileNotFoundError(
                 f'{self.path} is not an initialized snowdb (missing '
