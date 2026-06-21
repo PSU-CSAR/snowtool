@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from enum import StrEnum, auto
 from math import isnan
 from typing import Annotated, Literal, Protocol, Self
 
@@ -25,17 +24,6 @@ MM = r'(0[1-9]|1[0-2])'
 DD = r'(0[1-9]|[1-2][0-9]|3[0-1])'
 DATE = f'{YYYY}-?{MM}-?{DD}'
 STATION_TRIPLET = r'[a-zA-Z0-9\-]+:[a-zA-Z]{2}:[a-zA-Z]+'
-
-
-class SnodasVariable(StrEnum):
-    SWE = auto()
-    DEPTH = auto()
-    RUNOFF = auto()
-    SUBLIMATION = auto()
-    SUBLIMATION_BLOWING = auto()
-    PRECIP_SOLID = auto()
-    PRECIP_LIQUID = auto()
-    AVERAGE_TEMP = auto()
 
 
 def to_date(value: str) -> date:

@@ -20,6 +20,7 @@ class Tag(BaseModel, frozen=True):
 
 class Tags(StrEnum):
     ROOT = 'root'
+    DATASETS = 'datasets'
 
     def __init__(
         self,

@@ -10,6 +10,7 @@ from snowtool.settings import Settings
 
 from .exceptions import APIError, api_error_handler
 from .request_state import RequestState
+from .routers.datasets import router as datasets_router
 from .routers.root import router as root_router
 from .tags import Tags
 
@@ -48,6 +49,7 @@ def get_app(
     app.state.logger = logger
 
     app.include_router(root_router)
+    app.include_router(datasets_router)
 
     app.exception_handler(APIError)(api_error_handler)
 

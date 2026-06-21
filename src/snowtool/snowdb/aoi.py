@@ -4,17 +4,17 @@ import json
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
-from griffine import Point
+from pyproj import CRS, Transformer
 from shapely import Geometry
 from shapely.geometry import shape
+from shapely.ops import transform as shapely_transform
 
 from snowtool import types
 from snowtool.exceptions import GeoJSONValidationError
 
-if TYPE_CHECKING:
-    from griffine.grid import AffineGridTile, TiledAffineGrid
+_WGS84 = CRS.from_epsg(4326)
 
 # geojson type strings
 GEOM_COLLECTION = 'GeometryCollection'
@@ -102,12 +102,17 @@ class AOI:
 
         return shape(self.polygon)
 
-    def to_tile_extent(
-        self: Self,
-        grid: TiledAffineGrid,
-    ) -> tuple[AffineGridTile, AffineGridTile]:
-        minx, miny, maxx, maxy = self.geometry.bounds
-        # TODO: check intersection with SNODAS grid
-        upperleft = grid.point_to_tile(Point(minx, maxy))
-        bottomright = grid.point_to_tile(Point(maxx, miny))
-        return upperleft, bottomright
+    def geometry_in_crs(self: Self, crs: Any) -> Geometry:
+        """This AOI's polygon reprojected from WGS84 (geojson lon/lat) to ``crs``.
+
+        AOIs are global and stored as geojson (EPSG:4326); a dataset whose grid
+        uses a projected CRS needs the geometry in that CRS before its tile
+        extent and pixel mask are computed. Returns the geometry unchanged when
+        ``crs`` is already WGS84 (the common geographic case).
+        """
+        geometry = self.geometry
+        dst = CRS.from_user_input(crs)
+        if dst == _WGS84:
+            return geometry
+        transformer = Transformer.from_crs(_WGS84, dst, always_xy=True)
+        return shapely_transform(transformer.transform, geometry)

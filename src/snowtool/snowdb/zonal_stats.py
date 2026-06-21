@@ -9,13 +9,14 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
-from snowtool import types
 from snowtool.snowdb.elevation_band import ElevationBand
 from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
 
@@ -32,11 +33,13 @@ class Result:
 class ZonalStats:
     def __init__(
         self: Self,
+        spec: DatasetSpec,
         variables: set[DatasetVariable],
         elevation_bands: tuple[ElevationBand, ...],
         dates: tuple[date, ...],
         *results: Result,
     ) -> None:
+        self.spec = spec
         self._variables_index = {
             variable: idx + 1
             for idx, variable in enumerate(
@@ -78,32 +81,29 @@ class ZonalStats:
                 'Ensure all data was processed and added to results successfully.',
             )
 
-    def dump(self: Self) -> list[types.SnodasZonalStats]:
+    def dump(self: Self) -> list[BaseModel]:
         self.validate()
-        stats: list[types.SnodasZonalStats] = []
+        stat_model = self.spec.zonal_stat_model
+        stats_model = self.spec.zonal_stats_model
+        stats: list[BaseModel] = []
         for date_, date_idx in self._dates_index.items():
-            zones: list[types.SnodasZonalStat] = []
+            zones: list[BaseModel] = []
             for band, band_idx in self._elevation_bands_index.items():
                 results = {
-                    'area_m2': self._array[date_idx][band_idx][0],
+                    'area_m2': float(self._array[date_idx][band_idx][0]),
                 }
                 for variable, var_idx in self._variables_index.items():
                     results[variable.stat_name] = variable.unit.scale(
                         self._array[date_idx][band_idx][var_idx],
                     )
                 zones.append(
-                    types.SnodasZonalStat(
+                    stat_model(
                         min_elevation_ft=band.min,
                         max_elevation_ft=band.max,
                         **results,
                     ),
                 )
-            stats.append(
-                types.SnodasZonalStats(
-                    date=date_,
-                    zones=zones,
-                ),
-            )
+            stats.append(stats_model(date=date_, zones=zones))
         return stats
 
     def dump_to_csv(self: Self, out: IO) -> None:
@@ -163,6 +163,7 @@ class ZonalStats:
         ]
 
         return cls(
+            spec,
             rasters.variables,
             elevation_bands,
             tuple(rasters.dates),

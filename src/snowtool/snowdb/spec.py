@@ -24,6 +24,8 @@ from snowtool.snowdb.grid import make_grid
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from pydantic import BaseModel
+
     from snowtool.snowdb.variables import DatasetVariable
 
 
@@ -77,3 +79,17 @@ class DatasetSpec:
                 'this grid is geographic, so per-cell area varies by latitude.',
             )
         return abs(self.grid.base_grid[0, 0].area)
+
+    @cached_property
+    def zonal_stat_model(self) -> type[BaseModel]:
+        """The generated per-elevation-band response model for this dataset."""
+        from snowtool.snowdb.response_models import build_zonal_stat_model
+
+        return build_zonal_stat_model(self)
+
+    @cached_property
+    def zonal_stats_model(self) -> type[BaseModel]:
+        """The generated per-date response model (a ``date`` plus its zones)."""
+        from snowtool.snowdb.response_models import build_zonal_stats_model
+
+        return build_zonal_stats_model(self, self.zonal_stat_model)
