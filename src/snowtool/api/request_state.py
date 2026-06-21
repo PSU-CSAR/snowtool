@@ -3,8 +3,8 @@ from typing import Any, Self
 
 from fastapi import FastAPI
 
-from snowtool.rasterdb.tiff_cache import TiffCache
 from snowtool.settings import Settings
+from snowtool.snowdb.tiff_cache import TiffCache
 
 
 class RequestState(Mapping):

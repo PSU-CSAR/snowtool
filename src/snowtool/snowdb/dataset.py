@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -14,22 +13,21 @@ from rasterio.warp import Resampling, reproject
 
 from snowtool import types
 from snowtool.exceptions import SNODASError
-from snowtool.rasterdb import constants
-from snowtool.rasterdb.aoi import AOI
-from snowtool.rasterdb.cog import WGS84, write_cog
-from snowtool.rasterdb.fileinfo import Product, SNODASFileInfo
-from snowtool.rasterdb.grid import (
-    SNODAS_GRID,
-    tile_base_origin,
-)
-from snowtool.rasterdb.input_rasters import SNODASInputRasterSet
-from snowtool.rasterdb.raster import DEM, AOIRaster, AreaRaster
+from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.cog import WGS84, write_cog
+from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.grid import tile_base_origin
+from snowtool.snowdb.input_rasters import SNODASInputRasterSet
+from snowtool.snowdb.raster import DEM, AOIRaster, AreaRaster
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from affine import Affine
     from griffine.grid import AffineGridTile, TiledAffineGrid
+
+    from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.variables import DatasetVariable
 
 
 def make_geometry_mask(
@@ -56,6 +54,7 @@ def write_aoi_raster(
     dem: DEM,
     start_tile: AffineGridTile,
     end_tile: AffineGridTile,
+    tile_size: int,
 ) -> None:
     start = tile_base_origin(start_tile)
     end_origin = tile_base_origin(end_tile)
@@ -88,7 +87,7 @@ def write_aoi_raster(
     )
 
     tags = {
-        constants.TILE_BBOX_TAG: (
+        TILE_BBOX_TAG: (
             f'{start_tile.row} {start_tile.col} {end_tile.row} {end_tile.col}'
         ),
     }
@@ -99,24 +98,31 @@ def write_aoi_raster(
         transform=transform,
         crs=dem.crs or WGS84,
         nodata=dem.nodata,
-        tile_size=constants.TILE_SIZE,
+        tile_size=tile_size,
         predictor=3,
         tags=tags,
     )
 
 
-class RasterDatabase:
-    def __init__(
-        self: Self,
-        path: Path,
-        grid: TiledAffineGrid = SNODAS_GRID,
-    ) -> None:
+class Dataset:
+    """A :class:`DatasetSpec` bound to its ``data/<name>/`` directory.
+
+    Owns the per-dataset filesystem layout (``aoi-rasters/``, ``areas.tif``,
+    ``dem.tif``, ``cogs/``) and the operations on it; grid/variables are reached
+    through ``self.spec``.
+    """
+
+    def __init__(self: Self, spec: DatasetSpec, path: Path) -> None:
+        self.spec = spec
         self.path = path
-        self.grid = grid
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
         self._area_raster = self.path / 'areas.tif'
         self._dem = self.path / 'dem.tif'
+
+    @property
+    def grid(self: Self) -> TiledAffineGrid:
+        return self.spec.grid
 
     def validate(self: Self) -> Self:
         if not self.path.exists():
@@ -130,12 +136,12 @@ class RasterDatabase:
     @classmethod
     def create(
         cls: type[Self],
+        spec: DatasetSpec,
         path: Path,
         input_dem_path: Path,
         force: bool = False,
-        grid: TiledAffineGrid = SNODAS_GRID,
     ) -> Self:
-        self = cls(path, grid=grid)
+        self = cls(spec, path)
 
         try:
             self.path.mkdir(exist_ok=force)
@@ -145,8 +151,8 @@ class RasterDatabase:
             self.create_resampled_dem(input_dem_path, force=force)
         except FileExistsError as e:
             raise FileExistsError(
-                f'Could not create SNODAS database: {self.path} already exists. '
-                'Remove and try again or use `force=True`.',
+                f'Could not create {self.spec.name} dataset: {self.path} already '
+                'exists. Remove and try again or use `force=True`.',
             ) from e
 
         return self
@@ -182,7 +188,7 @@ class RasterDatabase:
             area_array,
             transform=base.transform,
             crs=WGS84,
-            tile_size=constants.TILE_SIZE,
+            tile_size=self.spec.grid_params.tile_size,
             predictor=3,
         )
 
@@ -191,9 +197,9 @@ class RasterDatabase:
         input_dem_path: Path,
         force: bool = False,
     ) -> None:
-        self.resample_to_snodas_grid(input_dem_path, self._dem, force=force)
+        self.resample_to_grid(input_dem_path, self._dem, force=force)
 
-    def resample_to_snodas_grid(
+    def resample_to_grid(
         self: Self,
         input_raster_path: Path,
         output_raster_path: Path,
@@ -216,7 +222,7 @@ class RasterDatabase:
             if src_nodata is None:
                 raise SNODASError(
                     f'Cannot resample {input_raster_path}: the source has no '
-                    'nodata value. Resampling to the SNODAS grid can leave '
+                    'nodata value. Resampling to the dataset grid can leave '
                     'cells uncovered by the source, and without a nodata value '
                     'there is no safe way to mark them. Define a nodata value '
                     'on the source raster and try again.',
@@ -243,7 +249,7 @@ class RasterDatabase:
             transform=dst_transform,
             crs=WGS84,
             nodata=src_nodata,
-            tile_size=constants.TILE_SIZE,
+            tile_size=self.spec.grid_params.tile_size,
         )
 
     @staticmethod
@@ -253,22 +259,22 @@ class RasterDatabase:
     def raster_paths_from_query(
         self: Self,
         query: types.DateQuery,
-        product: Product,
-    ) -> Iterator[Path]:
+        variable: DatasetVariable,
+    ) -> Iterator[tuple[date, Path]]:
         for date_ in query.generate_sequence():
             matching_files = list(
-                (self._cogs / self._format_date(date_)).glob(product.to_glob()),
+                (self._cogs / self._format_date(date_)).glob(variable.glob),
             )
 
             if len(matching_files) < 1:
                 continue
             if len(matching_files) > 1:
                 raise RuntimeError(
-                    'Found mutliple files matching date / product '
-                    f"'{date_}' / '{product.value}': {matching_files}",
+                    'Found multiple files matching date / variable '
+                    f"'{date_}' / '{variable.key}': {matching_files}",
                 )
 
-            yield matching_files[0]
+            yield date_, matching_files[0]
 
     def aoi_raster_path_from_triplet(
         self: Self,
@@ -292,6 +298,7 @@ class RasterDatabase:
             DEM.open(self._dem),
             ul_tile,
             br_tile,
+            tile_size=self.spec.grid_params.tile_size,
         )
 
         return AOIRaster.open(path, self.grid)
@@ -320,12 +327,3 @@ class RasterDatabase:
             AOIRaster.open(path, self.grid)
             for path in self._aoi_rasters.glob('*.tif')
         )
-
-    def snodas_rasters(self: Self) -> Iterator[SNODASFileInfo]:
-        for date_dir in self._cogs.iterdir():
-            yield from (SNODASFileInfo(path) for path in date_dir.glob('*.tif'))
-
-
-@cache
-def get_raster_database(path: Path) -> RasterDatabase:
-    return RasterDatabase(path).validate()

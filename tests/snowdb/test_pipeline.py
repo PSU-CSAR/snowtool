@@ -7,20 +7,19 @@ import pytest
 import rasterio
 
 from snowtool.exceptions import SNODASError
-from snowtool.rasterdb.aoi import AOI
-from snowtool.rasterdb.cog import write_cog
-from snowtool.rasterdb.constants import TILE_BBOX_TAG
-from snowtool.rasterdb.fileinfo import Product
-from snowtool.rasterdb.raster import AOIRaster, AOIRasterWithArea
-from snowtool.rasterdb.raster_collection import RasterCollection
-from snowtool.rasterdb.tiff_cache import TiffCache
-from snowtool.rasterdb.zonal_stats import ZonalStats
+from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea
+from snowtool.snowdb.raster_collection import RasterCollection
+from snowtool.snowdb.tiff_cache import TiffCache
+from snowtool.snowdb.zonal_stats import ZonalStats
 
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 
-def test_resampled_dem(rasterdb, grid):
-    with rasterio.open(rasterdb._dem) as ds:
+def test_resampled_dem(dataset, grid):
+    with rasterio.open(dataset._dem) as ds:
         assert ds.shape == (SIZE, SIZE)
         assert ds.crs == rasterio.CRS.from_epsg(4326)
         assert ds.transform == grid.base_grid.transform
@@ -29,8 +28,8 @@ def test_resampled_dem(rasterdb, grid):
     assert numpy.allclose(data, DEM_ELEVATION_M)
 
 
-def test_area_raster(rasterdb, grid):
-    with rasterio.open(rasterdb._area_raster) as ds:
+def test_area_raster(dataset, grid):
+    with rasterio.open(dataset._area_raster) as ds:
         assert ds.shape == (SIZE, SIZE)
         data = ds.read(1)
     assert (data > 0).all()
@@ -41,9 +40,9 @@ def test_area_raster(rasterdb, grid):
     assert data[0, 0] == numpy.float32(expected_row0)
 
 
-def test_rasterize_aoi(rasterdb, aoi_geojson):
+def test_rasterize_aoi(dataset, aoi_geojson):
     aoi = AOI.from_geojson(aoi_geojson)
-    aoi_raster = rasterdb.rasterize_aoi(aoi)
+    aoi_raster = dataset.rasterize_aoi(aoi)
 
     # polygon sits inside a single tile -> one-tile AOI window
     assert aoi_raster.array.shape == (TILE, TILE)
@@ -65,51 +64,25 @@ def test_rasterize_aoi(rasterdb, aoi_geojson):
     assert 0 < inside.sum() < TILE * TILE
 
 
-def test_aoi_raster_reopen_roundtrips_tiles(rasterdb, aoi_geojson):
+def test_aoi_raster_reopen_roundtrips_tiles(dataset, aoi_geojson):
     aoi = AOI.from_geojson(aoi_geojson)
-    written = rasterdb.rasterize_aoi(aoi, force=True)
-    reopened = AOIRaster.open(written.path, rasterdb.grid)
+    written = dataset.rasterize_aoi(aoi, force=True)
+    reopened = AOIRaster.open(written.path, dataset.grid)
     assert {(t.row, t.col) for t in reopened.tiles} == {
         (t.row, t.col) for t in written.tiles
     }
     assert reopened.origin == written.origin
 
 
-def test_aoi_raster_reads_legacy_quadkey_tags(tmp_path):
-    """Old (snodas) COGs identify tiles by quadkey; they must still read."""
-    from snowtool.rasterdb.cog import write_cog
-    from snowtool.rasterdb.constants import (
-        LEGACY_ORIGIN_TILE_TAG,
-        LEGACY_TILE_TAG_PREFIX,
-    )
-    from snowtool.rasterdb.grid import SNODAS_GRID, tile_base_origin
-
-    # tile (2, 4) encodes to the legacy quadkey '0120'
-    path = tmp_path / 'legacy.tif'
-    write_cog(
-        path,
-        numpy.zeros((TILE, TILE), dtype=numpy.float32),
-        transform=SNODAS_GRID[2, 4].transform,
-        tile_size=TILE,
-        tags={
-            LEGACY_ORIGIN_TILE_TAG: '0120',
-            f'{LEGACY_TILE_TAG_PREFIX}_000': '0120',
-        },
-    )
-
-    aoi_raster = AOIRaster.open(path, SNODAS_GRID)
-    assert [(t.row, t.col) for t in aoi_raster.tiles] == [(2, 4)]
-    assert aoi_raster.origin == tile_base_origin(SNODAS_GRID[2, 4])
-
-
-def test_zonal_stats(rasterdb, aoi_geojson, swe_cog):
+def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     aoi = AOI.from_geojson(aoi_geojson)
-    aoi_raster = rasterdb.rasterize_aoi(aoi)
+    aoi_raster = dataset.rasterize_aoi(aoi)
 
-    collection = RasterCollection.from_products_query(
+    swe = dataset.spec.variables['swe']
+    collection = RasterCollection.from_variables_query(
         query=_SingleDateQuery(),
-        products={Product.SNOW_WATER_EQUIVALENT},
-        rasterdb=rasterdb,
+        variables={swe},
+        dataset=dataset,
     )
 
     async def run():
@@ -117,10 +90,15 @@ def test_zonal_stats(rasterdb, aoi_geojson, swe_cog):
         cache = TiffCache(maxsize=8)
         aoi_with_area = await AOIRasterWithArea.from_aoi_raster(
             aoi_raster,
-            rasterdb.area_raster(),
+            dataset.area_raster(),
             cache,
         )
-        stats = await ZonalStats.calculate(aoi_with_area, collection, cache)
+        stats = await ZonalStats.calculate(
+            aoi_with_area,
+            collection,
+            cache,
+            dataset.spec,
+        )
         return aoi_with_area, stats
 
     aoi_with_area, stats = asyncio.run(run())

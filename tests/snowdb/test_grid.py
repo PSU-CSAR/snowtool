@@ -1,8 +1,8 @@
 """Grid math tests.
 
 These pin the griffine-backed SNODAS grid against the legacy hand-rolled
-formulas it replaced, and exercise the snowtool-specific quadkey / area helpers
-on both the real grid and a tiny synthetic grid.
+formulas it replaced, and exercise the snowtool-specific tile/area helpers on
+both the real grid and a tiny synthetic grid.
 """
 
 import pytest
@@ -10,28 +10,36 @@ import pytest
 from griffine import Point
 from pyproj import Geod
 
-from snowtool.rasterdb import constants
-from snowtool.rasterdb.grid import (
-    SNODAS_GRID,
-    bounds,
-    make_snodas_grid,
-    quadkey_to_tile_coords,
-    tile_from_quadkey,
-    tiles_in_bbox,
-)
+from snowtool.snowdb.datasets import SNODAS_SPEC
+from snowtool.snowdb.grid import make_grid, tiles_in_bbox
+
+SNODAS_GRID = SNODAS_SPEC.grid
+_GP = SNODAS_SPEC.grid_params  # SNODAS_SPEC is the source of truth for these
+
+
+def bounds(transformable) -> tuple[float, float, float, float]:
+    """``(minx, miny, maxx, maxy)`` world bounds of a griffine cell or tile."""
+    origin = transformable.origin
+    antiorigin = transformable.antiorigin
+    return (
+        min(origin.x, antiorigin.x),
+        min(origin.y, antiorigin.y),
+        max(origin.x, antiorigin.x),
+        max(origin.y, antiorigin.y),
+    )
 
 # --- legacy reference implementations (verbatim math from the old code) -------
 
 
 def legacy_latlon_to_pixel(lat: float, lon: float) -> tuple[int, int]:
-    row = int((constants.ORIGIN_Y - lat) / constants.PX_SIZE)
-    col = int((lon - constants.ORIGIN_X) / constants.PX_SIZE)
+    row = int((_GP.origin_y - lat) / _GP.px_size)
+    col = int((lon - _GP.origin_x) / _GP.px_size)
     return row, col
 
 
 def legacy_pixel_to_latlon(row: int, col: int) -> tuple[float, float]:
-    lat = constants.ORIGIN_Y - (row * constants.PX_SIZE)
-    lon = constants.ORIGIN_X + (col * constants.PX_SIZE)
+    lat = _GP.origin_y - (row * _GP.px_size)
+    lon = _GP.origin_x + (col * _GP.px_size)
     return lat, lon
 
 
@@ -70,8 +78,8 @@ def test_point_to_tile_matches_pixel_floor_div() -> None:
     cell = SNODAS_GRID.base_grid.point_to_cell(pt)
     tile = SNODAS_GRID.point_to_tile(pt)
     assert (tile.row, tile.col) == (
-        cell.row // constants.TILE_SIZE,
-        cell.col // constants.TILE_SIZE,
+        cell.row // _GP.tile_size,
+        cell.col // _GP.tile_size,
     )
     # tile's base-pixel origin lines up with the block grid
     base_row, base_col = SNODAS_GRID.tile_coords_to_base_coords(
@@ -81,8 +89,8 @@ def test_point_to_tile_matches_pixel_floor_div() -> None:
         tile.col,
     )
     assert (base_row, base_col) == (
-        tile.row * constants.TILE_SIZE,
-        tile.col * constants.TILE_SIZE,
+        tile.row * _GP.tile_size,
+        tile.col * _GP.tile_size,
     )
 
 
@@ -100,35 +108,6 @@ def test_tiles_in_bbox() -> None:
 def test_tiles_in_bbox_single_tile() -> None:
     tiles = tiles_in_bbox(SNODAS_GRID, 5, 7, 5, 7)
     assert [(t.row, t.col) for t in tiles] == [(5, 7)]
-
-
-# --- legacy quadkey decoding (read-only, back-compat with old metadata) -------
-
-
-@pytest.mark.parametrize(
-    ('row', 'col', 'quadkey'),
-    [
-        (0, 0, '0000'),
-        (0, 1, '0001'),
-        (1, 0, '0002'),
-        (1, 1, '0003'),
-        (2, 4, '0120'),
-    ],
-)
-def test_quadkey_decodes_to_tile_coords(row: int, col: int, quadkey: str) -> None:
-    assert quadkey_to_tile_coords(quadkey) == (row, col)
-    tile = tile_from_quadkey(SNODAS_GRID, quadkey)
-    assert (tile.row, tile.col) == (row, col)
-
-
-def test_quadkey_wrong_zoom_rejected() -> None:
-    with pytest.raises(ValueError, match='zoom'):
-        quadkey_to_tile_coords('012')  # 3 chars, native zoom is 4
-
-
-def test_quadkey_invalid_char_rejected() -> None:
-    with pytest.raises(ValueError, match='Invalid quadkey'):
-        quadkey_to_tile_coords('0009')
 
 
 # --- geodesic area (griffine native, via the grid's geographic CRS) -----------
@@ -153,7 +132,7 @@ def test_cell_area_matches_geodesic_reference(row: int) -> None:
 
 
 def test_small_synthetic_grid() -> None:
-    grid = make_snodas_grid(
+    grid = make_grid(
         origin_x=-120.0,
         origin_y=45.0,
         px_size=0.01,

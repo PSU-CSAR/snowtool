@@ -12,21 +12,21 @@ import rasterio
 
 from snowtool import types
 from snowtool.exceptions import SNODASError
-from snowtool.rasterdb import constants
-from snowtool.rasterdb.grid import (
+from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.grid import (
     PixelCoord,
     tile_base_origin,
-    tile_from_quadkey,
     tiles_in_bbox,
 )
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from affine import Affine
     from griffine.grid import AffineGridTile, TiledAffineGrid
     from rasterio.crs import CRS
 
-    from snowtool.rasterdb.fileinfo import SNODASFileInfo
-    from snowtool.rasterdb.tiff_cache import TiffCache
+    from snowtool.snowdb.tiff_cache import TiffCache
 
 
 def _decode_to_array(
@@ -85,43 +85,40 @@ class AreaRaster(TiledRaster[numpy.float32]):
     pass
 
 
-class SNODASRaster(TiledRaster[numpy.int16]):
-    def __init__(self: Self, fileinfo: SNODASFileInfo) -> None:
-        super().__init__(fileinfo.path)
-        self.fileinfo = fileinfo
+class DataRaster(TiledRaster[numpy.generic]):
+    """A dated data COG for one variable on one date.
+
+    The read path is dataset-agnostic: the date comes from the ``cogs/<date>/``
+    directory the file was found in, not from parsing its name, and the read
+    dtype comes from the requesting variable.
+    """
+
+    def __init__(self: Self, path: Path, date: date) -> None:
+        super().__init__(path)
+        self.date = date
 
 
-def _tiles_from_tags(
+def tiles_from_tags(
     grid: TiledAffineGrid,
     tags: dict[str, str],
 ) -> tuple[PixelCoord, list[AffineGridTile]]:
-    """Resolve the AOI window origin and the tiles it spans, from metadata.
+    """Resolve an AOI window's origin and tiles from a COG's metadata.
 
-    Current files store a ``ul_row ul_col br_row br_col`` tile bounding box;
-    legacy (snodas) files store an origin-tile quadkey plus a per-tile
-    intersected set of quadkeys. The tag names distinguish the two, so old COGs
-    still read.
+    AOI rasters store a ``ul_row ul_col br_row br_col`` tile bounding box in
+    ``SNOWTOOL_TILE_BBOX``. The upper-left tile is the window origin and every
+    tile in the box is read (the AOI mask nulls non-AOI pixels). Legacy snodas
+    quadkey tags are not read here; migrate them first with
+    ``snowtool migration aoi-tags``.
     """
-    if constants.TILE_BBOX_TAG in tags:
-        ul_row, ul_col, br_row, br_col = (
-            int(v) for v in tags[constants.TILE_BBOX_TAG].split()
-        )
-        origin = tile_base_origin(grid[ul_row, ul_col])
-        tiles = tiles_in_bbox(grid, ul_row, ul_col, br_row, br_col)
-        return origin, tiles
+    try:
+        bbox = tags[TILE_BBOX_TAG]
+    except KeyError as e:
+        raise ValueError('AOI raster is missing tile metadata') from e
 
-    if constants.LEGACY_ORIGIN_TILE_TAG in tags:
-        origin = tile_base_origin(
-            tile_from_quadkey(grid, tags[constants.LEGACY_ORIGIN_TILE_TAG]),
-        )
-        tiles = [
-            tile_from_quadkey(grid, val)
-            for key, val in tags.items()
-            if key.startswith(constants.LEGACY_TILE_TAG_PREFIX)
-        ]
-        return origin, tiles
-
-    raise ValueError('AOI raster is missing tile metadata')
+    ul_row, ul_col, br_row, br_col = (int(v) for v in bbox.split())
+    origin = tile_base_origin(grid[ul_row, ul_col])
+    tiles = tiles_in_bbox(grid, ul_row, ul_col, br_row, br_col)
+    return origin, tiles
 
 
 @dataclass
@@ -145,7 +142,7 @@ class AOIRaster:
     ) -> Self:
         with rasterio.open(path) as ds:
             tags = ds.tags()
-            origin, tiles = _tiles_from_tags(grid, tags)
+            origin, tiles = tiles_from_tags(grid, tags)
 
             band_tags = ds.tags(1)
             try:

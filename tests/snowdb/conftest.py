@@ -13,9 +13,10 @@ import rasterio
 
 from rasterio.crs import CRS
 
-from snowtool.rasterdb.cog import write_cog
-from snowtool.rasterdb.db import RasterDatabase
-from snowtool.rasterdb.grid import make_snodas_grid
+from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import SNODAS_VARIABLES
+from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 # Small synthetic grid parameters.
 ORIGIN_X = -120.0
@@ -30,15 +31,27 @@ SWE_VALUE = 50  # uniform int16 SWE value
 
 
 @pytest.fixture
-def grid():
-    return make_snodas_grid(
-        origin_x=ORIGIN_X,
-        origin_y=ORIGIN_Y,
-        px_size=PX,
-        cols=SIZE,
-        rows=SIZE,
-        tile_size=TILE,
+def spec():
+    """A tiny synthetic DatasetSpec (2x2 tile geographic grid)."""
+    return DatasetSpec(
+        name='test',
+        grid_params=GridParams(
+            origin_x=ORIGIN_X,
+            origin_y=ORIGIN_Y,
+            px_size=PX,
+            cols=SIZE,
+            rows=SIZE,
+            tile_size=TILE,
+        ),
+        dem_min_m=-100.0,
+        dem_max_m=2000.0,
+        variables=SNODAS_VARIABLES,
     )
+
+
+@pytest.fixture
+def grid(spec):
+    return spec.grid
 
 
 @pytest.fixture
@@ -63,13 +76,9 @@ def source_dem(tmp_path, grid):
 
 
 @pytest.fixture
-def rasterdb(tmp_path, grid, source_dem):
-    """A fully created RasterDatabase (area raster + resampled DEM)."""
-    return RasterDatabase.create(
-        tmp_path / 'db',
-        source_dem,
-        grid=grid,
-    )
+def dataset(tmp_path, spec, source_dem):
+    """A fully created Dataset (area raster + resampled DEM)."""
+    return Dataset.create(spec, tmp_path / 'db', source_dem)
 
 
 @pytest.fixture
@@ -108,10 +117,10 @@ def snodas_swe_name(date_str: str = '20180427') -> str:
 
 
 @pytest.fixture
-def swe_cog(rasterdb, grid):
+def swe_cog(dataset, grid):
     """Write a uniform SWE COG for 2018-04-27 into the db's cogs dir."""
     date_str = '20180427'
-    out_dir = rasterdb._cogs / date_str
+    out_dir = dataset._cogs / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f'{snodas_swe_name(date_str)}.tif'
     array = numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16)
