@@ -1,17 +1,26 @@
-"""DEM sources: LocalFile, the osgeo-free VRT mosaic, and 3DEP tile enumeration."""
+"""DEM sources: LocalFile, the osgeo-free VRT mosaic, and 3DEP tile discovery."""
+
+import asyncio
+import types
 
 import numpy
 import pytest
 import rasterio
 
+from async_tiff.enums import SampleFormat
+from async_tiff.store import LocalStore
 from rasterio.crs import CRS
 
+from snowtool.snowdb import dem_source
 from snowtool.snowdb.dem_source import (
+    TIFF,
     LocalFile,
+    MosaicTile,
     ThreeDEP,
+    _parse_geo_header,
     build_mosaic_vrt,
     candidate_tiles,
-    existing_tile_keys,
+    discover_tiles,
 )
 
 
@@ -31,6 +40,17 @@ def _tile(path, x0, y0, value, n=4, px=1.0):
     ) as dst:
         dst.write(numpy.full((n, n), value, dtype='float32'), 1)
     return path
+
+
+def _parse_local(path) -> MosaicTile:
+    """Parse a real local GeoTIFF through the production header-parse path."""
+
+    async def _run():
+        store = LocalStore(prefix=str(path.parent))
+        tiff = await TIFF.open(path.name, store=store)
+        return _parse_geo_header(tiff.ifd(0), str(path))
+
+    return asyncio.run(_run())
 
 
 def test_local_file_open_yields_the_dataset(tmp_path):
@@ -67,9 +87,25 @@ def test_candidate_tiles_names_nw_corner_tiles():
     assert tiles == ['n40w106', 'n40w107', 'n41w106', 'n41w107']
 
 
+def test_parse_geo_header_reads_the_tile_box(tmp_path):
+    # The geo-header is read straight from the GeoTIFF's IFD -- no pixel reads.
+    path = _tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0)
+
+    tile = _parse_local(path)
+
+    assert (tile.origin_x, tile.origin_y) == (0.0, 4.0)
+    assert (tile.px, tile.py) == (1.0, -1.0)
+    assert (tile.width, tile.height) == (4, 4)
+    assert tile.dtype == 'float32'
+    assert tile.nodata == -9999.0
+    assert CRS.from_wkt(tile.crs_wkt) == CRS.from_epsg(4326)
+
+
 def test_build_mosaic_vrt_stitches_adjacent_tiles(tmp_path):
-    left = _tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0)
-    right = _tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0)
+    # Real tiles parsed through discovery's header path, then assembled with no
+    # further reads -- the VRT places each by its derived geometry.
+    left = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0))
+    right = _parse_local(_tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0))
 
     vrt = build_mosaic_vrt([left, right], tmp_path / 'm.vrt')
 
@@ -80,51 +116,14 @@ def test_build_mosaic_vrt_stitches_adjacent_tiles(tmp_path):
     assert (data[:, 4:] == 2.0).all()
 
 
-def _client_error(code):
-    from botocore.exceptions import ClientError
-
-    return ClientError({'Error': {'Code': code, 'Message': code}}, 'HeadObject')
-
-
-def test_existing_tile_keys_keeps_only_present_tiles(monkeypatch):
-    class _FakeS3:
-        def head_object(self, Bucket, Key):  # noqa: N803 - boto3 kwarg name
-            if 'n40w107' not in Key:
-                # A genuine "not published" tile: head_object 404s.
-                raise _client_error('404')
-
-    monkeypatch.setattr('boto3.client', lambda *a, **k: _FakeS3())
-
-    keys = existing_tile_keys((-106.5, 39.2, -105.1, 40.3))
-
-    assert len(keys) == 1
-    assert keys[0].endswith('n40w107/USGS_13_n40w107.tif')
-
-
-def test_existing_tile_keys_reraises_non_404_errors(monkeypatch):
-    # A transient failure (throttling / 5xx) must surface, not be swallowed as
-    # "tile absent" -- otherwise the mosaic silently loses a real tile.
-    from botocore.exceptions import ClientError
-
-    class _FakeS3:
-        def head_object(self, Bucket, Key):  # noqa: N803 - boto3 kwarg name
-            raise _client_error('503')
-
-    monkeypatch.setattr('boto3.client', lambda *a, **k: _FakeS3())
-
-    with pytest.raises(ClientError):
-        existing_tile_keys((-106.5, 39.2, -105.1, 40.3))
-
-
-def test_threedep_open_builds_a_vrt_over_existing_tiles(tmp_path, monkeypatch):
-    # Two real local tiles stand in for the remote COGs the enumeration returns.
-    left = _tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0)
-    right = _tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0)
-    # The enumeration's keys are turned into source URIs verbatim here.
+def test_threedep_open_builds_a_vrt_over_discovered_tiles(tmp_path, monkeypatch):
+    # Two real local tiles stand in for the remote COGs discovery returns.
+    left = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0))
+    right = _parse_local(_tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0))
     monkeypatch.setattr(
-        ThreeDEP,
-        '_tile_uris',
-        lambda self, bounds: [str(left), str(right)],
+        dem_source,
+        'discover_tiles',
+        lambda bounds: [left, right],
     )
 
     with ThreeDEP().open((0.0, 0.0, 8.0, 4.0)) as src:
@@ -132,8 +131,90 @@ def test_threedep_open_builds_a_vrt_over_existing_tiles(tmp_path, monkeypatch):
         assert src.read(1)[0, 0] == 1.0
 
 
+# --- Discovery: existence + the review-#2 error-taxonomy guards ---------------
+
+
+class _TransientError(Exception):
+    """Stand-in for a non-not-found S3 failure (throttling / 5xx / network)."""
+
+
+def _fake_ifd():
+    return types.SimpleNamespace(
+        model_pixel_scale=[1.0, 1.0, 0.0],
+        model_tiepoint=[0.0, 0.0, 0.0, 0.0, 4.0, 0.0],
+        sample_format=[SampleFormat.Float],
+        bits_per_sample=[32],
+        gdal_nodata='-9999',
+        geo_key_directory=types.SimpleNamespace(
+            projected_type=None,
+            geographic_type=4326,
+        ),
+        image_width=4,
+        image_height=4,
+    )
+
+
+def _fake_tiff(open_fn):
+    return types.SimpleNamespace(open=open_fn)
+
+
+def test_discover_tiles_keeps_only_present_tiles(monkeypatch):
+    # A genuine 404 (missing key -> FileNotFoundError) means "not published" and
+    # is dropped; the existing tile is kept.
+    async def _open(key, store):
+        if 'n40w107' in key:
+            return types.SimpleNamespace(ifd=lambda i: _fake_ifd())
+        raise FileNotFoundError(key)
+
+    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+
+    tiles = discover_tiles((-106.5, 39.2, -105.1, 40.3))
+
+    assert len(tiles) == 1
+    assert tiles[0].uri.endswith('n40w107/USGS_13_n40w107.tif')
+
+
+def test_discover_tiles_surfaces_non_not_found_errors(monkeypatch):
+    # A transient failure must surface, not be swallowed as "tile absent" --
+    # otherwise the mosaic silently loses a real tile.
+    async def _open(key, store):
+        raise _TransientError('503')
+
+    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+
+    with pytest.raises(_TransientError):
+        discover_tiles((-106.5, 39.2, -105.1, 40.3))
+
+
+def test_discover_tiles_probes_concurrently_and_sorts(monkeypatch):
+    # All probes are in flight at once (one concurrent pass), and the result is
+    # sorted by URI regardless of completion order.
+    state = {'in_flight': 0, 'peak': 0}
+
+    async def _open(key, store):
+        state['in_flight'] += 1
+        state['peak'] = max(state['peak'], state['in_flight'])
+        await asyncio.sleep(0.01)
+        state['in_flight'] -= 1
+        return types.SimpleNamespace(ifd=lambda i: _fake_ifd())
+
+    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+
+    # Four candidate tiles for this extent.
+    tiles = discover_tiles((-106.5, 39.2, -105.1, 40.3))
+
+    assert state['peak'] == 4
+    uris = [t.uri for t in tiles]
+    assert uris == sorted(uris)
+
+
 def test_threedep_open_errors_when_no_tiles(monkeypatch):
-    monkeypatch.setattr(ThreeDEP, '_tile_uris', lambda self, bounds: [])
+    # Every candidate 404s -> discovery is empty -> ThreeDEP.open refuses.
+    async def _open(key, store):
+        raise FileNotFoundError(key)
+
+    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+
     with pytest.raises(RuntimeError, match='No 3DEP tiles'), ThreeDEP().open(
         (0.0, 0.0, 1.0, 1.0),
     ):

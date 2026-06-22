@@ -9,25 +9,35 @@ not of any one dataset: ``init`` reads one source and bins it into every grid.
 * :class:`LocalFile` -- an on-disk raster or VRT the operator already has (this
   is the "import from a file" path).
 * :class:`ThreeDEP` -- streams USGS 3DEP 1/3 arc-second tiles from the public
-  ``prd-tnm`` S3 bucket. The tiles for the extent are enumerated (anonymous S3
-  ``head_object`` existence checks) and stitched into a **VRT mosaic built as
-  XML** -- the project is deliberately off the ``osgeo`` Python bindings, so
-  ``gdal.BuildVRT`` is not used; rasterio's bundled GDAL reads the ``.vrt`` we
-  write.
+  ``prd-tnm`` S3 bucket. The tiles for the extent are discovered in a single
+  concurrent pass on the ``async-tiff`` store layer the COG read path already
+  uses (:func:`discover_tiles`): each candidate is opened anonymously, which both
+  proves it exists *and* yields its geo-header, so the existing tiles are then
+  stitched into a **VRT mosaic built as XML** -- the project is deliberately off
+  the ``osgeo`` Python bindings, so ``gdal.BuildVRT`` is not used; rasterio's
+  bundled GDAL reads the ``.vrt`` we write. The actual pixel streaming is GDAL
+  over ``/vsis3/``, independent of the discovery store.
 """
 
 from __future__ import annotations
 
+import asyncio
 import math
 import tempfile
 
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 from xml.sax.saxutils import escape
 
 import rasterio
+
+from async_tiff import TIFF
+from async_tiff.enums import SampleFormat
+from async_tiff.store import S3Store
+from rasterio.crs import CRS
 
 from snowtool.snowdb.terrain_generate import (
     DEFAULT_WORK_CRS,
@@ -42,6 +52,7 @@ Bounds = tuple[float, float, float, float]
 
 # USGS 3DEP 1/3 arc-second staged COGs on the public registry-of-open-data bucket.
 _S3_BUCKET = 'prd-tnm'
+_S3_REGION = 'us-west-2'
 _S3_PREFIX = 'StagedProducts/Elevation/13/TIFF/current'
 _TIF_NAME = 'USGS_13_{tile}.tif'
 
@@ -64,6 +75,19 @@ _GDAL_DTYPES = {
     'uint32': 'UInt32',
     'float32': 'Float32',
     'float64': 'Float64',
+}
+
+# (TIFF SampleFormat, bits-per-sample) -> rasterio dtype string. Covers the
+# integer/float widths 3DEP (and any sane DEM) actually ships; an unmapped pair
+# raises rather than guessing.
+_SAMPLE_DTYPES = {
+    (SampleFormat.Uint, 8): 'uint8',
+    (SampleFormat.Uint, 16): 'uint16',
+    (SampleFormat.Uint, 32): 'uint32',
+    (SampleFormat.Int, 16): 'int16',
+    (SampleFormat.Int, 32): 'int32',
+    (SampleFormat.Float, 32): 'float32',
+    (SampleFormat.Float, 64): 'float64',
 }
 
 
@@ -134,19 +158,36 @@ class ThreeDEP(DemSource):
 
     @contextmanager
     def open(self: Self, bounds: Bounds) -> Iterator[rasterio.io.DatasetReader]:
-        uris = self._tile_uris(bounds)
-        if not uris:
+        tiles = discover_tiles(bounds)
+        if not tiles:
             raise RuntimeError(
                 f'No 3DEP tiles found for extent {bounds}; check the bounds.',
             )
         with rasterio.Env(**_S3_ENV), tempfile.TemporaryDirectory() as tmp:
-            vrt_path = build_mosaic_vrt(uris, Path(tmp) / 'source.vrt')
+            vrt_path = build_mosaic_vrt(tiles, Path(tmp) / 'source.vrt')
             with rasterio.open(vrt_path) as src:
                 yield src
 
-    def _tile_uris(self: Self, bounds: Bounds) -> list[str]:
-        keys = existing_tile_keys(bounds)
-        return [f'/vsis3/{_S3_BUCKET}/{key}' for key in keys]
+
+@dataclass(frozen=True)
+class MosaicTile:
+    """A discovered 3DEP tile: its stream URI plus the geo-header for the VRT.
+
+    Populated from the tile's GeoTIFF header during discovery, so building the
+    mosaic needs no further per-tile reads. ``py`` is the (negative) north-up
+    pixel height; ``crs_wkt`` is the source CRS as WKT.
+    """
+
+    uri: str
+    origin_x: float
+    origin_y: float
+    px: float
+    py: float
+    width: int
+    height: int
+    dtype: str
+    nodata: float | None
+    crs_wkt: str
 
 
 def candidate_tiles(bounds: Bounds) -> list[str]:
@@ -164,31 +205,85 @@ def candidate_tiles(bounds: Bounds) -> list[str]:
     return sorted(tiles)
 
 
-def existing_tile_keys(bounds: Bounds) -> list[str]:
-    """The S3 keys of the candidate tiles that actually exist (anonymous check)."""
-    import boto3
+def _tile_key(tile: str) -> str:
+    return f'{_S3_PREFIX}/{tile}/{_TIF_NAME.format(tile=tile)}'
 
-    from botocore import UNSIGNED
-    from botocore.client import Config
-    from botocore.exceptions import ClientError
 
-    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-    keys: list[str] = []
-    for tile in candidate_tiles(bounds):
-        key = f'{_S3_PREFIX}/{tile}/{_TIF_NAME.format(tile=tile)}'
-        try:
-            s3.head_object(Bucket=_S3_BUCKET, Key=key)
-        except ClientError as e:
-            # A genuine 404 means the tile isn't published; anything else
-            # (throttling, auth, a transient 5xx) must surface, not silently
-            # drop a real tile and leave a hole in the mosaic. Network errors
-            # (EndpointConnectionError, timeouts) are BotoCoreError, not
-            # ClientError, so they propagate here too.
-            if e.response.get('Error', {}).get('Code') == '404':
-                continue
-            raise
-        keys.append(key)
-    return keys
+def _anonymous_store() -> S3Store:
+    """An unsigned ``async-tiff`` S3 store for the public ``prd-tnm`` bucket."""
+    return S3Store(
+        _S3_BUCKET,
+        config={'skip_signature': 'true', 'region': _S3_REGION},
+    )
+
+
+def _parse_geo_header(ifd: object, uri: str) -> MosaicTile:
+    """Build a :class:`MosaicTile` from an opened tile's first IFD.
+
+    3DEP tiles are north-up GeoTIFFs, so the model pixel-scale + tiepoint give
+    the transform directly and the GeoKey EPSG gives the CRS -- no pixel reads.
+    """
+    scale = ifd.model_pixel_scale  # type: ignore[attr-defined]
+    tiepoint = ifd.model_tiepoint  # type: ignore[attr-defined]
+    fmt = ifd.sample_format[0]  # type: ignore[attr-defined]
+    bits = ifd.bits_per_sample[0]  # type: ignore[attr-defined]
+    try:
+        dtype = _SAMPLE_DTYPES[(fmt, bits)]
+    except KeyError as e:
+        raise ValueError(
+            f'Unsupported sample format/bits for VRT mosaic: {fmt}/{bits}',
+        ) from e
+    raw_nodata = ifd.gdal_nodata  # type: ignore[attr-defined]
+    gk = ifd.geo_key_directory  # type: ignore[attr-defined]
+    epsg = gk.projected_type or gk.geographic_type
+    return MosaicTile(
+        uri=uri,
+        origin_x=tiepoint[3],
+        origin_y=tiepoint[4],
+        px=scale[0],
+        py=-scale[1],
+        width=ifd.image_width,  # type: ignore[attr-defined]
+        height=ifd.image_height,  # type: ignore[attr-defined]
+        dtype=dtype,
+        nodata=None if raw_nodata is None else float(raw_nodata),
+        crs_wkt=CRS.from_epsg(epsg).to_wkt(),
+    )
+
+
+async def _probe_tile(store: S3Store, tile: str) -> MosaicTile | None:
+    """Open one candidate tile: its header if it exists, else ``None``.
+
+    Only a genuine not-found (404) means "tile not published" and is swallowed;
+    everything else (throttling, auth, a transient 5xx, a network error) must
+    surface rather than silently drop a real tile and leave a hole in the mosaic.
+    ``async-tiff`` maps a missing key to ``FileNotFoundError`` and all other S3
+    failures to its own exception, so a single typed catch preserves that.
+    """
+    key = _tile_key(tile)
+    try:
+        tiff = await TIFF.open(key, store=store)
+    except FileNotFoundError:
+        return None
+    return _parse_geo_header(tiff.ifd(0), f'/vsis3/{_S3_BUCKET}/{key}')
+
+
+async def _discover_async(bounds: Bounds, store: S3Store) -> list[MosaicTile]:
+    """Probe every candidate tile concurrently; return the existing ones sorted."""
+    tiles = await asyncio.gather(
+        *(_probe_tile(store, tile) for tile in candidate_tiles(bounds)),
+    )
+    return sorted((t for t in tiles if t is not None), key=lambda t: t.uri)
+
+
+def discover_tiles(bounds: Bounds) -> list[MosaicTile]:
+    """The existing 3DEP tiles covering ``bounds``, with their geo-headers.
+
+    One concurrent anonymous pass over the public bucket: each probe both proves
+    existence and reads the header the VRT needs, so there is no second per-tile
+    read. Sync bridge over a one-shot event loop (no shared loop, so the tiff
+    handle cache's loop-binding caveat does not apply here).
+    """
+    return asyncio.run(_discover_async(bounds, _anonymous_store()))
 
 
 def _gdal_dtype(dtype: str) -> str:
@@ -198,59 +293,50 @@ def _gdal_dtype(dtype: str) -> str:
         raise ValueError(f'Unsupported source dtype for VRT mosaic: {dtype}') from e
 
 
-def build_mosaic_vrt(uris: list[str], out_path: Path) -> Path:
-    """Write a single-band VRT mosaic over ``uris`` (same CRS + resolution).
+def build_mosaic_vrt(tiles: list[MosaicTile], out_path: Path) -> Path:
+    """Write a single-band VRT mosaic over ``tiles`` (same CRS + resolution).
 
-    Reads each source's header (not its pixels) to place it in the mosaic, then
-    writes GDAL VRT XML. This is the ``osgeo``-free stand-in for
-    ``gdal.BuildVRT``; rasterio can open the result like any dataset.
+    Pure assembly from the geo-headers gathered during discovery -- no source is
+    re-opened. This is the ``osgeo``-free stand-in for ``gdal.BuildVRT``;
+    rasterio can open the result like any dataset.
     """
-    sources = []
-    crs_wkt: str | None = None
-    px: float | None = None
-    py: float | None = None
-    dtype: str | None = None
-    nodata: float | None = None
-    for uri in uris:
-        with rasterio.open(uri) as ds:
-            t = ds.transform
-            if crs_wkt is None:
-                crs_wkt = ds.crs.to_wkt() if ds.crs else ''
-                px, py = t.a, t.e
-                dtype = ds.dtypes[0]
-                nodata = ds.nodata
-            sources.append((uri, t, ds.width, ds.height))
-
-    if px is None or py is None or dtype is None:  # pragma: no cover - empty uris
+    if not tiles:  # pragma: no cover - callers guard against empty discovery
         raise ValueError('Cannot build a VRT mosaic from no sources.')
 
-    xmin = min(t.c for _, t, _, _ in sources)
-    ymax = max(t.f for _, t, _, _ in sources)
-    xmax = max(t.c + w * t.a for _, t, w, _ in sources)
-    ymin = min(t.f + h * t.e for _, t, _, h in sources)
+    px = tiles[0].px
+    py = tiles[0].py
+    dtype = tiles[0].dtype
+    nodata = tiles[0].nodata
+    crs_wkt = tiles[0].crs_wkt
+
+    xmin = min(t.origin_x for t in tiles)
+    ymax = max(t.origin_y for t in tiles)
+    xmax = max(t.origin_x + t.width * t.px for t in tiles)
+    ymin = min(t.origin_y + t.height * t.py for t in tiles)
     width = round((xmax - xmin) / px)
     height = round((ymax - ymin) / -py)
 
     lines = [
         f'<VRTDataset rasterXSize="{width}" rasterYSize="{height}">',
-        f'  <SRS>{escape(crs_wkt or "")}</SRS>',
+        f'  <SRS>{escape(crs_wkt)}</SRS>',
         f'  <GeoTransform>{xmin}, {px}, 0.0, {ymax}, 0.0, {py}</GeoTransform>',
         f'  <VRTRasterBand dataType="{_gdal_dtype(dtype)}" band="1">',
     ]
     if nodata is not None:
         lines.append(f'    <NoDataValue>{nodata}</NoDataValue>')
-    for uri, t, w, h in sources:
-        dst_xoff = round((t.c - xmin) / px)
-        dst_yoff = round((ymax - t.f) / -py)
+    for t in tiles:
+        dst_xoff = round((t.origin_x - xmin) / px)
+        dst_yoff = round((ymax - t.origin_y) / -py)
         lines.extend(
             [
                 '    <SimpleSource>',
-                f'      <SourceFilename relativeToVRT="0">{escape(str(uri))}'
+                f'      <SourceFilename relativeToVRT="0">{escape(t.uri)}'
                 '</SourceFilename>',
                 '      <SourceBand>1</SourceBand>',
-                f'      <SrcRect xOff="0" yOff="0" xSize="{w}" ySize="{h}"/>',
+                f'      <SrcRect xOff="0" yOff="0" xSize="{t.width}" '
+                f'ySize="{t.height}"/>',
                 f'      <DstRect xOff="{dst_xoff}" yOff="{dst_yoff}" '
-                f'xSize="{w}" ySize="{h}"/>',
+                f'xSize="{t.width}" ySize="{t.height}"/>',
                 '    </SimpleSource>',
             ],
         )
