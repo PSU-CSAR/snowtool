@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
+from snowtool.snowdb.zoning import banded
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -35,6 +36,16 @@ FOREST_COVER = ZoneLayer(
     nodata=FOREST_PCT_NODATA,
     band_descriptions=('forest_cover_percent_0_100',),
     key='forest_cover',
+    # Forest cover bands span 0..100 percent in 20-point bins by default; pixels
+    # are already percent, so value_scale is 1.
+    zoning=banded(
+        domain_min=0,
+        domain_max=100,
+        default_step=20,
+        unit='%',
+        value_scale=1,
+        layer_nodata=FOREST_PCT_NODATA,
+    ),
 )
 
 # Every layer of a complete land-cover set, in write order.
