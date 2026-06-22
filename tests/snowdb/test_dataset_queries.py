@@ -62,6 +62,7 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
 
     assert status == DatasetArtifacts(
         terrain=True,
+        landcover=True,
         aoi_rasters=True,
         cogs=True,
         area=True,

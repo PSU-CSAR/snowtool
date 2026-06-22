@@ -15,9 +15,11 @@ import rasterio
 from click.testing import CliRunner
 
 from snowtool.cli._context import CliContext
-from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.dem_source import LocalFile
+from snowtool.snowdb.landcover import FOREST_COVER
+from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_FLAT,
@@ -39,15 +41,17 @@ def initialized_root(tmp_path, spec):
 
 
 @pytest.fixture
-def cli_obj(initialized_root, spec, source_dem) -> CliContext:
+def cli_obj(initialized_root, spec, source_dem, source_nlcd) -> CliContext:
     """A CliContext over the initialized synthetic snowdb (inject as obj=).
 
-    The default DEM source is a local file so terrain commands never reach 3DEP.
+    The DEM/NLCD sources are local files so terrain/land-cover commands never
+    reach 3DEP or the MRLC download.
     """
     return CliContext(
         root=initialized_root,
         specs=(spec,),
         dem_source=LocalFile(source_dem),
+        landcover_source=LocalNLCD(source_nlcd),
     )
 
 
@@ -107,10 +111,49 @@ def _fake_generate_terrain(
     return hashes
 
 
+def _fake_generate_landcover(source, targets, *, force=False):
+    """Stand in for the streaming land-cover engine: a uniform write per target.
+
+    Like ``_fake_generate_terrain``, this exercises only the CLI wiring (which
+    datasets get generated, --quick, the override flag); the engine itself is
+    tested in test_landcover_generate.
+    """
+    from snowtool.snowdb.cog import write_cog
+
+    hashes = {}
+    for target in targets:
+        base = target.grid.base_grid
+        shape = (base.rows, base.cols)
+        crs = rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
+        forest = numpy.full(shape, 100, dtype='uint8')
+        nlcd_hash = hashlib.sha256(forest.tobytes()).hexdigest()
+        target.directory.mkdir(parents=True, exist_ok=True)
+        write_cog(
+            target.directory / FOREST_COVER.filename,
+            forest,
+            transform=base.transform,
+            crs=crs,
+            tile_size=target.tile_size,
+            nodata=FOREST_COVER.nodata,
+            tags={NLCD_HASH_TAG: nlcd_hash},
+        )
+        hashes[target.name] = nlcd_hash
+    return hashes
+
+
 @pytest.fixture(autouse=True)
 def _fast_terrain(monkeypatch):
     """Replace the streaming terrain engine with a fast uniform writer for CLI tests."""
     monkeypatch.setattr(
         'snowtool.snowdb.terrain_generate.generate_terrain',
         _fake_generate_terrain,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _fast_landcover(monkeypatch):
+    """Replace the streaming land-cover engine with a fast uniform writer."""
+    monkeypatch.setattr(
+        'snowtool.snowdb.landcover_generate.generate_landcover',
+        _fake_generate_landcover,
     )

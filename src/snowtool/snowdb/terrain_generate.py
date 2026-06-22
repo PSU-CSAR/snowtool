@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import warnings
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
@@ -86,6 +87,7 @@ from pyproj import Transformer
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import Resampling, calculate_default_transform
 
+from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.terrain import (
@@ -370,7 +372,18 @@ def generate_terrain(
 
     accumulators = [_GridAccumulator(target, work_crs) for target in targets]
 
-    src_nodata = source.nodata if source.nodata is not None else -999999.0
+    # Mask source fill using the source's own declared nodata. If it declares
+    # none, trust it (mask nothing) -- but warn, since an undeclared fill value
+    # would otherwise be aggregated as real elevation.
+    src_nodata = source.nodata
+    if src_nodata is None:
+        warnings.warn(
+            f'Source DEM {source.name!r} declares no nodata value; treating all '
+            'pixels as valid data. Declare a nodata value on the source if it '
+            'has fill pixels, or they will be aggregated as real elevations.',
+            SNODASWarning,
+            stacklevel=2,
+        )
     dst_transform, dst_w, dst_h = calculate_default_transform(
         source.crs,
         work_crs,
@@ -390,6 +403,12 @@ def generate_terrain(
         height=dst_h,
         resampling=Resampling.bilinear,
         src_nodata=src_nodata,
+        # The streaming pass marks no-data with NaN (numpy.isfinite), so the
+        # working band must be float. rasterio already promotes the band to float
+        # to hold nodata=NaN (even for an integer source); we pin it explicitly so
+        # that contract is independent of rasterio's inference. float64 matches the
+        # downstream pipeline (the block read casts to float64 anyway).
+        dtype='float64',
         nodata=numpy.nan,
     ) as wvrt:
         _stream_blocks(wvrt, dst_transform, dst_w, dst_h, px, py, accumulators)

@@ -1,5 +1,7 @@
 """The TerrainSet reader: presence, missing layers, and the provenance hash."""
 
+import pytest
+
 from snowtool.snowdb.terrain import ELEVATION, ElevationRaster, TerrainSet
 
 
@@ -33,3 +35,8 @@ def test_elevation_raster_points_at_the_elevation_layer(dataset):
     raster = dataset.terrain.elevation_raster()
     assert isinstance(raster, ElevationRaster)
     assert raster.path == dataset.terrain.directory / ELEVATION.filename
+
+
+def test_tiled_raster_raises_file_not_found_for_a_missing_path(tmp_path):
+    with pytest.raises(FileNotFoundError, match='No such raster file'):
+        ElevationRaster(tmp_path / 'nope.tif')

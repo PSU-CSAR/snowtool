@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from snowtool.snowdb.dem_source import DemSource
+    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
 
@@ -92,6 +93,7 @@ class SnowDb:
         *,
         tiff_cache: TiffCache | None = None,
         dem_source: DemSource | None = None,
+        landcover_source: LandCoverSource | None = None,
     ) -> None:
         self.path = Path(path)
         self.aois_path = self.path / 'aois'
@@ -119,6 +121,15 @@ class SnowDb:
 
             dem_source = ThreeDEP()
         self.dem_source = dem_source
+        # The NLCD land-cover source, the land-cover analogue of dem_source.
+        # Defaulted to the MRLC Annual NLCD bundle (downloaded + cached under the
+        # snowdb root) so `init` builds land cover out of the box like terrain;
+        # injectable so the CLI/tests can override it (e.g. a local file).
+        if landcover_source is None:
+            from snowtool.snowdb.landcover_source import AnnualNLCD
+
+            landcover_source = AnnualNLCD(cache_dir=self.path / '.cache' / 'landcover')
+        self.landcover_source = landcover_source
         self._warn_if_uninitialized()
 
     @staticmethod
@@ -201,6 +212,7 @@ class SnowDb:
         *,
         tiff_cache: TiffCache | None = None,
         dem_source: DemSource | None = None,
+        landcover_source: LandCoverSource | None = None,
     ) -> Self:
         """Create the base snowdb layout at ``path`` and return a SnowDb over it.
 
@@ -217,7 +229,13 @@ class SnowDb:
         data_path.mkdir(parents=True, exist_ok=True)
         for spec in specs:
             (data_path / spec.name).mkdir(parents=True, exist_ok=True)
-        return cls(path, specs, tiff_cache=tiff_cache, dem_source=dem_source)
+        return cls(
+            path,
+            specs,
+            tiff_cache=tiff_cache,
+            dem_source=dem_source,
+            landcover_source=landcover_source,
+        )
 
     def rasterize_aoi(
         self: Self,
@@ -275,6 +293,38 @@ class SnowDb:
                 force=force,
             )
 
+    def generate_landcover(
+        self: Self,
+        names: Iterable[str] | None = None,
+        *,
+        source: LandCoverSource | None = None,
+        force: bool = False,
+    ) -> dict[str, str]:
+        """Generate land cover for several datasets in one streaming pass.
+
+        Reads ``source`` (default: this database's :attr:`landcover_source`) once
+        over the combined extent of the selected datasets' grids and bins it into
+        all of them. ``names`` selects datasets (default: all). Returns each
+        dataset's land-cover provenance hash, keyed by name.
+        """
+        from snowtool.snowdb.grid import grid_extent_4326
+        from snowtool.snowdb.landcover_generate import generate_landcover
+
+        selected = (
+            list(self.datasets.values())
+            if names is None
+            else [self.datasets[name] for name in names]
+        )
+        if not selected:
+            return {}
+
+        source = source if source is not None else self.landcover_source
+        targets = [ds.landcover_target() for ds in selected]
+        bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
+
+        with source.open(bounds) as src:
+            return generate_landcover(src, targets, force=force)
+
     # --- global AOI query helpers (drive the aoi/report commands) -------------
 
     def aoi_paths(self: Self) -> list[Path]:
@@ -294,7 +344,7 @@ class SnowDb:
 
     def aoi_record_path(self: Self, triplet: types.StationTriplet) -> Path:
         """The canonical ``records/<triplet>.geojson`` path (``:`` -> ``_``)."""
-        return self.aoi_records_path / f'{triplet.replace(":", "_")}.geojson'
+        return self.aoi_records_path / f'{types.triplet_to_stem(triplet)}.geojson'
 
     def _stored_triplets(self: Self) -> set[types.StationTriplet]:
         """Stored triplets read straight from record filenames (no geojson parse).
@@ -302,10 +352,7 @@ class SnowDb:
         Record files are written named for the AOI's own triplet, so the filename
         is authoritative -- cheaper than :meth:`aoi_triplets` for set diffs.
         """
-        return {
-            types.StationTriplet(path.stem.replace('_', ':'))
-            for path in self.aoi_paths()
-        }
+        return {types.stem_to_triplet(path.stem) for path in self.aoi_paths()}
 
     def load_aoi(self: Self, triplet: types.StationTriplet) -> AOI:
         """Parse the stored AOI record for ``triplet`` (raises if it is absent)."""

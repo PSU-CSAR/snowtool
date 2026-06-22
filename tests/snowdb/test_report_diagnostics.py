@@ -56,6 +56,12 @@ def test_missing_artifacts_reports_deleted_terrain(dataset):
     assert 'terrain' in diagnostics.missing_artifacts(dataset)
 
 
+def test_missing_artifacts_reports_deleted_landcover(dataset):
+    dataset.landcover.forest_cover_path.unlink()
+
+    assert 'landcover' in diagnostics.missing_artifacts(dataset)
+
+
 # --- aoi-coverage ------------------------------------------------------------
 
 

@@ -17,6 +17,8 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from snowtool import types
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from datetime import date
@@ -130,12 +132,16 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
     """The dataset's expected on-disk artifacts that are absent.
 
     Skips the area raster on a projected grid, where it is not applicable
-    (``DatasetArtifacts.area is None``).
+    (``DatasetArtifacts.area is None``). Terrain and land cover are both expected
+    (``snowdb init`` builds both from default sources), so a missing one is a
+    finding.
     """
     artifacts = dataset.artifact_status()
     missing: list[str] = []
     if not artifacts.terrain:
         missing.append('terrain')
+    if not artifacts.landcover:
+        missing.append('landcover')
     if artifacts.area is False:
         missing.append('area')
     if not artifacts.cogs:
@@ -180,7 +186,7 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
 
     findings: list[AoiRasterHealth] = []
     for path in dataset.aoi_raster_paths():
-        triplet = path.stem.replace('_', ':')
+        triplet = types.stem_to_triplet(path.stem)
         issue: str | None = None
         try:
             aoi_raster = AOIRaster.open(path, dataset.grid)

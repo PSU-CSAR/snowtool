@@ -32,6 +32,23 @@ AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
 # rebuild.
 DEM_HASH_TAG = 'SNOWTOOL_DEM_HASH'
 
+# Land-cover provenance: the hex sha256 of the generated percent-forest array,
+# stamped on every layer of a dataset's land-cover set. It identifies the NLCD
+# source the layer was derived from -- the land-cover analogue of DEM_HASH_TAG.
+# Like the DEM hash (and unlike the AOI hash) it never rides on AOI rasters: the
+# layer is read live from the land-cover set at query time, so a regeneration
+# needs no AOI rebuild.
+NLCD_HASH_TAG = 'SNOWTOOL_NLCD_HASH'
+
+# Percent forest cover is stored as a uint8 0..100 with 255 nodata (the same
+# integer/nodata convention as the aspect-majority terrain layer).
+FOREST_PCT_NODATA = 255
+
+# NLCD land-cover classes counted as "forest" for the percent-forest layer:
+# 41 deciduous, 42 evergreen, 43 mixed. Add 90 (woody wetlands) here to count
+# forested wetlands as forest.
+FOREST_CLASSES = (41, 42, 43)
+
 # Feet <-> meters, for elevation-band math.
 M_TO_FT = 3.28084
 FT_TO_M = 0.3048

@@ -77,6 +77,8 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'variables': sorted(spec.variables),
         'terrain': artifacts.terrain,
         'dem_hash': ds.terrain.dem_hash(),
+        'landcover': artifacts.landcover,
+        'nlcd_hash': ds.landcover.nlcd_hash(),
         'area': 'n/a' if artifacts.area is None else artifacts.area,
         'cogs': artifacts.cogs,
         'aoi_rasters': artifacts.aoi_rasters,
@@ -96,26 +98,35 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     help='Generate terrain from this local DEM file instead of the default source.',
 )
 @click.option(
+    '--nlcd',
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help='Generate land cover from this local NLCD file instead of the default source.',
+)
+@click.option(
     '--quick',
     is_flag=True,
-    help='Create the directory + area raster only; skip terrain generation.',
+    help='Create the directory + area raster only; skip terrain + land cover.',
 )
 @pass_snowdb
 def create_dataset(
     snowdb: SnowDb,
     name: str,
     dem: Path | None,
+    nlcd: Path | None,
     quick: bool,
 ) -> None:
-    """Create dataset NAME's directory and area raster, then generate its terrain.
+    """Create dataset NAME's directory + area raster, then its terrain + land cover.
 
     Mirrors ``snowdb init`` for one dataset: terrain comes from the database's
-    default DEM source unless ``--dem`` supplies a local file; ``--quick`` skips
-    terrain. Idempotent -- an existing area raster/terrain set is left untouched.
-    To rebuild, use ``generate`` / ``rebuild-area``.
+    default DEM source (unless ``--dem`` supplies a local file) and land cover
+    from the default NLCD source (unless ``--nlcd`` does); ``--quick`` skips both.
+    Idempotent -- existing area raster / terrain / land-cover sets are left
+    untouched. To rebuild, use ``generate`` / ``generate-landcover`` / ``rebuild-area``.
     """
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.dem_source import LocalFile
+    from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
 
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
@@ -126,14 +137,24 @@ def create_dataset(
     else:
         click.echo(f'created dataset {name} at {ds.path}')
 
-    if quick or ds.terrain.present():
+    if quick:
         return
-    source = LocalFile(dem) if dem is not None else snowdb.dem_source
-    try:
-        ds.generate_terrain(source, force=True)
-    except (FileExistsError, SNODASError) as e:
-        raise click.ClickException(str(e)) from e
-    click.echo(f'generated terrain for {name}')
+
+    if not ds.terrain.present():
+        source = LocalFile(dem) if dem is not None else snowdb.dem_source
+        try:
+            ds.generate_terrain(source, force=True)
+        except (FileExistsError, SNODASError) as e:
+            raise click.ClickException(str(e)) from e
+        click.echo(f'generated terrain for {name}')
+
+    if not ds.landcover.present():
+        lc_source = LocalNLCD(nlcd) if nlcd is not None else snowdb.landcover_source
+        try:
+            ds.generate_landcover(lc_source, force=True)
+        except (FileExistsError, SNODASError) as e:
+            raise click.ClickException(str(e)) from e
+        click.echo(f'generated land cover for {name}')
 
 
 @dataset.command('ingest')
@@ -193,6 +214,35 @@ def generate_terrain(snowdb: SnowDb, name: str, source: Path | None) -> None:
     except (FileExistsError, SNODASError) as e:
         raise click.ClickException(str(e)) from e
     click.echo(f'generated terrain for {name}')
+
+
+@dataset.command('generate-landcover')
+@click.argument('name')
+@click.option(
+    '--source',
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help='Generate from this local NLCD file instead of the default source.',
+)
+@pass_snowdb
+def generate_landcover(snowdb: SnowDb, name: str, source: Path | None) -> None:
+    """(Re)generate dataset NAME's land-cover set, overwriting any existing layer.
+
+    Uses the database's default NLCD source unless ``--source`` supplies a local
+    file. Land cover is the NLCD-derived percent-forest-cover layer. The default
+    source downloads the MRLC Annual NLCD national raster (~1.5 GB) on first use,
+    cached under the snowdb root.
+    """
+    from snowtool.snowdb.landcover_source import LocalFile
+
+    require_initialized(snowdb)
+    ds = get_dataset(snowdb, name)
+    lc_source = LocalFile(source) if source is not None else snowdb.landcover_source
+    try:
+        ds.generate_landcover(lc_source, force=True)
+    except (FileExistsError, SNODASError) as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f'generated land cover for {name}')
 
 
 @dataset.command('rebuild-area')

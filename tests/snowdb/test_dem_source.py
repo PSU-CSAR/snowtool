@@ -80,11 +80,18 @@ def test_build_mosaic_vrt_stitches_adjacent_tiles(tmp_path):
     assert (data[:, 4:] == 2.0).all()
 
 
+def _client_error(code):
+    from botocore.exceptions import ClientError
+
+    return ClientError({'Error': {'Code': code, 'Message': code}}, 'HeadObject')
+
+
 def test_existing_tile_keys_keeps_only_present_tiles(monkeypatch):
     class _FakeS3:
         def head_object(self, Bucket, Key):  # noqa: N803 - boto3 kwarg name
             if 'n40w107' not in Key:
-                raise RuntimeError('NoSuchKey')
+                # A genuine "not published" tile: head_object 404s.
+                raise _client_error('404')
 
     monkeypatch.setattr('boto3.client', lambda *a, **k: _FakeS3())
 
@@ -92,6 +99,21 @@ def test_existing_tile_keys_keeps_only_present_tiles(monkeypatch):
 
     assert len(keys) == 1
     assert keys[0].endswith('n40w107/USGS_13_n40w107.tif')
+
+
+def test_existing_tile_keys_reraises_non_404_errors(monkeypatch):
+    # A transient failure (throttling / 5xx) must surface, not be swallowed as
+    # "tile absent" -- otherwise the mosaic silently loses a real tile.
+    from botocore.exceptions import ClientError
+
+    class _FakeS3:
+        def head_object(self, Bucket, Key):  # noqa: N803 - boto3 kwarg name
+            raise _client_error('503')
+
+    monkeypatch.setattr('boto3.client', lambda *a, **k: _FakeS3())
+
+    with pytest.raises(ClientError):
+        existing_tile_keys((-106.5, 39.2, -105.1, 40.3))
 
 
 def test_threedep_open_builds_a_vrt_over_existing_tiles(tmp_path, monkeypatch):
