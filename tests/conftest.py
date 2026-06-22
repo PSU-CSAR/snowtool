@@ -17,9 +17,10 @@ from rasterio.crs import CRS
 
 from snowtool.settings import Settings
 from snowtool.snowdb.cog import write_cog
-from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
+from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
@@ -38,6 +39,9 @@ TILE = 256
 DEM_ELEVATION_M = 1000.0  # uniform; 1000 m -> ~3280 ft -> band (3000, 4000) ft
 DEM_NODATA = -9999.0
 SWE_VALUE = 50  # uniform int16 SWE value
+NLCD_FOREST_CLASS = 42  # evergreen forest (in FOREST_CLASSES)
+NLCD_NONFOREST_CLASS = 81  # pasture/hay (not forest)
+FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
 
 
 @pytest.fixture
@@ -142,11 +146,66 @@ def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
     return dem_hash
 
 
+def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
+    """Write a uniform percent-forest land-cover layer onto a dataset's grid.
+
+    Mirrors what :func:`generate_landcover` produces (a uint8 0..100 forest layer)
+    so tests that just need land cover present get a deterministic value without
+    the streaming generation pass. Returns the provenance hash stamped on it.
+    """
+    directory = dataset.landcover.directory
+    directory.mkdir(parents=True, exist_ok=True)
+    base = dataset.grid.base_grid
+    shape = (base.rows, base.cols)
+
+    forest = numpy.full(shape, pct, dtype='uint8')
+    nlcd_hash = hashlib.sha256(forest.tobytes()).hexdigest()
+
+    write_cog(
+        directory / FOREST_COVER.filename,
+        forest,
+        transform=base.transform,
+        crs=dataset.grid_crs,
+        tile_size=dataset.spec.grid_params.tile_size,
+        nodata=FOREST_COVER.nodata,
+        tags={NLCD_HASH_TAG: nlcd_hash},
+        band_descriptions=FOREST_COVER.band_descriptions,
+    )
+    return nlcd_hash
+
+
+@pytest.fixture
+def source_nlcd(tmp_path, grid):
+    """A synthetic NLCD land-cover source on the grid extent.
+
+    The left half is forest (class 42), the right half non-forest (class 81), so a
+    cell-fraction reduction has a hand-computable, non-uniform result.
+    """
+    path = tmp_path / 'source_nlcd.tif'
+    array = numpy.full((SIZE, SIZE), NLCD_NONFOREST_CLASS, dtype=numpy.uint8)
+    array[:, : SIZE // 2] = NLCD_FOREST_CLASS
+    with rasterio.open(
+        path,
+        'w',
+        driver='GTiff',
+        height=SIZE,
+        width=SIZE,
+        count=1,
+        dtype='uint8',
+        crs=CRS.from_epsg(4326),
+        transform=grid.base_grid.transform,
+        nodata=0,
+    ) as dst:
+        dst.write(array, 1)
+    return path
+
+
 @pytest.fixture
 def dataset(tmp_path, spec):
-    """A fully created Dataset: directory, area raster, and a uniform terrain set."""
+    """A fully created Dataset: directory, area raster, terrain + land-cover sets."""
     ds = Dataset.create(spec, tmp_path / 'db')
     write_terrain(ds)
+    write_landcover(ds)
     return ds
 
 

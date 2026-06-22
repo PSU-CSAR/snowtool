@@ -170,6 +170,7 @@ def existing_tile_keys(bounds: Bounds) -> list[str]:
 
     from botocore import UNSIGNED
     from botocore.client import Config
+    from botocore.exceptions import ClientError
 
     s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     keys: list[str] = []
@@ -177,8 +178,15 @@ def existing_tile_keys(bounds: Bounds) -> list[str]:
         key = f'{_S3_PREFIX}/{tile}/{_TIF_NAME.format(tile=tile)}'
         try:
             s3.head_object(Bucket=_S3_BUCKET, Key=key)
-        except Exception:  # noqa: BLE001, S112 - any error means "tile absent"
-            continue
+        except ClientError as e:
+            # A genuine 404 means the tile isn't published; anything else
+            # (throttling, auth, a transient 5xx) must surface, not silently
+            # drop a real tile and leave a hole in the mosaic. Network errors
+            # (EndpointConnectionError, timeouts) are BotoCoreError, not
+            # ClientError, so they propagate here too.
+            if e.response.get('Error', {}).get('Code') == '404':
+                continue
+            raise
         keys.append(key)
     return keys
 

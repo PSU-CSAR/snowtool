@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.dem_source import DemSource
+    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.spec import DatasetSpec
 
 
@@ -40,12 +41,15 @@ class CliContext:
     setting) and the dataset specs to bind, and lazily builds a single
     :class:`SnowDb` the first time :attr:`snowdb` is read. ``dem_source`` overrides
     the database's default terrain source (tests inject a local one to avoid
-    hitting 3DEP); ``None`` leaves SnowDb's default in place.
+    hitting 3DEP); ``landcover_source`` likewise overrides the default NLCD source
+    (tests inject a local one to avoid the MRLC download); ``None`` leaves SnowDb's
+    default in place.
     """
 
     root: Path | None = None
     specs: tuple[DatasetSpec, ...] = DEFAULT_DATASET_SPECS
     dem_source: DemSource | None = None
+    landcover_source: LandCoverSource | None = None
     _snowdb: SnowDb | None = field(default=None, init=False, repr=False)
 
     @property
@@ -61,7 +65,12 @@ class CliContext:
             from snowtool.snowdb.db import SnowDb
 
             root = self.root if self.root is not None else Settings().snowdb_path
-            self._snowdb = SnowDb(root, self.specs, dem_source=self.dem_source)
+            self._snowdb = SnowDb(
+                root,
+                self.specs,
+                dem_source=self.dem_source,
+                landcover_source=self.landcover_source,
+            )
         return self._snowdb
 
 

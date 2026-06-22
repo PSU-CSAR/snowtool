@@ -139,6 +139,22 @@ def test_index_from_records_and_save_load_round_trip(tmp_path):
     assert reloaded.entries == index.entries
 
 
+def test_index_from_records_skips_point_only_records(tmp_path):
+    # A point-only pourpoint (no basin) in records/ must not crash reindex on
+    # geometry_hash; it is simply not an AOI and is left out of the index.
+    records = tmp_path / 'records'
+    records.mkdir()
+    _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
+    _write_pourpoint(
+        records / 'p.geojson',
+        triplet='20000:MT:USGS',
+        with_polygon=False,
+    )
+
+    index = AOIIndex.from_records(records)
+    assert index.triplets() == {'10000:MT:USGS'}
+
+
 def test_index_from_records_empty_when_dir_absent(tmp_path):
     assert AOIIndex.from_records(tmp_path / 'nope').triplets() == set()
 

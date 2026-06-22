@@ -9,13 +9,16 @@ keeps the reprojection a near-identity, so the geometry is exact.
 import hashlib
 
 import numpy
+import pytest
 import rasterio
 
 from rasterio.crs import CRS
 
+from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.terrain import (
     ASPECT_W,
+    ELEVATION_NODATA,
     TerrainSet,
 )
 from snowtool.snowdb.terrain_generate import TerrainTarget, generate_terrain
@@ -32,7 +35,7 @@ TARGET_PX = 40.0
 TARGET_TILE = 128
 
 
-def _source_dem(path):
+def _source_dem(path, *, nodata=NODATA):
     """A DEM tilting up toward the east (elevation grows with column)."""
     cols = numpy.arange(SRC_N, dtype='float32')
     elevation = numpy.broadcast_to(cols * SRC_PX, (SRC_N, SRC_N)).copy()
@@ -47,7 +50,34 @@ def _source_dem(path):
         dtype='float32',
         crs=CRS.from_epsg(WORK_EPSG),
         transform=transform,
-        nodata=NODATA,
+        nodata=nodata,
+    ) as dst:
+        dst.write(elevation, 1)
+    return path
+
+
+def _int_source_dem(path, *, nodata=-32768):
+    """An int16 DEM tilting east, with its western half set to nodata fill.
+
+    Integer elevation rasters (e.g. SRTM/ASTER) are common; the western half is
+    nodata so a regression can assert that fill is masked rather than aggregated
+    as real elevation.
+    """
+    cols = numpy.arange(SRC_N, dtype='int16')
+    elevation = numpy.broadcast_to(cols * int(SRC_PX), (SRC_N, SRC_N)).astype('int16')
+    elevation[:, : SRC_N // 2] = nodata
+    transform = rasterio.transform.from_origin(ORIGIN_X, ORIGIN_Y, SRC_PX, SRC_PX)
+    with rasterio.open(
+        path,
+        'w',
+        driver='GTiff',
+        height=SRC_N,
+        width=SRC_N,
+        count=1,
+        dtype='int16',
+        crs=CRS.from_epsg(WORK_EPSG),
+        transform=transform,
+        nodata=nodata,
     ) as dst:
         dst.write(elevation, 1)
     return path
@@ -131,6 +161,37 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     with rasterio.open(src_path) as src:
         second = generate_terrain(src, [target], force=True)
     assert second['t'] == expected
+
+
+def test_generate_masks_nodata_from_integer_source(tmp_path):
+    # Integer DEMs (SRTM/ASTER-style int16) must generate correctly end to end:
+    # the warp's NaN nodata works on a float band even though the source is int,
+    # so declared fill is masked, not aggregated as real elevation.
+    src_path = _int_source_dem(tmp_path / 'src.tif')
+    target = _target(tmp_path)
+
+    with rasterio.open(src_path) as src:
+        generate_terrain(src, [target], force=True)
+
+    with rasterio.open(TerrainSet(target.directory).elevation_path) as ds:
+        elevation = ds.read(1)
+
+    # West half was nodata fill -> those cells are nodata, not aggregated as 0.
+    assert elevation[64, 20] == ELEVATION_NODATA
+    # East half is real, finite, positive elevation.
+    assert elevation[64, 110] != ELEVATION_NODATA
+    assert numpy.isfinite(elevation[64, 110])
+    assert elevation[64, 110] > 0
+
+
+def test_generate_warns_when_source_declares_no_nodata(tmp_path):
+    # A source with no declared nodata is trusted (all pixels valid) but warned
+    # about, since an undeclared fill value would be aggregated as real data.
+    src_path = _source_dem(tmp_path / 'src.tif', nodata=None)
+    target = _target(tmp_path)
+
+    with rasterio.open(src_path) as src, pytest.warns(SNODASWarning):
+        generate_terrain(src, [target], force=True)
 
 
 def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):

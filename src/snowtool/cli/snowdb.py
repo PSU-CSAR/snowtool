@@ -40,6 +40,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
                 'dataset': status.name,
                 'present': status.present,
                 'terrain': artifacts.terrain,
+                'landcover': artifacts.landcover,
                 'area': 'n/a' if artifacts.area is None else artifacts.area,
                 'cogs': artifacts.cogs,
                 'aoi_rasters': artifacts.aoi_rasters,
@@ -110,31 +111,42 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     help='Generate DATASET terrain from a local DEM file instead of the default '
     'source (repeatable).',
 )
+@click.option(
+    '--dataset-nlcd',
+    'dataset_nlcds',
+    nargs=2,
+    multiple=True,
+    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
+    metavar='DATASET PATH',
+    help='Generate DATASET land cover from a local NLCD file instead of the '
+    'default source (repeatable).',
+)
 @click.pass_obj
 def snowdb_init(
     cli_ctx: CliContext,
     path: Path | None,
     quick: bool,
     dataset_dems: tuple[tuple[str, Path], ...],
+    dataset_nlcds: tuple[tuple[str, Path], ...],
 ) -> None:
     """Create the base snowdb layout at PATH (defaults to the snowdb_path setting).
 
     Lays out ``aois/``, ``data/``, and a ``data/<dataset>/`` directory for every
     configured dataset, then ensures each dataset's area raster (geographic grids
-    only) and terrain set exist. Terrain is generated from the database's default
-    DEM source in one shared pass, unless ``--dataset-dem`` overrides a dataset
+    only), terrain set, and land-cover set exist. Terrain comes from the database's
+    default DEM source and land cover from the default NLCD source, each in one
+    shared pass, unless ``--dataset-dem`` / ``--dataset-nlcd`` override a dataset
     with a local file. ``--quick`` skips all generation (skeleton only). Idempotent
-    -- existing area rasters and terrain sets are left untouched.
+    -- existing area rasters, terrain sets, and land-cover sets are left untouched.
 
-    Generation is heavy: it reprojects the whole DEM source to a 10 m work grid
-    and keeps per-grid accumulators for every dataset in the shared pass resident
-    at once, so a full multi-dataset run over a continental source is memory- and
-    bandwidth-intensive (the default 3DEP source streams from S3). Use ``--quick``
-    for a fast skeleton, or ``dataset generate`` per dataset to bound the work.
+    Generation is heavy: terrain reprojects the whole DEM source to a 10 m work
+    grid (the default 3DEP source streams from S3), and land cover downloads the
+    MRLC Annual NLCD national raster (~1.5 GB) on first use, cached under the
+    snowdb root. Use ``--quick`` for a fast skeleton, or the per-dataset
+    ``dataset generate`` / ``dataset generate-landcover`` commands to bound the work.
     """
     from snowtool.settings import Settings
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.dem_source import LocalFile
 
     if path is not None:
         root = path
@@ -143,7 +155,12 @@ def snowdb_init(
     else:
         root = Settings().snowdb_path
 
-    db = SnowDb.initialize(root, cli_ctx.specs, dem_source=cli_ctx.dem_source)
+    db = SnowDb.initialize(
+        root,
+        cli_ctx.specs,
+        dem_source=cli_ctx.dem_source,
+        landcover_source=cli_ctx.landcover_source,
+    )
     click.echo(f'initialized snowdb: {root}')
 
     if quick:
@@ -154,10 +171,22 @@ def snowdb_init(
             click.echo(f'built area raster for {name}')
 
     overrides = {name: Path(p) for name, p in dataset_dems}
-    for name in overrides:
+    nlcd_overrides = {name: Path(p) for name, p in dataset_nlcds}
+    for name in overrides.keys() | nlcd_overrides.keys():
         get_dataset(db, name)  # validate before doing expensive work
 
-    # Generate every default-source dataset that lacks terrain in one shared pass.
+    _generate_terrain(db, overrides)
+    _generate_landcover(db, nlcd_overrides)
+
+
+def _generate_terrain(db: SnowDb, overrides: dict[str, Path]) -> None:
+    """init's terrain step: a default-source shared pass + per-dataset overrides.
+
+    Generates every default-source dataset that lacks terrain in one pass, then
+    (re)generates each ``--dataset-dem`` override from its given local file.
+    """
+    from snowtool.snowdb.dem_source import LocalFile
+
     default_names = [
         name
         for name in sorted(db)
@@ -168,7 +197,25 @@ def snowdb_init(
         click.echo(f'generating terrain (default source) for: {joined}')
         db.generate_terrain(default_names, force=True)
 
-    # Overrides are explicit, so (re)generate them from the given file.
     for name, dem_path in overrides.items():
         click.echo(f'generating terrain for {name} from {dem_path}')
         db[name].generate_terrain(LocalFile(dem_path), force=True)
+
+
+def _generate_landcover(db: SnowDb, overrides: dict[str, Path]) -> None:
+    """init's land-cover step, the same shape as :func:`_generate_terrain`."""
+    from snowtool.snowdb.landcover_source import LocalFile
+
+    default_names = [
+        name
+        for name in sorted(db)
+        if name not in overrides and not db[name].landcover.present()
+    ]
+    if default_names:
+        joined = ', '.join(default_names)
+        click.echo(f'generating land cover (default source) for: {joined}')
+        db.generate_landcover(default_names, force=True)
+
+    for name, nlcd_path in overrides.items():
+        click.echo(f'generating land cover for {name} from {nlcd_path}')
+        db[name].generate_landcover(LocalFile(nlcd_path), force=True)

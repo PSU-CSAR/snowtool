@@ -96,13 +96,20 @@ class AOIIndex:
 
     @classmethod
     def from_records(cls: type[Self], records_dir: Path) -> Self:
-        """Rebuild the index by parsing every ``records/<triplet>.geojson``."""
+        """Rebuild the index by parsing every ``records/<triplet>.geojson``.
+
+        Point-only pourpoints are skipped: with no basin they are not AOIs (the
+        same rule import applies), and they have no geometry hash to index.
+        """
         if not records_dir.is_dir():
             return cls({})
-        return cls.from_entries(
-            AOIIndexEntry.from_aoi(AOI.from_geojson(path))
-            for path in sorted(records_dir.glob('*.geojson'))
-        )
+        entries = []
+        for path in sorted(records_dir.glob('*.geojson')):
+            aoi = AOI.from_geojson(path)
+            if aoi.polygon is None:
+                continue
+            entries.append(AOIIndexEntry.from_aoi(aoi))
+        return cls.from_entries(entries)
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:

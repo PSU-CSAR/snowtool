@@ -2,6 +2,14 @@ class SNODASError(Exception):
     pass
 
 
+class SNODASWarning(UserWarning):
+    """Base class for snowtool warnings (suspect-but-not-fatal conditions).
+
+    A distinct category so callers can filter or escalate snowtool's warnings
+    specifically (e.g. ``warnings.simplefilter('error', SNODASWarning)``).
+    """
+
+
 class GeoJSONValidationError(SNODASError, TypeError):
     pass
 

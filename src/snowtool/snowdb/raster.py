@@ -57,7 +57,7 @@ class TiledRaster[T: numpy.generic]:
         self.path: Path = Path(path)
 
         if not self.path.is_file():
-            raise TypeError('not a file')
+            raise FileNotFoundError(f'No such raster file: {self.path}')
 
     async def load_tiles(
         self: Self,
@@ -136,7 +136,7 @@ class AOIRaster:
 
     @property
     def station_triplet(self: Self) -> types.StationTriplet:
-        return types.StationTriplet(self.path.stem.replace('_', ':'))
+        return types.stem_to_triplet(self.path.stem)
 
     @classmethod
     def open(

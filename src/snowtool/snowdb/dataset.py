@@ -19,6 +19,7 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326, tile_base_origin
+from snowtool.snowdb.landcover import LandCoverSet
 from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea, AreaRaster
 from snowtool.snowdb.terrain import TerrainSet
 
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.dem_source import DemSource
     from snowtool.snowdb.ingest import WritableRaster
+    from snowtool.snowdb.landcover_generate import LandCoverTarget
+    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.terrain_generate import TerrainTarget
     from snowtool.snowdb.tiff_cache import TiffCache
@@ -45,10 +48,12 @@ class DatasetArtifacts:
     ``None`` when an area raster is not applicable (a projected grid has a
     constant cell area and stores no ``areas.tif``); otherwise it reflects
     whether ``areas.tif`` exists. ``terrain`` is whether the complete terrain set
-    (elevation + aspect layers) is present.
+    (elevation + aspect layers) is present; ``landcover`` is whether the
+    land-cover set (percent forest cover) is present.
     """
 
     terrain: bool
+    landcover: bool
     aoi_rasters: bool
     cogs: bool
     area: bool | None
@@ -149,6 +154,7 @@ class Dataset:
         self._cogs = self.path / 'cogs'
         self._area_raster = self.path / 'areas.tif'
         self.terrain = TerrainSet(self.path / 'terrain')
+        self.landcover = LandCoverSet(self.path / 'landcover')
 
     @property
     def grid(self: Self) -> TiledAffineGrid:
@@ -312,6 +318,40 @@ class Dataset:
             )
         return hashes[self.spec.name]
 
+    def landcover_target(self: Self) -> LandCoverTarget:
+        """This dataset's grid as a target for the land-cover-generation engine."""
+        from snowtool.snowdb.landcover_generate import LandCoverTarget
+
+        return LandCoverTarget(
+            name=self.spec.name,
+            grid=self.grid,
+            tile_size=self.spec.grid_params.tile_size,
+            directory=self.landcover.directory,
+        )
+
+    def generate_landcover(
+        self: Self,
+        source: LandCoverSource,
+        *,
+        force: bool = False,
+    ) -> str:
+        """Generate this dataset's land-cover set from ``source``.
+
+        A single-grid pass over the source (binning only into this grid); for the
+        multi-grid shared-source pass, see :meth:`SnowDb.generate_landcover`.
+        Returns the land-cover set's provenance hash.
+        """
+        from snowtool.snowdb.landcover_generate import generate_landcover
+
+        bounds = grid_extent_4326(self.grid)
+        with source.open(bounds) as src:
+            hashes = generate_landcover(
+                src,
+                [self.landcover_target()],
+                force=force,
+            )
+        return hashes[self.spec.name]
+
     @staticmethod
     def _format_date(date: date) -> str:
         return date.strftime('%Y%m%d')
@@ -340,7 +380,7 @@ class Dataset:
         self: Self,
         station_triplet: types.StationTriplet,
     ) -> Path:
-        return self._aoi_rasters / f'{station_triplet.replace(":", "_")}.tif'
+        return self._aoi_rasters / f'{types.triplet_to_stem(station_triplet)}.tif'
 
     def rasterize_aoi(self, aoi: AOI, force: bool = False) -> AOIRaster:
         # A management (write) op may run against a dataset that has no data yet,
@@ -533,14 +573,14 @@ class Dataset:
     def aoi_raster_triplets(self: Self) -> set[types.StationTriplet]:
         """Station triplets that have a burned ``aoi-rasters/<triplet>.tif``."""
         return {
-            types.StationTriplet(path.stem.replace('_', ':'))
-            for path in self.aoi_raster_paths()
+            types.stem_to_triplet(path.stem) for path in self.aoi_raster_paths()
         }
 
     def artifact_status(self: Self) -> DatasetArtifacts:
         """Which of this dataset's on-disk artifacts currently exist."""
         return DatasetArtifacts(
             terrain=self.terrain.present(),
+            landcover=self.landcover.present(),
             aoi_rasters=self._aoi_rasters.is_dir(),
             cogs=self._cogs.is_dir(),
             area=self._area_raster.is_file() if self.spec.is_geographic else None,
