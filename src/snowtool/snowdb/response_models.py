@@ -5,9 +5,17 @@ response model for its zonal statistics is built dynamically with
 :func:`pydantic.create_model` and cached on the spec
 (``spec.zonal_stat_model`` / ``spec.zonal_stats_model``). Each variable
 contributes one ``<reducer>_<key>_<unit>`` field (see
-:attr:`DatasetVariable.stat_name`); bands with no valid pixels carry a ``nan``
+:attr:`DatasetVariable.stat_name`); cells with no valid pixels carry a ``nan``
 value in memory, which the base model serializes to ``null`` so the payload is
 valid JSON.
+
+The response shape is a **flat list of self-describing crossed-zone cells** (not a
+nested tree): each cell carries ``zone`` -- one :class:`ZoneRef` per crossed axis
+(a discriminated union of a band ref ``{layer, min, max, unit}`` or a class ref
+``{layer, code, label}``) -- plus ``area_m2`` and the spec-derived variable stat
+fields. A one-axis (elevation-only) query is just a cell whose ``zone`` has a
+single ref; crossing more layers lengthens each cell's ``zone`` array without
+changing the schema, and the list flattens 1:1 to CSV.
 """
 
 from __future__ import annotations
@@ -15,7 +23,7 @@ from __future__ import annotations
 import math
 
 from datetime import date
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -29,8 +37,31 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
 
 
+class BandZoneRef(BaseModel):
+    """One crossed-zone axis that is a numeric band ``[min, max)`` in ``unit``."""
+
+    kind: Literal['band'] = 'band'
+    layer: str  # the registry key, e.g. 'terrain.elevation'
+    min: int
+    max: int
+    unit: str
+
+
+class ClassZoneRef(BaseModel):
+    """One crossed-zone axis that is a discrete class (its ``code`` + ``label``)."""
+
+    kind: Literal['class'] = 'class'
+    layer: str  # the registry key, e.g. 'terrain.aspect'
+    code: int
+    label: str
+
+
+# A per-axis zone ref: a band ref or a class ref, discriminated on ``kind``.
+ZoneRef = Annotated[BandZoneRef | ClassZoneRef, Field(discriminator='kind')]
+
+
 class ZonalStatBase(BaseModel):
-    """Base for the generated per-zone models: turns any ``nan`` float to null."""
+    """Base for the generated per-cell models: turns any ``nan`` float to null."""
 
     @model_serializer(mode='wrap')
     def _nan_to_null(
@@ -44,10 +75,13 @@ class ZonalStatBase(BaseModel):
 
 
 def build_zonal_stat_model(spec: DatasetSpec) -> type[BaseModel]:
-    """Build the per-elevation-band zonal-stat model for ``spec``."""
+    """Build the per-crossed-cell zonal-stat model for ``spec``.
+
+    Every cell carries its self-describing ``zone`` refs and ``area_m2``; each
+    variable adds one ``<reducer>_<key>_<unit>`` stat field.
+    """
     fields: dict[str, Any] = {
-        'min_elevation_ft': (float, ...),
-        'max_elevation_ft': (float, ...),
+        'zone': (list[ZoneRef], ...),
         'area_m2': (Annotated[float, Field(ge=0)], ...),
     }
     for variable in spec.variables.values():
@@ -64,9 +98,10 @@ def build_zonal_stats_model(
     spec: DatasetSpec,
     stat_model: type[BaseModel],
 ) -> type[BaseModel]:
-    """Build the per-date wrapper model (``date`` + a list of ``stat_model``)."""
+    """Build the per-date wrapper model (``date`` + crossed axes + the cells)."""
     return create_model(
         f'{spec.model_prefix}ZonalStats',
         date=(date, ...),
+        zone_layers=(list[str], ...),
         zones=(list[stat_model], ...),  # type: ignore[valid-type]
     )

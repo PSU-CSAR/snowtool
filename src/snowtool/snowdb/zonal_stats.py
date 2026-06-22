@@ -6,30 +6,54 @@ import math
 
 from dataclasses import dataclass
 from datetime import date
-from typing import IO, TYPE_CHECKING, Self, cast
+from typing import IO, TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
 
 from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
-from snowtool.snowdb.terrain import ELEVATION, ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer
-from snowtool.snowdb.zoning import BandZone
+from snowtool.snowdb.zone_layer import available_zones
+from snowtool.snowdb.zoning import BandZone, ClassZone, Zone
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pydantic import BaseModel
 
-    from snowtool.snowdb.raster import TiledRaster
+    from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
-    from snowtool.snowdb.zoning import ZoneScheme
+
+# The zone a query defaults to when it names none: elevation only, stepped by the
+# dataset's band_step_ft -- preserving the original elevation-only behaviour.
+DEFAULT_ZONE_KEY = 'terrain.elevation'
+
+
+@dataclass(frozen=True)
+class ZoneSelection:
+    """One axis of a crossed-zone query: a zone layer + an optional band step.
+
+    ``layer_key`` is a registry key (``'<provider>.<layer.key>'``, e.g.
+    ``'terrain.elevation'``). ``step`` overrides a banded scheme's default band
+    width (ignored by categorical schemes); ``None`` uses the scheme's default.
+    """
+
+    layer_key: str
+    step: int | None = None
 
 
 @dataclass
 class Result:
+    """One (date, crossed-zone cell, variable) reduction.
+
+    ``zone`` is the cell's per-axis zone tuple (one :class:`Zone` per selected
+    layer, in selection order).
+    """
+
     date: date
-    elevation_band: BandZone
+    zone: tuple[Zone, ...]
     variable: DatasetVariable
     value: float
     area: float
@@ -40,27 +64,29 @@ class ZonalStats:
         self: Self,
         spec: DatasetSpec,
         variables: set[DatasetVariable],
-        elevation_bands: tuple[BandZone, ...],
+        zone_layers: tuple[str, ...],
+        zone_cells: tuple[tuple[Zone, ...], ...],
         dates: tuple[date, ...],
         *results: Result,
     ) -> None:
         self.spec = spec
+        # The crossed zone axes (registry keys, in selection order) and the flat
+        # list of product cells (each a per-axis zone tuple, in mixed-radix order).
+        self.zone_layers = zone_layers
         self._variables_index = {
             variable: idx + 1
             for idx, variable in enumerate(
                 sorted(variables, key=lambda v: v.key),
             )
         }
-        # Bands arrive in ordinal (ascending) order from the zone scheme, so the
-        # index preserves that order rather than re-sorting.
-        self._elevation_bands_index = {
-            band: idx for idx, band in enumerate(elevation_bands)
-        }
+        # Cells arrive in flat product order from the zone index; the index
+        # preserves that order rather than re-sorting.
+        self._cells_index = {cell: idx for idx, cell in enumerate(zone_cells)}
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
         self._array = numpy.full(
             (
                 len(self._dates_index),
-                len(self._elevation_bands_index),
+                len(self._cells_index),
                 len(self._variables_index) + 1,
             ),
             -numpy.inf,
@@ -70,12 +96,12 @@ class ZonalStats:
         self.add_results(*results)
 
     def add_result(self: Self, result: Result) -> None:
-        zone = self._array[self._dates_index[result.date]][
-            self._elevation_bands_index[result.elevation_band]
+        cell = self._array[self._dates_index[result.date]][
+            self._cells_index[result.zone]
         ]
 
-        zone[0] = result.area
-        zone[self._variables_index[result.variable]] = result.value
+        cell[0] = result.area
+        cell[self._variables_index[result.variable]] = result.value
 
     def add_results(self: Self, *results: Result) -> None:
         for result in results:
@@ -88,20 +114,51 @@ class ZonalStats:
                 'Ensure all data was processed and added to results successfully.',
             )
 
-    def _zone_stats(self: Self, date_idx: int, band_idx: int) -> dict[str, float]:
-        """The scaled per-zone stat values (``area_m2`` + each variable) for one
-        (date, band) cell -- the single source the JSON (:meth:`dump`) and CSV
+    def _zone_stats(self: Self, date_idx: int, cell_idx: int) -> dict[str, float]:
+        """The scaled per-cell stat values (``area_m2`` + each variable) for one
+        (date, cell) -- the single source the JSON (:meth:`dump`) and CSV
         (:meth:`dump_to_csv`) serializers share, so both apply the same unit
         scaling and ``float`` coercion. The keys are ordered ``area_m2`` first
-        then the variables in ``_variables_index`` order, matching the CSV
-        header. A band with no valid pixels carries ``nan``, which each
-        serializer renders as its own 'missing' token (JSON null / empty cell).
+        then the variables in ``_variables_index`` order. A cell with no valid
+        pixels carries ``nan``, which each serializer renders as its own 'missing'
+        token (JSON null / empty cell).
         """
-        zone = self._array[date_idx][band_idx]
-        values = {'area_m2': float(zone[0])}
+        cell = self._array[date_idx][cell_idx]
+        values = {'area_m2': float(cell[0])}
         for variable, var_idx in self._variables_index.items():
-            values[variable.stat_name] = float(variable.unit.scale(zone[var_idx]))
+            values[variable.stat_name] = float(variable.unit.scale(cell[var_idx]))
         return values
+
+    @staticmethod
+    def _zone_refs(
+        layers: tuple[str, ...],
+        cell: tuple[Zone, ...],
+    ) -> list[BaseModel]:
+        """Self-describing per-axis zone refs for one crossed-zone cell.
+
+        Each ref carries the axis' registry layer key plus the band bounds
+        (banded) or the class code+label (categorical).
+        """
+        from snowtool.snowdb.response_models import BandZoneRef, ClassZoneRef
+
+        refs: list[BaseModel] = []
+        for layer, zone in zip(layers, cell, strict=True):
+            if isinstance(zone, BandZone):
+                refs.append(
+                    BandZoneRef(
+                        layer=layer,
+                        min=zone.min,
+                        max=zone.max,
+                        unit=zone.unit,
+                    ),
+                )
+            elif isinstance(zone, ClassZone):
+                refs.append(
+                    ClassZoneRef(layer=layer, code=zone.code, label=zone.label),
+                )
+            else:  # pragma: no cover - Zone is a closed hierarchy
+                raise TypeError(f'unknown zone type: {zone!r}')
+        return refs
 
     def dump(self: Self) -> list[BaseModel]:
         self.validate()
@@ -109,40 +166,48 @@ class ZonalStats:
         stats_model = self.spec.zonal_stats_model
         stats: list[BaseModel] = []
         for date_, date_idx in self._dates_index.items():
-            zones: list[BaseModel] = []
-            for band, band_idx in self._elevation_bands_index.items():
-                zones.append(
+            cells: list[BaseModel] = []
+            for cell, cell_idx in self._cells_index.items():
+                cells.append(
                     stat_model(
-                        min_elevation_ft=band.min,
-                        max_elevation_ft=band.max,
-                        **self._zone_stats(date_idx, band_idx),
+                        zone=self._zone_refs(self.zone_layers, cell),
+                        **self._zone_stats(date_idx, cell_idx),
                     ),
                 )
-            stats.append(stats_model(date=date_, zones=zones))
+            stats.append(
+                stats_model(
+                    date=date_,
+                    zone_layers=list(self.zone_layers),
+                    zones=cells,
+                ),
+            )
         return stats
 
     def dump_to_csv(self: Self, out: IO) -> None:
         self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
-        headers: list[str] = ['date']
-        for band in self._elevation_bands_index:
-            headers.append(f'area_m2_{band}')
-            for variable in self._variables_index:
-                headers.append(f'{variable.stat_name}_{band}')
-
+        # One row per (date, crossed-zone cell): the date, one column per axis (the
+        # zone's label/bounds), then area + each variable.
+        headers: list[str] = [
+            'date',
+            *self.zone_layers,
+            'area_m2',
+            *(variable.stat_name for variable in self._variables_index),
+        ]
         writer.writerow(headers)
 
         for date_, date_idx in self._dates_index.items():
-            row: list[str] = [date_.isoformat()]
-            for band_idx in self._elevation_bands_index.values():
-                # Empty cell for a no-data band (nan), matching dump()'s JSON
+            for cell, cell_idx in self._cells_index.items():
+                stats = self._zone_stats(date_idx, cell_idx)
+                row: list[str] = [date_.isoformat(), *(str(zone) for zone in cell)]
+                # Empty cell for a no-data reduction (nan), matching dump()'s JSON
                 # null -- never the literal 'nan'.
                 row.extend(
                     '' if math.isnan(value) else str(value)
-                    for value in self._zone_stats(date_idx, band_idx).values()
+                    for value in stats.values()
                 )
-            writer.writerow(row)
+                writer.writerow(row)
 
     @classmethod
     async def calculate(
@@ -150,42 +215,58 @@ class ZonalStats:
         aoi: AOIRasterWithArea,
         rasters: RasterCollection,
         cache: TiffCache,
-        spec: DatasetSpec,
-        elevation: TiledRaster[numpy.float32],
+        dataset: Dataset,
+        zone_selections: Sequence[ZoneSelection] = (),
     ) -> Self:
-        # Elevation bands come from the elevation layer's banded zoning scheme,
-        # stepped by this dataset's band_step_ft. The scheme spans the global
-        # bracket (shared by every dataset), so a given band means the same thing
-        # across AOIs and datasets; the per-AOI band geometry below restricts which
-        # of them actually carry data. (ELEVATION always declares a scheme.)
-        scheme = ELEVATION.zoning
-        assert scheme is not None  # noqa: S101 - ELEVATION always has a zoning scheme
+        """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
-        # Elevation is read live from the dataset's terrain set (the AOI raster is
-        # a bare geometry mask now), windowed to the AOI's tiles.
-        elevation_array = numpy.full(
-            aoi.array.shape,
-            ELEVATION_NODATA,
-            dtype=numpy.float32,
-        )
-        await aoi.load_raster_tiles_into_array(elevation, elevation_array, cache)
+        ``zone_selections`` names the zone-layer axes to cross (each resolved
+        against ``dataset``'s zone layers + the provider registry); an empty
+        selection defaults to elevation only, stepped by ``spec.band_step_ft`` --
+        the original elevation-only behaviour. Each selected zone layer is read
+        live, windowed to the AOI, and assigned to per-pixel ordinals; the crossed
+        index is the cartesian product of the axes.
+        """
+        spec = dataset.spec
+        selections = list(zone_selections) or [
+            ZoneSelection(DEFAULT_ZONE_KEY, step=spec.band_step_ft),
+        ]
 
-        # The band geometry (which pixel is in which band, and each band's total
-        # area) depends only on the AOI mask + elevation -- not on any variable or
-        # date -- so it is computed once here and reused by every reduction.
-        band_index = _BandIndex.build(
-            scheme,
-            elevation_array,
-            aoi.array,
-            aoi.area,
-            step=spec.band_step_ft,
-        )
+        # Resolve + read each axis. The zone geometry (which pixel is in which
+        # crossed cell, and each cell's total area) depends only on the AOI mask +
+        # the zone layers -- not on any variable or date -- so it is computed once
+        # here and reused by every reduction.
+        registry = available_zones(dataset.providers.values())
+        axes: list[tuple[Zone, ...]] = []
+        ordinals_list: list[numpy.typing.NDArray[numpy.int64]] = []
+        zone_layers: list[str] = []
+        for selection in selections:
+            available = registry.get(selection.layer_key)
+            if available is None:
+                raise ValueError(
+                    f'Unknown zone layer {selection.layer_key!r}; available: '
+                    f'{", ".join(sorted(registry))}.',
+                )
+            layer = available.layer
+            scheme = available.scheme
+            zone_set = dataset.zones[available.provider.name]
+            values = numpy.full(aoi.array.shape, layer.nodata, dtype=layer.dtype)
+            await aoi.load_raster_tiles_into_array(
+                zone_set.raster(layer),
+                values,
+                cache,
+            )
+            axes.append(scheme.zones(step=selection.step))
+            ordinals_list.append(scheme.assign(values, step=selection.step))
+            zone_layers.append(selection.layer_key)
+
+        zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array, aoi.area)
 
         # Fan out across the raster set; each raster's tile reads fan out
         # further inside _calc. The handle cache dedupes/bounds open COGs.
         per_raster = await asyncio.gather(
             *(
-                cls._calc(aoi, variable, raster, band_index, cache)
+                cls._calc(aoi, variable, raster, zone_index, cache)
                 for variable, variable_rasters in rasters.items()
                 for raster in variable_rasters
             ),
@@ -197,7 +278,8 @@ class ZonalStats:
         return cls(
             spec,
             rasters.variables,
-            band_index.bands,
+            tuple(zone_layers),
+            zone_index.cell_zones,
             tuple(rasters.dates),
             *results,
         )
@@ -207,7 +289,7 @@ class ZonalStats:
         aoi: AOIRasterWithArea,
         variable: DatasetVariable,
         raster: DataRaster,
-        band_index: _BandIndex,
+        zone_index: _ZoneIndex,
         cache: TiffCache,
     ) -> list[Result]:
         date_ = raster.date
@@ -216,67 +298,94 @@ class ZonalStats:
 
         await aoi.load_raster_tiles_into_array(raster, values_array, cache)
 
-        # The reduction runs only over in-band pixels that actually have data;
-        # everything else (band geometry, band areas) was precomputed once.
-        selection = band_index.in_band & (values_array != variable.nodata)
-        values = band_index.reduce(variable.reducer, values_array, aoi.area, selection)
+        # The reduction runs only over in-zone pixels that actually have data;
+        # everything else (zone geometry, cell areas) was precomputed once.
+        selection = zone_index.in_zone & (values_array != variable.nodata)
+        values = zone_index.reduce(variable.reducer, values_array, aoi.area, selection)
 
         return [
             Result(
                 date=date_,
                 variable=variable,
-                elevation_band=band,
+                zone=cell,
                 value=float(values[idx]),
-                area=float(band_index.areas[idx]),
+                area=float(zone_index.areas[idx]),
             )
-            for idx, band in enumerate(band_index.bands)
+            for idx, cell in enumerate(zone_index.cell_zones)
         ]
 
 
 @dataclass
-class _BandIndex:
-    """Per-pixel zone membership for one AOI along one banded axis, reused.
+class _ZoneIndex:
+    """Per-pixel crossed-zone membership for one AOI, computed once and reused.
 
-    ``index`` maps every pixel to its zone ordinal (``-1`` for pixels out of
-    zone -- below/above the domain or layer-nodata); ``in_band`` is the boolean of
-    in-zone, in-mask pixels; ``areas[b]`` is band ``b``'s total geographic area.
-    Reused across every (variable, date) raster so the masks and areas are not
-    recomputed per raster -- only each raster's data-dependent reduction is.
+    Combines K per-axis ordinal arrays into one **mixed-radix linear index** over
+    the product space (size ``prod(dims)``). ``index`` is that combined cell index
+    per pixel (meaningful only where ``in_zone``); ``in_zone`` is the boolean of
+    pixels that are in every axis' zone *and* in the AOI mask; ``areas[c]`` is
+    crossed cell ``c``'s total geographic area. ``cell_zones`` carries the per-axis
+    :class:`Zone` tuple for every product cell, in the same flat order.
     """
 
-    bands: tuple[BandZone, ...]
+    axes: list[tuple[Zone, ...]]
+    dims: list[int]
     index: numpy.typing.NDArray[numpy.int64]
-    in_band: numpy.typing.NDArray[numpy.bool_]
+    in_zone: numpy.typing.NDArray[numpy.bool_]
     areas: numpy.typing.NDArray[numpy.float64]
+    cell_zones: tuple[tuple[Zone, ...], ...]
 
     @classmethod
     def build(
         cls: type[Self],
-        scheme: ZoneScheme,
-        values: numpy.typing.NDArray[numpy.float32],
+        axes: list[tuple[Zone, ...]],
+        ordinals: list[numpy.typing.NDArray[numpy.int64]],
         mask: numpy.typing.NDArray[numpy.uint8],
         area: numpy.typing.NDArray[numpy.float32],
-        *,
-        step: int | None = None,
     ) -> Self:
-        """Build the index from a banded zoning scheme over ``values``.
+        """Cross K per-axis ordinal arrays into one crossed-cell index.
 
-        ``scheme.assign`` maps each pixel to its band ordinal (``-1`` out of zone),
-        so the scheme owns the unit scaling and nodata handling; this just ANDs the
-        AOI mask in and tallies per-band area.
+        A pixel is in-zone only when every axis assigns it a real ordinal
+        (``>= 0``) and it is inside the AOI mask; its crossed cell is the
+        mixed-radix combination of the per-axis ordinals.
         """
-        # The single-axis index is banded (elevation), so the scheme's zones are
-        # BandZones; the cast carries that to the typed Result.
-        bands = cast('tuple[BandZone, ...]', scheme.zones(step=step))
-        n = len(bands)
-        index = scheme.assign(values, step=step)
-        in_band = (index >= 0) & (mask != 0)
+        dims = [len(axis) for axis in axes]
+        n = math.prod(dims)
+        in_zone = mask != 0
+        combined = numpy.zeros(mask.shape, dtype=numpy.int64)
+        for ords, dim in zip(ordinals, dims, strict=True):
+            in_zone = in_zone & (ords >= 0)
+            # Out-of-zone ordinals (-1) make combined garbage, but those pixels are
+            # excluded by in_zone before it is ever read, so the radix math is only
+            # consumed where every axis is valid.
+            combined = combined * dim + ords
         areas = numpy.bincount(
-            index[in_band],
-            weights=area[in_band],
+            combined[in_zone],
+            weights=area[in_zone],
             minlength=n,
         ).astype(numpy.float64)
-        return cls(bands=bands, index=index, in_band=in_band, areas=areas)
+        return cls(
+            axes=axes,
+            dims=dims,
+            index=combined,
+            in_zone=in_zone,
+            areas=areas,
+            cell_zones=cls._enumerate_cells(axes, dims),
+        )
+
+    @staticmethod
+    def _enumerate_cells(
+        axes: list[tuple[Zone, ...]],
+        dims: list[int],
+    ) -> tuple[tuple[Zone, ...], ...]:
+        """The product cells in flat (mixed-radix) order: one Zone tuple per cell."""
+        cells: list[tuple[Zone, ...]] = []
+        for flat in range(math.prod(dims)):
+            zones: list[Zone] = []
+            for i, dim in enumerate(dims):
+                stride = math.prod(dims[i + 1 :])
+                zones.append(axes[i][(flat // stride) % dim])
+            cells.append(tuple(zones))
+        return tuple(cells)
 
     def reduce(
         self: Self,
@@ -285,15 +394,15 @@ class _BandIndex:
         area_array: numpy.typing.NDArray[numpy.float32],
         selection: numpy.typing.NDArray[numpy.bool_],
     ) -> numpy.typing.NDArray[numpy.float64]:
-        """Area-weighted reduction for every band at once, over ``selection``.
+        """Area-weighted reduction for every crossed cell at once, over ``selection``.
 
-        One pass via ``bincount`` instead of a per-band masked reduction. Area
-        weighting is automatic from the grid CRS (``area`` is geodesic on a
-        geographic grid, constant on a projected one), so MEAN degenerates to a
-        plain mean when cells are equal-area. A band with no selected pixels is
-        ``nan`` (as a per-pixel empty reduction would be).
+        One pass via ``bincount`` over the combined cell index instead of a
+        per-cell masked reduction. Area weighting is automatic from the grid CRS
+        (``area`` is geodesic on a geographic grid, constant on a projected one), so
+        MEAN degenerates to a plain mean when cells are equal-area. A cell with no
+        selected pixels is ``nan`` (as a per-pixel empty reduction would be).
         """
-        n = len(self.bands)
+        n = math.prod(self.dims)
         idx = self.index[selection]
         values = values_array[selection]
         areas = area_array[selection]
@@ -309,7 +418,7 @@ class _BandIndex:
             case Reducer.TOTAL:
                 result = weighted
 
-        # Empty bands divide to nan for MEAN already, but TOTAL needs it set
-        # explicitly so a no-data band reads nan rather than a spurious 0.
+        # Empty cells divide to nan for MEAN already, but TOTAL needs it set
+        # explicitly so a no-data cell reads nan rather than a spurious 0.
         result[numpy.bincount(idx, minlength=n) == 0] = numpy.nan
         return result
