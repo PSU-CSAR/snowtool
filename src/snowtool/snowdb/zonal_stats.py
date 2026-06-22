@@ -4,36 +4,32 @@ import asyncio
 import csv
 import math
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
-from itertools import pairwise
-from typing import IO, TYPE_CHECKING, Self
+from typing import IO, TYPE_CHECKING, Self, cast
 
 import numpy
 import numpy.typing
 
-from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
-from snowtool.snowdb.elevation_band import ElevationBand
 from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
-from snowtool.snowdb.terrain import ELEVATION_NODATA
+from snowtool.snowdb.terrain import ELEVATION, ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer
+from snowtool.snowdb.zoning import BandZone
 
 if TYPE_CHECKING:
-    import numpy
-
     from pydantic import BaseModel
 
     from snowtool.snowdb.raster import TiledRaster
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
+    from snowtool.snowdb.zoning import ZoneScheme
 
 
 @dataclass
 class Result:
     date: date
-    elevation_band: ElevationBand
+    elevation_band: BandZone
     variable: DatasetVariable
     value: float
     area: float
@@ -44,7 +40,7 @@ class ZonalStats:
         self: Self,
         spec: DatasetSpec,
         variables: set[DatasetVariable],
-        elevation_bands: tuple[ElevationBand, ...],
+        elevation_bands: tuple[BandZone, ...],
         dates: tuple[date, ...],
         *results: Result,
     ) -> None:
@@ -55,8 +51,10 @@ class ZonalStats:
                 sorted(variables, key=lambda v: v.key),
             )
         }
+        # Bands arrive in ordinal (ascending) order from the zone scheme, so the
+        # index preserves that order rather than re-sorting.
         self._elevation_bands_index = {
-            band: idx for idx, band in enumerate(sorted(elevation_bands))
+            band: idx for idx, band in enumerate(elevation_bands)
         }
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
         self._array = numpy.full(
@@ -155,16 +153,13 @@ class ZonalStats:
         spec: DatasetSpec,
         elevation: TiledRaster[numpy.float32],
     ) -> Self:
-        # Bands span the global elevation bracket (shared by every dataset), so a
-        # given band means the same thing across AOIs and datasets; the per-AOI
-        # band geometry below restricts which of them actually carry data.
-        elevation_bands = tuple(
-            ElevationBand.generate(
-                size_ft=spec.band_step_ft,
-                min_elevation=MIN_ELEVATION_M,
-                max_elevation=MAX_ELEVATION_M,
-            ),
-        )
+        # Elevation bands come from the elevation layer's banded zoning scheme,
+        # stepped by this dataset's band_step_ft. The scheme spans the global
+        # bracket (shared by every dataset), so a given band means the same thing
+        # across AOIs and datasets; the per-AOI band geometry below restricts which
+        # of them actually carry data. (ELEVATION always declares a scheme.)
+        scheme = ELEVATION.zoning
+        assert scheme is not None  # noqa: S101 - ELEVATION always has a zoning scheme
 
         # Elevation is read live from the dataset's terrain set (the AOI raster is
         # a bare geometry mask now), windowed to the AOI's tiles.
@@ -179,10 +174,11 @@ class ZonalStats:
         # area) depends only on the AOI mask + elevation -- not on any variable or
         # date -- so it is computed once here and reused by every reduction.
         band_index = _BandIndex.build(
+            scheme,
             elevation_array,
             aoi.array,
             aoi.area,
-            elevation_bands,
+            step=spec.band_step_ft,
         )
 
         # Fan out across the raster set; each raster's tile reads fan out
@@ -201,7 +197,7 @@ class ZonalStats:
         return cls(
             spec,
             rasters.variables,
-            elevation_bands,
+            band_index.bands,
             tuple(rasters.dates),
             *results,
         )
@@ -239,44 +235,42 @@ class ZonalStats:
 
 @dataclass
 class _BandIndex:
-    """Per-pixel elevation-band membership for one AOI, computed once and reused.
+    """Per-pixel zone membership for one AOI along one banded axis, reused.
 
-    ``index`` maps every pixel to its band ordinal (``-1``/``>= n`` for pixels
-    below/above all bands); ``in_band`` is the boolean of in-range pixels;
-    ``areas[b]`` is band ``b``'s total geographic area. Reused across every
-    (variable, date) raster so the band masks and areas are not recomputed per
-    raster -- only each raster's data-dependent reduction is.
+    ``index`` maps every pixel to its zone ordinal (``-1`` for pixels out of
+    zone -- below/above the domain or layer-nodata); ``in_band`` is the boolean of
+    in-zone, in-mask pixels; ``areas[b]`` is band ``b``'s total geographic area.
+    Reused across every (variable, date) raster so the masks and areas are not
+    recomputed per raster -- only each raster's data-dependent reduction is.
     """
 
-    bands: tuple[ElevationBand, ...]
-    index: numpy.typing.NDArray[numpy.int16]
+    bands: tuple[BandZone, ...]
+    index: numpy.typing.NDArray[numpy.int64]
     in_band: numpy.typing.NDArray[numpy.bool_]
     areas: numpy.typing.NDArray[numpy.float64]
 
     @classmethod
     def build(
         cls: type[Self],
-        elevation: numpy.typing.NDArray[numpy.float32],
+        scheme: ZoneScheme,
+        values: numpy.typing.NDArray[numpy.float32],
         mask: numpy.typing.NDArray[numpy.uint8],
         area: numpy.typing.NDArray[numpy.float32],
-        elevation_bands: Iterable[ElevationBand],
+        *,
+        step: int | None = None,
     ) -> Self:
-        bands = tuple(sorted(elevation_bands))
+        """Build the index from a banded zoning scheme over ``values``.
+
+        ``scheme.assign`` maps each pixel to its band ordinal (``-1`` out of zone),
+        so the scheme owns the unit scaling and nodata handling; this just ANDs the
+        AOI mask in and tallies per-band area.
+        """
+        # The single-axis index is banded (elevation), so the scheme's zones are
+        # BandZones; the cast carries that to the typed Result.
+        bands = cast('tuple[BandZone, ...]', scheme.zones(step=step))
         n = len(bands)
-        # ElevationBand.generate yields contiguous, ascending bands, so their
-        # meter boundaries form one monotonic edge vector for digitize.
-        if any(a.max != b.min for a, b in pairwise(bands)):
-            raise ValueError('Elevation bands must be contiguous and ascending.')
-        edges = numpy.array(
-            [band.min_meters for band in bands] + [bands[-1].max_meters],
-            dtype=numpy.float64,
-        )
-        # digitize: 0 below all bands, n above; shift to 0..n-1 in-band. Band
-        # ordinals are tiny, so int16 keeps this full-size array cheap. The
-        # elevation nodata sentinel sits far below the bracket, so uncovered cells
-        # digitize out of range; the AOI mask further restricts to in-basin cells.
-        index = (numpy.digitize(elevation, edges) - 1).astype(numpy.int16)
-        in_band = (index >= 0) & (index < n) & (mask != 0)
+        index = scheme.assign(values, step=step)
+        in_band = (index >= 0) & (mask != 0)
         areas = numpy.bincount(
             index[in_band],
             weights=area[in_band],

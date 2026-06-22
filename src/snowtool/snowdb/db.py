@@ -35,7 +35,11 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
+    from snowtool.snowdb.zone_layer import (
+        AvailableZone,
+        ZoneLayerProvider,
+        ZoneLayerSource,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -295,6 +299,18 @@ class SnowDb:
         bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
 
         return provider.generate(source, targets, bounds, force=force, **options)
+
+    def available_zones(self: Self) -> dict[str, AvailableZone]:
+        """The query-able zone layers across this database's providers.
+
+        Keyed ``'<provider>.<layer.key>'`` (e.g. ``'terrain.elevation'``); only
+        layers that declare a zoning scheme appear (the aspect components, which
+        have no scheme, are excluded). The representation of a zone's valid values
+        is its scheme's ``zones()``.
+        """
+        from snowtool.snowdb.zone_layer import available_zones
+
+        return available_zones(self.zone_layer_providers.values())
 
     # --- global AOI query helpers (drive the aoi/report commands) -------------
 

@@ -204,3 +204,37 @@ class ZoneLayerProvider(ABC):
     def layer_set(self: Self, directory: Path) -> ZoneLayerSet:
         """The :class:`ZoneLayerSet` for this provider rooted at ``directory``."""
         return ZoneLayerSet(directory, self.layers, self.hash_tag)
+
+
+@dataclass(frozen=True)
+class AvailableZone:
+    """A query-able zone layer: its provider, layer, and zoning scheme.
+
+    Keyed in :func:`available_zones` by ``'<provider>.<layer.key>'`` (e.g.
+    ``'terrain.elevation'``) -- the stable id a query references.
+    """
+
+    provider: ZoneLayerProvider
+    layer: ZoneLayer
+    scheme: ZoneScheme
+
+
+def available_zones(
+    providers: Iterable[ZoneLayerProvider],
+) -> dict[str, AvailableZone]:
+    """Every query-able zone across ``providers``, keyed ``'<provider>.<layer.key>'``.
+
+    Enumerates each provider's layers that declare a zoning scheme
+    (``layer.zoning is not None``); layers that are generated but not themselves
+    zone-able (e.g. the aspect components) never appear.
+    """
+    zones: dict[str, AvailableZone] = {}
+    for provider in providers:
+        for layer in provider.layers:
+            if layer.zoning is not None:
+                zones[f'{provider.name}.{layer.key}'] = AvailableZone(
+                    provider,
+                    layer,
+                    layer.zoning,
+                )
+    return zones

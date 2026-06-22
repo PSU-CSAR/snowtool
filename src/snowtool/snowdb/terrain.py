@@ -27,8 +27,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.constants import (
+    DEM_HASH_TAG,
+    M_TO_FT,
+    MAX_ELEVATION_M,
+    MIN_ELEVATION_M,
+)
 from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
+from snowtool.snowdb.zoning import ClassZone, banded, categorical
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,6 +62,18 @@ ELEVATION = ZoneLayer(
     nodata=ELEVATION_NODATA,
     band_descriptions=('elevation_mean_m',),
     key='elevation',
+    # Elevation bands span the global bracket in feet, aligned to 0, so a band
+    # means the same thing across AOIs and datasets; pixels are metres, so the
+    # scheme scales by M_TO_FT. The per-dataset default step is spec.band_step_ft
+    # (passed at query time); default_step here is the fallback.
+    zoning=banded(
+        domain_min=MIN_ELEVATION_M * M_TO_FT,
+        domain_max=MAX_ELEVATION_M * M_TO_FT,
+        default_step=1000,
+        unit='ft',
+        value_scale=M_TO_FT,
+        layer_nodata=ELEVATION_NODATA,
+    ),
 )
 ASPECT_MAJORITY = ZoneLayer(
     filename='aspect_majority.tif',
@@ -63,6 +81,16 @@ ASPECT_MAJORITY = ZoneLayer(
     nodata=ASPECT_MAJORITY_NODATA,
     band_descriptions=('majority_cls_0N1E2S3W4flat',),
     key='aspect',
+    zoning=categorical(
+        (
+            ClassZone(key='N', label='N', code=ASPECT_N),
+            ClassZone(key='E', label='E', code=ASPECT_E),
+            ClassZone(key='S', label='S', code=ASPECT_S),
+            ClassZone(key='W', label='W', code=ASPECT_W),
+            ClassZone(key='flat', label='flat', code=ASPECT_FLAT),
+        ),
+        layer_nodata=ASPECT_MAJORITY_NODATA,
+    ),
 )
 ASPECT_COMPONENTS = ZoneLayer(
     filename='aspect_components.tif',
