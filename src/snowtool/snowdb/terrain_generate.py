@@ -152,9 +152,7 @@ from snowtool.snowdb.terrain import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    from griffine.grid import TiledAffineGrid
+    from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
 # Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
 # (metres, near-square) keeps slope/aspect undistorted; 10 m matches 3DEP. These
@@ -194,16 +192,6 @@ _N_CLASSES = 5
 # ``workers`` is always honoured -- the caller owns that tradeoff (see the module
 # docstring's memory notes; ``block_size`` is the lever for bounding per-worker RAM).
 MAX_AUTO_WORKERS = 16
-
-
-@dataclass(frozen=True)
-class TerrainTarget:
-    """A grid to bin into and where to write its terrain set."""
-
-    name: str
-    grid: TiledAffineGrid
-    tile_size: int
-    directory: Path
 
 
 def _slope_aspect(
@@ -265,7 +253,7 @@ class _GridAccumulator:
     fine pixel is placed independently.
     """
 
-    def __init__(self: Self, target: TerrainTarget) -> None:
+    def __init__(self: Self, target: ZoneLayerTarget) -> None:
         self.target = target
         base = target.grid.base_grid
         self.height = base.rows
@@ -402,7 +390,7 @@ class _GridAccumulator:
 
 
 def _target_bounds_in_work_crs(
-    targets: list[TerrainTarget],
+    targets: list[ZoneLayerTarget],
     work_crs: str,
 ) -> tuple[float, float, float, float]:
     """Union of the target grids' extents, expressed in the work CRS.
@@ -489,7 +477,7 @@ def _clip_grid_to_bounds(
 
 def generate_terrain(
     source: rasterio.io.DatasetReader,
-    targets: list[TerrainTarget],
+    targets: list[ZoneLayerTarget],
     *,
     work_crs: str = DEFAULT_WORK_CRS,
     work_resolution: float | None = DEFAULT_WORK_RESOLUTION,

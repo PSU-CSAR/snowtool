@@ -94,8 +94,9 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
     from rasterio.warp import transform_bounds
 
     from snowtool.snowdb.grid import grid_extent_4326, make_grid
-    from snowtool.snowdb.terrain import TerrainSet
-    from snowtool.snowdb.terrain_generate import TerrainTarget, generate_terrain
+    from snowtool.snowdb.terrain import TerrainProvider
+    from snowtool.snowdb.terrain_generate import generate_terrain
+    from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
     source = ThreeDEP()
     west, south, east, north = transform_bounds('EPSG:4326', 'EPSG:5070', *SEAM_BOX)
@@ -113,7 +114,7 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
 
     def _generate(directory, workers):
         with source.open(bounds) as src:
-            target = TerrainTarget(
+            target = ZoneLayerTarget(
                 name='t',
                 grid=grid,
                 tile_size=128,
@@ -133,8 +134,12 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
     parallel = _skip_if_offline(lambda: _generate(tmp_path / 'p', 4))
 
     assert serial['t'] == parallel['t']
-    for attr in ('elevation_path', 'aspect_majority_path', 'aspect_components_path'):
-        sp = getattr(TerrainSet(tmp_path / 's' / 'terrain'), attr)
-        pp = getattr(TerrainSet(tmp_path / 'p' / 'terrain'), attr)
-        with rasterio.open(sp) as a, rasterio.open(pp) as b:
+    provider = TerrainProvider()
+    serial_set = provider.layer_set(tmp_path / 's' / 'terrain')
+    parallel_set = provider.layer_set(tmp_path / 'p' / 'terrain')
+    for layer in provider.layers:
+        with (
+            rasterio.open(serial_set.layer_path(layer)) as a,
+            rasterio.open(parallel_set.layer_path(layer)) as b,
+        ):
             numpy.testing.assert_array_equal(a.read(), b.read())

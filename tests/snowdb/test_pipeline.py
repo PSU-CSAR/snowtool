@@ -16,7 +16,10 @@ from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 
 def test_terrain_elevation(dataset, grid):
-    with rasterio.open(dataset.terrain.elevation_path) as ds:
+    from snowtool.snowdb.terrain import ELEVATION
+
+    terrain = dataset.zones['terrain']
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         assert ds.shape == (SIZE, SIZE)
         assert ds.crs == rasterio.CRS.from_epsg(4326)
         assert ds.transform == grid.base_grid.transform
@@ -116,12 +119,14 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
             dataset.area_raster(),
             cache,
         )
+        from snowtool.snowdb.terrain import ELEVATION
+
         stats = await ZonalStats.calculate(
             aoi_with_area,
             collection,
             cache,
             dataset.spec,
-            dataset.terrain.elevation_raster(),
+            dataset.zones['terrain'].raster(ELEVATION),
         )
         return aoi_with_area, stats
 

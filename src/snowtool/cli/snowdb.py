@@ -11,6 +11,7 @@ from snowtool.cli._render import FORMATS, _emit
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.zone_layer import ZoneLayerProvider
 
 
 @click.group()
@@ -35,12 +36,12 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
     for name in sorted(snowdb):
         status = dataset_status(snowdb[name])
         artifacts = status.artifacts
-        rows.append(
+        row = {'dataset': status.name, 'present': status.present}
+        # One column per configured zone-layer provider (terrain, landcover, ...).
+        for provider_name, present in sorted(artifacts.zone_layers.items()):
+            row[provider_name] = present
+        row.update(
             {
-                'dataset': status.name,
-                'present': status.present,
-                'terrain': artifacts.terrain,
-                'landcover': artifacts.landcover,
                 'area': 'n/a' if artifacts.area is None else artifacts.area,
                 'cogs': artifacts.cogs,
                 'aoi_rasters': artifacts.aoi_rasters,
@@ -49,6 +50,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
                 'last': status.last_date.isoformat() if status.last_date else '',
             },
         )
+        rows.append(row)
     _emit(rows, fmt)
 
 
@@ -99,27 +101,17 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
 @click.option(
     '--quick',
     is_flag=True,
-    help='Create the directory skeleton only; skip area + terrain generation.',
+    help='Create the directory skeleton only; skip area + zone-layer generation.',
 )
 @click.option(
-    '--dataset-dem',
-    'dataset_dems',
-    nargs=2,
+    '--dataset-source',
+    'dataset_sources',
+    nargs=3,
     multiple=True,
-    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
-    metavar='DATASET PATH',
-    help='Generate DATASET terrain from a local DEM file instead of the default '
-    'source (repeatable).',
-)
-@click.option(
-    '--dataset-nlcd',
-    'dataset_nlcds',
-    nargs=2,
-    multiple=True,
-    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
-    metavar='DATASET PATH',
-    help='Generate DATASET land cover from a local NLCD file instead of the '
-    'default source (repeatable).',
+    type=(str, str, click.Path(exists=True, dir_okay=False, path_type=Path)),
+    metavar='PROVIDER DATASET PATH',
+    help='Generate PROVIDER zone layers (e.g. terrain, landcover) for DATASET from '
+    'a local PATH instead of the default source (repeatable).',
 )
 @click.option(
     '--workers',
@@ -140,8 +132,7 @@ def snowdb_init(
     cli_ctx: CliContext,
     path: Path | None,
     quick: bool,
-    dataset_dems: tuple[tuple[str, Path], ...],
-    dataset_nlcds: tuple[tuple[str, Path], ...],
+    dataset_sources: tuple[tuple[str, str, Path], ...],
     workers: int | None,
     block_size: int | None,
 ) -> None:
@@ -149,17 +140,17 @@ def snowdb_init(
 
     Lays out ``aois/``, ``data/``, and a ``data/<dataset>/`` directory for every
     configured dataset, then ensures each dataset's area raster (geographic grids
-    only), terrain set, and land-cover set exist. Terrain comes from the database's
-    default DEM source and land cover from the default NLCD source, each in one
-    shared pass, unless ``--dataset-dem`` / ``--dataset-nlcd`` override a dataset
-    with a local file. ``--quick`` skips all generation (skeleton only). Idempotent
-    -- existing area rasters, terrain sets, and land-cover sets are left untouched.
+    only) and every configured zone layer (terrain, land cover, ...) exist. Each
+    zone layer comes from its provider's default source in one shared pass, unless
+    ``--dataset-source PROVIDER DATASET PATH`` overrides a dataset with a local
+    file. ``--quick`` skips all generation (skeleton only). Idempotent -- existing
+    area rasters and zone-layer sets are left untouched.
 
     Generation is heavy: terrain reprojects the whole DEM source to a 10 m work
     grid (the default 3DEP source streams from S3), and land cover downloads the
     MRLC Annual NLCD national raster (~1.5 GB) on first use, cached under the
     snowdb root. Use ``--quick`` for a fast skeleton, or the per-dataset
-    ``dataset generate`` / ``dataset generate-landcover`` commands to bound the work.
+    ``dataset generate-zones`` command to bound the work.
     """
     from snowtool.settings import Settings
     from snowtool.snowdb.db import SnowDb
@@ -174,8 +165,8 @@ def snowdb_init(
     db = SnowDb.initialize(
         root,
         cli_ctx.specs,
-        dem_source=cli_ctx.dem_source,
-        landcover_source=cli_ctx.landcover_source,
+        zone_layer_providers=cli_ctx.zone_layer_providers,
+        zone_layer_sources=cli_ctx.zone_layer_sources,
     )
     click.echo(f'initialized snowdb: {root}')
 
@@ -186,61 +177,57 @@ def snowdb_init(
         if db[name].ensure_area_raster():
             click.echo(f'built area raster for {name}')
 
-    overrides = {name: Path(p) for name, p in dataset_dems}
-    nlcd_overrides = {name: Path(p) for name, p in dataset_nlcds}
-    for name in overrides.keys() | nlcd_overrides.keys():
-        get_dataset(db, name)  # validate before doing expensive work
+    # provider -> {dataset: local path}; validate provider + dataset names before
+    # any (expensive) generation work.
+    overrides: dict[str, dict[str, Path]] = {}
+    for provider_name, dataset_name, p in dataset_sources:
+        if provider_name not in db.zone_layer_providers:
+            raise click.ClickException(f'No such zone-layer provider: {provider_name}')
+        get_dataset(db, dataset_name)
+        overrides.setdefault(provider_name, {})[dataset_name] = Path(p)
 
-    _generate_terrain(db, overrides, workers, block_size)
-    _generate_landcover(db, nlcd_overrides)
+    for provider_name, provider in db.zone_layer_providers.items():
+        _generate_zone_layers(
+            db, provider, overrides.get(provider_name, {}), workers, block_size,
+        )
 
 
-def _generate_terrain(
+def _generate_zone_layers(
     db: SnowDb,
+    provider: ZoneLayerProvider,
     overrides: dict[str, Path],
     workers: int | None,
     block_size: int | None,
 ) -> None:
-    """init's terrain step: a default-source shared pass + per-dataset overrides.
+    """init's per-provider step: a default-source shared pass + per-dataset overrides.
 
-    Generates every default-source dataset that lacks terrain in one pass, then
-    (re)generates each ``--dataset-dem`` override from its given local file.
+    Generates every default-source dataset that lacks this provider's set in one
+    pass, then (re)generates each ``--dataset-source`` override from its local file.
+    ``workers``/``block_size`` are engine knobs the terrain provider honours and
+    others ignore.
     """
-    from snowtool.snowdb.dem_source import LocalFile
-
     default_names = [
         name
         for name in sorted(db)
-        if name not in overrides and not db[name].terrain.present()
+        if name not in overrides and not db[name].zones[provider.name].present()
     ]
     if default_names:
         joined = ', '.join(default_names)
-        click.echo(f'generating terrain (default source) for: {joined}')
-        db.generate_terrain(
-            default_names, workers=workers, block_size=block_size, force=True,
+        click.echo(f'generating {provider.name} (default source) for: {joined}')
+        db.generate_zone_layers(
+            provider.name,
+            default_names,
+            force=True,
+            workers=workers,
+            block_size=block_size,
         )
 
-    for name, dem_path in overrides.items():
-        click.echo(f'generating terrain for {name} from {dem_path}')
-        db[name].generate_terrain(
-            LocalFile(dem_path), workers=workers, block_size=block_size, force=True,
+    for name, source_path in overrides.items():
+        click.echo(f'generating {provider.name} for {name} from {source_path}')
+        db[name].generate_zone_layers(
+            provider,
+            provider.local_source(source_path),
+            force=True,
+            workers=workers,
+            block_size=block_size,
         )
-
-
-def _generate_landcover(db: SnowDb, overrides: dict[str, Path]) -> None:
-    """init's land-cover step, the same shape as :func:`_generate_terrain`."""
-    from snowtool.snowdb.landcover_source import LocalFile
-
-    default_names = [
-        name
-        for name in sorted(db)
-        if name not in overrides and not db[name].landcover.present()
-    ]
-    if default_names:
-        joined = ', '.join(default_names)
-        click.echo(f'generating land cover (default source) for: {joined}')
-        db.generate_landcover(default_names, force=True)
-
-    for name, nlcd_path in overrides.items():
-        click.echo(f'generating land cover for {name} from {nlcd_path}')
-        db[name].generate_landcover(LocalFile(nlcd_path), force=True)

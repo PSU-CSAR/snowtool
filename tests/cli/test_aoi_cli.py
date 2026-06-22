@@ -43,7 +43,7 @@ def _write_aoi(directory, triplet, *, with_polygon=True):
 def _create_dataset(runner, cli_obj, source_dem):
     return runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--dem', str(source_dem)],
+        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 

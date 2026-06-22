@@ -27,7 +27,6 @@ from __future__ import annotations
 import hashlib
 import math
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
 import numpy
@@ -44,21 +43,9 @@ from snowtool.snowdb.grid import grid_extent_4326
 from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_LAYERS
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    from griffine.grid import TiledAffineGrid
+    from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
 BLOCK = 2048
-
-
-@dataclass(frozen=True)
-class LandCoverTarget:
-    """A grid to bin into and where to write its land-cover set."""
-
-    name: str
-    grid: TiledAffineGrid
-    tile_size: int
-    directory: Path
 
 
 class _ForestAccumulator:
@@ -69,7 +56,7 @@ class _ForestAccumulator:
     boundaries because every fine pixel is placed independently.
     """
 
-    def __init__(self: Self, target: LandCoverTarget, source_crs: str) -> None:
+    def __init__(self: Self, target: ZoneLayerTarget, source_crs: str) -> None:
         self.target = target
         base = target.grid.base_grid
         self.height = base.rows
@@ -147,7 +134,7 @@ class _ForestAccumulator:
 
 def generate_landcover(
     source: rasterio.io.DatasetReader,
-    targets: list[LandCoverTarget],
+    targets: list[ZoneLayerTarget],
     *,
     force: bool = False,
 ) -> dict[str, str]:
@@ -208,7 +195,7 @@ def generate_landcover(
 
 def _source_window(
     source: rasterio.io.DatasetReader,
-    targets: list[LandCoverTarget],
+    targets: list[ZoneLayerTarget],
 ) -> Window | None:
     """The source-pixel window covering every target grid's extent, or ``None``.
 

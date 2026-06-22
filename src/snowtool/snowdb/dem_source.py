@@ -25,7 +25,7 @@ import asyncio
 import math
 import tempfile
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,12 +43,10 @@ from snowtool.snowdb.terrain_generate import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
 )
+from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-
-# (west, south, east, north) in EPSG:4326.
-Bounds = tuple[float, float, float, float]
 
 # USGS 3DEP 1/3 arc-second staged COGs on the public registry-of-open-data bucket.
 _S3_BUCKET = 'prd-tnm'
@@ -91,7 +89,7 @@ _SAMPLE_DTYPES = {
 }
 
 
-class DemSource(ABC):
+class DemSource(ZoneLayerSource):
     """A source of fine-resolution elevation, opened over a geographic extent.
 
     Carries the projected work grid terrain is derived on: ``work_crs`` (a metric,

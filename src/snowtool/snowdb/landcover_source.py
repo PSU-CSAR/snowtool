@@ -29,19 +29,16 @@ import tempfile
 import urllib.request
 import zipfile
 
-from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 import rasterio
 
+from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from contextlib import AbstractContextManager
-
-# (west, south, east, north) in EPSG:4326.
-Bounds = tuple[float, float, float, float]
 
 # The current Annual NLCD land-cover (LndCov) CONUS bundle: Collection 1 Version 1,
 # data year 2024 (the latest published; EPSG:5070, 30 m, categorical uint8). An
@@ -52,19 +49,8 @@ DEFAULT_NLCD_URL = (
 )
 
 
-class LandCoverSource(ABC):
+class LandCoverSource(ZoneLayerSource):
     """A source of fine-resolution NLCD land cover, opened over an extent."""
-
-    @abstractmethod
-    def open(
-        self: Self,
-        bounds: Bounds,
-    ) -> AbstractContextManager[rasterio.io.DatasetReader]:
-        """Context manager yielding an opened NLCD raster covering ``bounds``.
-
-        ``bounds`` is ``(west, south, east, north)`` in EPSG:4326.
-        """
-        raise NotImplementedError
 
 
 class LocalFile(LandCoverSource):

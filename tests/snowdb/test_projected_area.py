@@ -63,8 +63,11 @@ def test_create_skips_area_raster_on_projected_grid(dataset):
     # No areas.tif on a projected grid...
     assert not dataset._area_raster.exists()
     # ...and terrain is written in the grid's own CRS.
-    assert dataset.terrain.present()
-    with rasterio.open(dataset.terrain.elevation_path) as ds:
+    from snowtool.snowdb.terrain import ELEVATION
+
+    terrain = dataset.zones['terrain']
+    assert terrain.present()
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         assert ds.crs == CRS.from_epsg(EPSG)
         assert numpy.allclose(ds.read(1), DEM_VALUE)
 

@@ -1,35 +1,39 @@
-"""The LandCoverSet reader: presence, missing layers, and the provenance hash."""
+"""The land-cover ZoneLayerSet: presence, missing layers, and provenance hash."""
 
-from snowtool.snowdb.landcover import FOREST_COVER, ForestCoverRaster, LandCoverSet
+from snowtool.snowdb.landcover import FOREST_COVER, LandCoverProvider
+from snowtool.snowdb.raster import TiledRaster
+from snowtool.snowdb.zone_layer import ZoneLayerSet
 
 
-def test_present_and_nlcd_hash_on_a_built_dataset(dataset):
-    landcover = dataset.landcover
-    assert isinstance(landcover, LandCoverSet)
+def test_present_and_provenance_hash_on_a_built_dataset(dataset):
+    landcover = dataset.zones['landcover']
+    assert isinstance(landcover, ZoneLayerSet)
     assert landcover.present() is True
     assert landcover.missing_layers() == []
 
-    digest = landcover.nlcd_hash()
+    digest = landcover.provenance_hash()
     assert digest is not None
     assert len(digest) == 64
 
 
 def test_missing_layers_reports_an_absent_layer(dataset):
-    dataset.landcover.forest_cover_path.unlink()
+    landcover = dataset.zones['landcover']
+    landcover.layer_path(FOREST_COVER).unlink()
 
-    missing = dataset.landcover.missing_layers()
+    missing = landcover.missing_layers()
 
-    assert dataset.landcover.present() is False
+    assert landcover.present() is False
     assert [layer.filename for layer in missing] == ['forest_cover_pct.tif']
 
 
-def test_nlcd_hash_is_none_without_landcover(tmp_path):
-    landcover = LandCoverSet(tmp_path / 'landcover')
+def test_provenance_hash_is_none_without_landcover(tmp_path):
+    landcover = LandCoverProvider().layer_set(tmp_path / 'landcover')
     assert landcover.present() is False
-    assert landcover.nlcd_hash() is None
+    assert landcover.provenance_hash() is None
 
 
-def test_forest_cover_raster_points_at_the_layer(dataset):
-    raster = dataset.landcover.forest_cover_raster()
-    assert isinstance(raster, ForestCoverRaster)
-    assert raster.path == dataset.landcover.directory / FOREST_COVER.filename
+def test_raster_points_at_the_layer(dataset):
+    landcover = dataset.zones['landcover']
+    raster = landcover.raster(FOREST_COVER)
+    assert isinstance(raster, TiledRaster)
+    assert raster.path == landcover.directory / FOREST_COVER.filename

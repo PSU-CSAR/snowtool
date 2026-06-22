@@ -21,10 +21,12 @@ from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 
 if TYPE_CHECKING:
+    import numpy
+
     from pydantic import BaseModel
 
+    from snowtool.snowdb.raster import TiledRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.terrain import ElevationRaster
     from snowtool.snowdb.tiff_cache import TiffCache
 
 
@@ -151,7 +153,7 @@ class ZonalStats:
         rasters: RasterCollection,
         cache: TiffCache,
         spec: DatasetSpec,
-        elevation: ElevationRaster,
+        elevation: TiledRaster[numpy.float32],
     ) -> Self:
         # Bands span the global elevation bracket (shared by every dataset), so a
         # given band means the same thing across AOIs and datasets; the per-AOI

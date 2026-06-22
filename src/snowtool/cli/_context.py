@@ -22,15 +22,15 @@ from typing import TYPE_CHECKING, Concatenate
 import click
 
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
+from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.dem_source import DemSource
-    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
 
 
 @dataclass
@@ -38,18 +38,17 @@ class CliContext:
     """The state the root ``cli`` group hands every command via ``ctx.obj``.
 
     Holds the ``--root`` value (or ``None`` to fall back to the ``snowdb_path``
-    setting) and the dataset specs to bind, and lazily builds a single
-    :class:`SnowDb` the first time :attr:`snowdb` is read. ``dem_source`` overrides
-    the database's default terrain source (tests inject a local one to avoid
-    hitting 3DEP); ``landcover_source`` likewise overrides the default NLCD source
-    (tests inject a local one to avoid the MRLC download); ``None`` leaves SnowDb's
-    default in place.
+    setting), the dataset specs and zone-layer providers to bind, and lazily builds
+    a single :class:`SnowDb` the first time :attr:`snowdb` is read.
+    ``zone_layer_sources`` overrides a provider's default generation source by
+    provider name (tests inject local files to avoid hitting 3DEP / the MRLC
+    download); an unlisted provider keeps SnowDb's default source.
     """
 
     root: Path | None = None
     specs: tuple[DatasetSpec, ...] = DEFAULT_DATASET_SPECS
-    dem_source: DemSource | None = None
-    landcover_source: LandCoverSource | None = None
+    zone_layer_providers: tuple[ZoneLayerProvider, ...] = DEFAULT_ZONE_LAYER_PROVIDERS
+    zone_layer_sources: dict[str, ZoneLayerSource] | None = None
     _snowdb: SnowDb | None = field(default=None, init=False, repr=False)
 
     @property
@@ -68,8 +67,8 @@ class CliContext:
             self._snowdb = SnowDb(
                 root,
                 self.specs,
-                dem_source=self.dem_source,
-                landcover_source=self.landcover_source,
+                zone_layer_providers=self.zone_layer_providers,
+                zone_layer_sources=self.zone_layer_sources,
             )
         return self._snowdb
 

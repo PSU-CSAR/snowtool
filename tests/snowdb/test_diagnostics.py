@@ -67,7 +67,7 @@ def test_dataset_status_for_created_dataset(dataset):
 
     assert status.name == 'test'
     assert status.present is True
-    assert status.artifacts.terrain is True
+    assert status.artifacts.zone_layers['terrain'] is True
     assert status.date_count == 0
     assert status.first_date is None
     assert status.last_date is None
