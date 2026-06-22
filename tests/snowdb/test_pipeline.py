@@ -10,7 +10,7 @@ from snowtool.snowdb.constants import AOI_MASK_INSIDE, TILE_BBOX_TAG
 from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.tiff_cache import TiffCache
-from snowtool.snowdb.zonal_stats import ZonalStats
+from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
@@ -119,44 +119,150 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
             dataset.area_raster(),
             cache,
         )
-        from snowtool.snowdb.terrain import ELEVATION
-
+        # No zone selection -> the elevation-only default (terrain.elevation,
+        # stepped by spec.band_step_ft), preserving the original behaviour.
         stats = await ZonalStats.calculate(
             aoi_with_area,
             collection,
             cache,
-            dataset.spec,
-            dataset.zones['terrain'].raster(ELEVATION),
+            dataset,
         )
         return aoi_with_area, stats
 
     aoi_with_area, stats = asyncio.run(run())
     dumped = stats.dump()
     assert len(dumped) == 1
-    zones = dumped[0].zones
+    # Single elevation axis -> each cell's zone is one ref against terrain.elevation.
+    assert dumped[0].zone_layers == ['terrain.elevation']
+    cells = dumped[0].zones
 
     # Exactly one band (the one containing 1000 m == ~3280 ft) has data.
-    with_data = [z for z in zones if z.area_m2 > 0]
+    with_data = [c for c in cells if c.area_m2 > 0]
     assert len(with_data) == 1
-    band = with_data[0]
-    assert band.min_elevation_ft == 3000
-    assert band.max_elevation_ft == 4000
-    assert band.mean_swe_mm == SWE_VALUE
+    cell = with_data[0]
+    # Read the band via the new generic zone refs.
+    (ref,) = cell.zone
+    assert ref.layer == 'terrain.elevation'
+    assert ref.min == 3000
+    assert ref.max == 4000
+    assert ref.unit == 'ft'
+    assert cell.mean_swe_mm == SWE_VALUE
 
     # area equals the summed geodesic area of the in-AOI pixels
     inside = aoi_with_area.array == AOI_MASK_INSIDE
     expected_area = float(aoi_with_area.area[inside].sum())
-    assert band.area_m2 == expected_area
+    assert cell.area_m2 == expected_area
 
-    # all other bands are empty (area 0; mean is nan in-model, serialized to
+    # all other cells are empty (area 0; mean is nan in-model, serialized to
     # None by the model's field serializer)
     import math
 
-    for zone in zones:
-        if zone is band:
+    for other in cells:
+        if other is cell:
             continue
-        assert zone.area_m2 == 0
-        assert math.isnan(zone.mean_swe_mm)
+        assert other.area_m2 == 0
+        assert math.isnan(other.mean_swe_mm)
+
+
+def _crossed_stats(dataset, aoi_geojson, selections):
+    """Run ZonalStats over the synthetic SWE COG crossed by ``selections``."""
+    aoi = AOI.from_geojson(aoi_geojson)
+    aoi_raster = dataset.rasterize_aoi(aoi)
+    swe = dataset.spec.variables['swe']
+    collection = RasterCollection.from_variables_query(
+        query=_SingleDateQuery(),
+        variables={swe},
+        dataset=dataset,
+    )
+
+    async def run():
+        cache = TiffCache(maxsize=8)
+        aoi_with_area = await AOIRasterWithArea.from_aoi_raster(
+            aoi_raster,
+            dataset.area_raster(),
+            cache,
+        )
+        stats = await ZonalStats.calculate(
+            aoi_with_area,
+            collection,
+            cache,
+            dataset,
+            zone_selections=selections,
+        )
+        return aoi_with_area, stats
+
+    return asyncio.run(run())
+
+
+def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, swe_cog):
+    # The synthetic dataset is uniform: elevation 1000 m (-> 3000-4000 ft band) and
+    # forest 100% (-> the 100-120 % band), so crossing the two axes yields exactly
+    # one populated product cell -- with the SWE value over the whole in-AOI area.
+    aoi_with_area, stats = _crossed_stats(
+        dataset,
+        aoi_geojson,
+        [
+            ZoneSelection('terrain.elevation'),
+            ZoneSelection('landcover.forest_cover'),
+        ],
+    )
+
+    dumped = stats.dump()
+    assert dumped[0].zone_layers == ['terrain.elevation', 'landcover.forest_cover']
+    # 16 elevation bands x 6 forest bands = 96 product cells; one carries data.
+    cells = dumped[0].zones
+    assert len(cells) == 96
+    with_data = [c for c in cells if c.area_m2 > 0]
+    assert len(with_data) == 1
+    cell = with_data[0]
+
+    elev_ref, forest_ref = cell.zone
+    assert (elev_ref.layer, elev_ref.min, elev_ref.max) == (
+        'terrain.elevation',
+        3000,
+        4000,
+    )
+    assert (forest_ref.layer, forest_ref.min, forest_ref.max) == (
+        'landcover.forest_cover',
+        100,
+        120,
+    )
+    assert cell.mean_swe_mm == SWE_VALUE
+
+    inside = aoi_with_area.array == AOI_MASK_INSIDE
+    assert cell.area_m2 == float(aoi_with_area.area[inside].sum())
+
+
+def test_zonal_stats_crosses_elevation_and_categorical_aspect(
+    dataset,
+    aoi_geojson,
+    swe_cog,
+):
+    # The synthetic terrain is all-flat aspect, so crossing elevation x aspect puts
+    # all data in the (3000-4000 ft) x (flat) cell, shown as a class-labelled ref.
+    _, stats = _crossed_stats(
+        dataset,
+        aoi_geojson,
+        [ZoneSelection('terrain.elevation'), ZoneSelection('terrain.aspect')],
+    )
+
+    dumped = stats.dump()
+    assert dumped[0].zone_layers == ['terrain.elevation', 'terrain.aspect']
+    with_data = [c for c in dumped[0].zones if c.area_m2 > 0]
+    assert len(with_data) == 1
+    elev_ref, aspect_ref = with_data[0].zone
+    assert elev_ref.min == 3000
+    # The aspect axis is categorical: a class ref carrying its code + label.
+    assert aspect_ref.layer == 'terrain.aspect'
+    assert aspect_ref.code == 4
+    assert aspect_ref.label == 'flat'
+
+
+def test_calculate_rejects_an_unknown_zone_layer(dataset, aoi_geojson, swe_cog):
+    import pytest
+
+    with pytest.raises(ValueError, match='Unknown zone layer'):
+        _crossed_stats(dataset, aoi_geojson, [ZoneSelection('terrain.nope')])
 
 
 def test_aoi_raster_open_reads_mask_without_dem(tmp_path, grid):
