@@ -61,6 +61,8 @@ def _fake_generate_terrain(
     *,
     work_crs=None,
     work_resolution=None,
+    workers=None,
+    block_size=None,
     force=False,
 ):
     """Stand in for the streaming engine: write a uniform terrain set per target.

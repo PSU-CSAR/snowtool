@@ -259,6 +259,8 @@ class SnowDb:
         names: Iterable[str] | None = None,
         *,
         source: DemSource | None = None,
+        workers: int | None = None,
+        block_size: int | None = None,
         force: bool = False,
     ) -> dict[str, str]:
         """Generate terrain for several datasets in one streaming pass.
@@ -267,6 +269,9 @@ class SnowDb:
         the combined extent of the selected datasets' grids and bins it into all
         of them -- aspect must be computed at the source resolution, so sharing
         the read is the whole point. ``names`` selects datasets (default: all).
+        ``workers`` controls block-level parallelism (``None`` -> one thread per
+        CPU, ``1`` -> serial) and ``block_size`` bounds per-worker memory; see
+        :func:`~snowtool.snowdb.terrain_generate.generate_terrain`.
         Returns each dataset's terrain provenance hash, keyed by name.
         """
         from snowtool.snowdb.grid import grid_extent_4326
@@ -290,6 +295,8 @@ class SnowDb:
                 targets,
                 work_crs=source.work_crs,
                 work_resolution=source.work_resolution,
+                workers=workers,
+                block_size=block_size,
                 force=force,
             )
 

@@ -108,6 +108,20 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     is_flag=True,
     help='Create the directory + area raster only; skip terrain + land cover.',
 )
+@click.option(
+    '--workers',
+    default=None,
+    type=click.IntRange(min=1),
+    help='Terrain-generation worker threads (default: one per CPU; 1 = serial). '
+    'Block reprojection is parallelized; the result is identical regardless.',
+)
+@click.option(
+    '--block-size',
+    default=None,
+    type=click.IntRange(min=64),
+    help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
+    'per-worker memory (~workers x block_size^2); no effect on the result.',
+)
 @pass_snowdb
 def create_dataset(
     snowdb: SnowDb,
@@ -115,6 +129,8 @@ def create_dataset(
     dem: Path | None,
     nlcd: Path | None,
     quick: bool,
+    workers: int | None,
+    block_size: int | None,
 ) -> None:
     """Create dataset NAME's directory + area raster, then its terrain + land cover.
 
@@ -143,7 +159,9 @@ def create_dataset(
     if not ds.terrain.present():
         source = LocalFile(dem) if dem is not None else snowdb.dem_source
         try:
-            ds.generate_terrain(source, force=True)
+            ds.generate_terrain(
+                source, workers=workers, block_size=block_size, force=True,
+            )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
         click.echo(f'generated terrain for {name}')
@@ -195,8 +213,28 @@ def ingest_dataset(
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help='Generate from this local DEM file instead of the default source.',
 )
+@click.option(
+    '--workers',
+    default=None,
+    type=click.IntRange(min=1),
+    help='Terrain-generation worker threads (default: one per CPU; 1 = serial). '
+    'Block reprojection is parallelized; the result is identical regardless.',
+)
+@click.option(
+    '--block-size',
+    default=None,
+    type=click.IntRange(min=64),
+    help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
+    'per-worker memory (~workers x block_size^2); no effect on the result.',
+)
 @pass_snowdb
-def generate_terrain(snowdb: SnowDb, name: str, source: Path | None) -> None:
+def generate_terrain(
+    snowdb: SnowDb,
+    name: str,
+    source: Path | None,
+    workers: int | None,
+    block_size: int | None,
+) -> None:
     """(Re)generate dataset NAME's terrain set, overwriting any existing layers.
 
     Uses the database's default DEM source unless ``--source`` supplies a local
@@ -210,7 +248,9 @@ def generate_terrain(snowdb: SnowDb, name: str, source: Path | None) -> None:
     ds = get_dataset(snowdb, name)
     dem_source = LocalFile(source) if source is not None else snowdb.dem_source
     try:
-        ds.generate_terrain(dem_source, force=True)
+        ds.generate_terrain(
+            dem_source, workers=workers, block_size=block_size, force=True,
+        )
     except (FileExistsError, SNODASError) as e:
         raise click.ClickException(str(e)) from e
     click.echo(f'generated terrain for {name}')
