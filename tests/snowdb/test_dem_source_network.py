@@ -1,11 +1,11 @@
 """Opt-in smoke test of ThreeDEP against the real public 3DEP S3 bucket.
 
 Deselected by default (``-m "not network"`` in addopts); run with ``pytest -m
-network``. It enumerates the two real 1-degree tiles straddling a tile boundary,
+network``. It discovers the two real 1-degree tiles straddling a tile boundary,
 builds the VRT mosaic, and reads only a tiny window spanning the seam -- COG range
 reads, so a few MB at most, not the ~400 MB tiles. This is the one thing that
-can't be checked offline: that the hand-built VRT stitches real, *overlapping*
-3DEP tiles with no gap at the boundary.
+can't be checked offline: that discovery reads real headers and the hand-built
+VRT stitches real, *overlapping* 3DEP tiles with no gap at the boundary.
 """
 
 import numpy
@@ -13,7 +13,7 @@ import pytest
 
 from rasterio.windows import Window
 
-from snowtool.snowdb.dem_source import ThreeDEP, candidate_tiles, existing_tile_keys
+from snowtool.snowdb.dem_source import ThreeDEP, candidate_tiles, discover_tiles
 
 pytestmark = pytest.mark.network
 
@@ -23,19 +23,23 @@ BOUNDS = (-106.05, 39.50, -105.95, 39.60)
 
 
 def _skip_if_offline(call):
-    from botocore.exceptions import BotoCoreError, ClientError
-
+    # A missing key is FileNotFoundError (OSError); every other S3 failure is
+    # async-tiff's own exception, which isn't importable -- match it by name.
     try:
         return call()
-    except (BotoCoreError, ClientError, OSError) as e:  # pragma: no cover - env
+    except OSError as e:  # pragma: no cover - env
         pytest.skip(f'3DEP S3 not reachable: {e}')
+    except Exception as e:  # pragma: no cover - env
+        if type(e).__name__ == 'AsyncTiffException':
+            pytest.skip(f'3DEP S3 not reachable: {e}')
+        raise
 
 
-def test_candidate_and_existing_tiles_straddle_the_boundary():
+def test_candidate_and_discovered_tiles_straddle_the_boundary():
     assert candidate_tiles(BOUNDS) == ['n40w106', 'n40w107']
 
-    keys = _skip_if_offline(lambda: existing_tile_keys(BOUNDS))
-    names = {k.split('/')[-2] for k in keys}
+    tiles = _skip_if_offline(lambda: discover_tiles(BOUNDS))
+    names = {t.uri.split('/')[-2] for t in tiles}
     assert {'n40w106', 'n40w107'} <= names
 
 
