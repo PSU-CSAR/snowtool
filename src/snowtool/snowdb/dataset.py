@@ -297,13 +297,17 @@ class Dataset:
         self: Self,
         source: DemSource,
         *,
+        workers: int | None = None,
+        block_size: int | None = None,
         force: bool = False,
     ) -> str:
         """Generate this dataset's terrain set from ``source``.
 
         A single-grid pass over the source (binning only into this grid); for the
         multi-grid shared-source pass, see :meth:`SnowDb.generate_terrain`.
-        Returns the terrain set's provenance hash.
+        ``workers`` controls block-level parallelism (``None`` -> one thread per
+        CPU, ``1`` -> serial) and ``block_size`` bounds per-worker memory. Returns
+        the terrain set's provenance hash.
         """
         from snowtool.snowdb.terrain_generate import generate_terrain
 
@@ -314,6 +318,8 @@ class Dataset:
                 [self.terrain_target()],
                 work_crs=source.work_crs,
                 work_resolution=source.work_resolution,
+                workers=workers,
+                block_size=block_size,
                 force=force,
             )
         return hashes[self.spec.name]

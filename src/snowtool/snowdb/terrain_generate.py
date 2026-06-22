@@ -68,14 +68,59 @@ upsamples and invents detail (aspect on interpolated values), too coarse throws
 detail away. It is therefore a property of the ``DemSource`` (3DEP pins 10 m; a
 local file defaults to its own native resolution), not a global constant -- the
 values here are only the fallbacks.
+
+Parallelism, memory, and the scatter vs. gather tradeoff
+--------------------------------------------------------
+This is an **input-driven scatter**: the work grid is streamed in blocks, and each
+fine pixel is reprojected and dropped (``+=``) into whatever cell it lands in, in
+*every* target at once. The expensive, target-independent work -- read, warp, Horn
+slope/aspect, reprojection -- is therefore done once and shared across all targets;
+that single shared read is the whole point of binning many grids in one pass.
+
+Blocks run on a thread pool (the pyproj transform dominates and releases the GIL);
+binning stays serial and in block order, so the output -- including the generation
+hash -- is identical regardless of worker count. Two memory terms result:
+
+* the **target accumulators** -- one shared set per target, ``~72 bytes/cell`` --
+  a *fixed* cost (independent of worker count), sized by the target grids; and
+* the **transient per-worker block buffers** -- each worker holds ~a dozen
+  block-sized float64 arrays mid-block, so this scales with
+  ``workers * block_size**2``.
+
+The two knobs that bound this are ``workers`` and ``block_size`` (the latter is the
+per-worker lever, since block size costs nothing on throughput). Neither bounds the
+*accumulator* term: this design assumes the targets fit in RAM.
+
+Scaling past RAM -- the materialize-then-gather refinement (future)
+-------------------------------------------------------------------
+When the targets stop fitting in RAM, the principled fix is **not** to throttle
+workers but to switch the binning stage to **output-driven gather**, in two phases:
+
+1. *Materialize* the shared work surface (elevation, slope, aspect, cos/sin) to a
+   temporary tiled raster, once, streaming -- bounded memory, sequential write
+   (this cold, write-once/read-windowed intermediate is the one place spilling to
+   SSD genuinely helps, unlike the hot random-access accumulators).
+2. *Gather* per target by output tile: each tile reads its footprint from the
+   materialized surface, reprojects + bins independently and in parallel, and is
+   written out -- memory bounded by tile size, no whole-grid accumulators.
+
+This keeps the single shared read (phase 1) while making each output tile an
+independent, bounded, parallel unit (phase 2). Naive output-tiling *without* the
+materialize step would instead re-read/re-warp/re-Horn the overlapping work-grid
+region once per target per tile, losing the shared-read efficiency -- which is why
+the current single-pass scatter is the right call while the targets still fit.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import os
+import threading
 import warnings
 
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
 
@@ -85,7 +130,9 @@ import rasterio
 
 from pyproj import Transformer
 from rasterio.vrt import WarpedVRT
-from rasterio.warp import Resampling, calculate_default_transform
+from rasterio.warp import Resampling, calculate_default_transform, transform_bounds
+from rasterio.windows import Window
+from rasterio.windows import transform as window_transform
 
 from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.cog import write_cog
@@ -116,7 +163,15 @@ if TYPE_CHECKING:
 # resolution and the work CRS its region.
 DEFAULT_WORK_CRS = 'EPSG:5070'
 DEFAULT_WORK_RESOLUTION = 10.0
-BLOCK = 2048
+# Default work-grid block edge (pixels). Block size is a non-lever for throughput
+# (the pyproj transform is flat per-pixel; only the ~1-pixel halo re-read and the
+# Python loop count scale with it, both negligible), but it *is* the per-worker
+# memory lever: a worker holds ~a dozen block-sized float64 arrays while processing
+# one block, so transient RAM scales with ``workers * block_size**2``. 1024 keeps
+# that to ~2 GB at the default worker cap while staying coarse enough to avoid
+# excessive block overhead; shrink it (e.g. 512) to run more workers on less RAM.
+# Exposed per call via ``generate_terrain(block_size=...)``.
+DEFAULT_BLOCK_SIZE = 1024
 # One-pixel halo so the 3x3 Horn window is exact across block boundaries: the
 # Horn pass trims exactly one pixel off each edge, so the trimmed inner block
 # lines up with the nominal block with no overlap (a larger halo would make
@@ -131,6 +186,14 @@ COSSIN_SLOPE_WEIGHTED = False
 
 # Internal accumulator layout: four cardinal classes plus flat.
 _N_CLASSES = 5
+
+# Default cap on the *auto* worker count (``workers=None``): one thread per CPU but
+# never more than this. Beyond ~here the per-block reprojection stops scaling (reads
+# are serialised under a lock and the serial bin/reduce starts to bind) while memory
+# and lock contention keep climbing, so more threads mostly cost RAM. An explicit
+# ``workers`` is always honoured -- the caller owns that tradeoff (see the module
+# docstring's memory notes; ``block_size`` is the lever for bounding per-worker RAM).
+MAX_AUTO_WORKERS = 16
 
 
 @dataclass(frozen=True)
@@ -202,7 +265,7 @@ class _GridAccumulator:
     fine pixel is placed independently.
     """
 
-    def __init__(self: Self, target: TerrainTarget, work_crs: str) -> None:
+    def __init__(self: Self, target: TerrainTarget) -> None:
         self.target = target
         base = target.grid.base_grid
         self.height = base.rows
@@ -211,7 +274,8 @@ class _GridAccumulator:
         crs = target.grid.crs
         if crs is None:  # pragma: no cover - make_grid always sets a CRS
             raise ValueError(f'{target.name}: grid has no CRS')
-        self._crs = crs
+        # The streamer builds (thread-local) work-CRS -> this-CRS Transformers.
+        self.crs = crs
         n = self.height * self.width
         self.counts = numpy.zeros(_N_CLASSES * n, dtype=numpy.int64)
         self.sum_cos = numpy.zeros(n, dtype=numpy.float64)
@@ -219,24 +283,28 @@ class _GridAccumulator:
         self.sum_wt = numpy.zeros(n, dtype=numpy.float64)
         self.sum_z = numpy.zeros(n, dtype=numpy.float64)
         self._inv = ~self.transform
-        # Fine-pixel centres arrive in the work CRS; map them to this grid's CRS.
-        self._tf = Transformer.from_crs(work_crs, self._crs, always_xy=True)
 
     @property
     def _ncell(self: Self) -> int:
         return self.height * self.width
 
-    def add(
+    def bin_into(
         self: Self,
-        x_src: numpy.typing.NDArray[numpy.float64],
-        y_src: numpy.typing.NDArray[numpy.float64],
+        xt: numpy.typing.NDArray[numpy.float64],
+        yt: numpy.typing.NDArray[numpy.float64],
         cls: numpy.typing.NDArray[numpy.int64],
         cos: numpy.typing.NDArray[numpy.float64],
         sin: numpy.typing.NDArray[numpy.float64],
         wt: numpy.typing.NDArray[numpy.float64],
         z: numpy.typing.NDArray[numpy.float64],
     ) -> None:
-        xt, yt = self._tf.transform(x_src, y_src)
+        """Bin already-reprojected fine-pixel centres (this grid's CRS) into cells.
+
+        Coordinate transform (work CRS -> this grid's CRS) happens in the worker,
+        so this runs serially on the main thread in fixed block order -- the float
+        accumulation order is identical to the serial pass, keeping the generation
+        hash reproducible regardless of worker count.
+        """
         col = numpy.floor(self._inv.a * xt + self._inv.b * yt + self._inv.c).astype(
             numpy.int64,
         )
@@ -300,7 +368,7 @@ class _GridAccumulator:
         tags = {DEM_HASH_TAG: dem_hash}
 
         self.target.directory.mkdir(parents=True, exist_ok=True)
-        rio_crs = rasterio.crs.CRS.from_wkt(self._crs.to_wkt())
+        rio_crs = rasterio.crs.CRS.from_wkt(self.crs.to_wkt())
         common = {
             'transform': self.transform,
             'crs': rio_crs,
@@ -333,12 +401,100 @@ class _GridAccumulator:
         )
 
 
+def _target_bounds_in_work_crs(
+    targets: list[TerrainTarget],
+    work_crs: str,
+) -> tuple[float, float, float, float]:
+    """Union of the target grids' extents, expressed in the work CRS.
+
+    The streaming pass only needs to cover where the targets are; this bbox (a
+    conservative outer bound, since :func:`transform_bounds` densifies the reprojected
+    edge) is what the work grid is clipped to.
+
+    Known bound -- bbox under-coverage for small, heavily-curved target CRSs. The
+    footprint is an axis-aligned bbox of the reprojected target edges, densified by
+    ``transform_bounds`` (default 21 pts/edge). For a target whose CRS curves
+    strongly against the work CRS (e.g. MODIS Sinusoidal far from its central
+    meridian), a long edge can bulge outward *between* densify points, so the bbox
+    can under-cover at the grid edge by up to that densification error (~tens to
+    low-hundreds of metres); the ``+ HALO`` slack in :func:`_clip_grid_to_bounds`
+    only partly absorbs it, so the outermost ring of target cells could be fed by
+    slightly fewer source pixels. This is harmless whenever the clip is a no-op --
+    i.e. when a target is as large as or larger than the source, which is the case
+    for the continental instarr/MODIS-sinusoidal grid (the source is always the
+    smaller extent, so the full source is processed). It only bites a target that is
+    *both* comparable-to-or-smaller-than the source *and* strongly curved. If that
+    ever matters, harden by raising ``transform_bounds(..., densify_pts=...)`` and
+    widening the clip margin; left as-is since no current dataset hits it.
+    """
+    wests: list[float] = []
+    souths: list[float] = []
+    easts: list[float] = []
+    norths: list[float] = []
+    for target in targets:
+        base = target.grid.base_grid
+        t = base.transform
+        xmin, ymax = t.c, t.f
+        xmax = t.c + base.cols * t.a
+        ymin = t.f + base.rows * t.e
+        crs = target.grid.crs
+        if crs is None:  # pragma: no cover - make_grid always sets a CRS
+            raise ValueError(f'{target.name}: grid has no CRS')
+        rio_crs = rasterio.crs.CRS.from_wkt(crs.to_wkt())
+        w, s, e, n = transform_bounds(rio_crs, work_crs, xmin, ymin, xmax, ymax)
+        wests.append(w)
+        souths.append(s)
+        easts.append(e)
+        norths.append(n)
+    # generate_terrain guards against empty targets, so these are non-empty.
+    return min(wests), min(souths), max(easts), max(norths)
+
+
+def _clip_grid_to_bounds(
+    full_transform: Any,
+    full_w: int,
+    full_h: int,
+    bounds: tuple[float, float, float, float],
+) -> tuple[Any, int, int] | None:
+    """Sub-window of the full work grid covering ``bounds`` (+ halo), same lattice.
+
+    Returns ``(transform, width, height)`` clipped to the work grid, or ``None`` if
+    ``bounds`` don't overlap it at all. Because the window snaps outward to whole
+    pixels of the *existing* lattice (never rephased), every cell that falls in a
+    target is sampled exactly as it would be over the full source -- only empty
+    margin is dropped -- so the result and generation hash are unchanged.
+    """
+    inv = ~full_transform
+    west, south, east, north = bounds
+    cols, rows = [], []
+    for x, y in ((west, north), (east, south), (west, south), (east, north)):
+        c, r = inv * (x, y)
+        cols.append(c)
+        rows.append(r)
+    # One extra pixel beyond the Horn halo, as slack against edge rounding. This
+    # does NOT fully cover the curved-CRS bbox under-coverage documented on
+    # _target_bounds_in_work_crs -- raise it (and densify_pts there) if a small,
+    # strongly-curved target ever needs it.
+    margin = HALO + 1
+    col0 = max(0, math.floor(min(cols)) - margin)
+    row0 = max(0, math.floor(min(rows)) - margin)
+    col1 = min(full_w, math.ceil(max(cols)) + margin)
+    row1 = min(full_h, math.ceil(max(rows)) + margin)
+    if col1 <= col0 or row1 <= row0:
+        return None
+    width, height = col1 - col0, row1 - row0
+    transform = window_transform(Window(col0, row0, width, height), full_transform)
+    return transform, width, height
+
+
 def generate_terrain(
     source: rasterio.io.DatasetReader,
     targets: list[TerrainTarget],
     *,
     work_crs: str = DEFAULT_WORK_CRS,
     work_resolution: float | None = DEFAULT_WORK_RESOLUTION,
+    workers: int | None = None,
+    block_size: int | None = None,
     force: bool = False,
 ) -> dict[str, str]:
     """Stream ``source`` once, binning terrain into every target grid.
@@ -351,9 +507,23 @@ def generate_terrain(
     the single generation hash keyed by each target name (every value is equal --
     it is one identifier for the whole pass). Refuses to overwrite an existing
     terrain set unless ``force``.
+
+    The per-block reprojection dominates runtime and releases the GIL, so blocks
+    are processed on a thread pool: ``workers`` of ``None`` (the default) uses one
+    thread per CPU (capped at :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial
+    path; an explicit value is honoured as-is. Binning stays serial and in block
+    order, so the result -- including the generation hash -- is identical regardless
+    of ``workers``. ``block_size`` (``None`` -> :data:`DEFAULT_BLOCK_SIZE`) is the
+    per-worker memory lever: transient RAM scales with ``workers * block_size**2``
+    at no throughput cost, so shrink it to run more workers on less RAM. Neither
+    knob bounds the (fixed) target accumulators -- see the module docstring's memory
+    and scatter-vs-gather notes.
     """
     if not targets:
         return {}
+
+    n_workers = _effective_workers(workers)
+    bs = block_size if block_size is not None else DEFAULT_BLOCK_SIZE
 
     if not force:
         # Check every target before the (expensive) source read.
@@ -370,7 +540,7 @@ def generate_terrain(
                     'Remove and try again or use force=True.',
                 )
 
-    accumulators = [_GridAccumulator(target, work_crs) for target in targets]
+    accumulators = [_GridAccumulator(target) for target in targets]
 
     # Mask source fill using the source's own declared nodata. If it declares
     # none, trust it (mask nothing) -- but warn, since an undeclared fill value
@@ -384,7 +554,7 @@ def generate_terrain(
             SNODASWarning,
             stacklevel=2,
         )
-    dst_transform, dst_w, dst_h = calculate_default_transform(
+    full_transform, full_w, full_h = calculate_default_transform(
         source.crs,
         work_crs,
         source.width,
@@ -393,25 +563,52 @@ def generate_terrain(
         # None -> GDAL derives the native resolution mapped into the work CRS.
         resolution=work_resolution,
     )
-    px, py = abs(dst_transform.a), abs(dst_transform.e)
-
-    with WarpedVRT(
-        source,
-        crs=work_crs,
-        transform=dst_transform,
-        width=dst_w,
-        height=dst_h,
-        resampling=Resampling.bilinear,
-        src_nodata=src_nodata,
-        # The streaming pass marks no-data with NaN (numpy.isfinite), so the
-        # working band must be float. rasterio already promotes the band to float
-        # to hold nodata=NaN (even for an integer source); we pin it explicitly so
-        # that contract is independent of rasterio's inference. float64 matches the
-        # downstream pipeline (the block read casts to float64 anyway).
-        dtype='float64',
-        nodata=numpy.nan,
-    ) as wvrt:
-        _stream_blocks(wvrt, dst_transform, dst_w, dst_h, px, py, accumulators)
+    # Process only the part of the (full-source) work grid that actually feeds a
+    # target. The reprojection is lazy and per-block (a WarpedVRT over COG tiles), so
+    # clipping the work grid to the union of target footprints means the range reads
+    # only ever touch the *intersecting portions* of the source tiles -- not the
+    # whole tile files, even when a grid clips just a corner of them. The clip keeps
+    # the source lattice, so any cell that lands in a target is sampled identically
+    # to processing the whole source; only empty margin is skipped (the output, and
+    # the generation hash, are unchanged).
+    clipped = _clip_grid_to_bounds(
+        full_transform,
+        full_w,
+        full_h,
+        _target_bounds_in_work_crs(targets, work_crs),
+    )
+    if clipped is not None:
+        dst_transform, dst_w, dst_h = clipped
+        px, py = abs(dst_transform.a), abs(dst_transform.e)
+        with WarpedVRT(
+            source,
+            crs=work_crs,
+            transform=dst_transform,
+            width=dst_w,
+            height=dst_h,
+            resampling=Resampling.bilinear,
+            src_nodata=src_nodata,
+            # The streaming pass marks no-data with NaN (numpy.isfinite), so the
+            # working band must be float. rasterio already promotes the band to float
+            # to hold nodata=NaN (even for an integer source); we pin it explicitly so
+            # that contract is independent of rasterio's inference. float64 matches
+            # the downstream pipeline (the block read casts to float64 anyway).
+            dtype='float64',
+            nodata=numpy.nan,
+        ) as wvrt:
+            _stream_blocks(
+                wvrt,
+                dst_transform,
+                dst_w,
+                dst_h,
+                px,
+                py,
+                accumulators,
+                work_crs,
+                n_workers,
+                bs,
+            )
+    # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
     # One generation id for the whole pass: a digest over every target's
     # finalized elevation (sorted by name for determinism), stamped identically on
@@ -446,8 +643,6 @@ def _read_haloed_block(
     to the dataset and the read placed into a NaN-filled array -- giving the Horn
     window its border without reading out of bounds.
     """
-    from rasterio.windows import Window
-
     win_c0, win_r0 = c0 - HALO, r0 - HALO
     win_w, win_h = bw + 2 * HALO, bh + 2 * HALO
 
@@ -469,6 +664,227 @@ def _read_haloed_block(
     return z
 
 
+@dataclass(frozen=True)
+class _Block:
+    """A nominal (un-haloed) work-grid block, in row-major streaming order."""
+
+    c0: int
+    r0: int
+    bw: int
+    bh: int
+
+
+@dataclass(frozen=True)
+class _BlockResult:
+    """One block's binnable contribution: shared per-pixel arrays + per-target coords.
+
+    ``coords`` holds, per target (same order as the streamer's accumulators), the
+    fine-pixel centres already reprojected into that target's CRS. Everything is
+    flattened and pre-masked to the valid (``cls >= 0``) pixels, so the serial
+    reducer only has to bin.
+    """
+
+    cls: numpy.typing.NDArray[numpy.int64]
+    cos: numpy.typing.NDArray[numpy.float64]
+    sin: numpy.typing.NDArray[numpy.float64]
+    wt: numpy.typing.NDArray[numpy.float64]
+    z: numpy.typing.NDArray[numpy.float64]
+    coords: list[
+        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]
+    ]
+
+
+def _effective_workers(requested: int | None) -> int:
+    """Resolve the worker count.
+
+    ``requested`` of ``None`` means auto -- one thread per CPU, but never more than
+    :data:`MAX_AUTO_WORKERS`. ``1`` (or anything <= 1) means the serial path. An
+    explicit request is honoured as-is: the caller owns the memory tradeoff (bound
+    per-worker RAM with ``block_size``; see the module docstring). Always >= 1.
+    """
+    if requested is None:
+        return min(os.cpu_count() or 1, MAX_AUTO_WORKERS)
+    return max(1, requested)
+
+
+class _TerrainStreamer:
+    """Streams one work grid in blocks, binning into every target accumulator.
+
+    The expensive per-block work -- the Horn slope/aspect and the per-target pyproj
+    reprojection -- is pure and runs on a worker pool. The only shared mutable state
+    is the accumulators, so binning is done serially on the main thread, consuming
+    block results in streaming order. That keeps the float accumulation order
+    independent of the worker count, so the generation hash is reproducible
+    (parallel == serial bit for bit). Each worker thread gets its own Transformers;
+    a Transformer is not safe to share across threads concurrently.
+
+    The haloed reads run under a lock: a GDAL dataset (and the shared
+    :class:`WarpedVRT` over it) is not safe for concurrent reads -- unsynchronised
+    reads corrupt blocks nondeterministically. The read is a small fraction of the
+    per-block cost (the reprojection dominates and still runs fully in parallel), so
+    serialising just the read costs little while guaranteeing correctness.
+
+    Future improvement: if the read lock ever becomes the bottleneck (it is not at
+    the ~10-worker scale measured -- the transform dominates), parallelise the reads
+    by giving each worker thread its OWN dataset handle instead of sharing one
+    WarpedVRT. That means reopening the source per thread (``rasterio.open`` of the
+    mosaic) and wrapping each in its own WarpedVRT, since the unsafety is in the
+    underlying GDAL dataset -- per-thread VRTs over one shared source would still
+    race. Hold these in the existing thread-local (alongside the Transformers) and
+    drop the lock. The cost is N source handles + N GDAL block caches resident at
+    once, which is why it is deferred until the read actually dominates.
+    """
+
+    def __init__(
+        self: Self,
+        wvrt: WarpedVRT,
+        dst_transform: Any,
+        dst_w: int,
+        dst_h: int,
+        px: float,
+        py: float,
+        accumulators: list[_GridAccumulator],
+        work_crs: str,
+        block_size: int,
+    ) -> None:
+        self._wvrt = wvrt
+        self._dst_transform = dst_transform
+        self._dst_w = dst_w
+        self._dst_h = dst_h
+        self._px = px
+        self._py = py
+        self._accumulators = accumulators
+        self._work_crs = work_crs
+        self._block_size = block_size
+        self._local = threading.local()
+        # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
+        self._read_lock = threading.Lock()
+
+    def _blocks(self: Self) -> list[_Block]:
+        bs = self._block_size
+        nbx = math.ceil(self._dst_w / bs)
+        nby = math.ceil(self._dst_h / bs)
+        blocks = []
+        for by in range(nby):
+            for bx in range(nbx):
+                c0, r0 = bx * bs, by * bs
+                blocks.append(
+                    _Block(
+                        c0=c0,
+                        r0=r0,
+                        bw=min(bs, self._dst_w - c0),
+                        bh=min(bs, self._dst_h - r0),
+                    ),
+                )
+        return blocks
+
+    def _transformers(self: Self) -> list[Transformer]:
+        """Per-thread work-CRS -> target-CRS Transformers (built once per thread)."""
+        tfs: list[Transformer] | None = getattr(self._local, 'tfs', None)
+        if tfs is None:
+            tfs = [
+                Transformer.from_crs(self._work_crs, acc.crs, always_xy=True)
+                for acc in self._accumulators
+            ]
+            self._local.tfs = tfs
+        return tfs
+
+    def _compute(self: Self, block: _Block) -> _BlockResult | None:
+        """Worker step: read, derive terrain, reproject. Pure, no shared writes."""
+        with self._read_lock:
+            z = _read_haloed_block(
+                self._wvrt,
+                block.c0,
+                block.r0,
+                block.bw,
+                block.bh,
+                self._dst_w,
+                self._dst_h,
+            )
+        if not numpy.isfinite(z).any():
+            return None
+
+        slope_deg, aspect_deg, vint, zint = _slope_aspect(z, self._px, self._py)
+        if not vint.any():
+            return None
+
+        cls = _classify(slope_deg, aspect_deg, vint)
+        rad = numpy.radians(aspect_deg)
+        cos = numpy.cos(rad)
+        sin = numpy.sin(rad)
+        wt = (
+            numpy.sin(numpy.radians(slope_deg))
+            if COSSIN_SLOPE_WEIGHTED
+            else numpy.ones_like(slope_deg)
+        )
+
+        # The Horn pass trims one pixel off each edge of the haloed read, so the
+        # inner block's global origin is (r0 - HALO + 1, c0 - HALO + 1) and its
+        # shape is zint's; deriving the cell coords this way keeps them aligned
+        # with cls/zint regardless of HALO or edge clipping.
+        inner_h, inner_w = zint.shape
+        rows = (numpy.arange(inner_h) + (block.r0 - HALO + 1))[:, None]
+        cols = (numpy.arange(inner_w) + (block.c0 - HALO + 1))[None, :]
+        x = (
+            self._dst_transform.c
+            + (cols + 0.5) * self._dst_transform.a
+            + (rows + 0.5) * self._dst_transform.b
+        )
+        y = (
+            self._dst_transform.f
+            + (cols + 0.5) * self._dst_transform.d
+            + (rows + 0.5) * self._dst_transform.e
+        )
+
+        keep = cls.ravel() >= 0
+        xf = numpy.broadcast_to(x, cls.shape).ravel()[keep]
+        yf = numpy.broadcast_to(y, cls.shape).ravel()[keep]
+        coords = [tf.transform(xf, yf) for tf in self._transformers()]
+        return _BlockResult(
+            cls=cls.ravel()[keep].astype(numpy.int64),
+            cos=cos.ravel()[keep],
+            sin=sin.ravel()[keep],
+            wt=wt.ravel()[keep],
+            z=zint.ravel()[keep],
+            coords=coords,
+        )
+
+    def _reduce(self: Self, result: _BlockResult) -> None:
+        """Main-thread step: bin one block into every accumulator (serial, ordered)."""
+        for acc, (xt, yt) in zip(self._accumulators, result.coords, strict=True):
+            acc.bin_into(
+                xt, yt, result.cls, result.cos, result.sin, result.wt, result.z,
+            )
+
+    def run(self: Self, workers: int) -> None:
+        blocks = self._blocks()
+        if workers <= 1:
+            for block in blocks:
+                result = self._compute(block)
+                if result is not None:
+                    self._reduce(result)
+            return
+
+        # Parallel map, serial ordered reduce. A sliding window of at most
+        # ``workers`` in-flight futures keeps every worker fed while bounding the
+        # transient memory of buffered block results; popping left to right reduces
+        # in block order, so the accumulation stays deterministic.
+        pending = iter(blocks)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            window: deque[Future[_BlockResult | None]] = deque()
+            for block in pending:
+                window.append(pool.submit(self._compute, block))
+                if len(window) >= workers:
+                    break
+            while window:
+                result = window.popleft().result()
+                if result is not None:
+                    self._reduce(result)
+                next_block = next(pending, None)
+                if next_block is not None:
+                    window.append(pool.submit(self._compute, next_block))
+
+
 def _stream_blocks(
     wvrt: WarpedVRT,
     dst_transform: Any,
@@ -477,60 +893,10 @@ def _stream_blocks(
     px: float,
     py: float,
     accumulators: list[_GridAccumulator],
+    work_crs: str,
+    workers: int,
+    block_size: int,
 ) -> None:
-    nbx = math.ceil(dst_w / BLOCK)
-    nby = math.ceil(dst_h / BLOCK)
-
-    for by in range(nby):
-        for bx in range(nbx):
-            c0, r0 = bx * BLOCK, by * BLOCK
-            bw = min(BLOCK, dst_w - c0)
-            bh = min(BLOCK, dst_h - r0)
-
-            z = _read_haloed_block(wvrt, c0, r0, bw, bh, dst_w, dst_h)
-            if not numpy.isfinite(z).any():
-                continue
-
-            slope_deg, aspect_deg, vint, zint = _slope_aspect(z, px, py)
-            if not vint.any():
-                continue
-
-            cls = _classify(slope_deg, aspect_deg, vint)
-            rad = numpy.radians(aspect_deg)
-            cos = numpy.cos(rad)
-            sin = numpy.sin(rad)
-            wt = (
-                numpy.sin(numpy.radians(slope_deg))
-                if COSSIN_SLOPE_WEIGHTED
-                else numpy.ones_like(slope_deg)
-            )
-
-            # The Horn pass trims one pixel off each edge of the haloed read, so
-            # the inner block's global origin is (r0 - HALO + 1, c0 - HALO + 1)
-            # and its shape is zint's; deriving the cell coords this way keeps
-            # them aligned with cls/zint regardless of HALO or edge clipping.
-            inner_h, inner_w = zint.shape
-            rows = (numpy.arange(inner_h) + (r0 - HALO + 1))[:, None]
-            cols = (numpy.arange(inner_w) + (c0 - HALO + 1))[None, :]
-            x = (
-                dst_transform.c
-                + (cols + 0.5) * dst_transform.a
-                + (rows + 0.5) * dst_transform.b
-            )
-            y = (
-                dst_transform.f
-                + (cols + 0.5) * dst_transform.d
-                + (rows + 0.5) * dst_transform.e
-            )
-
-            keep = cls.ravel() >= 0
-            xf = numpy.broadcast_to(x, cls.shape).ravel()[keep]
-            yf = numpy.broadcast_to(y, cls.shape).ravel()[keep]
-            clsf = cls.ravel()[keep].astype(numpy.int64)
-            cosf = cos.ravel()[keep]
-            sinf = sin.ravel()[keep]
-            wtf = wt.ravel()[keep]
-            zf = zint.ravel()[keep]
-
-            for acc in accumulators:
-                acc.add(xf, yf, clsf, cosf, sinf, wtf, zf)
+    _TerrainStreamer(
+        wvrt, dst_transform, dst_w, dst_h, px, py, accumulators, work_crs, block_size,
+    ).run(workers)

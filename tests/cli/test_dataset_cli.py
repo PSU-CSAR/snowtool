@@ -195,6 +195,42 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
         assert 'generated terrain for test' in result.output
 
 
+def test_generate_threads_workers_and_block_size_to_engine(
+    runner,
+    cli_obj,
+    source_dem,
+    monkeypatch,
+):
+    # --workers and --block-size must reach the terrain engine (the two knobs).
+    from tests.cli.conftest import _fake_generate_terrain
+
+    captured = {}
+
+    def _capture(source, targets, **kwargs):
+        captured.update(workers=kwargs.get('workers'), block=kwargs.get('block_size'))
+        return _fake_generate_terrain(source, targets, **kwargs)
+
+    monkeypatch.setattr(
+        'snowtool.snowdb.terrain_generate.generate_terrain',
+        _capture,
+    )
+    _create(runner, cli_obj, source_dem)
+
+    result = runner.invoke(
+        cli,
+        [
+            'dataset', 'generate', 'test',
+            '--source', str(source_dem),
+            '--workers', '3',
+            '--block-size', '512',
+        ],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 0
+    assert captured['workers'] == 3
+    assert captured['block'] == 512
+
+
 def test_generate_landcover_is_idempotent(runner, cli_obj, source_dem, source_nlcd):
     _create(runner, cli_obj, source_dem)
 

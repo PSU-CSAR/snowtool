@@ -121,6 +121,20 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     help='Generate DATASET land cover from a local NLCD file instead of the '
     'default source (repeatable).',
 )
+@click.option(
+    '--workers',
+    default=None,
+    type=click.IntRange(min=1),
+    help='Terrain-generation worker threads (default: one per CPU; 1 = serial). '
+    'Block reprojection is parallelized; the result is identical regardless.',
+)
+@click.option(
+    '--block-size',
+    default=None,
+    type=click.IntRange(min=64),
+    help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
+    'per-worker memory (~workers x block_size^2); no effect on the result.',
+)
 @click.pass_obj
 def snowdb_init(
     cli_ctx: CliContext,
@@ -128,6 +142,8 @@ def snowdb_init(
     quick: bool,
     dataset_dems: tuple[tuple[str, Path], ...],
     dataset_nlcds: tuple[tuple[str, Path], ...],
+    workers: int | None,
+    block_size: int | None,
 ) -> None:
     """Create the base snowdb layout at PATH (defaults to the snowdb_path setting).
 
@@ -175,11 +191,16 @@ def snowdb_init(
     for name in overrides.keys() | nlcd_overrides.keys():
         get_dataset(db, name)  # validate before doing expensive work
 
-    _generate_terrain(db, overrides)
+    _generate_terrain(db, overrides, workers, block_size)
     _generate_landcover(db, nlcd_overrides)
 
 
-def _generate_terrain(db: SnowDb, overrides: dict[str, Path]) -> None:
+def _generate_terrain(
+    db: SnowDb,
+    overrides: dict[str, Path],
+    workers: int | None,
+    block_size: int | None,
+) -> None:
     """init's terrain step: a default-source shared pass + per-dataset overrides.
 
     Generates every default-source dataset that lacks terrain in one pass, then
@@ -195,11 +216,15 @@ def _generate_terrain(db: SnowDb, overrides: dict[str, Path]) -> None:
     if default_names:
         joined = ', '.join(default_names)
         click.echo(f'generating terrain (default source) for: {joined}')
-        db.generate_terrain(default_names, force=True)
+        db.generate_terrain(
+            default_names, workers=workers, block_size=block_size, force=True,
+        )
 
     for name, dem_path in overrides.items():
         click.echo(f'generating terrain for {name} from {dem_path}')
-        db[name].generate_terrain(LocalFile(dem_path), force=True)
+        db[name].generate_terrain(
+            LocalFile(dem_path), workers=workers, block_size=block_size, force=True,
+        )
 
 
 def _generate_landcover(db: SnowDb, overrides: dict[str, Path]) -> None:

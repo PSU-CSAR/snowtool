@@ -8,6 +8,8 @@ can't be checked offline: that discovery reads real headers and the hand-built
 VRT stitches real, *overlapping* 3DEP tiles with no gap at the boundary.
 """
 
+import math
+
 import numpy
 import pytest
 
@@ -67,3 +69,72 @@ def test_vrt_mosaic_has_no_seam_across_the_tile_boundary():
     assert numpy.isfinite(data).all()
     assert data.min() > 0
     assert data.max() < 5000
+
+
+# A ~6 km box straddling the lon -106 tile seam (n40w106 | n40w107), inland Colorado
+# with full 3DEP coverage. The engine clips its work grid to this footprint, so only
+# the seam-straddling window of the source tiles is range-read.
+SEAM_BOX = (-106.03, 39.52, -105.97, 39.58)
+
+
+def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
+    """Drive the engine like any caller against real 3DEP: grid + CRS in, output out.
+
+    The offline determinism test uses a synthetic local GTiff; the *default* source
+    is a hand-built S3 VRT mosaic, whose concurrent-read behaviour -- and our read
+    lock's fix for it -- only surfaces against the real GDAL driver. We just hand the
+    engine a small target grid straddling the n40w106/n40w107 tile seam; because it
+    clips its work grid to the target footprint, only that window of the source COG
+    tiles is range-read (tens of seconds, a few MB) rather than the whole tiles. The
+    grid spans the seam, so this also covers cross-tile stitching. Serial vs. parallel
+    must match exactly, including the generation hash.
+    """
+    import rasterio
+
+    from rasterio.warp import transform_bounds
+
+    from snowtool.snowdb.grid import grid_extent_4326, make_grid
+    from snowtool.snowdb.terrain import TerrainSet
+    from snowtool.snowdb.terrain_generate import TerrainTarget, generate_terrain
+
+    source = ThreeDEP()
+    west, south, east, north = transform_bounds('EPSG:4326', 'EPSG:5070', *SEAM_BOX)
+    px = 50.0
+    grid = make_grid(
+        origin_x=west,
+        origin_y=north,
+        px_size=px,
+        cols=max(128, math.ceil((east - west) / px)),
+        rows=max(128, math.ceil((north - south) / px)),
+        tile_size=128,
+        crs=5070,
+    )
+    bounds = grid_extent_4326(grid)
+
+    def _generate(directory, workers):
+        with source.open(bounds) as src:
+            target = TerrainTarget(
+                name='t',
+                grid=grid,
+                tile_size=128,
+                directory=directory / 'terrain',
+            )
+            return generate_terrain(
+                src,
+                [target],
+                work_crs=source.work_crs,
+                work_resolution=source.work_resolution,
+                workers=workers,
+                block_size=256,
+                force=True,
+            )
+
+    serial = _skip_if_offline(lambda: _generate(tmp_path / 's', 1))
+    parallel = _skip_if_offline(lambda: _generate(tmp_path / 'p', 4))
+
+    assert serial['t'] == parallel['t']
+    for attr in ('elevation_path', 'aspect_majority_path', 'aspect_components_path'):
+        sp = getattr(TerrainSet(tmp_path / 's' / 'terrain'), attr)
+        pp = getattr(TerrainSet(tmp_path / 'p' / 'terrain'), attr)
+        with rasterio.open(sp) as a, rasterio.open(pp) as b:
+            numpy.testing.assert_array_equal(a.read(), b.read())
