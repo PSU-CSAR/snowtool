@@ -61,8 +61,7 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
     status = dataset.artifact_status()
 
     assert status == DatasetArtifacts(
-        terrain=True,
-        landcover=True,
+        zone_layers={'terrain': True, 'landcover': True},
         aoi_rasters=True,
         cogs=True,
         area=True,
@@ -70,9 +69,11 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
 
 
 def test_artifact_status_reports_missing_terrain(dataset):
-    dataset.terrain.elevation_path.unlink()
+    from snowtool.snowdb.terrain import ELEVATION
 
-    assert dataset.artifact_status().terrain is False
+    dataset.zones['terrain'].layer_path(ELEVATION).unlink()
+
+    assert dataset.artifact_status().zone_layers['terrain'] is False
 
 
 def test_dates_before_filters_strictly(dataset):

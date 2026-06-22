@@ -28,14 +28,14 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.aoi_index import AOIIndex
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.tiff_cache import TiffCache
+from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    from snowtool.snowdb.dem_source import DemSource
-    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
 
 
 logger = logging.getLogger(__name__)
@@ -92,8 +92,10 @@ class SnowDb:
         specs: Iterable[DatasetSpec],
         *,
         tiff_cache: TiffCache | None = None,
-        dem_source: DemSource | None = None,
-        landcover_source: LandCoverSource | None = None,
+        zone_layer_providers: Iterable[ZoneLayerProvider] = (
+            DEFAULT_ZONE_LAYER_PROVIDERS
+        ),
+        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> None:
         self.path = Path(path)
         self.aois_path = self.path / 'aois'
@@ -103,6 +105,10 @@ class SnowDb:
         self.aoi_index_path = self.aois_path / 'index.geojson'
         self.data_path = self.path / 'data'
         self._specs = self._index_specs(specs)
+        # The zone-layer providers (terrain, land cover, ...) every dataset is
+        # built/read with. Injected (not a global) so tests/entrypoints can supply
+        # their own set; adding a kind is one entry in the default registry.
+        self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
         # Datasets are defined by their specs, not by what's on disk: every
         # configured spec is always bound to its data/<name>/ dir, present or
         # not. A dataset with no directory simply has no data yet, which keeps
@@ -112,24 +118,17 @@ class SnowDb:
         # Injected so the entrypoint can size it from settings; defaulted so
         # tests/CLI can build a SnowDb without wiring one up.
         self.tiff_cache = tiff_cache if tiff_cache is not None else TiffCache()
-        # The DEM source terrain generation reads from. It belongs to the whole
-        # database (one source bins into every grid in a single pass), not to any
-        # one dataset; defaulted to 3DEP so `init` works out of the box, and
-        # injectable so the CLI can override it per run (e.g. a local file).
-        if dem_source is None:
-            from snowtool.snowdb.dem_source import ThreeDEP
-
-            dem_source = ThreeDEP()
-        self.dem_source = dem_source
-        # The NLCD land-cover source, the land-cover analogue of dem_source.
-        # Defaulted to the MRLC Annual NLCD bundle (downloaded + cached under the
-        # snowdb root) so `init` builds land cover out of the box like terrain;
-        # injectable so the CLI/tests can override it (e.g. a local file).
-        if landcover_source is None:
-            from snowtool.snowdb.landcover_source import AnnualNLCD
-
-            landcover_source = AnnualNLCD(cache_dir=self.path / '.cache' / 'landcover')
-        self.landcover_source = landcover_source
+        # The source each provider reads from during generation. A source belongs
+        # to the whole database (one source bins into every grid in a single pass),
+        # not to any one dataset. Per-provider overrides win (the CLI/tests inject
+        # local files to avoid 3DEP/the MRLC download); otherwise the provider's
+        # default source is used (3DEP for terrain, the MRLC bundle for land cover),
+        # so `init` works out of the box.
+        overrides = zone_layer_sources or {}
+        self.zone_layer_sources: dict[str, ZoneLayerSource] = {
+            name: overrides.get(name) or provider.default_source(self.path)
+            for name, provider in self.zone_layer_providers.items()
+        }
         self._warn_if_uninitialized()
 
     @staticmethod
@@ -155,7 +154,11 @@ class SnowDb:
 
     def _bind_datasets(self: Self) -> dict[str, Dataset]:
         return {
-            name: Dataset(spec, self.data_path / name)
+            name: Dataset(
+                spec,
+                self.data_path / name,
+                self.zone_layer_providers.values(),
+            )
             for name, spec in self._specs.items()
         }
 
@@ -211,8 +214,10 @@ class SnowDb:
         specs: Iterable[DatasetSpec],
         *,
         tiff_cache: TiffCache | None = None,
-        dem_source: DemSource | None = None,
-        landcover_source: LandCoverSource | None = None,
+        zone_layer_providers: Iterable[ZoneLayerProvider] = (
+            DEFAULT_ZONE_LAYER_PROVIDERS
+        ),
+        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
         """Create the base snowdb layout at ``path`` and return a SnowDb over it.
 
@@ -233,8 +238,8 @@ class SnowDb:
             path,
             specs,
             tiff_cache=tiff_cache,
-            dem_source=dem_source,
-            landcover_source=landcover_source,
+            zone_layer_providers=zone_layer_providers,
+            zone_layer_sources=zone_layer_sources,
         )
 
     def rasterize_aoi(
@@ -254,29 +259,28 @@ class SnowDb:
             for name, dataset in self.datasets.items()
         }
 
-    def generate_terrain(
+    def generate_zone_layers(
         self: Self,
+        provider_name: str,
         names: Iterable[str] | None = None,
         *,
-        source: DemSource | None = None,
-        workers: int | None = None,
-        block_size: int | None = None,
+        source: ZoneLayerSource | None = None,
         force: bool = False,
+        **options: object,
     ) -> dict[str, str]:
-        """Generate terrain for several datasets in one streaming pass.
+        """Generate a provider's zone layers for several datasets in one pass.
 
-        Reads ``source`` (default: this database's :attr:`dem_source`) once over
-        the combined extent of the selected datasets' grids and bins it into all
-        of them -- aspect must be computed at the source resolution, so sharing
-        the read is the whole point. ``names`` selects datasets (default: all).
-        ``workers`` controls block-level parallelism (``None`` -> one thread per
-        CPU, ``1`` -> serial) and ``block_size`` bounds per-worker memory; see
-        :func:`~snowtool.snowdb.terrain_generate.generate_terrain`.
-        Returns each dataset's terrain provenance hash, keyed by name.
+        Reads ``source`` (default: this database's resolved source for
+        ``provider_name``) once over the combined extent of the selected datasets'
+        grids and bins it into all of them -- e.g. terrain's aspect must be computed
+        at the source resolution, so sharing the read is the whole point. ``names``
+        selects datasets (default: all). ``**options`` carries engine-specific knobs
+        (e.g. terrain's ``workers``/``block_size``). Returns each dataset's
+        provenance hash, keyed by name.
         """
         from snowtool.snowdb.grid import grid_extent_4326
-        from snowtool.snowdb.terrain_generate import generate_terrain
 
+        provider = self.zone_layer_providers[provider_name]
         selected = (
             list(self.datasets.values())
             if names is None
@@ -285,52 +289,12 @@ class SnowDb:
         if not selected:
             return {}
 
-        source = source if source is not None else self.dem_source
-        targets = [ds.terrain_target() for ds in selected]
+        if source is None:
+            source = self.zone_layer_sources[provider_name]
+        targets = [ds.zone_target(provider) for ds in selected]
         bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
 
-        with source.open(bounds) as src:
-            return generate_terrain(
-                src,
-                targets,
-                work_crs=source.work_crs,
-                work_resolution=source.work_resolution,
-                workers=workers,
-                block_size=block_size,
-                force=force,
-            )
-
-    def generate_landcover(
-        self: Self,
-        names: Iterable[str] | None = None,
-        *,
-        source: LandCoverSource | None = None,
-        force: bool = False,
-    ) -> dict[str, str]:
-        """Generate land cover for several datasets in one streaming pass.
-
-        Reads ``source`` (default: this database's :attr:`landcover_source`) once
-        over the combined extent of the selected datasets' grids and bins it into
-        all of them. ``names`` selects datasets (default: all). Returns each
-        dataset's land-cover provenance hash, keyed by name.
-        """
-        from snowtool.snowdb.grid import grid_extent_4326
-        from snowtool.snowdb.landcover_generate import generate_landcover
-
-        selected = (
-            list(self.datasets.values())
-            if names is None
-            else [self.datasets[name] for name in names]
-        )
-        if not selected:
-            return {}
-
-        source = source if source is not None else self.landcover_source
-        targets = [ds.landcover_target() for ds in selected]
-        bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
-
-        with source.open(bounds) as src:
-            return generate_landcover(src, targets, force=force)
+        return provider.generate(source, targets, bounds, force=force, **options)
 
     # --- global AOI query helpers (drive the aoi/report commands) -------------
 

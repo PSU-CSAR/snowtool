@@ -44,14 +44,16 @@ def initialized_root(tmp_path, spec):
 def cli_obj(initialized_root, spec, source_dem, source_nlcd) -> CliContext:
     """A CliContext over the initialized synthetic snowdb (inject as obj=).
 
-    The DEM/NLCD sources are local files so terrain/land-cover commands never
-    reach 3DEP or the MRLC download.
+    The terrain/land-cover sources are local files (keyed by provider name) so the
+    zone-layer commands never reach 3DEP or the MRLC download.
     """
     return CliContext(
         root=initialized_root,
         specs=(spec,),
-        dem_source=LocalFile(source_dem),
-        landcover_source=LocalNLCD(source_nlcd),
+        zone_layer_sources={
+            'terrain': LocalFile(source_dem),
+            'landcover': LocalNLCD(source_nlcd),
+        },
     )
 
 

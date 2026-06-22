@@ -13,7 +13,7 @@ from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
 def _create(runner, cli_obj, source_dem):
     return runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--dem', str(source_dem)],
+        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 

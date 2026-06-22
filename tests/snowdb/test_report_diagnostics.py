@@ -51,13 +51,17 @@ def test_missing_artifacts_empty_for_created_dataset(dataset):
 
 
 def test_missing_artifacts_reports_deleted_terrain(dataset):
-    dataset.terrain.elevation_path.unlink()
+    from snowtool.snowdb.terrain import ELEVATION
+
+    dataset.zones['terrain'].layer_path(ELEVATION).unlink()
 
     assert 'terrain' in diagnostics.missing_artifacts(dataset)
 
 
 def test_missing_artifacts_reports_deleted_landcover(dataset):
-    dataset.landcover.forest_cover_path.unlink()
+    from snowtool.snowdb.landcover import FOREST_COVER
+
+    dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
     assert 'landcover' in diagnostics.missing_artifacts(dataset)
 

@@ -75,10 +75,15 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'band_step_ft': spec.band_step_ft,
         'elevation_bracket_m': f'{MIN_ELEVATION_M} .. {MAX_ELEVATION_M}',
         'variables': sorted(spec.variables),
-        'terrain': artifacts.terrain,
-        'dem_hash': ds.terrain.dem_hash(),
-        'landcover': artifacts.landcover,
-        'nlcd_hash': ds.landcover.nlcd_hash(),
+        # One entry per configured zone-layer provider: whether its set is present
+        # and the provenance hash it was generated with.
+        'zone_layers': {
+            name: {
+                'present': artifacts.zone_layers[name],
+                'hash': ds.zones[name].provenance_hash(),
+            }
+            for name in ds.zones
+        },
         'area': 'n/a' if artifacts.area is None else artifacts.area,
         'cogs': artifacts.cogs,
         'aoi_rasters': artifacts.aoi_rasters,
@@ -92,21 +97,19 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 @dataset.command('create')
 @click.argument('name')
 @click.option(
-    '--dem',
-    default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Generate terrain from this local DEM file instead of the default source.',
-)
-@click.option(
-    '--nlcd',
-    default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Generate land cover from this local NLCD file instead of the default source.',
+    '--source',
+    'sources',
+    nargs=2,
+    multiple=True,
+    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
+    metavar='PROVIDER PATH',
+    help='Generate PROVIDER zone layers (e.g. terrain, landcover) from a local '
+    'PATH instead of the default source (repeatable).',
 )
 @click.option(
     '--quick',
     is_flag=True,
-    help='Create the directory + area raster only; skip terrain + land cover.',
+    help='Create the directory + area raster only; skip zone-layer generation.',
 )
 @click.option(
     '--workers',
@@ -126,26 +129,24 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 def create_dataset(
     snowdb: SnowDb,
     name: str,
-    dem: Path | None,
-    nlcd: Path | None,
+    sources: tuple[tuple[str, Path], ...],
     quick: bool,
     workers: int | None,
     block_size: int | None,
 ) -> None:
-    """Create dataset NAME's directory + area raster, then its terrain + land cover.
+    """Create dataset NAME's directory + area raster, then its zone layers.
 
-    Mirrors ``snowdb init`` for one dataset: terrain comes from the database's
-    default DEM source (unless ``--dem`` supplies a local file) and land cover
-    from the default NLCD source (unless ``--nlcd`` does); ``--quick`` skips both.
-    Idempotent -- existing area raster / terrain / land-cover sets are left
-    untouched. To rebuild, use ``generate`` / ``generate-landcover`` / ``rebuild-area``.
+    Mirrors ``snowdb init`` for one dataset: every configured zone layer (terrain,
+    land cover, ...) comes from its provider's default source unless
+    ``--source PROVIDER PATH`` supplies a local file; ``--quick`` skips them all.
+    Idempotent -- an existing area raster / zone-layer set is left untouched. To
+    rebuild, use ``generate-zones`` / ``rebuild-area``.
     """
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.dem_source import LocalFile
-    from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
 
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
+    overrides = _resolve_source_overrides(snowdb, sources)
     try:
         Dataset.create(ds.spec, ds.path)
     except FileExistsError:
@@ -156,23 +157,34 @@ def create_dataset(
     if quick:
         return
 
-    if not ds.terrain.present():
-        source = LocalFile(dem) if dem is not None else snowdb.dem_source
+    for provider_name, provider in snowdb.zone_layer_providers.items():
+        if ds.zones[provider_name].present():
+            continue
+        source = (
+            provider.local_source(overrides[provider_name])
+            if provider_name in overrides
+            else snowdb.zone_layer_sources[provider_name]
+        )
         try:
-            ds.generate_terrain(
-                source, workers=workers, block_size=block_size, force=True,
+            ds.generate_zone_layers(
+                provider, source, force=True, workers=workers, block_size=block_size,
             )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
-        click.echo(f'generated terrain for {name}')
+        click.echo(f'generated {provider_name} for {name}')
 
-    if not ds.landcover.present():
-        lc_source = LocalNLCD(nlcd) if nlcd is not None else snowdb.landcover_source
-        try:
-            ds.generate_landcover(lc_source, force=True)
-        except (FileExistsError, SNODASError) as e:
-            raise click.ClickException(str(e)) from e
-        click.echo(f'generated land cover for {name}')
+
+def _resolve_source_overrides(
+    snowdb: SnowDb,
+    sources: tuple[tuple[str, Path], ...],
+) -> dict[str, Path]:
+    """Validate ``--source PROVIDER PATH`` pairs into a ``{provider: path}`` map."""
+    overrides: dict[str, Path] = {}
+    for provider_name, path in sources:
+        if provider_name not in snowdb.zone_layer_providers:
+            raise click.ClickException(f'No such zone-layer provider: {provider_name}')
+        overrides[provider_name] = Path(path)
+    return overrides
 
 
 @dataset.command('ingest')
@@ -205,13 +217,23 @@ def ingest_dataset(
             click.echo(f'ingested {name} {ingested.isoformat()} from {archive}')
 
 
-@dataset.command('generate')
+@dataset.command('generate-zones')
 @click.argument('name')
 @click.option(
+    '--provider',
+    'provider_names',
+    multiple=True,
+    help='Limit generation to these zone-layer providers (default: all).',
+)
+@click.option(
     '--source',
-    default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Generate from this local DEM file instead of the default source.',
+    'sources',
+    nargs=2,
+    multiple=True,
+    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
+    metavar='PROVIDER PATH',
+    help='Generate PROVIDER zone layers from a local PATH instead of the default '
+    'source (repeatable).',
 )
 @click.option(
     '--workers',
@@ -228,61 +250,46 @@ def ingest_dataset(
     'per-worker memory (~workers x block_size^2); no effect on the result.',
 )
 @pass_snowdb
-def generate_terrain(
+def generate_zones(
     snowdb: SnowDb,
     name: str,
-    source: Path | None,
+    provider_names: tuple[str, ...],
+    sources: tuple[tuple[str, Path], ...],
     workers: int | None,
     block_size: int | None,
 ) -> None:
-    """(Re)generate dataset NAME's terrain set, overwriting any existing layers.
+    """(Re)generate dataset NAME's zone layers, overwriting any existing ones.
 
-    Uses the database's default DEM source unless ``--source`` supplies a local
-    file. Terrain is the DEM-derived elevation + aspect layers. Generation is
-    heavy -- it reprojects the whole DEM source to a 10 m work grid -- and the
-    default 3DEP source streams tiles from S3.
+    Generates every configured zone-layer provider (terrain, land cover, ...)
+    unless ``--provider`` limits the selection; each uses its provider's default
+    source unless ``--source PROVIDER PATH`` supplies a local file. Generation is
+    heavy -- terrain reprojects the whole DEM source to a 10 m work grid (the
+    default 3DEP source streams from S3) and land cover downloads the MRLC Annual
+    NLCD national raster (~1.5 GB) on first use.
     """
-    from snowtool.snowdb.dem_source import LocalFile
-
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
-    dem_source = LocalFile(source) if source is not None else snowdb.dem_source
-    try:
-        ds.generate_terrain(
-            dem_source, workers=workers, block_size=block_size, force=True,
+    overrides = _resolve_source_overrides(snowdb, sources)
+
+    selected = provider_names or tuple(snowdb.zone_layer_providers)
+    for provider_name in selected:
+        if provider_name not in snowdb.zone_layer_providers:
+            raise click.ClickException(f'No such zone-layer provider: {provider_name}')
+
+    for provider_name in selected:
+        provider = snowdb.zone_layer_providers[provider_name]
+        source = (
+            provider.local_source(overrides[provider_name])
+            if provider_name in overrides
+            else snowdb.zone_layer_sources[provider_name]
         )
-    except (FileExistsError, SNODASError) as e:
-        raise click.ClickException(str(e)) from e
-    click.echo(f'generated terrain for {name}')
-
-
-@dataset.command('generate-landcover')
-@click.argument('name')
-@click.option(
-    '--source',
-    default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Generate from this local NLCD file instead of the default source.',
-)
-@pass_snowdb
-def generate_landcover(snowdb: SnowDb, name: str, source: Path | None) -> None:
-    """(Re)generate dataset NAME's land-cover set, overwriting any existing layer.
-
-    Uses the database's default NLCD source unless ``--source`` supplies a local
-    file. Land cover is the NLCD-derived percent-forest-cover layer. The default
-    source downloads the MRLC Annual NLCD national raster (~1.5 GB) on first use,
-    cached under the snowdb root.
-    """
-    from snowtool.snowdb.landcover_source import LocalFile
-
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
-    lc_source = LocalFile(source) if source is not None else snowdb.landcover_source
-    try:
-        ds.generate_landcover(lc_source, force=True)
-    except (FileExistsError, SNODASError) as e:
-        raise click.ClickException(str(e)) from e
-    click.echo(f'generated land cover for {name}')
+        try:
+            ds.generate_zone_layers(
+                provider, source, force=True, workers=workers, block_size=block_size,
+            )
+        except (FileExistsError, SNODASError) as e:
+            raise click.ClickException(str(e)) from e
+        click.echo(f'generated {provider_name} for {name}')
 
 
 @dataset.command('rebuild-area')

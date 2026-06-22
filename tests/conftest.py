@@ -100,7 +100,7 @@ def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
     deterministic, hand-computable values without the streaming generation pass.
     Returns the provenance hash stamped on every layer.
     """
-    directory = dataset.terrain.directory
+    directory = dataset.zones['terrain'].directory
     directory.mkdir(parents=True, exist_ok=True)
     base = dataset.grid.base_grid
     shape = (base.rows, base.cols)
@@ -153,7 +153,7 @@ def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
     so tests that just need land cover present get a deterministic value without
     the streaming generation pass. Returns the provenance hash stamped on it.
     """
-    directory = dataset.landcover.directory
+    directory = dataset.zones['landcover'].directory
     directory.mkdir(parents=True, exist_ok=True)
     base = dataset.grid.base_grid
     shape = (base.rows, base.cols)

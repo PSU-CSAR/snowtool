@@ -132,16 +132,14 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
     """The dataset's expected on-disk artifacts that are absent.
 
     Skips the area raster on a projected grid, where it is not applicable
-    (``DatasetArtifacts.area is None``). Terrain and land cover are both expected
-    (``snowdb init`` builds both from default sources), so a missing one is a
-    finding.
+    (``DatasetArtifacts.area is None``). Every configured zone layer (terrain,
+    land cover, ...) is expected -- ``snowdb init`` builds each from its default
+    source -- so a missing one is a finding, reported by provider name.
     """
     artifacts = dataset.artifact_status()
-    missing: list[str] = []
-    if not artifacts.terrain:
-        missing.append('terrain')
-    if not artifacts.landcover:
-        missing.append('landcover')
+    missing: list[str] = [
+        name for name, present in artifacts.zone_layers.items() if not present
+    ]
     if artifacts.area is False:
         missing.append('area')
     if not artifacts.cogs:

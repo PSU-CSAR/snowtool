@@ -20,7 +20,7 @@ def test_status_json_for_uncreated_dataset(runner, cli_obj):
 def test_status_reflects_created_dataset(runner, cli_obj, source_dem):
     runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--dem', str(source_dem)],
+        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 

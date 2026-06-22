@@ -16,8 +16,14 @@ from rasterio.crs import CRS
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.grid import make_grid
-from snowtool.snowdb.landcover import LANDCOVER_LAYERS, LandCoverSet
-from snowtool.snowdb.landcover_generate import LandCoverTarget, generate_landcover
+from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_LAYERS, LandCoverProvider
+from snowtool.snowdb.landcover_generate import generate_landcover
+from snowtool.snowdb.zone_layer import ZoneLayerTarget
+
+
+def _landcover_set(directory):
+    """The land-cover ZoneLayerSet rooted at ``directory`` (test reader)."""
+    return LandCoverProvider().layer_set(directory)
 
 WORK_EPSG = 5070
 ORIGIN_X = -500_000.0
@@ -61,7 +67,7 @@ def _target(tmp_path, name='t', *, px=TARGET_PX, n=TARGET_N, tile=TARGET_TILE):
         tile_size=tile,
         crs=WORK_EPSG,
     )
-    return LandCoverTarget(
+    return ZoneLayerTarget(
         name=name,
         grid=grid,
         tile_size=tile,
@@ -81,11 +87,11 @@ def test_generate_writes_forest_layer_with_expected_percentages(tmp_path):
     with rasterio.open(src_path) as src:
         hashes = generate_landcover(src, [target], force=True)
 
-    landcover = LandCoverSet(target.directory)
+    landcover = _landcover_set(target.directory)
     assert landcover.present()
     assert set(hashes) == {'t'}
 
-    with rasterio.open(landcover.forest_cover_path) as ds:
+    with rasterio.open(landcover.layer_path(FOREST_COVER)) as ds:
         forest_pct = ds.read(1)
         assert ds.dtypes[0] == 'uint8'
         assert ds.nodata == FOREST_PCT_NODATA
@@ -108,7 +114,7 @@ def test_generate_computes_fractional_percent(tmp_path):
     with rasterio.open(src_path) as src:
         generate_landcover(src, [target], force=True)
 
-    with rasterio.open(LandCoverSet(target.directory).forest_cover_path) as ds:
+    with rasterio.open(_landcover_set(target.directory).layer_path(FOREST_COVER)) as ds:
         forest_pct = ds.read(1)
 
     assert (forest_pct[20:108, 20:108] == 50).all()
@@ -122,12 +128,12 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     with rasterio.open(src_path) as src:
         first = generate_landcover(src, [target], force=True)
 
-    landcover = LandCoverSet(target.directory)
-    with rasterio.open(landcover.forest_cover_path) as ds:
+    landcover = _landcover_set(target.directory)
+    with rasterio.open(landcover.layer_path(FOREST_COVER)) as ds:
         forest_pct = ds.read(1)
     expected = hashlib.sha256(b't' + forest_pct.tobytes()).hexdigest()
     assert first['t'] == expected
-    assert landcover.nlcd_hash() == expected
+    assert landcover.provenance_hash() == expected
 
     for layer in LANDCOVER_LAYERS:
         with rasterio.open(landcover.layer_path(layer)) as ds:
@@ -152,9 +158,9 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
 
     assert set(hashes) == {'fine', 'coarse'}
     for target in (fine, coarse):
-        landcover = LandCoverSet(target.directory)
+        landcover = _landcover_set(target.directory)
         assert landcover.present()
-        with rasterio.open(landcover.forest_cover_path) as ds:
+        with rasterio.open(landcover.layer_path(FOREST_COVER)) as ds:
             forest_pct = ds.read(1)
         assert forest_pct[10, 5] == 100  # west half
         assert forest_pct[10, -5] == 0  # east half

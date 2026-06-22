@@ -19,7 +19,7 @@ def _json(result):
 def _create(runner, cli_obj, source_dem):
     return runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--dem', str(source_dem)],
+        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 
@@ -53,9 +53,9 @@ def test_info_after_create(runner, cli_obj, source_dem):
     info = _json(result)
     assert info['name'] == 'test'
     assert info['present'] is True
-    assert info['terrain'] is True
-    assert info['landcover'] is True
-    assert info['nlcd_hash'] is not None
+    assert info['zone_layers']['terrain']['present'] is True
+    assert info['zone_layers']['landcover']['present'] is True
+    assert info['zone_layers']['landcover']['hash'] is not None
     assert info['is_geographic'] is True
     assert 'swe' in info['variables']
 
@@ -76,9 +76,11 @@ def test_create_builds_terrain_and_landcover(
             'dataset',
             'create',
             'test',
-            '--dem',
+            '--source',
+            'terrain',
             str(source_dem),
-            '--nlcd',
+            '--source',
+            'landcover',
             str(source_nlcd),
         ],
         obj=cli_obj,
@@ -87,7 +89,7 @@ def test_create_builds_terrain_and_landcover(
     assert result.exit_code == 0
     assert 'created dataset test' in result.output
     assert 'generated terrain for test' in result.output
-    assert 'generated land cover for test' in result.output
+    assert 'generated landcover for test' in result.output
     data = initialized_root / 'data' / 'test'
     assert (data / 'terrain' / 'elevation.tif').is_file()
     assert (data / 'terrain' / 'aspect_majority.tif').is_file()
@@ -96,7 +98,7 @@ def test_create_builds_terrain_and_landcover(
 
 
 def test_create_is_idempotent(runner, cli_obj, source_dem):
-    args = ['dataset', 'create', 'test', '--dem', str(source_dem)]
+    args = ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)]
 
     first = runner.invoke(cli, args, obj=cli_obj)
     second = runner.invoke(cli, args, obj=cli_obj)
@@ -114,7 +116,7 @@ def test_create_requires_initialized_root(runner, tmp_path, spec, source_dem):
 
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--dem', str(source_dem)],
+        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
         obj=obj,
     )
 
@@ -125,7 +127,7 @@ def test_create_requires_initialized_root(runner, tmp_path, spec, source_dem):
 def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'nope', '--dem', str(source_dem)],
+        ['dataset', 'create', 'nope', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 
@@ -188,7 +190,11 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
     for _ in range(2):
         result = runner.invoke(
             cli,
-            ['dataset', 'generate', 'test', '--source', str(source_dem)],
+            [
+                'dataset', 'generate-zones', 'test',
+                '--provider', 'terrain',
+                '--source', 'terrain', str(source_dem),
+            ],
             obj=cli_obj,
         )
         assert result.exit_code == 0
@@ -219,8 +225,9 @@ def test_generate_threads_workers_and_block_size_to_engine(
     result = runner.invoke(
         cli,
         [
-            'dataset', 'generate', 'test',
-            '--source', str(source_dem),
+            'dataset', 'generate-zones', 'test',
+            '--provider', 'terrain',
+            '--source', 'terrain', str(source_dem),
             '--workers', '3',
             '--block-size', '512',
         ],
@@ -237,11 +244,15 @@ def test_generate_landcover_is_idempotent(runner, cli_obj, source_dem, source_nl
     for _ in range(2):
         result = runner.invoke(
             cli,
-            ['dataset', 'generate-landcover', 'test', '--source', str(source_nlcd)],
+            [
+                'dataset', 'generate-zones', 'test',
+                '--provider', 'landcover',
+                '--source', 'landcover', str(source_nlcd),
+            ],
             obj=cli_obj,
         )
         assert result.exit_code == 0
-        assert 'generated land cover for test' in result.output
+        assert 'generated landcover for test' in result.output
 
 
 def test_rebuild_area_geographic_is_idempotent(runner, cli_obj, source_dem):

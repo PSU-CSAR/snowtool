@@ -19,9 +19,8 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326, tile_base_origin
-from snowtool.snowdb.landcover import LandCoverSet
 from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea, AreaRaster
-from snowtool.snowdb.terrain import TerrainSet
+from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -30,14 +29,16 @@ if TYPE_CHECKING:
     from griffine.grid import AffineGridTile, TiledAffineGrid
     from shapely import Geometry
 
-    from snowtool.snowdb.dem_source import DemSource
     from snowtool.snowdb.ingest import WritableRaster
-    from snowtool.snowdb.landcover_generate import LandCoverTarget
-    from snowtool.snowdb.landcover_source import LandCoverSource
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.terrain_generate import TerrainTarget
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.variables import DatasetVariable
+    from snowtool.snowdb.zone_layer import (
+        ZoneLayerProvider,
+        ZoneLayerSet,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
 
 
 @dataclass(frozen=True)
@@ -47,13 +48,12 @@ class DatasetArtifacts:
     A read-only snapshot used by the diagnostics/report commands. ``area`` is
     ``None`` when an area raster is not applicable (a projected grid has a
     constant cell area and stores no ``areas.tif``); otherwise it reflects
-    whether ``areas.tif`` exists. ``terrain`` is whether the complete terrain set
-    (elevation + aspect layers) is present; ``landcover`` is whether the
-    land-cover set (percent forest cover) is present.
+    whether ``areas.tif`` exists. ``zone_layers`` maps each configured
+    zone-layer provider's name (``terrain``, ``landcover``, ...) to whether its
+    complete set is present on disk.
     """
 
-    terrain: bool
-    landcover: bool
+    zone_layers: dict[str, bool]
     aoi_rasters: bool
     cogs: bool
     area: bool | None
@@ -142,19 +142,30 @@ def write_aoi_raster(
 class Dataset:
     """A :class:`DatasetSpec` bound to its ``data/<name>/`` directory.
 
-    Owns the per-dataset filesystem layout (``aoi-rasters/``, ``areas.tif``,
-    ``terrain/``, ``cogs/``) and the operations on it; grid/variables are reached
-    through ``self.spec``.
+    Owns the per-dataset filesystem layout (``aoi-rasters/``, ``areas.tif``, the
+    per-provider zone-layer subdirs, ``cogs/``) and the operations on it;
+    grid/variables are reached through ``self.spec``.
     """
 
-    def __init__(self: Self, spec: DatasetSpec, path: Path) -> None:
+    def __init__(
+        self: Self,
+        spec: DatasetSpec,
+        path: Path,
+        providers: Iterable[ZoneLayerProvider] = DEFAULT_ZONE_LAYER_PROVIDERS,
+    ) -> None:
         self.spec = spec
         self.path = path
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
         self._area_raster = self.path / 'areas.tif'
-        self.terrain = TerrainSet(self.path / 'terrain')
-        self.landcover = LandCoverSet(self.path / 'landcover')
+        # One zone-layer set per configured provider, keyed by provider name
+        # (e.g. 'terrain', 'landcover'); a new zone-layer kind is just a new
+        # provider in the registry, with no edits here.
+        self.providers = {provider.name: provider for provider in providers}
+        self.zones: dict[str, ZoneLayerSet] = {
+            provider.name: provider.layer_set(self.path / provider.subdir)
+            for provider in self.providers.values()
+        }
 
     @property
     def grid(self: Self) -> TiledAffineGrid:
@@ -185,10 +196,10 @@ class Dataset:
     ) -> Self:
         """Create the dataset's directory skeleton and area raster.
 
-        Terrain (the DEM-derived elevation + aspect layers) is *not* built here:
-        it needs a DEM source and is generated separately by
-        :meth:`generate_terrain` (so generation can share one source read across
-        every dataset -- see :meth:`SnowDb.generate_terrain`).
+        Zone layers (terrain, land cover, ...) are *not* built here: each needs a
+        source and is generated separately by :meth:`generate_zone_layers` (so
+        generation can share one source read across every dataset -- see
+        :meth:`SnowDb.generate_zone_layers`).
         """
         self = cls(spec, path)
 
@@ -282,80 +293,40 @@ class Dataset:
             predictor=3,
         )
 
-    def terrain_target(self: Self) -> TerrainTarget:
-        """This dataset's grid as a target for the terrain-generation engine."""
-        from snowtool.snowdb.terrain_generate import TerrainTarget
+    def zone_target(self: Self, provider: ZoneLayerProvider) -> ZoneLayerTarget:
+        """This dataset's grid as a target for ``provider``'s generation engine."""
+        from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
-        return TerrainTarget(
+        return ZoneLayerTarget(
             name=self.spec.name,
             grid=self.grid,
             tile_size=self.spec.grid_params.tile_size,
-            directory=self.terrain.directory,
+            directory=self.zones[provider.name].directory,
         )
 
-    def generate_terrain(
+    def generate_zone_layers(
         self: Self,
-        source: DemSource,
+        provider: ZoneLayerProvider,
+        source: ZoneLayerSource,
         *,
-        workers: int | None = None,
-        block_size: int | None = None,
         force: bool = False,
+        **options: object,
     ) -> str:
-        """Generate this dataset's terrain set from ``source``.
+        """Generate this dataset's zone-layer set for ``provider`` from ``source``.
 
         A single-grid pass over the source (binning only into this grid); for the
-        multi-grid shared-source pass, see :meth:`SnowDb.generate_terrain`.
-        ``workers`` controls block-level parallelism (``None`` -> one thread per
-        CPU, ``1`` -> serial) and ``block_size`` bounds per-worker memory. Returns
-        the terrain set's provenance hash.
+        multi-grid shared-source pass, see :meth:`SnowDb.generate_zone_layers`.
+        ``**options`` carries engine-specific knobs (e.g. terrain's
+        ``workers``/``block_size``). Returns the set's provenance hash.
         """
-        from snowtool.snowdb.terrain_generate import generate_terrain
-
         bounds = grid_extent_4326(self.grid)
-        with source.open(bounds) as src:
-            hashes = generate_terrain(
-                src,
-                [self.terrain_target()],
-                work_crs=source.work_crs,
-                work_resolution=source.work_resolution,
-                workers=workers,
-                block_size=block_size,
-                force=force,
-            )
-        return hashes[self.spec.name]
-
-    def landcover_target(self: Self) -> LandCoverTarget:
-        """This dataset's grid as a target for the land-cover-generation engine."""
-        from snowtool.snowdb.landcover_generate import LandCoverTarget
-
-        return LandCoverTarget(
-            name=self.spec.name,
-            grid=self.grid,
-            tile_size=self.spec.grid_params.tile_size,
-            directory=self.landcover.directory,
+        hashes = provider.generate(
+            source,
+            [self.zone_target(provider)],
+            bounds,
+            force=force,
+            **options,
         )
-
-    def generate_landcover(
-        self: Self,
-        source: LandCoverSource,
-        *,
-        force: bool = False,
-    ) -> str:
-        """Generate this dataset's land-cover set from ``source``.
-
-        A single-grid pass over the source (binning only into this grid); for the
-        multi-grid shared-source pass, see :meth:`SnowDb.generate_landcover`.
-        Returns the land-cover set's provenance hash.
-        """
-        from snowtool.snowdb.landcover_generate import generate_landcover
-
-        bounds = grid_extent_4326(self.grid)
-        with source.open(bounds) as src:
-            hashes = generate_landcover(
-                src,
-                [self.landcover_target()],
-                force=force,
-            )
         return hashes[self.spec.name]
 
     @staticmethod
@@ -585,8 +556,9 @@ class Dataset:
     def artifact_status(self: Self) -> DatasetArtifacts:
         """Which of this dataset's on-disk artifacts currently exist."""
         return DatasetArtifacts(
-            terrain=self.terrain.present(),
-            landcover=self.landcover.present(),
+            zone_layers={
+                name: zone_set.present() for name, zone_set in self.zones.items()
+            },
             aoi_rasters=self._aoi_rasters.is_dir(),
             cogs=self._cogs.is_dir(),
             area=self._area_raster.is_file() if self.spec.is_geographic else None,

@@ -17,11 +17,20 @@ from rasterio.crs import CRS
 from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.terrain import (
+    ASPECT_COMPONENTS,
+    ASPECT_MAJORITY,
     ASPECT_W,
+    ELEVATION,
     ELEVATION_NODATA,
-    TerrainSet,
+    TerrainProvider,
 )
-from snowtool.snowdb.terrain_generate import TerrainTarget, generate_terrain
+from snowtool.snowdb.terrain_generate import generate_terrain
+from snowtool.snowdb.zone_layer import ZoneLayerTarget
+
+
+def _terrain_set(directory):
+    """The terrain ZoneLayerSet rooted at ``directory`` (test reader)."""
+    return TerrainProvider().layer_set(directory)
 
 WORK_EPSG = 5070
 ORIGIN_X = -500_000.0
@@ -93,7 +102,7 @@ def _target(tmp_path):
         tile_size=TARGET_TILE,
         crs=WORK_EPSG,
     )
-    return TerrainTarget(
+    return ZoneLayerTarget(
         name='t',
         grid=grid,
         tile_size=TARGET_TILE,
@@ -108,15 +117,15 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
     with rasterio.open(src_path) as src:
         hashes = generate_terrain(src, [target], force=True)
 
-    terrain = TerrainSet(target.directory)
+    terrain = _terrain_set(target.directory)
     assert terrain.present()
     assert set(hashes) == {'t'}
 
-    with rasterio.open(terrain.elevation_path) as ds:
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
-    with rasterio.open(terrain.aspect_components_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
         northness = ds.read(1)
         eastness = ds.read(2)
 
@@ -144,13 +153,13 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     with rasterio.open(src_path) as src:
         first = generate_terrain(src, [target], force=True)
 
-    terrain = TerrainSet(target.directory)
-    with rasterio.open(terrain.elevation_path) as ds:
+    terrain = _terrain_set(target.directory)
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
     # The id is a digest of name + finalized elevation (one per pass).
     expected = hashlib.sha256(b't' + elevation.tobytes()).hexdigest()
     assert first['t'] == expected
-    assert terrain.dem_hash() == expected
+    assert terrain.provenance_hash() == expected
 
     # Every layer of the set carries the same generation id.
     for layer in TERRAIN_LAYERS:
@@ -173,7 +182,7 @@ def test_generate_masks_nodata_from_integer_source(tmp_path):
     with rasterio.open(src_path) as src:
         generate_terrain(src, [target], force=True)
 
-    with rasterio.open(TerrainSet(target.directory).elevation_path) as ds:
+    with rasterio.open(_terrain_set(target.directory).layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
 
     # West half was nodata fill -> those cells are nodata, not aggregated as 0.
@@ -197,7 +206,7 @@ def test_generate_warns_when_source_declares_no_nodata(tmp_path):
 def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     fine = _target(tmp_path / 'fine')
-    coarse = TerrainTarget(
+    coarse = ZoneLayerTarget(
         name='coarse',
         grid=make_grid(
             origin_x=ORIGIN_X,
@@ -219,10 +228,10 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
     # Both grids generated together share one generation id.
     assert hashes['t'] == hashes['coarse']
     for target in (fine, coarse):
-        terrain = TerrainSet(target.directory)
+        terrain = _terrain_set(target.directory)
         assert terrain.present()
-        assert terrain.dem_hash() == hashes['t']
-        with rasterio.open(terrain.aspect_majority_path) as ds:
+        assert terrain.provenance_hash() == hashes['t']
+        with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
             majority = ds.read(1)
         assert (majority[20:40, 20:40] == ASPECT_W).all()
 
@@ -236,9 +245,9 @@ def test_generate_auto_derives_resolution_when_none(tmp_path):
     with rasterio.open(src_path) as src:
         generate_terrain(src, [target], work_resolution=None, force=True)
 
-    terrain = TerrainSet(target.directory)
+    terrain = _terrain_set(target.directory)
     assert terrain.present()
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
     assert (majority[20:108, 20:108] == ASPECT_W).all()
 
@@ -256,12 +265,12 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
 
 
 def _read_layers(directory):
-    terrain = TerrainSet(directory)
-    with rasterio.open(terrain.elevation_path) as ds:
+    terrain = _terrain_set(directory)
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
-    with rasterio.open(terrain.aspect_components_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
         components = ds.read()
     return elevation, majority, components
 
@@ -306,7 +315,7 @@ def test_parallel_matches_serial_for_multiple_targets(tmp_path):
 
     def _targets(root):
         fine = _target(root / 'fine')
-        coarse = TerrainTarget(
+        coarse = ZoneLayerTarget(
             name='coarse',
             grid=make_grid(
                 origin_x=ORIGIN_X,
@@ -420,17 +429,17 @@ def test_generate_clips_to_subregion_target_of_larger_source(tmp_path):
         tile_size=64,
         crs=WORK_EPSG,
     )
-    target = TerrainTarget(
+    target = ZoneLayerTarget(
         name='sub', grid=grid, tile_size=64, directory=tmp_path / 'sub' / 'terrain',
     )
 
     with rasterio.open(src_path) as src:
         generate_terrain(src, [target], force=True)
 
-    terrain = TerrainSet(target.directory)
-    with rasterio.open(terrain.elevation_path) as ds:
+    terrain = _terrain_set(target.directory)
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
 
     # Fully populated (no nodata) and west-facing throughout the interior.
@@ -486,7 +495,7 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
         dst.write(elevation, 1)
 
     def _run(directory, workers):
-        target = TerrainTarget(
+        target = ZoneLayerTarget(
             name='sin', grid=sin_grid, tile_size=96, directory=directory / 'terrain',
         )
         with rasterio.open(src_path) as src:
@@ -498,11 +507,11 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
     parallel = _run(tmp_path / 'p', 4)
     assert serial['sin'] == parallel['sin']  # determinism holds for a WKT CRS too
 
-    terrain = TerrainSet(tmp_path / 's' / 'terrain')
-    with rasterio.open(terrain.elevation_path) as ds:
+    terrain = _terrain_set(tmp_path / 's' / 'terrain')
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         assert 'Sinusoidal' in ds.crs.to_wkt()  # written with the target's WKT CRS
         elevation_out = ds.read(1)
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
 
     interior = (slice(30, 66), slice(30, 66))
@@ -527,7 +536,7 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
         tile_size=TARGET_TILE,
         crs=WORK_EPSG,
     )
-    target = TerrainTarget(
+    target = ZoneLayerTarget(
         name='far',
         grid=far,
         tile_size=TARGET_TILE,
@@ -538,11 +547,11 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
         hashes = generate_terrain(src, [target], force=True)
 
     assert set(hashes) == {'far'}
-    terrain = TerrainSet(target.directory)
+    terrain = _terrain_set(target.directory)
     assert terrain.present()
-    with rasterio.open(terrain.elevation_path) as ds:
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
-    with rasterio.open(terrain.aspect_majority_path) as ds:
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
     # No source pixel fell in any cell -> everything nodata.
     assert (elevation == ELEVATION_NODATA).all()
