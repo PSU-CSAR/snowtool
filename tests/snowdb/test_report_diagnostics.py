@@ -16,6 +16,7 @@ from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 
+from ..conftest import make_snowdb
 from .conftest import TILE
 
 
@@ -101,7 +102,7 @@ def test_aoi_coverage_unrasterized_then_covered(
 
     SnowDb.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = SnowDb(tmp_path, [spec])
+    db = make_snowdb(tmp_path, [spec])
     shutil.copy(aoi_geojson, db.aoi_records_path / 'pp.geojson')
 
     before = diagnostics.aoi_coverage_report(db, ds)
@@ -116,7 +117,7 @@ def test_aoi_coverage_unrasterized_then_covered(
 def test_aoi_coverage_flags_orphan_raster(tmp_path, spec, aoi_geojson):
     SnowDb.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = SnowDb(tmp_path, [spec])  # no global AOIs
+    db = make_snowdb(tmp_path, [spec])  # no global AOIs
     ds.rasterize_aoi(AOI.from_geojson(aoi_geojson))
 
     result = diagnostics.aoi_coverage_report(db, ds)
@@ -128,7 +129,7 @@ def test_aoi_coverage_classifies_full_partial_none(tmp_path, spec, aoi_geojson):
     # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
     SnowDb.initialize(tmp_path, [spec])
     Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = SnowDb(tmp_path, [spec])
+    db = make_snowdb(tmp_path, [spec])
     records = db.aoi_records_path
     # Fully inside.
     _write_basin(records, '100:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
@@ -151,7 +152,7 @@ def guard_db(tmp_path, spec):
     """A SnowDb with three AOIs: full, partial, and uncovered by the grid."""
     SnowDb.initialize(tmp_path, [spec])
     Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = SnowDb(tmp_path, [spec])
+    db = make_snowdb(tmp_path, [spec])
     records = db.aoi_records_path
     _write_basin(records, 'full:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
     _write_basin(records, 'part:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)

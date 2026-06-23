@@ -97,6 +97,12 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 @dataset.command('create')
 @click.argument('name')
 @click.option(
+    '--template',
+    default=None,
+    help='Stamp a built-in dataset template (e.g. snodas, swann-800m, instarr) as '
+    'the new dataset NAME, instead of staging an already-registered dataset.',
+)
+@click.option(
     '--source',
     'sources',
     nargs=2,
@@ -135,6 +141,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 def create_dataset(
     snowdb: SnowDb,
     name: str,
+    template: str | None,
     sources: tuple[tuple[str, Path], ...],
     activate: bool,
     quick: bool,
@@ -146,17 +153,18 @@ def create_dataset(
     Stages the dataset: it writes the directory skeleton, the area raster, the
     dataset config (``data/NAME/dataset.json``), and -- unless ``--quick`` -- every
     configured zone layer (terrain, land cover, ...) from its provider's default
-    source (or ``--source PROVIDER PATH``). Staging does *not* register the dataset
-    unless ``--activate`` is passed (or use ``dataset add`` later); going live also
-    needs an ``aoi reindex`` + restart. Idempotent -- existing artifacts are left
-    untouched.
+    source (or ``--source PROVIDER PATH``). The dataset's definition comes from
+    ``--template`` (a built-in) for a brand-new dataset, or from an
+    already-registered dataset of this NAME otherwise. Staging does *not* register
+    the dataset unless ``--activate`` is passed (or use ``dataset add`` later);
+    going live also needs an ``aoi reindex`` + restart. Idempotent -- existing
+    artifacts are left untouched.
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.datasets import config_from_spec
 
     require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
+    ds, config = _resolve_create_target(snowdb, name, template)
     overrides = _resolve_source_overrides(snowdb, sources)
     try:
         Dataset.create(ds.spec, ds.path)
@@ -168,7 +176,7 @@ def create_dataset(
     # Stage the dataset config beside its data so it can be registered (now via
     # --activate, or later via `dataset add`). Idempotent overwrite.
     config_path = ds.path / DATASET_CONFIG_FILENAME
-    config_from_spec(ds.spec).save(config_path)
+    config.save(config_path)
     if activate:
         snowdb.register_dataset(name, config_path)
         click.echo(
@@ -193,6 +201,38 @@ def create_dataset(
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
         click.echo(f'generated {provider_name} for {name}')
+
+
+def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
+    """The (Dataset, DatasetConfig) to stage for ``dataset create``.
+
+    With ``--template`` the dataset is brand-new: its config is the named built-in
+    template and a fresh :class:`Dataset` is bound at ``data/<name>/``. Otherwise
+    the dataset must already be registered under ``name`` -- its config is derived
+    from the bound spec.
+    """
+    from snowtool.snowdb.config import DatasetConfig
+    from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
+    from snowtool.snowdb.spec import DatasetSpec
+
+    config: DatasetConfig
+    if template is not None:
+        if template not in DATASET_TEMPLATES:
+            known = ', '.join(sorted(DATASET_TEMPLATES))
+            raise click.ClickException(
+                f'No such template: {template!r}. Known templates: {known}.',
+            )
+        config = DATASET_TEMPLATES[template]
+        spec = DatasetSpec.from_config(config, name)
+        ds = Dataset(
+            spec,
+            snowdb.data_path / name,
+            snowdb.zone_layer_providers.values(),
+        )
+        return ds, config
+    ds = get_dataset(snowdb, name)
+    return ds, config_from_spec(ds.spec)
 
 
 def _resolve_source_overrides(

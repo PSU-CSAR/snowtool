@@ -16,6 +16,8 @@ from snowtool.snowdb.zoning import (
     ThresholdZoning,
 )
 
+from ..conftest import make_snowdb
+
 
 def _elevation_scheme() -> BandedZoning:
     scheme = ELEVATION.zoning
@@ -169,9 +171,8 @@ def test_available_zones_lists_zoneable_layers_and_excludes_components():
 
 
 def test_snowdb_available_zones_delegates(tmp_path, spec):
-    from snowtool.snowdb.db import SnowDb
 
-    db = SnowDb(tmp_path, [spec])
+    db = make_snowdb(tmp_path, [spec])
     assert set(db.available_zones()) == {
         'terrain.elevation',
         'terrain.aspect',
@@ -184,7 +185,6 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     # generic seam -- Dataset.zones, artifact_status, diagnostics, the registry --
     # with no edits to Dataset/SnowDb/diagnostics. (Verification #6.)
     from snowtool.snowdb import diagnostics
-    from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.zone_layer import (
         ZoneLayer,
         ZoneLayerProvider,
@@ -226,7 +226,7 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
             return {}
 
     providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
-    db = SnowDb(tmp_path, [spec], zone_layer_providers=providers)
+    db = make_snowdb(tmp_path, [spec], zone_layer_providers=providers)
     ds = db['test']
 
     # Bound as a zone-layer set, reported by artifact status + the registry...

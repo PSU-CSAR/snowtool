@@ -9,6 +9,8 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 
+from ..conftest import make_snowdb
+
 _POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
 
 
@@ -51,7 +53,7 @@ def snowdb(tmp_path, spec, source_dem):
     """An initialized snowdb with the synthetic 'test' dataset created (has a DEM)."""
     SnowDb.initialize(tmp_path, [spec])
     Dataset.create(spec, tmp_path / 'data' / 'test', source_dem)
-    return SnowDb(tmp_path, [spec])
+    return make_snowdb(tmp_path, [spec])
 
 
 # --- import ------------------------------------------------------------------

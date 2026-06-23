@@ -35,13 +35,23 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def initialized_root(tmp_path, spec):
-    """An initialized snowdb root bound to the synthetic spec."""
-    SnowDb.initialize(tmp_path, [spec])
+    """An initialized snowdb root with the synthetic 'test' dataset registered.
+
+    The dataset is staged + registered (a path link to its ``dataset.json``), so
+    opening the root serves 'test' -- the config-path equivalent of the old spec
+    injection.
+    """
+    from snowtool.snowdb.datasets import config_from_spec
+
+    from ..conftest import register_dataset_config
+
+    db = SnowDb.initialize(tmp_path)
+    register_dataset_config(db, 'test', config_from_spec(spec))
     return tmp_path
 
 
 @pytest.fixture
-def cli_obj(initialized_root, spec, source_dem, source_nlcd) -> CliContext:
+def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
     """A CliContext over the initialized synthetic snowdb (inject as obj=).
 
     The terrain/land-cover sources are local files (keyed by provider name) so the
@@ -49,7 +59,6 @@ def cli_obj(initialized_root, spec, source_dem, source_nlcd) -> CliContext:
     """
     return CliContext(
         root=initialized_root,
-        specs=(spec,),
         zone_layer_sources={
             'terrain': LocalFile(source_dem),
             'landcover': LocalNLCD(source_nlcd),
