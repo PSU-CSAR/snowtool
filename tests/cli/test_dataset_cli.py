@@ -9,6 +9,7 @@ import pytest
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 
@@ -142,7 +143,7 @@ def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
 def _empty_ctx(tmp_path):
     """A CliContext over a freshly-initialized, dataset-free root."""
     root = tmp_path / 'empty'
-    SnowDb.initialize(root)
+    SnowDbManager.initialize(root)
     return root, CliContext(root=root)
 
 
@@ -268,10 +269,10 @@ def test_ingest_delegates_to_spec_ingester(
     # config naming it resolves to it.
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
 
-    db = SnowDb.initialize(tmp_path)
+    manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
     config.ingester = 'fake'
-    register_dataset_config(db, 'test', config)
+    register_dataset_config(manager, 'test', config)
 
     result = runner.invoke(
         cli,
@@ -386,8 +387,8 @@ def test_rebuild_area_projected_is_noop(runner, tmp_path):
             crs=32611,
         ),
     )
-    db = SnowDb.initialize(tmp_path)
-    register_dataset_config(db, 'utm', config_from_spec(spec))
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'utm', config_from_spec(spec))
 
     result = runner.invoke(
         cli, ['dataset', 'rebuild-area', 'utm'], obj=CliContext(root=tmp_path),

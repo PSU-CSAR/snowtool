@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.manager import SnowDbManager
     from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
 
 
@@ -69,6 +70,18 @@ class CliContext:
             )
         return self._snowdb
 
+    @property
+    def manager(self) -> SnowDbManager:
+        """The invocation's :class:`SnowDbManager`, wrapping its read SnowDb.
+
+        The write/admin seam: management commands take :func:`pass_manager` to get
+        this, then mutate through it and read through ``manager.db``. It wraps the
+        same lazily-opened :attr:`snowdb`, so opening still happens once.
+        """
+        from snowtool.snowdb.manager import SnowDbManager
+
+        return SnowDbManager(self.snowdb)
+
 
 def pass_snowdb[**P, R](
     f: Callable[Concatenate[SnowDb, P], R],
@@ -94,5 +107,32 @@ def pass_snowdb[**P, R](
         except SnowDbConfigError as e:
             raise _click.ClickException(str(e)) from e
         return f(snowdb, *args, **kwargs)
+
+    return wrapper
+
+
+def pass_manager[**P, R](
+    f: Callable[Concatenate[SnowDbManager, P], R],
+) -> Callable[P, R]:
+    """Inject the invocation's :class:`SnowDbManager` as a command's first argument.
+
+    The write-command counterpart to :func:`pass_snowdb`: management commands that
+    mutate the database take this, then write through the manager and read through
+    ``manager.db``. Opening can fail if the root has no config (never ``snowdb
+    init``-ed); that is surfaced as a clean CLI error rather than a traceback.
+    """
+
+    @click.pass_obj
+    @functools.wraps(f)
+    def wrapper(ctx_obj: CliContext, /, *args: P.args, **kwargs: P.kwargs) -> R:
+        import click as _click
+
+        from snowtool.exceptions import SnowDbConfigError
+
+        try:
+            manager = ctx_obj.manager
+        except SnowDbConfigError as e:
+            raise _click.ClickException(str(e)) from e
+        return f(manager, *args, **kwargs)
 
     return wrapper

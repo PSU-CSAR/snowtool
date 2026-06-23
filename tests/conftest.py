@@ -71,26 +71,39 @@ def make_snowdb(root, specs, **kwargs):
     return SnowDb(config, **kwargs)
 
 
-def register_dataset_config(db, name, config):
+def make_manager(root, specs, **kwargs):
+    """Build a SnowDbManager over an in-code SnowDb (see :func:`make_snowdb`).
+
+    The write-side counterpart to ``make_snowdb``: where a test exercises a
+    management op, wrap the inline-config SnowDb in a manager so writes go through
+    the admin surface while reads stay on ``manager.db``.
+    """
+    from snowtool.snowdb.manager import SnowDbManager
+
+    return SnowDbManager(make_snowdb(root, specs, **kwargs))
+
+
+def register_dataset_config(manager, name, config):
     """Stage ``config`` at ``data/<name>/dataset.json`` and register its link."""
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
-    ds_dir = db.data_path / name
+    ds_dir = manager.db.data_path / name
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)
-    db.register_dataset(name, config_path)
+    manager.register_dataset(name, config_path)
     return config_path
 
 
 def init_with_builtins(root):
     """Initialize ``root`` with every built-in dataset registered (from templates)."""
     from snowtool.snowdb.datasets import DATASET_TEMPLATES
+    from snowtool.snowdb.manager import SnowDbManager
 
-    db = SnowDb.initialize(root)
+    manager = SnowDbManager.initialize(root)
     for name, config in DATASET_TEMPLATES.items():
-        register_dataset_config(db, name, config)
-    return db
+        register_dataset_config(manager, name, config)
+    return manager
 
 
 @pytest.fixture

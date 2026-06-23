@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_snowdb
+from snowtool.cli._context import pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
     format_option,
@@ -25,7 +25,8 @@ from snowtool.cli._render import _emit, _emit_record
 from snowtool.exceptions import AOIPruneDestinationRequiredError, SNODASError
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.db import AOIImportResult, SnowDb
+    from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.manager import AOIImportResult, SnowDbManager
 
 
 @click.group()
@@ -54,15 +55,15 @@ def _fail_if_invalid(result: AOIImportResult) -> None:
 @aoi.command('import')
 @click.argument('src', type=click.Path(exists=True, path_type=Path))
 @click.option('--dry-run', is_flag=True, help='Classify sources without writing.')
-@pass_snowdb
-def import_aois(snowdb: SnowDb, src: Path, dry_run: bool) -> None:
+@pass_manager
+def import_aois(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
     """Additively import AOI(s) from a file or directory into the snowdb.
 
     Imports polygon-bearing pourpoints, skips point-only ones, and reports
     unparseable files (nonzero exit). Never removes a stored AOI.
     """
-    require_initialized(snowdb)
-    result = snowdb.import_aois(src, dry_run=dry_run)
+    require_initialized(manager)
+    result = manager.import_aois(src, dry_run=dry_run)
     _echo_import(result, dry_run=dry_run)
     _fail_if_invalid(result)
 
@@ -76,9 +77,9 @@ def import_aois(snowdb: SnowDb, src: Path, dry_run: bool) -> None:
     help='Archive directory for AOIs removed because they are absent from SRC.',
 )
 @click.option('--dry-run', is_flag=True, help='Show the import + prune plan only.')
-@pass_snowdb
+@pass_manager
 def sync_aois(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     src: Path,
     prune_to: Path | None,
     dry_run: bool,
@@ -89,9 +90,9 @@ def sync_aois(
     removed (cascading to its per-dataset rasters). If a prune would happen and
     ``--prune-to`` is absent, the command errors before changing anything.
     """
-    require_initialized(snowdb)
+    require_initialized(manager)
     try:
-        result = snowdb.sync_aois(src, prune_to=prune_to, dry_run=dry_run)
+        result = manager.sync_aois(src, prune_to=prune_to, dry_run=dry_run)
     except AOIPruneDestinationRequiredError as e:
         raise click.ClickException(str(e)) from e
 
@@ -171,26 +172,26 @@ def dump_aoi(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
 
 
 @aoi.command('reindex')
-@pass_snowdb
-def reindex_aois(snowdb: SnowDb) -> None:
+@pass_manager
+def reindex_aois(manager: SnowDbManager) -> None:
     """Rebuild the index.geojson manifest from the stored records."""
-    require_initialized(snowdb)
-    index = snowdb.reindex_aois()
-    click.echo(f'reindexed {len(index)} AOI(s) into {snowdb.aoi_index_path}')
+    require_initialized(manager)
+    index = manager.reindex_aois()
+    click.echo(f'reindexed {len(index)} AOI(s) into {manager.db.aoi_index_path}')
 
 
 @aoi.command('remove')
 @click.argument('triplet')
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
-@pass_snowdb
-def remove_aoi(snowdb: SnowDb, triplet: str, dry_run: bool) -> None:
+@pass_manager
+def remove_aoi(manager: SnowDbManager, triplet: str, dry_run: bool) -> None:
     """Remove a stored AOI and its per-dataset rasters (cascade)."""
-    require_initialized(snowdb)
+    require_initialized(manager)
     if dry_run:
-        present = snowdb.aoi_record_path(triplet).is_file()
+        present = manager.db.aoi_record_path(triplet).is_file()
         click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
         return
-    if snowdb.remove_aoi(triplet):
+    if manager.remove_aoi(triplet):
         click.echo(f'removed {triplet}')
     else:
         click.echo(f'{triplet}: absent (nothing removed)')
@@ -201,9 +202,9 @@ def remove_aoi(snowdb: SnowDb, triplet: str, dry_run: bool) -> None:
 @click.option('--all', 'all_aois', is_flag=True, help='Rasterize every stored AOI.')
 @click.option('--rebuild', is_flag=True, help='Rebuild even rasters that are current.')
 @dataset_option
-@pass_snowdb
+@pass_manager
 def rasterize_aois(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     triplet: str | None,
     all_aois: bool,
     rebuild: bool,
@@ -214,21 +215,21 @@ def rasterize_aois(
     Provide a single TRIPLET or ``--all``. By default only missing/stale rasters
     are (re)built; ``--rebuild`` forces all selected.
     """
-    require_initialized(snowdb)
+    require_initialized(manager)
     if bool(triplet) == bool(all_aois):
         raise click.ClickException('Provide exactly one of TRIPLET or --all.')
 
     if all_aois:
-        aois = list(snowdb.aois())
+        aois = list(manager.db.aois())
     else:
         try:
-            aois = [snowdb.load_aoi(triplet)]  # type: ignore[arg-type]
+            aois = [manager.db.load_aoi(triplet)]  # type: ignore[arg-type]
         except FileNotFoundError as e:
             raise click.ClickException(str(e)) from e
 
-    datasets = resolve_datasets(snowdb, dataset_names)
+    datasets = resolve_datasets(manager.db, dataset_names)
     try:
-        result = snowdb.rasterize_aois(aois, datasets, rebuild=rebuild)
+        result = manager.rasterize_aois(aois, datasets, rebuild=rebuild)
     except (FileNotFoundError, SNODASError) as e:
         raise click.ClickException(str(e)) from e
 

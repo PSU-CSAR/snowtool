@@ -16,7 +16,6 @@ from click.testing import CliRunner
 
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
-from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.dem_source import LocalFile
 from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
@@ -42,11 +41,12 @@ def initialized_root(tmp_path, spec):
     injection.
     """
     from snowtool.snowdb.datasets import config_from_spec
+    from snowtool.snowdb.manager import SnowDbManager
 
     from ..conftest import register_dataset_config
 
-    db = SnowDb.initialize(tmp_path)
-    register_dataset_config(db, 'test', config_from_spec(spec))
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
     return tmp_path
 
 
