@@ -71,10 +71,10 @@ _V_MIN, _V_MAX = 4, 5
 
 # The h10v05 (SE) corner of the block is never ingested -- it is permanently
 # nodata (see the module docstring). It sits inside the grid's bounding
-# rectangle, so without carving it out a basin over it would be reported as
-# fully covered. Excluded from the coverage domain (a static grid fact, not a
+# rectangle, so without leaving it out a basin over it would be reported as
+# fully covered. Left out of the served footprint (a static grid fact, not a
 # per-date data gap).
-_EMPTY_TILES = ((10, 5),)
+_EMPTY_TILES = frozenset({(10, 5)})
 
 
 def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
@@ -82,6 +82,25 @@ def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
     ul_x = _MODIS_X_MIN + h * _MODIS_TILE_M
     ul_y = _MODIS_Y_MAX - v * _MODIS_TILE_M
     return shapely.box(ul_x, ul_y - _MODIS_TILE_M, ul_x + _MODIS_TILE_M, ul_y)
+
+
+def _instarr_footprint() -> shapely.Geometry:
+    """The region INSTARR serves: the tile block minus the empty corner.
+
+    A single (multi)polygon in MODIS-sinusoidal coords -- the union of the
+    populated tiles (every tile in the h08-h10 x v04-v05 block except the
+    permanently-empty ones). This is the coverage footprint; absent it, coverage
+    would default to the whole grid rectangle and mis-report basins over the empty
+    corner. Derived here from the canonical tiling for now; a future cut may
+    compute it from the data's real extent.
+    """
+    present = [
+        _modis_tile_polygon(h, v)
+        for h in range(_H_MIN, _H_MAX + 1)
+        for v in range(_V_MIN, _V_MAX + 1)
+        if (h, v) not in _EMPTY_TILES
+    ]
+    return shapely.union_all(present)
 
 
 # --- INSTARR variables --------------------------------------------------------
@@ -273,5 +292,5 @@ INSTARR_SPEC = DatasetSpec(
     ),
     variables=INSTARR_VARIABLES,
     ingester=InstarrIngester(),
-    domain_exclusions=tuple(_modis_tile_polygon(h, v) for h, v in _EMPTY_TILES),
+    footprint=_instarr_footprint(),
 )

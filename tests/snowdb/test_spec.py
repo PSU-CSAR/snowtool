@@ -35,6 +35,38 @@ def _projected_spec() -> DatasetSpec:
     )
 
 
+def test_coverage_domain_defaults_to_the_grid_extent():
+    import shapely
+
+    from snowtool.snowdb.coverage import _grid_extent_polygon
+
+    spec = _geographic_spec()
+    # No footprint -> the served domain is the full grid-extent rectangle.
+    assert spec.footprint is None
+    assert spec.coverage_domain.polygon.equals(_grid_extent_polygon(spec.grid))
+    assert isinstance(spec.coverage_domain.polygon, shapely.Geometry)
+
+
+def test_footprint_overrides_the_coverage_domain():
+    import shapely
+
+    # A footprint smaller than the extent *is* the served domain.
+    footprint = shapely.box(-119.5, 44.5, -119.0, 44.0)
+    spec = DatasetSpec(
+        name='geo',
+        grid_params=GridParams(
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=512,
+            rows=512,
+            tile_size=256,
+        ),
+        footprint=footprint,
+    )
+    assert spec.coverage_domain.polygon is footprint
+
+
 def test_crs_is_the_single_parsed_grid_crs():
     spec = _projected_spec()
     # One parsed CRS, shared by is_geographic/cell_area and the dataset's

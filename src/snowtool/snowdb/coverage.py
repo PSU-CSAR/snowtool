@@ -8,11 +8,12 @@ against a :class:`CoverageDomain` (the region a dataset can serve, in its grid's
 CRS) into :class:`Coverage`; it is reprojection-correct (the basin is moved into
 the domain's CRS before the containment test) and reads no rasters.
 
-The domain defaults to the full grid-extent rectangle but can exclude
-permanently-empty parts of the grid (e.g. a MODIS tile that is never populated),
-so a basin over a *static* nodata hole is not mis-reported as fully covered.
-Per-date data gaps (clouds, a missing day's tile) are deliberately a separate,
-per-result concern, not part of this static geometric domain.
+The domain defaults to the full grid-extent rectangle but may instead be a
+dataset's declared *footprint* polygon -- the region it actually serves (e.g. a
+MODIS block minus a tile that is never populated) -- so a basin over a *static*
+nodata hole is not mis-reported as fully covered. Per-date data gaps (clouds, a
+missing day's tile) are deliberately a separate, per-result concern, not part of
+this static geometric domain.
 """
 
 from __future__ import annotations
@@ -27,8 +28,6 @@ import shapely
 from snowtool.exceptions import AOICoverageError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from griffine.grid import TiledAffineGrid
 
     from snowtool.snowdb.aoi import AOI
@@ -69,9 +68,9 @@ class CoverageDomain:
     """The region a dataset can serve, as a polygon in its grid's CRS.
 
     ``polygon`` defaults (via :meth:`from_grid`) to the grid-extent rectangle but
-    may have permanently-empty parts of the grid carved out (e.g. a never-ingested
-    MODIS tile), so coverage reflects the dataset's real static domain rather than
-    just its bounding box.
+    may instead be a dataset's declared ``footprint`` -- the region it actually
+    serves (e.g. a never-ingested MODIS tile left out) -- so coverage reflects the
+    dataset's real static domain rather than just its bounding box.
     """
 
     crs: Any
@@ -82,19 +81,18 @@ class CoverageDomain:
         cls: type[Self],
         grid: TiledAffineGrid,
         *,
-        exclude: Iterable[shapely.Geometry] = (),
+        footprint: shapely.Geometry | None = None,
     ) -> Self:
-        """Build a domain from a grid's extent, minus any ``exclude`` regions.
+        """Build a domain from a grid, using ``footprint`` if given else the extent.
 
-        ``exclude`` geometries are in the grid's CRS (the same space the extent
-        rectangle is built in); each is differenced out of the extent.
+        ``footprint`` (in the grid's CRS, the same space the extent rectangle is
+        built in) *is* the served region when supplied; omitted, the domain
+        defaults to the full grid-extent rectangle.
         """
         crs = grid.crs
         if crs is None:  # pragma: no cover - make_grid always sets a CRS
             raise ValueError('grid has no CRS')
-        polygon: shapely.Geometry = _grid_extent_polygon(grid)
-        for hole in exclude:
-            polygon = polygon.difference(hole)
+        polygon = footprint if footprint is not None else _grid_extent_polygon(grid)
         return cls(crs, polygon)
 
 

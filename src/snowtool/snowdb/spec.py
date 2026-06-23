@@ -57,7 +57,7 @@ class DatasetSpec:
         variables: Iterable[DatasetVariable] = (),
         band_step_ft: int = 1000,
         ingester: Ingester | None = None,
-        domain_exclusions: Iterable[Geometry] = (),
+        footprint: Geometry | None = None,
     ) -> None:
         self.name = name
         self.grid_params = grid_params
@@ -68,10 +68,12 @@ class DatasetSpec:
         # None means the dataset has no ingest (e.g. read-only / derived). See
         # snowtool.snowdb.ingest.
         self.ingester = ingester
-        # Permanently-empty regions of the grid (in grid CRS) to carve out of the
-        # coverage domain -- e.g. a MODIS tile this dataset never ingests. Static
-        # (grid definition), not per-date; see CoverageDomain.
-        self.domain_exclusions = tuple(domain_exclusions)
+        # The region this dataset actually serves, as a single (multi)polygon in
+        # the grid CRS -- e.g. a MODIS block minus a never-ingested tile. Static
+        # (grid definition), not per-date. None means the dataset serves its whole
+        # grid extent, so coverage defaults to the extent rectangle. See
+        # CoverageDomain.
+        self.footprint = footprint
 
     @cached_property
     def crs(self) -> CRS:
@@ -87,15 +89,16 @@ class DatasetSpec:
 
     @cached_property
     def coverage_domain(self) -> CoverageDomain:
-        """The static region this dataset can serve (grid extent minus holes).
+        """The static region this dataset can serve.
 
-        Used by AOI coverage classification; ``domain_exclusions`` carves out
-        permanently-empty parts of the grid so a basin over one is not reported
-        as fully covered.
+        Used by AOI coverage classification: the dataset's ``footprint`` when it
+        declares one (e.g. a MODIS block minus a never-ingested tile), else the
+        full grid-extent rectangle -- so a basin over a permanently-empty hole is
+        not reported as fully covered.
         """
         from snowtool.snowdb.coverage import CoverageDomain
 
-        return CoverageDomain.from_grid(self.grid, exclude=self.domain_exclusions)
+        return CoverageDomain.from_grid(self.grid, footprint=self.footprint)
 
     @cached_property
     def is_geographic(self) -> bool:
