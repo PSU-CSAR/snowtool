@@ -135,6 +135,81 @@ def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
     assert 'No such dataset' in result.output
 
 
+# --- add / activate (explicit registration) ----------------------------------
+
+
+def test_create_does_not_register_without_activate(
+    runner,
+    cli_obj,
+    initialized_root,
+    source_dem,
+):
+    result = _create(runner, cli_obj, source_dem)
+
+    assert result.exit_code == 0, result.output
+    # Staged but not registered: opening from the config serves no datasets.
+    assert list(SnowDb.open(initialized_root)) == []
+    # ... but the staged config is on disk, ready to register.
+    assert (initialized_root / 'data' / 'test' / 'dataset.json').is_file()
+
+
+def test_create_activate_registers(runner, cli_obj, initialized_root, source_dem):
+    result = runner.invoke(
+        cli,
+        [
+            'dataset', 'create', 'test',
+            '--source', 'terrain', str(source_dem),
+            '--activate', '--quick',
+        ],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'registered test' in result.output
+    assert list(SnowDb.open(initialized_root)) == ['test']
+
+
+def test_add_registers_an_external_config(runner, cli_obj, initialized_root):
+    from snowtool.snowdb.datasets import DATASET_TEMPLATES
+
+    external = initialized_root / 'staged' / 'dataset.json'
+    external.parent.mkdir()
+    DATASET_TEMPLATES['snodas'].save(external)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'add', 'snodas', str(external)],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert list(SnowDb.open(initialized_root)) == ['snodas']
+
+
+def test_add_rejects_an_unusable_config(runner, cli_obj, initialized_root):
+    bad = initialized_root / 'bad.json'
+    # Right resource, but the grid is missing required fields.
+    bad.write_text('{"resource": "snowtool.dataset/v1", "grid": {}, "variables": {}}')
+
+    result = runner.invoke(cli, ['dataset', 'add', 'x', str(bad)], obj=cli_obj)
+
+    assert result.exit_code != 0
+    assert 'Not a usable dataset config' in result.output
+
+
+def test_add_requires_initialized_root(runner, tmp_path, spec):
+    from snowtool.snowdb.datasets import config_from_spec
+
+    cfg = tmp_path / 'd.json'
+    config_from_spec(spec).save(cfg)
+    obj = CliContext(root=tmp_path, specs=(spec,))
+
+    result = runner.invoke(cli, ['dataset', 'add', 'test', str(cfg)], obj=obj)
+
+    assert result.exit_code != 0
+    assert 'not an initialized snowdb' in result.output
+
+
 # --- ingest (the dataset-generic seam) ---------------------------------------
 
 

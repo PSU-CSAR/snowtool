@@ -107,6 +107,12 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     'PATH instead of the default source (repeatable).',
 )
 @click.option(
+    '--activate',
+    is_flag=True,
+    help='Register the dataset in the root config after staging it (writes its '
+    'link). Going live still needs `aoi reindex` + a service restart.',
+)
+@click.option(
     '--quick',
     is_flag=True,
     help='Create the directory + area raster only; skip zone-layer generation.',
@@ -130,19 +136,24 @@ def create_dataset(
     snowdb: SnowDb,
     name: str,
     sources: tuple[tuple[str, Path], ...],
+    activate: bool,
     quick: bool,
     workers: int | None,
     block_size: int | None,
 ) -> None:
     """Create dataset NAME's directory + area raster, then its zone layers.
 
-    Mirrors ``snowdb init`` for one dataset: every configured zone layer (terrain,
-    land cover, ...) comes from its provider's default source unless
-    ``--source PROVIDER PATH`` supplies a local file; ``--quick`` skips them all.
-    Idempotent -- an existing area raster / zone-layer set is left untouched. To
-    rebuild, use ``generate-zones`` / ``rebuild-area``.
+    Stages the dataset: it writes the directory skeleton, the area raster, the
+    dataset config (``data/NAME/dataset.json``), and -- unless ``--quick`` -- every
+    configured zone layer (terrain, land cover, ...) from its provider's default
+    source (or ``--source PROVIDER PATH``). Staging does *not* register the dataset
+    unless ``--activate`` is passed (or use ``dataset add`` later); going live also
+    needs an ``aoi reindex`` + restart. Idempotent -- existing artifacts are left
+    untouched.
     """
+    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.datasets import config_from_spec
 
     require_initialized(snowdb)
     ds = get_dataset(snowdb, name)
@@ -153,6 +164,16 @@ def create_dataset(
         click.echo(f'dataset {name} already created')
     else:
         click.echo(f'created dataset {name} at {ds.path}')
+
+    # Stage the dataset config beside its data so it can be registered (now via
+    # --activate, or later via `dataset add`). Idempotent overwrite.
+    config_path = ds.path / DATASET_CONFIG_FILENAME
+    config_from_spec(ds.spec).save(config_path)
+    if activate:
+        snowdb.register_dataset(name, config_path)
+        click.echo(
+            f'registered {name} (run `aoi reindex` + restart to go live)',
+        )
 
     if quick:
         return
@@ -185,6 +206,43 @@ def _resolve_source_overrides(
             raise click.ClickException(f'No such zone-layer provider: {provider_name}')
         overrides[provider_name] = Path(path)
     return overrides
+
+
+@dataset.command('add')
+@click.argument('name')
+@click.argument(
+    'config_path',
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@pass_snowdb
+def add_dataset(snowdb: SnowDb, name: str, config_path: Path) -> None:
+    """Register dataset NAME from its config at CONFIG_PATH (writes the link).
+
+    The explicit-registration step: a dataset built/staged out of band (anywhere)
+    goes live by linking its config into the root config. The config is validated
+    (it must parse and its ingester must resolve) before the link is written.
+    Idempotent -- re-adding a name overwrites its link. Going live also needs an
+    ``aoi reindex`` + a service restart.
+    """
+    from pydantic import ValidationError
+
+    from snowtool.snowdb.config import DatasetConfig
+    from snowtool.snowdb.spec import DatasetSpec
+
+    require_initialized(snowdb)
+    try:
+        config = DatasetConfig.load(config_path)
+        DatasetSpec.from_config(config, name)  # validate it resolves (ingester, ...)
+    except (ValidationError, ValueError) as e:
+        raise click.ClickException(
+            f'Not a usable dataset config ({config_path}): {e}',
+        ) from e
+
+    snowdb.register_dataset(name, config_path)
+    click.echo(
+        f'registered {name} -> {config_path} '
+        '(run `aoi reindex` + restart to go live)',
+    )
 
 
 @dataset.command('ingest')

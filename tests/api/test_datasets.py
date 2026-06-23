@@ -9,19 +9,21 @@ from snowtool.api.app import get_app
 
 @pytest.fixture
 def snodas_client(test_settings) -> Iterator[TestClient]:
-    """A client whose snow database has a (content-free) snodas dataset dir.
+    """A client whose snow database has the built-in datasets registered.
 
-    DatasetInfo is derived entirely from the spec, so an empty directory is
-    enough; SnowDb binds the snodas dataset from the configured specs regardless.
+    DatasetInfo is derived entirely from the spec, so no COGs are needed; the
+    snodas dataset is served because its config is registered in the root config.
     """
-    (test_settings.snowdb_path / 'data' / 'snodas').mkdir(parents=True)
+    from ..conftest import init_with_builtins
+
+    init_with_builtins(test_settings.snowdb_path)
     with TestClient(get_app(settings=test_settings)) as client:
         yield client
 
 
-def test_list_datasets_lists_configured_even_without_data(test_client) -> None:
-    # Datasets come from the configured specs, not from what's on disk, so the
-    # built-in datasets are listed (sorted) even against an un-initialized root.
+def test_list_datasets_lists_registered(test_client) -> None:
+    # The app serves exactly the datasets registered in the root config (the
+    # built-ins, here), sorted.
     response = test_client.get('/datasets')
     assert response.status_code == 200
     assert response.json()['datasets'] == ['instarr', 'snodas', 'swann-800m']

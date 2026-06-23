@@ -30,6 +30,11 @@ from snowtool.snowdb.variables import Reducer
 # one "magic path" the system has; everything else is reached by link from it.
 CONFIG_FILENAME = 'snowdb_conf.json'
 
+# The conventional filename a dataset's config is written to under its own
+# directory (``data/<name>/dataset.json``); a registered link may point anywhere,
+# but ``dataset create`` stages here.
+DATASET_CONFIG_FILENAME = 'dataset.json'
+
 
 class ResourceModel(BaseModel):
     """Base for every persisted snowtool entity.
@@ -42,19 +47,37 @@ class ResourceModel(BaseModel):
     resource: str
 
 
+class PathDatasetLink(BaseModel):
+    """A dataset registration that points at a config file on the filesystem.
+
+    ``path`` is relative to the root config's own directory (a relocatable tree)
+    or absolute (a staged-elsewhere dataset). The ``type`` tag discriminates the
+    link kind: today only ``path``, but the object form leaves room for other
+    registration kinds (e.g. a remote or inline dataset) without reshaping the
+    root config.
+    """
+
+    type: Literal['path'] = 'path'
+    path: str
+
+
+# A registered dataset link, discriminated on ``type`` so new link kinds slot in
+# as additional union members.
+DatasetLink = Annotated[PathDatasetLink, Field(discriminator='type')]
+
+
 class RootConfig(ResourceModel):
     """The snowdb root config (``snowtool.snowdb/v1``): links + creation stamp.
 
-    Holds the links the system follows -- the registered dataset configs, the AOI
-    index, and the AOI records directory -- plus when the root was created. A
-    relative link resolves against this file's own directory (a relocatable
-    tree); an absolute link points at a staged-elsewhere artifact. No datasets are
-    registered by default: a dataset goes live by adding its link here.
+    Holds the links the system follows -- the registered datasets (a map of
+    dataset name to its :class:`DatasetLink`), the AOI index, and the AOI records
+    directory -- plus when the root was created. No datasets are registered by
+    default: a dataset goes live by adding its link here.
     """
 
     resource: Literal['snowtool.snowdb/v1'] = 'snowtool.snowdb/v1'
     created_at: datetime
-    datasets: list[str] = Field(default_factory=list)
+    datasets: dict[str, DatasetLink] = Field(default_factory=dict)
     aoi_index: str = 'aois/index.geojson'
     aoi_records: str = 'aois/records'
 

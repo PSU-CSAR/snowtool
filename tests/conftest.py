@@ -50,17 +50,26 @@ def test_settings(tmp_path) -> Settings:
     return Settings(snowdb_path=tmp_path)
 
 
-def open_snowdb(root, specs, **kwargs):
-    """Initialize a root config + tree, then open it through the config seam.
+def register_dataset_config(db, name, config):
+    """Stage ``config`` at ``data/<name>/dataset.json`` and register its link."""
+    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
-    The happy-path construction for tests that want a working :class:`SnowDb`
-    rooted at ``root``: it writes ``snowdb_conf.json`` (+ the tree) and returns the
-    db via :meth:`SnowDb.open`, so these call sites exercise the config-required
-    read path. Routing through this one helper keeps the eventual spec-injection ->
-    link-following change contained to ``open`` and here, not every call site.
-    """
-    SnowDb.initialize(root, specs, **kwargs)
-    return SnowDb.open(root, specs, **kwargs)
+    ds_dir = db.data_path / name
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+    db.register_dataset(name, config_path)
+    return config_path
+
+
+def init_with_builtins(root):
+    """Initialize ``root`` with every built-in dataset registered (from templates)."""
+    from snowtool.snowdb.datasets import DATASET_TEMPLATES
+
+    db = SnowDb.initialize(root)
+    for name, config in DATASET_TEMPLATES.items():
+        register_dataset_config(db, name, config)
+    return db
 
 
 @pytest.fixture

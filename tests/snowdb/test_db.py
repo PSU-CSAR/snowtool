@@ -70,14 +70,26 @@ def test_initialize_creates_the_base_layout(tmp_path):
     assert (tmp_path / 'data' / 'snodas').is_dir()
 
 
+def _register(db: SnowDb, spec: DatasetSpec) -> None:
+    """Stage ``spec`` as an on-disk dataset config and register its link."""
+    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
+    from snowtool.snowdb.datasets import config_from_spec
+
+    ds_dir = db.data_path / spec.name
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config_from_spec(spec).save(config_path)
+    db.register_dataset(spec.name, config_path)
+
+
 def test_initialize_writes_a_loadable_root_config(tmp_path):
     SnowDb.initialize(tmp_path, [_spec('snodas')])
 
     config = RootConfig.load(tmp_path / CONFIG_FILENAME)
-    # No datasets are registered by default -- a dataset goes live by adding its
+    # No datasets are registered by init -- a dataset goes live only by adding its
     # link, not by being a configured spec.
     assert config.resource == 'snowtool.snowdb/v1'
-    assert config.datasets == []
+    assert config.datasets == {}
 
 
 def test_initialize_preserves_an_existing_config(tmp_path):
@@ -93,24 +105,42 @@ def test_initialize_preserves_an_existing_config(tmp_path):
 def test_open_requires_a_root_config(tmp_path):
     # A bare directory (no snowdb_conf.json) is not a snowdb open will serve.
     with pytest.raises(SnowDbConfigError, match='migration stamp'):
-        SnowDb.open(tmp_path, [_spec('snodas')])
+        SnowDb.open(tmp_path)
 
 
-def test_open_binds_after_initialize(tmp_path):
+def test_open_sees_no_datasets_after_bare_init(tmp_path):
     SnowDb.initialize(tmp_path, [_spec('snodas')])
 
-    db = SnowDb.open(tmp_path, [_spec('snodas')])
+    # init registers nothing, so open (which follows links) binds no datasets even
+    # though a data/<name>/ dir was staged.
+    assert list(SnowDb.open(tmp_path)) == []
 
-    assert list(db) == ['snodas']
+
+def test_open_binds_registered_datasets(tmp_path):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    _register(db, _spec('snodas'))
+
+    assert list(SnowDb.open(tmp_path)) == ['snodas']
 
 
 def test_open_accepts_the_config_file_directly(tmp_path):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    _register(db, _spec('snodas'))
 
-    db = SnowDb.open(tmp_path / CONFIG_FILENAME, [_spec('snodas')])
+    opened = SnowDb.open(tmp_path / CONFIG_FILENAME)
 
-    assert db.path == tmp_path
-    assert list(db) == ['snodas']
+    assert opened.path == tmp_path
+    assert list(opened) == ['snodas']
+
+
+def test_open_errors_on_a_dangling_link(tmp_path):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    _register(db, _spec('snodas'))
+    # Remove the linked config out of band -> open must fail cleanly.
+    (db.data_path / 'snodas' / 'dataset.json').unlink()
+
+    with pytest.raises(SnowDbConfigError, match='missing config'):
+        SnowDb.open(tmp_path)
 
 
 def test_initialize_is_idempotent(tmp_path):

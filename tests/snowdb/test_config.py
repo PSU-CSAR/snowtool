@@ -4,14 +4,14 @@ import pytest
 
 from pydantic import ValidationError
 
-from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
+from snowtool.snowdb.config import CONFIG_FILENAME, PathDatasetLink, RootConfig
 
 
 def test_create_stamps_defaults():
     config = RootConfig.create()
 
     assert config.resource == 'snowtool.snowdb/v1'
-    assert config.datasets == []
+    assert config.datasets == {}
     assert config.aoi_index == 'aois/index.geojson'
     assert config.aoi_records == 'aois/records'
     assert config.created_at.tzinfo is not None  # stamped in UTC
@@ -19,7 +19,10 @@ def test_create_stamps_defaults():
 
 def test_round_trips_through_disk(tmp_path):
     config = RootConfig.create()
-    config.datasets = ['data/swann-800m/dataset.json', '/mnt/big/instarr/dataset.json']
+    config.datasets = {
+        'swann-800m': PathDatasetLink(path='data/swann-800m/dataset.json'),
+        'instarr': PathDatasetLink(path='/mnt/big/instarr/dataset.json'),
+    }
     path = tmp_path / CONFIG_FILENAME
 
     config.save(path)
