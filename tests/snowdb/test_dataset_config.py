@@ -36,7 +36,7 @@ def _assert_spec_equivalent(resolved: DatasetSpec, spec: DatasetSpec) -> None:
     """Field-by-field equivalence (DatasetSpec has no ``__eq__``)."""
     assert resolved.name == spec.name
     assert resolved.grid_params == spec.grid_params
-    assert resolved.band_step_ft == spec.band_step_ft
+    assert resolved.zones == spec.zones
     assert type(resolved.ingester) is type(spec.ingester)
     assert list(resolved.variables) == list(spec.variables)
     for key, variable in spec.variables.items():

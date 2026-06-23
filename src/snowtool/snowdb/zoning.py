@@ -30,7 +30,7 @@ import numpy
 import numpy.typing
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,19 @@ class ZoneScheme(ABC):
         """Per-pixel zone ordinal for ``values`` (``-1`` where out of zone)."""
         raise NotImplementedError
 
+    def default_overrides(
+        self: Self,
+        params: Mapping[str, object],
+    ) -> dict[str, object]:
+        """Scheme override kwargs from a dataset's configured zone ``params``.
+
+        Translates the human-facing param a dataset's ``zones`` block carries (e.g.
+        ``band_step_ft``, ``threshold_pct``) into the kwarg :meth:`zones`/
+        :meth:`assign` consume (``step``/``threshold``). The base scheme takes no
+        params (so a categorical layer ignores any), so it returns nothing.
+        """
+        return {}
+
 
 @dataclass(frozen=True)
 class BandedZoning(ZoneScheme):
@@ -132,6 +145,17 @@ class BandedZoning(ZoneScheme):
     unit: str
     value_scale: float
     layer_nodata: float
+    # The key a dataset's zones block uses for this layer's band width (e.g.
+    # ``band_step_ft``); its value becomes the ``step`` override.
+    param_key: str = 'band_step_ft'
+
+    def default_overrides(
+        self: Self,
+        params: Mapping[str, object],
+    ) -> dict[str, object]:
+        if self.param_key in params:
+            return {'step': params[self.param_key]}
+        return {}
 
     def _step(self: Self, override: object) -> int:
         step = override if override is not None else self.default_step
@@ -200,6 +224,17 @@ class ThresholdZoning(ZoneScheme):
     layer_nodata: float
     below_label: str
     above_label: str
+    # The key a dataset's zones block uses for this layer's split point (e.g.
+    # ``threshold_pct``); its value becomes the ``threshold`` override.
+    param_key: str = 'threshold_pct'
+
+    def default_overrides(
+        self: Self,
+        params: Mapping[str, object],
+    ) -> dict[str, object]:
+        if self.param_key in params:
+            return {'threshold': params[self.param_key]}
+        return {}
 
     def _threshold(self: Self, override: object) -> float:
         return float(override if override is not None else self.default_threshold)  # type: ignore[arg-type]

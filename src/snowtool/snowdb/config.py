@@ -88,22 +88,25 @@ class DatasetConfig(ResourceModel):
 
     Everything a dataset *is*, independent of where it lives on disk: its
     ``grid``, its ``variables``, the registry ``ingester`` name that turns source
-    data into its COGs (``None`` for a read-only/derived dataset), the elevation
-    ``band_step_ft``, and an optional served ``footprint`` (a GeoJSON geometry
-    mapping in the grid CRS; omitted means the whole grid extent). There is no
-    runtime "kind" and no name -- the name comes from where the config is
-    registered. :meth:`~snowtool.snowdb.spec.DatasetSpec.from_config` deserializes
-    one into a spec (a trivial map, no merge).
+    data into its COGs (``None`` for a read-only/derived dataset), its ``zones``,
+    and an optional served ``footprint`` (a GeoJSON geometry mapping in the grid
+    CRS; omitted means the whole grid extent). There is no runtime "kind" and no
+    name -- the name comes from where the config is registered.
+    :meth:`~snowtool.snowdb.spec.DatasetSpec.from_config` deserializes one into a
+    spec (a trivial map, no merge).
 
-    (``band_step_ft`` is top-level here for now; it moves under a per-dataset
-    ``zones`` block in a later phase.)
+    ``zones`` maps a zone-layer provider (``terrain``, ``landcover``) to its layers
+    and each layer's default query params, e.g.
+    ``{"terrain": {"elevation": {"band_step_ft": 1000}},
+       "landcover": {"forest_cover": {"threshold_pct": 50}}}``. A provider's
+    presence enables it for the dataset; absence means no such zone layer.
     """
 
     resource: Literal['snowtool.dataset/v1'] = 'snowtool.dataset/v1'
     grid: GridConfig
     variables: dict[str, VariableConfig]
     ingester: str | None = None
-    band_step_ft: int = 1000
+    zones: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     footprint: dict[str, Any] | None = None
 
     @classmethod
