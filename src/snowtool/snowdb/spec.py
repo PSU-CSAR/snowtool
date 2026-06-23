@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
     from shapely import Geometry
 
+    from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import Ingester
     from snowtool.snowdb.variables import DatasetVariable
@@ -74,6 +75,62 @@ class DatasetSpec:
         # grid extent, so coverage defaults to the extent rectangle. See
         # CoverageDomain.
         self.footprint = footprint
+
+    @classmethod
+    def from_config(
+        cls: type[DatasetSpec],
+        config: DatasetConfig,
+        name: str,
+    ) -> DatasetSpec:
+        """Deserialize a :class:`~snowtool.snowdb.config.DatasetConfig` into a spec.
+
+        A trivial field map (no merge, no runtime kind): the config's grid,
+        variables, ``band_step_ft`` and ``footprint`` are reconstructed as-is, and
+        its ``ingester`` *name* is resolved to the concrete ingester from the
+        registry (``None`` for a read-only/derived dataset). ``name`` is supplied
+        separately because the config does not carry one -- it comes from where the
+        config is registered.
+        """
+        import shapely
+
+        from snowtool.snowdb.datasets import INGESTERS
+        from snowtool.snowdb.variables import DatasetVariable, Unit
+
+        grid_params = GridParams(**config.grid.model_dump())
+        variables = [
+            DatasetVariable(
+                key=key,
+                unit=Unit(name=var.unit.name, scale_factor=var.unit.scale_factor),
+                reducer=var.reducer,
+                dtype=var.dtype,
+                nodata=var.nodata,
+                glob=var.glob,
+            )
+            for key, var in config.variables.items()
+        ]
+        if config.ingester is None:
+            ingester = None
+        elif config.ingester in INGESTERS:
+            ingester = INGESTERS[config.ingester]
+        else:
+            known = ', '.join(sorted(INGESTERS)) or '(none)'
+            raise ValueError(
+                f'{name!r}: unknown ingester {config.ingester!r}. '
+                f'Known ingesters: {known}.',
+            )
+        footprint = (
+            shapely.geometry.shape(config.footprint)
+            if config.footprint is not None
+            else None
+        )
+        return cls(
+            name,
+            grid_params=grid_params,
+            variables=variables,
+            band_step_ft=config.band_step_ft,
+            ingester=ingester,
+            footprint=footprint,
+        )
 
     @cached_property
     def crs(self) -> CRS:

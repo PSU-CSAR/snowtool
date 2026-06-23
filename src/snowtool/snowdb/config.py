@@ -19,9 +19,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
+
+from snowtool.snowdb.variables import Reducer
 
 # The conventional filename ``snowdb init`` writes the root config to, and the
 # name :meth:`SnowDb.open` looks for when handed a root *directory*. This is the
@@ -69,3 +71,85 @@ class RootConfig(ResourceModel):
     def save(self: Self, path: Path) -> None:
         """Write the config as indented JSON with a trailing newline."""
         Path(path).write_text(self.model_dump_json(indent=2) + '\n')
+
+
+class UnitConfig(BaseModel):
+    """A variable's reporting unit, serialized inline as ``{name, scale_factor}``."""
+
+    name: str
+    scale_factor: float
+
+
+class VariableConfig(BaseModel):
+    """One requestable variable in a dataset config (the dict key is its ``key``).
+
+    Mirrors :class:`~snowtool.snowdb.variables.DatasetVariable` minus the key:
+    how to find its files (``glob``), read them (``dtype``/``nodata``), reduce
+    them (``reducer``), and report them (``unit``).
+    """
+
+    unit: UnitConfig
+    reducer: Reducer
+    dtype: str
+    nodata: float
+    glob: str
+
+
+class GridConfig(BaseModel):
+    """A dataset's north-up tiled grid, mirroring
+    :class:`~snowtool.snowdb.spec.GridParams` (``crs`` is an EPSG int or a WKT
+    string)."""
+
+    origin_x: float
+    origin_y: float
+    px_size: float
+    cols: int
+    rows: int
+    tile_size: int
+    crs: int | str = 4326
+
+
+class DatasetConfig(ResourceModel):
+    """A self-describing dataset definition (``snowtool.dataset/v1``).
+
+    Everything a dataset *is*, independent of where it lives on disk: its
+    ``grid``, its ``variables``, the registry ``ingester`` name that turns source
+    data into its COGs (``None`` for a read-only/derived dataset), the elevation
+    ``band_step_ft``, and an optional served ``footprint`` (a GeoJSON geometry
+    mapping in the grid CRS; omitted means the whole grid extent). There is no
+    runtime "kind" and no name -- the name comes from where the config is
+    registered. :meth:`~snowtool.snowdb.spec.DatasetSpec.from_config` deserializes
+    one into a spec (a trivial map, no merge).
+
+    (``band_step_ft`` is top-level here for now; it moves under a per-dataset
+    ``zones`` block in a later phase.)
+    """
+
+    resource: Literal['snowtool.dataset/v1'] = 'snowtool.dataset/v1'
+    grid: GridConfig
+    variables: dict[str, VariableConfig]
+    ingester: str | None = None
+    band_step_ft: int = 1000
+    footprint: dict[str, Any] | None = None
+
+    @classmethod
+    def load(cls: type[Self], path: Path) -> Self:
+        """Parse and validate a dataset config file (raises if it is not one)."""
+        return cls.model_validate_json(Path(path).read_text())
+
+    def save(self: Self, path: Path) -> None:
+        """Write the config as indented JSON with a trailing newline."""
+        Path(path).write_text(self.model_dump_json(indent=2) + '\n')
+
+
+# The discriminated union over every persisted entity: a parsed file routes to
+# exactly one model by its opaque ``resource`` string. Grown as entities are
+# added; used where the entity type is not known up front (each model also has its
+# own ``load`` for when it is).
+Entity = Annotated[RootConfig | DatasetConfig, Field(discriminator='resource')]
+ENTITY_ADAPTER: TypeAdapter[RootConfig | DatasetConfig] = TypeAdapter(Entity)
+
+
+def load_entity(path: Path) -> RootConfig | DatasetConfig:
+    """Parse any persisted snowtool entity, routing by its ``resource`` tag."""
+    return ENTITY_ADAPTER.validate_json(Path(path).read_text())
