@@ -105,10 +105,16 @@ def test_categorical_zones_are_the_class_list_in_order():
 
 
 def test_forest_cover_uses_a_threshold_split():
-    # Forest cover is a forested/unforested split, not percent bands.
+    # Forest cover is a forested/unforested split, not percent bands. Labels are
+    # clean; the threshold rides on each zone as a structured value.
     assert isinstance(FOREST_COVER.zoning, ThresholdZoning)
-    labels = [z.label for z in FOREST_COVER.zoning.zones()]
-    assert labels == ['unforested (<50%)', 'forested (>=50%)']
+    below, above = FOREST_COVER.zoning.zones()
+    assert (below.label, below.side, below.threshold, below.unit) == (
+        'unforested', 'below', 50, '%',
+    )
+    assert (above.label, above.side, above.threshold, above.unit) == (
+        'forested', 'above', 50, '%',
+    )
 
 
 def test_threshold_assign_splits_below_and_at_or_above():
@@ -137,8 +143,10 @@ def test_threshold_override_moves_the_split_and_relabels():
     values = numpy.array([[40, 60]], dtype=numpy.uint8)
     # With the split raised to 50, the 40% pixel drops below it.
     numpy.testing.assert_array_equal(scheme.assign(values, threshold=50), [[0, 1]])
-    labels = [z.label for z in scheme.zones(threshold=50)]
-    assert labels == ['unforested (<50%)', 'forested (>=50%)']
+    # The override threshold rides on the zones (labels stay clean).
+    below, above = scheme.zones(threshold=50)
+    assert (below.label, below.threshold) == ('unforested', 50)
+    assert (above.label, above.threshold) == ('forested', 50)
 
 
 # --- the registry ------------------------------------------------------------

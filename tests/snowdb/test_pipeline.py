@@ -237,10 +237,12 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
         3000,
         4000,
     )
-    # Forest cover is a categorical forested/unforested split, not bands.
+    # Forest cover is a threshold split: a structured threshold + side, not bands.
     assert forest_ref.layer == 'landcover.forest_cover'
-    assert forest_ref.code == 1
-    assert forest_ref.label == 'forested (>=50%)'
+    assert forest_ref.threshold == 50
+    assert forest_ref.unit == '%'
+    assert forest_ref.side == 'above'
+    assert forest_ref.label == 'forested'
     assert cell.mean_swe_mm == SWE_VALUE
 
     inside = aoi_with_area.array == AOI_MASK_INSIDE
@@ -257,8 +259,9 @@ def test_zonal_stats_forest_threshold_is_overridable(dataset, aoi_geojson, swe_c
     )
     (cell,) = [c for c in stats.dump()[0].zones if c.area_m2 > 0]
     (forest_ref,) = cell.zone
-    assert forest_ref.code == 0
-    assert forest_ref.label == 'unforested (<100.5%)'
+    assert forest_ref.side == 'below'
+    assert forest_ref.label == 'unforested'
+    assert forest_ref.threshold == 100.5
 
 
 def test_zonal_stats_crosses_elevation_and_categorical_aspect(

@@ -42,17 +42,31 @@ def test_model_names_are_namespaced_by_dataset():
     assert SNODAS_SPEC.zonal_stats_model.__name__ == 'SnodasZonalStats'
 
 
-def test_zone_refs_discriminate_band_vs_class(spec):
+def test_zone_refs_discriminate_band_class_and_threshold(spec):
     cell = spec.zonal_stat_model(
         zone=[
             _band_ref(3000, 4000),
             {'kind': 'class', 'layer': 'terrain.aspect', 'code': 0, 'label': 'N'},
+            {
+                'kind': 'threshold',
+                'layer': 'landcover.forest_cover',
+                'threshold': 50,
+                'unit': '%',
+                'side': 'above',
+                'label': 'forested',
+            },
         ],
         area_m2=10.0,
     )
-    band, klass = cell.zone
+    band, klass, thresh = cell.zone
     assert (band.min, band.max, band.unit) == (3000, 4000, 'ft')
     assert (klass.code, klass.label) == (0, 'N')
+    assert (thresh.threshold, thresh.unit, thresh.side, thresh.label) == (
+        50,
+        '%',
+        'above',
+        'forested',
+    )
 
 
 def test_nan_stat_serializes_to_null_but_stays_nan_in_memory(spec):
