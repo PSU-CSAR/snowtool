@@ -14,6 +14,26 @@ class GeoJSONValidationError(SNODASError, TypeError):
     pass
 
 
+class SnowDbConfigError(SNODASError):
+    """Raised when a snowdb root has no (or an invalid) root config file.
+
+    The root config is the system's single entry point, so a root lacking one is
+    not a snowdb this version understands -- there is no lenient un-initialized
+    read path (the deliberate no-backwards-compat call). Carries the root that was
+    opened and points the operator at ``snowtool migration stamp`` to write a
+    config for a legacy layout.
+    """
+
+    def __init__(self, root: object, detail: str | None = None) -> None:
+        self.root = root
+        message = detail or (
+            f'{root} is not a snowdb (no root config). Run '
+            '`snowtool migration stamp` to write one for a legacy layout, or '
+            '`snowtool snowdb init` to create a new root.'
+        )
+        super().__init__(message)
+
+
 class AOICoverageError(SNODASError):
     """Raised when an AOI is queried against a dataset that does not fully cover it.
 

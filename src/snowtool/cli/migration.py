@@ -31,6 +31,31 @@ def migrate_aoi_tags(cog_path: Path) -> None:
     click.echo(f'migrated: {cog_path}' if migrated else f'skipped: {cog_path}')
 
 
+@migration.command('stamp')
+@click.argument(
+    'root',
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+def stamp(root: Path) -> None:
+    """Write a root config into a legacy snowdb ROOT that lacks one.
+
+    A snowdb built before the root config existed has no ``snowdb_conf.json``;
+    ``snowtool snowdb`` now requires it. This stamps a default config (no datasets
+    registered) into ROOT. Idempotent -- an existing config is left untouched.
+    """
+    from snowtool.migration.stamp import stamp_root
+
+    try:
+        config_path, written = stamp_root(root)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    if written:
+        click.echo(f'stamped: {config_path}')
+    else:
+        click.echo(f'skipped (already stamped): {config_path}')
+
+
 @migration.command('restructure')
 @click.argument(
     'src',
