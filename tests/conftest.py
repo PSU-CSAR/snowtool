@@ -20,6 +20,7 @@ from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
+from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import (
@@ -47,6 +48,19 @@ FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
 @pytest.fixture
 def test_settings(tmp_path) -> Settings:
     return Settings(snowdb_path=tmp_path)
+
+
+def open_snowdb(root, specs, **kwargs):
+    """Initialize a root config + tree, then open it through the config seam.
+
+    The happy-path construction for tests that want a working :class:`SnowDb`
+    rooted at ``root``: it writes ``snowdb_conf.json`` (+ the tree) and returns the
+    db via :meth:`SnowDb.open`, so these call sites exercise the config-required
+    read path. Routing through this one helper keeps the eventual spec-injection ->
+    link-following change contained to ``open`` and here, not every call site.
+    """
+    SnowDb.initialize(root, specs, **kwargs)
+    return SnowDb.open(root, specs, **kwargs)
 
 
 @pytest.fixture

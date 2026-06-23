@@ -4,7 +4,9 @@ import shutil
 
 import pytest
 
+from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -66,6 +68,49 @@ def test_initialize_creates_the_base_layout(tmp_path):
     assert (tmp_path / 'aois').is_dir()
     assert (tmp_path / 'data').is_dir()
     assert (tmp_path / 'data' / 'snodas').is_dir()
+
+
+def test_initialize_writes_a_loadable_root_config(tmp_path):
+    SnowDb.initialize(tmp_path, [_spec('snodas')])
+
+    config = RootConfig.load(tmp_path / CONFIG_FILENAME)
+    # No datasets are registered by default -- a dataset goes live by adding its
+    # link, not by being a configured spec.
+    assert config.resource == 'snowtool.snowdb/v1'
+    assert config.datasets == []
+
+
+def test_initialize_preserves_an_existing_config(tmp_path):
+    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    config_path = tmp_path / CONFIG_FILENAME
+    created_at = RootConfig.load(config_path).created_at
+
+    db.initialize(tmp_path, [_spec('snodas')])  # idempotent re-init
+
+    assert RootConfig.load(config_path).created_at == created_at
+
+
+def test_open_requires_a_root_config(tmp_path):
+    # A bare directory (no snowdb_conf.json) is not a snowdb open will serve.
+    with pytest.raises(SnowDbConfigError, match='migration stamp'):
+        SnowDb.open(tmp_path, [_spec('snodas')])
+
+
+def test_open_binds_after_initialize(tmp_path):
+    SnowDb.initialize(tmp_path, [_spec('snodas')])
+
+    db = SnowDb.open(tmp_path, [_spec('snodas')])
+
+    assert list(db) == ['snodas']
+
+
+def test_open_accepts_the_config_file_directly(tmp_path):
+    SnowDb.initialize(tmp_path, [_spec('snodas')])
+
+    db = SnowDb.open(tmp_path / CONFIG_FILENAME, [_spec('snodas')])
+
+    assert db.path == tmp_path
+    assert list(db) == ['snodas']
 
 
 def test_initialize_is_idempotent(tmp_path):
