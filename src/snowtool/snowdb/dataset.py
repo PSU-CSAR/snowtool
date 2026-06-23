@@ -159,10 +159,17 @@ class Dataset:
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
         self._area_raster = self.path / 'areas.tif'
-        # One zone-layer set per configured provider, keyed by provider name
-        # (e.g. 'terrain', 'landcover'); a new zone-layer kind is just a new
-        # provider in the registry, with no edits here.
-        self.providers = {provider.name: provider for provider in providers}
+        # One zone-layer set per provider this dataset *enables* (its config's
+        # zones block), keyed by provider name (e.g. 'terrain', 'landcover'). A
+        # registered provider the dataset does not enable is bound to neither
+        # `providers` nor `zones`, so it is never generated, served, or reported
+        # for this dataset. A new zone-layer kind is just a new provider in the
+        # registry (enabled by a dataset's zones), with no edits here.
+        self.providers = {
+            provider.name: provider
+            for provider in providers
+            if spec.enables(provider.name)
+        }
         self.zones: dict[str, ZoneLayerSet] = {
             provider.name: provider.layer_set(self.path / provider.subdir)
             for provider in self.providers.values()

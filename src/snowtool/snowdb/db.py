@@ -426,18 +426,22 @@ class SnowDb:
         ``provider_name``) once over the combined extent of the selected datasets'
         grids and bins it into all of them -- e.g. terrain's aspect must be computed
         at the source resolution, so sharing the read is the whole point. ``names``
-        selects datasets (default: all). ``**options`` carries engine-specific knobs
-        (e.g. terrain's ``workers``/``block_size``). Returns each dataset's
-        provenance hash, keyed by name.
+        selects datasets (default: all); either way only the datasets that *enable*
+        ``provider_name`` are targeted (the rest have no such zone layer).
+        ``**options`` carries engine-specific knobs (e.g. terrain's
+        ``workers``/``block_size``). Returns each generated dataset's provenance
+        hash, keyed by name.
         """
         from snowtool.snowdb.grid import grid_extent_4326
 
         provider = self.zone_layer_providers[provider_name]
-        selected = (
+        candidates = (
             list(self.datasets.values())
             if names is None
             else [self.datasets[name] for name in names]
         )
+        # Only datasets whose config enables this provider have the layer to build.
+        selected = [ds for ds in candidates if provider_name in ds.providers]
         if not selected:
             return {}
 
@@ -449,16 +453,20 @@ class SnowDb:
         return provider.generate(source, targets, bounds, force=force, **options)
 
     def available_zones(self: Self) -> dict[str, AvailableZone]:
-        """The query-able zone layers across this database's providers.
+        """The query-able zone layers across this database's *enabled* providers.
 
-        Keyed ``'<provider>.<layer.key>'`` (e.g. ``'terrain.elevation'``); only
-        layers that declare a zoning scheme appear (the aspect components, which
-        have no scheme, are excluded). The representation of a zone's valid values
-        is its scheme's ``zones()``.
+        Keyed ``'<provider>.<layer.key>'`` (e.g. ``'terrain.elevation'``); the union
+        over every dataset's enabled providers, so a zone appears only if some
+        dataset serves it. Only layers that declare a zoning scheme appear (the
+        aspect components, which have no scheme, are excluded). The representation
+        of a zone's valid values is its scheme's ``zones()``.
         """
         from snowtool.snowdb.zone_layer import available_zones
 
-        return available_zones(self.zone_layer_providers.values())
+        zones: dict[str, AvailableZone] = {}
+        for dataset in self.datasets.values():
+            zones.update(available_zones(dataset.providers.values()))
+        return zones
 
     # --- global AOI query helpers (drive the aoi/report commands) -------------
 

@@ -36,6 +36,21 @@ if TYPE_CHECKING:
     from snowtool.snowdb.variables import DatasetVariable
 
 
+# A dataset's zone configuration: provider name -> layer key -> the default
+# query params for that layer (e.g. ``{'band_step_ft': 1000}``). A provider's
+# presence here *enables* it for the dataset (it is generated and served);
+# absence means the dataset has no such zone layer.
+ZoneConfig = dict[str, dict[str, dict[str, object]]]
+
+# The zones every standard dataset enables, with their behaviour-preserving
+# defaults (1000 ft elevation bands; a 50% forest threshold). A dataset that
+# wants a subset (or different params) overrides this.
+DEFAULT_ZONES: ZoneConfig = {
+    'terrain': {'elevation': {'band_step_ft': 1000}},
+    'landcover': {'forest_cover': {'threshold_pct': 50}},
+}
+
+
 @dataclass(frozen=True)
 class GridParams:
     """The parameters defining a dataset's north-up tiled grid."""
@@ -56,13 +71,17 @@ class DatasetSpec:
         *,
         grid_params: GridParams,
         variables: Iterable[DatasetVariable] = (),
-        band_step_ft: int = 1000,
+        zones: ZoneConfig | None = None,
         ingester: Ingester | None = None,
         footprint: Geometry | None = None,
     ) -> None:
         self.name = name
         self.grid_params = grid_params
-        self.band_step_ft = band_step_ft
+        # The zone layers this dataset enables and their per-layer default query
+        # params (band step, forest threshold, ...). A provider listed here is
+        # generated + served for this dataset; one absent is not. Defaults to the
+        # standard terrain + land-cover set (see DEFAULT_ZONES).
+        self.zones: ZoneConfig = DEFAULT_ZONES if zones is None else zones
         self.grid = make_grid(**asdict(self.grid_params))
         self.variables = {variable.key: variable for variable in variables}
         # How this dataset kind turns a source artifact into per-date COGs;
@@ -76,6 +95,18 @@ class DatasetSpec:
         # CoverageDomain.
         self.footprint = footprint
 
+    def enables(self: DatasetSpec, provider_name: str) -> bool:
+        """Whether this dataset enables (generates + serves) ``provider_name``."""
+        return provider_name in self.zones
+
+    def zone_params(
+        self: DatasetSpec,
+        provider_name: str,
+        layer_key: str,
+    ) -> dict[str, object]:
+        """The configured default query params for one zone layer (or ``{}``)."""
+        return self.zones.get(provider_name, {}).get(layer_key, {})
+
     @classmethod
     def from_config(
         cls: type[DatasetSpec],
@@ -85,11 +116,11 @@ class DatasetSpec:
         """Deserialize a :class:`~snowtool.snowdb.config.DatasetConfig` into a spec.
 
         A trivial field map (no merge, no runtime kind): the config's grid,
-        variables, ``band_step_ft`` and ``footprint`` are reconstructed as-is, and
-        its ``ingester`` *name* is resolved to the concrete ingester from the
-        registry (``None`` for a read-only/derived dataset). ``name`` is supplied
-        separately because the config does not carry one -- it comes from where the
-        config is registered.
+        variables, ``zones`` and ``footprint`` are reconstructed as-is, and its
+        ``ingester`` *name* is resolved to the concrete ingester from the registry
+        (``None`` for a read-only/derived dataset). ``name`` is supplied separately
+        because the config does not carry one -- it comes from where the config is
+        registered.
         """
         import shapely
 
@@ -127,7 +158,7 @@ class DatasetSpec:
             name,
             grid_params=grid_params,
             variables=variables,
-            band_step_ft=config.band_step_ft,
+            zones=config.zones,
             ingester=ingester,
             footprint=footprint,
         )

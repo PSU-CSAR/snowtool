@@ -72,7 +72,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'cols': grid.cols,
         'tile_size': grid.tile_size,
         'cell_area_m2': 'varies (geographic)' if spec.is_geographic else spec.cell_area,
-        'band_step_ft': spec.band_step_ft,
+        'zones': spec.zones,
         'elevation_bracket_m': f'{MIN_ELEVATION_M} .. {MAX_ELEVATION_M}',
         'variables': sorted(spec.variables),
         # One entry per configured zone-layer provider: whether its set is present

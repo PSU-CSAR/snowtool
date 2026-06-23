@@ -314,32 +314,42 @@ def _spec_with(variable: DatasetVariable) -> DatasetSpec:
     )
 
 
-def test_elevation_step_resolves_to_dataset_band_step_ft():
-    # The fix: an explicit elevation selection (no step) uses the dataset's
-    # band_step_ft, not the scheme's global default -- matching the omitted default.
+def test_selection_overrides_resolve_per_layer_dataset_defaults():
+    # Each axis inherits the dataset's configured default for *its* layer
+    # (band_step_ft for elevation, threshold_pct for forest cover), translated to
+    # the scheme's kwarg; an explicit selection value always wins.
+    from snowtool.snowdb.zone_layer import available_zones
+    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+
     spec = DatasetSpec(
         name='t',
         grid_params=GridParams(
             origin_x=-120.0, origin_y=45.0, px_size=0.01, cols=8, rows=8, tile_size=8,
         ),
-        band_step_ft=2000,
+        zones={
+            'terrain': {'elevation': {'band_step_ft': 2000}},
+            'landcover': {'forest_cover': {'threshold_pct': 50}},
+        },
     )
+    registry = available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)
+    elevation = registry['terrain.elevation']
+    forest = registry['landcover.forest_cover']
 
-    # Implicit (omitted) and explicit elevation both inherit band_step_ft...
+    # Elevation inherits the dataset's band_step_ft...
     assert ZonalStats._selection_overrides(
-        ZoneSelection('terrain.elevation'), spec,
+        ZoneSelection('terrain.elevation'), elevation, spec,
     ) == {'step': 2000}
     # ...but an explicit step always wins.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('terrain.elevation', step=500), spec,
+        ZoneSelection('terrain.elevation', step=500), elevation, spec,
     ) == {'step': 500}
-    # A non-elevation axis does not inherit band_step_ft (it uses its own default).
+    # Forest cover inherits the dataset's threshold_pct.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('landcover.forest_cover'), spec,
-    ) == {}
+        ZoneSelection('landcover.forest_cover'), forest, spec,
+    ) == {'threshold': 50}
     # A threshold override passes straight through.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('landcover.forest_cover', threshold=30), spec,
+        ZoneSelection('landcover.forest_cover', threshold=30), forest, spec,
     ) == {'threshold': 30}
 
 

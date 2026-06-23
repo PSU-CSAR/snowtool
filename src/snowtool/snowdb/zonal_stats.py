@@ -265,21 +265,21 @@ class ZonalStats:
     @staticmethod
     def _selection_overrides(
         selection: ZoneSelection,
+        available: AvailableZone,
         spec: DatasetSpec,
     ) -> dict[str, object]:
-        """The scheme kwargs a selection overrides (only the ones it sets).
+        """The scheme kwargs a selection resolves to (only the ones it sets).
 
-        Elevation's per-dataset default band width is ``spec.band_step_ft`` -- it
-        applies whether elevation is the implicit default *or* an explicit
-        selection -- but an explicit ``step`` always wins. ``threshold`` (e.g.
-        forest cover) is passed straight through. Schemes ignore any kwarg they
-        don't use.
+        The dataset's configured zone params for this layer (its ``zones`` block --
+        e.g. ``band_step_ft`` for elevation, ``threshold_pct`` for forest cover)
+        become the default, translated to scheme kwargs by the scheme itself; an
+        explicit ``step``/``threshold`` on the selection always wins. Schemes
+        ignore any kwarg they don't use.
         """
-        overrides: dict[str, object] = {}
+        params = spec.zone_params(available.provider.name, available.layer.key)
+        overrides = available.scheme.default_overrides(params)
         if selection.step is not None:
             overrides['step'] = selection.step
-        elif selection.layer_key == DEFAULT_ZONE_KEY:
-            overrides['step'] = spec.band_step_ft
         if selection.threshold is not None:
             overrides['threshold'] = selection.threshold
         return overrides
@@ -322,7 +322,9 @@ class ZonalStats:
                     f'Unknown zone layer {selection.layer_key!r}; available: '
                     f'{", ".join(sorted(registry))}.',
                 )
-            resolved.append((available, cls._selection_overrides(selection, spec)))
+            resolved.append(
+                (available, cls._selection_overrides(selection, available, spec)),
+            )
 
         # The axes' zones (hence the crossed product size) are known from the
         # schemes alone, with no raster reads -- so guard against a runaway product

@@ -59,7 +59,7 @@ def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     """Produce the self-describing :class:`DatasetConfig` for a built-in spec.
 
     The serialization half of :meth:`DatasetSpec.from_config`: it flattens a
-    spec's grid, variables, ``band_step_ft``, ingester (by registry name) and
+    spec's grid, variables, ``zones``, ingester (by registry name) and
     ``footprint`` (as a GeoJSON geometry mapping) into a config. Round-tripping a
     built-in spec through this and back must reproduce the spec exactly -- the
     guarantee behind the byte-equal templates below.
@@ -85,7 +85,7 @@ def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
             for key, variable in spec.variables.items()
         },
         ingester=ingester_name,
-        band_step_ft=spec.band_step_ft,
+        zones=spec.zones,
         footprint=(
             shapely.geometry.mapping(spec.footprint)
             if spec.footprint is not None
