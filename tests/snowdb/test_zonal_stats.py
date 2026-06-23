@@ -27,7 +27,7 @@ from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 from snowtool.snowdb.zonal_stats import Result, ZonalStats, ZoneSelection, _ZoneIndex
-from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone
+from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone, ThresholdZone
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
 
@@ -390,12 +390,47 @@ def test_dump_to_csv_renders_a_no_data_cell_as_an_empty_cell():
     assert 'nan' not in out.getvalue()
 
 
-def test_dump_to_csv_band_axis_splits_class_axis_stays_one_column():
-    # A crossed (band x class) cell: the banded axis is two unit-bearing columns,
-    # the categorical axis a single label column.
+def test_dump_to_csv_band_axis_splits_categorical_axis_stays_one_column():
+    # A crossed (band x categorical) cell: the banded axis is two unit-bearing
+    # columns, the categorical (aspect) axis a single label column.
     variable = _variable(Reducer.MEAN)
     band = _band(0, 1000)
-    forested = ClassZone(key='above', label='forested (>=50%)', code=1)
+    flat = ClassZone(key='flat', label='flat', code=4)
+    day = date(2018, 4, 27)
+    cell = (band, flat)
+
+    stats = ZonalStats(
+        _spec_with(variable),
+        {variable},
+        ('terrain.elevation', 'terrain.aspect'),
+        (cell,),
+        (day,),
+        Result(date=day, zone=cell, variable=variable, value=5.0, area=10.0),
+    )
+
+    out = io.StringIO()
+    stats.dump_to_csv(out)
+    header, row = list(csv.reader(io.StringIO(out.getvalue())))
+
+    assert header == [
+        'date',
+        'terrain.elevation_min_ft',
+        'terrain.elevation_max_ft',
+        'terrain.aspect',
+        'area_m2',
+        'mean_swe_mm',
+    ]
+    assert row == [day.isoformat(), '0', '1000', 'flat', '10.0', '5.0']
+
+
+def test_dump_to_csv_threshold_axis_splits_into_side_and_threshold():
+    # A threshold axis expands to a label "side" column + a unit-bearing threshold
+    # column, so the split point is structured (not buried in a string).
+    variable = _variable(Reducer.MEAN)
+    band = _band(0, 1000)
+    forested = ThresholdZone(
+        key='above', label='forested', threshold=50, unit='%', side='above',
+    )
     day = date(2018, 4, 27)
     cell = (band, forested)
 
@@ -416,8 +451,9 @@ def test_dump_to_csv_band_axis_splits_class_axis_stays_one_column():
         'date',
         'terrain.elevation_min_ft',
         'terrain.elevation_max_ft',
-        'landcover.forest_cover',
+        'landcover.forest_cover_side',
+        'landcover.forest_cover_threshold_%',
         'area_m2',
         'mean_swe_mm',
     ]
-    assert row == [day.isoformat(), '0', '1000', 'forested (>=50%)', '10.0', '5.0']
+    assert row == [day.isoformat(), '0', '1000', 'forested', '50', '10.0', '5.0']

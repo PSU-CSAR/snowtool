@@ -15,7 +15,7 @@ from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 from snowtool.snowdb.zone_layer import available_zones
-from snowtool.snowdb.zoning import BandZone, ClassZone, Zone
+from snowtool.snowdb.zoning import BandZone, ClassZone, ThresholdZone, Zone
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -150,7 +150,11 @@ class ZonalStats:
         Each ref carries the axis' registry layer key plus the band bounds
         (banded) or the class code+label (categorical).
         """
-        from snowtool.snowdb.response_models import BandZoneRef, ClassZoneRef
+        from snowtool.snowdb.response_models import (
+            BandZoneRef,
+            ClassZoneRef,
+            ThresholdZoneRef,
+        )
 
         refs: list[BaseModel] = []
         for layer, zone in zip(layers, cell, strict=True):
@@ -161,6 +165,16 @@ class ZonalStats:
                         min=zone.min,
                         max=zone.max,
                         unit=zone.unit,
+                    ),
+                )
+            elif isinstance(zone, ThresholdZone):
+                refs.append(
+                    ThresholdZoneRef(
+                        layer=layer,
+                        threshold=zone.threshold,
+                        unit=zone.unit,
+                        side=zone.side,  # type: ignore[arg-type]
+                        label=zone.label,
                     ),
                 )
             elif isinstance(zone, ClassZone):
@@ -207,16 +221,21 @@ class ZonalStats:
         self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
-        # One row per (date, crossed-zone cell). A banded axis expands to two
-        # unit-bearing columns (``<layer>_min_<unit>`` / ``<layer>_max_<unit>``) so
-        # the bounds are structured and the unit is explicit; a categorical axis is
-        # one column carrying the class label. Then area + each variable.
+        # One row per (date, crossed-zone cell). Structured axes expand to multiple
+        # columns so every value is typed and the unit is explicit:
+        #   * banded     -> ``<layer>_min_<unit>`` / ``<layer>_max_<unit>``
+        #   * threshold  -> ``<layer>_side`` (label) / ``<layer>_threshold_<unit>``
+        #   * categorical-> ``<layer>`` (the class label)
+        # Then area + each variable.
         sample = self._axis_kinds()
         headers: list[str] = ['date']
         for layer, zone in zip(self.zone_layers, sample, strict=True):
             if isinstance(zone, BandZone):
                 headers.append(f'{layer}_min_{zone.unit}')
                 headers.append(f'{layer}_max_{zone.unit}')
+            elif isinstance(zone, ThresholdZone):
+                headers.append(f'{layer}_side')
+                headers.append(f'{layer}_threshold_{zone.unit}')
             else:
                 headers.append(layer)
         headers.append('area_m2')
@@ -230,6 +249,9 @@ class ZonalStats:
                     if isinstance(zone, BandZone):
                         row.append(str(zone.min))
                         row.append(str(zone.max))
+                    elif isinstance(zone, ThresholdZone):
+                        row.append(zone.label)
+                        row.append(f'{zone.threshold:g}')
                     else:
                         row.append(zone.label)
                 # Empty cell for a no-data reduction (nan), matching dump()'s JSON

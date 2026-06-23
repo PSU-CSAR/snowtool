@@ -72,6 +72,23 @@ class ClassZone(Zone):
         return self.label
 
 
+@dataclass(frozen=True)
+class ThresholdZone(Zone):
+    """One side of a threshold split, carrying the structured split point.
+
+    ``side`` is ``'below'`` or ``'above'`` (at-or-above); ``threshold`` (in
+    ``unit``) is the split point, exposed as a real value rather than buried in the
+    label, so a consumer can read/filter on it.
+    """
+
+    threshold: float
+    unit: str
+    side: str
+
+    def __str__(self: Self) -> str:
+        return self.label
+
+
 class ZoneScheme(ABC):
     """How one zone layer's pixels map to zones.
 
@@ -188,12 +205,27 @@ class ThresholdZoning(ZoneScheme):
         return float(override if override is not None else self.default_threshold)  # type: ignore[arg-type]
 
     def zones(self: Self, **override: object) -> tuple[Zone, ...]:
-        """The two classes, labelled with the active threshold."""
+        """The two sides of the split (below, at-or-above), with clean labels.
+
+        The active threshold rides on each :class:`ThresholdZone` as a structured
+        value (not embedded in the label).
+        """
         threshold = self._threshold(override.get('threshold'))
-        edge = f'{threshold:g}{self.unit}'
         return (
-            ClassZone(key='below', label=f'{self.below_label} (<{edge})', code=0),
-            ClassZone(key='above', label=f'{self.above_label} (>={edge})', code=1),
+            ThresholdZone(
+                key='below',
+                label=self.below_label,
+                threshold=threshold,
+                unit=self.unit,
+                side='below',
+            ),
+            ThresholdZone(
+                key='above',
+                label=self.above_label,
+                threshold=threshold,
+                unit=self.unit,
+                side='above',
+            ),
         )
 
     def assign(

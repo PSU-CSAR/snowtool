@@ -56,8 +56,27 @@ class ClassZoneRef(BaseModel):
     label: str
 
 
-# A per-axis zone ref: a band ref or a class ref, discriminated on ``kind``.
-ZoneRef = Annotated[BandZoneRef | ClassZoneRef, Field(discriminator='kind')]
+class ThresholdZoneRef(BaseModel):
+    """One crossed-zone axis that is a threshold split (forested vs unforested).
+
+    ``threshold`` (in ``unit``) is the split point as a real value; ``side`` is
+    ``'below'`` or ``'above'`` (at-or-above); ``label`` is the human name of the
+    side (e.g. ``'forested'``).
+    """
+
+    kind: Literal['threshold'] = 'threshold'
+    layer: str  # the registry key, e.g. 'landcover.forest_cover'
+    threshold: float
+    unit: str
+    side: Literal['below', 'above']
+    label: str
+
+
+# A per-axis zone ref: a band, class, or threshold ref, discriminated on ``kind``.
+ZoneRef = Annotated[
+    BandZoneRef | ClassZoneRef | ThresholdZoneRef,
+    Field(discriminator='kind'),
+]
 
 
 class ZonalStatBase(BaseModel):
