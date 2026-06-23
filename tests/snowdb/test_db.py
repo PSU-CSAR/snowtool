@@ -11,6 +11,8 @@ from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
+from ..conftest import make_snowdb
+
 
 def _spec(name: str) -> DatasetSpec:
     return DatasetSpec(
@@ -29,7 +31,7 @@ def _spec(name: str) -> DatasetSpec:
 def test_binds_configured_dataset(tmp_path):
     (tmp_path / 'data' / 'snodas').mkdir(parents=True)
 
-    db = SnowDb(tmp_path, [_spec('snodas')])
+    db = make_snowdb(tmp_path, [_spec('snodas')])
 
     assert 'snodas' in db
     assert list(db) == ['snodas']
@@ -40,7 +42,7 @@ def test_binds_configured_dataset(tmp_path):
 def test_binds_every_spec_without_data_on_disk(tmp_path):
     # Datasets come from the configured specs, not from what's on disk, so a
     # spec is bound (to its would-be data/<name>/ dir) even on an empty root.
-    db = SnowDb(tmp_path, [_spec('snodas')])
+    db = make_snowdb(tmp_path, [_spec('snodas')])
 
     assert list(db) == ['snodas']
     assert db['snodas'].path == tmp_path / 'data' / 'snodas'
@@ -48,7 +50,7 @@ def test_binds_every_spec_without_data_on_disk(tmp_path):
 
 def test_missing_dirs_logs_a_warning(tmp_path, caplog):
     with caplog.at_level('WARNING'):
-        SnowDb(tmp_path, [_spec('snodas')])
+        make_snowdb(tmp_path, [_spec('snodas')])
 
     assert 'snowdb init' in caplog.text
 
@@ -57,7 +59,7 @@ def test_no_warning_on_an_initialized_root(tmp_path, caplog):
     SnowDb.initialize(tmp_path, [_spec('snodas')])
 
     with caplog.at_level('WARNING'):
-        SnowDb(tmp_path, [_spec('snodas')])
+        make_snowdb(tmp_path, [_spec('snodas')])
 
     assert caplog.text == ''
 
@@ -152,7 +154,7 @@ def test_initialize_is_idempotent(tmp_path):
 
 
 def test_require_initialized_raises_on_uninitialized_root(tmp_path):
-    db = SnowDb(tmp_path, [_spec('snodas')])
+    db = make_snowdb(tmp_path, [_spec('snodas')])
 
     with pytest.raises(FileNotFoundError, match='not an initialized snowdb'):
         db.require_initialized()
@@ -164,16 +166,18 @@ def test_require_initialized_passes_after_init(tmp_path):
     assert db.require_initialized() is db
 
 
-def test_duplicate_spec_names_rejected(tmp_path):
+def test_duplicate_spec_names_rejected():
+    # A root config keys datasets by name, so duplicates can't be expressed in
+    # one; the constructor's guard is asserted directly here.
     with pytest.raises(ValueError, match='Duplicate dataset spec name'):
-        SnowDb(tmp_path, [_spec('snodas'), _spec('snodas')])
+        SnowDb._index_specs([_spec('snodas'), _spec('snodas')])
 
 
 def test_specs_colliding_on_model_name_rejected(tmp_path):
     # 'foo-bar' and 'foo_bar' are distinct dataset names but both generate the
     # response-model prefix 'FooBar', which would collide in the OpenAPI schema.
     with pytest.raises(ValueError, match='same response-model name'):
-        SnowDb(tmp_path, [_spec('foo-bar'), _spec('foo_bar')])
+        make_snowdb(tmp_path, [_spec('foo-bar'), _spec('foo_bar')])
 
 
 def test_rasterize_aoi_burns_every_active_dataset(
@@ -194,7 +198,7 @@ def test_rasterize_aoi_burns_every_active_dataset(
     Dataset.create(spec, data / spec.name, source_dem)
     Dataset.create(spec_b, data / spec_b.name, source_dem)
 
-    db = SnowDb(tmp_path, [spec, spec_b])
+    db = make_snowdb(tmp_path, [spec, spec_b])
     rasters = db.rasterize_aoi(AOI.from_geojson(aoi_geojson))
 
     assert set(rasters) == {'test', 'snodas'}
@@ -219,13 +223,13 @@ def test_default_specs_bind_snodas(tmp_path):
     """The built-in DEFAULT_DATASET_SPECS wires up the real snodas spec."""
     from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 
-    db = SnowDb(tmp_path, DEFAULT_DATASET_SPECS)
+    db = make_snowdb(tmp_path, DEFAULT_DATASET_SPECS)
 
     assert db['snodas'].spec.name == 'snodas'
 
 
 def test_aoi_paths_empty_without_records_dir(tmp_path):
-    db = SnowDb(tmp_path, [_spec('snodas')])
+    db = make_snowdb(tmp_path, [_spec('snodas')])
 
     assert db.aoi_paths() == []
 

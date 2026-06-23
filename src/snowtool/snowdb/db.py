@@ -30,7 +30,12 @@ from snowtool.exceptions import (
 )
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.aoi_index import AOIIndex
-from snowtool.snowdb.config import CONFIG_FILENAME, PathDatasetLink, RootConfig
+from snowtool.snowdb.config import (
+    CONFIG_FILENAME,
+    DatasetConfig,
+    PathDatasetLink,
+    RootConfig,
+)
 from snowtool.snowdb.coverage import (
     Coverage,
     dataset_coverage,
@@ -102,8 +107,7 @@ class AOIRasterizeResult:
 class SnowDb:
     def __init__(
         self: Self,
-        path: Path,
-        specs: Iterable[DatasetSpec],
+        config: RootConfig,
         *,
         tiff_cache: TiffCache | None = None,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
@@ -111,23 +115,77 @@ class SnowDb:
         ),
         zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> None:
-        self.path = Path(path)
-        self.config_path = self.path / CONFIG_FILENAME
-        self.aois_path = self.path / 'aois'
-        # Per-AOI source-of-truth geojson live in a records/ subdir; the derived
-        # FeatureCollection manifest sits beside it at aois/index.geojson.
-        self.aoi_records_path = self.aois_path / 'records'
-        self.aoi_index_path = self.aois_path / 'index.geojson'
-        self.data_path = self.path / 'data'
+        """Build a snowdb from a root ``config``.
+
+        The single constructor: it takes a :class:`~snowtool.snowdb.config.RootConfig`
+        -- loaded from a file (:meth:`open`) or built in code -- and resolves
+        everything the config defines. The config's own
+        :attr:`~snowtool.snowdb.config.RootConfig.path` gives the root (its parent),
+        which every relative link resolves against; a config with no path (built in
+        code, never saved) therefore cannot be opened, since its relative links and
+        data tree have nothing to resolve against. Each registered dataset is either
+        embedded *inline* (its config carried in the link) or *referenced* by a path
+        link to a ``dataset.json`` (relative to the root, or absolute); the linked
+        config is deserialized into a :class:`DatasetSpec` and the dataset bound to
+        its directory (beside its config for a reference, ``data/<name>/`` for an
+        inline one). The AOI index/records locations come from the config too, so
+        the code follows the config rather than assuming paths.
+        """
+        from snowtool.snowdb.config import InlineDatasetLink
+        from snowtool.snowdb.spec import DatasetSpec
+
+        if config.path is None:
+            raise SnowDbConfigError(
+                None,
+                'this root config has no path (it was built in code, not loaded '
+                'from a file), so its root and relative links cannot be resolved. '
+                'Save it first, or set its path.',
+            )
+        self.config = config
+        self.config_path = config.path
+        self.root = config.path.parent
+        # `path` is kept as an alias for `root` (the many read helpers below, and
+        # callers, refer to `self.path`).
+        self.path = self.root
+        self.aois_path = self.root / 'aois'
+        self.data_path = self.root / 'data'
+
+        def resolve(link: str) -> Path:
+            link_path = Path(link)
+            return link_path if link_path.is_absolute() else self.root / link_path
+
+        self.aoi_records_path = resolve(config.aoi_records)
+        self.aoi_index_path = resolve(config.aoi_index)
+
+        # Resolve every registered dataset (inline definition or referenced config
+        # file) into a spec, and record where each one's data lives.
+        specs: list[DatasetSpec] = []
+        self._dataset_paths: dict[str, Path] = {}
+        for name, link in config.datasets.items():
+            if isinstance(link, InlineDatasetLink):
+                dataset_config = link.dataset
+                self._dataset_paths[name] = self.data_path / name
+            else:  # PathDatasetLink
+                resolved = resolve(link.path)
+                if not resolved.is_file():
+                    raise SnowDbConfigError(
+                        self.root,
+                        f'dataset {name!r} link points at a missing config: '
+                        f'{resolved}',
+                    )
+                dataset_config = DatasetConfig.load(resolved)
+                # The dataset's data lives beside its config, wherever it points.
+                self._dataset_paths[name] = resolved.parent
+            specs.append(DatasetSpec.from_config(dataset_config, name))
+
         self._specs = self._index_specs(specs)
         # The zone-layer providers (terrain, land cover, ...) every dataset is
         # built/read with. Injected (not a global) so tests/entrypoints can supply
         # their own set; adding a kind is one entry in the default registry.
         self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
-        # Datasets are defined by their specs, not by what's on disk: every
-        # configured spec is always bound to its data/<name>/ dir, present or
-        # not. A dataset with no directory simply has no data yet, which keeps
-        # the read path resilient to an un-initialized root.
+        # Each configured dataset is always bound to its directory, present or not.
+        # A dataset with no directory simply has no data yet, which keeps the read
+        # path resilient to an un-initialized root.
         self.datasets = self._bind_datasets()
         # One COG-handle cache shared across all datasets' reads (keyed by path).
         # Injected so the entrypoint can size it from settings; defaulted so
@@ -171,7 +229,9 @@ class SnowDb:
         return {
             name: Dataset(
                 spec,
-                self.data_path / name,
+                # The dataset's directory: where its config link placed it (which
+                # may be outside the tree), else the conventional data/<name>/.
+                self._dataset_paths.get(name, self.data_path / name),
                 self.zone_layer_providers.values(),
             )
             for name, spec in self._specs.items()
@@ -234,18 +294,15 @@ class SnowDb:
         ),
         zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
-        """Create the base snowdb layout + root config at ``path``, no datasets.
+        """Create the base snowdb layout + an empty root config at ``path``.
 
         The one entry point that creates the root structure -- the
-        ``snowdb_conf.json`` root config (with an empty ``datasets`` map: a dataset
-        goes live only by registering its link), ``aois/``, ``data/``, and a
-        ``data/<name>/`` directory per ``specs`` entry (a convenience for staging;
-        the CLI ``init`` passes none). Other (management) commands may create
-        missing dataset dirs but never the base ``aois/``/``data/`` dirs (see
-        :meth:`require_initialized`). Idempotent -- an existing config is left as is
-        (its creation stamp and links preserved). Returns a SnowDb bound to
-        ``specs`` (spec injection -- the on-disk config registers nothing, so
-        :meth:`open` on the same root would bind no datasets until they are added).
+        ``snowdb_conf.json`` root config (with *no* datasets registered; a dataset
+        goes live only by adding it), ``aois/``, ``data/``, and a ``data/<name>/``
+        directory per ``specs`` entry (a convenience for staging; the CLI ``init``
+        passes none). Idempotent: an existing config is loaded and left as is (its
+        creation stamp and datasets preserved). Returns an open SnowDb over the
+        root -- empty unless datasets were already registered.
         """
         specs = list(specs)
         path = Path(path)
@@ -256,11 +313,13 @@ class SnowDb:
         for spec in specs:
             (data_path / spec.name).mkdir(parents=True, exist_ok=True)
         config_path = path / CONFIG_FILENAME
-        if not config_path.is_file():
-            RootConfig.create().save(config_path)
+        if config_path.is_file():
+            config = RootConfig.load(config_path)
+        else:
+            config = RootConfig.create()
+            config.save(config_path)
         return cls(
-            path,
-            specs,
+            config,
             tiff_cache=tiff_cache,
             zone_layer_providers=zone_layer_providers,
             zone_layer_sources=zone_layer_sources,
@@ -277,70 +336,23 @@ class SnowDb:
         ),
         zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
-        """Open a snowdb from its root config file -- the entrypoint factory.
+        """Open a snowdb from its root config file -- the "from file" constructor.
 
         ``path`` is the snowdb root directory (holding ``snowdb_conf.json``) or the
         config file itself. The config is *required*: a root without one is not a
         snowdb this version understands, so this raises
         :class:`~snowtool.exceptions.SnowDbConfigError` pointing at ``snowtool
         migration stamp`` (the deliberate no-backwards-compat call -- there is no
-        lenient un-initialized read path). This is the I/O half: it reads + parses
-        the config, then hands the parsed object to :meth:`from_config`, which
-        resolves the registered dataset links into specs. (Spec injection -- for
-        tests/programmatic use -- stays available via the constructor.)
+        lenient un-initialized read path). The I/O half of construction: it reads +
+        parses the root config, then hands it to the constructor.
         """
         path = Path(path)
         config_path = path / CONFIG_FILENAME if path.is_dir() else path
         if not config_path.is_file():
             raise SnowDbConfigError(path)
         config = RootConfig.load(config_path)
-        return cls.from_config(
-            config,
-            config_path.parent,
-            tiff_cache=tiff_cache,
-            zone_layer_providers=zone_layer_providers,
-            zone_layer_sources=zone_layer_sources,
-        )
-
-    @classmethod
-    def from_config(
-        cls: type[Self],
-        config: RootConfig,
-        root: Path,
-        *,
-        tiff_cache: TiffCache | None = None,
-        zone_layer_providers: Iterable[ZoneLayerProvider] = (
-            DEFAULT_ZONE_LAYER_PROVIDERS
-        ),
-        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
-    ) -> Self:
-        """Build a SnowDb from a parsed root ``config`` rooted at ``root``.
-
-        Follows each registered dataset link -- resolving a relative ``path``
-        against ``root`` and an absolute one as-is -- loads the linked
-        :class:`~snowtool.snowdb.config.DatasetConfig`, and deserializes it (keyed
-        by its registration name) into a :class:`DatasetSpec`. The construction
-        half of :meth:`open`, split out so a parsed config can be built directly
-        (and so spec injection via the constructor stays a separate path).
-        """
-        from snowtool.snowdb.config import DatasetConfig
-        from snowtool.snowdb.spec import DatasetSpec
-
-        root = Path(root)
-        specs: list[DatasetSpec] = []
-        for name, link in config.datasets.items():
-            link_path = Path(link.path)
-            resolved = link_path if link_path.is_absolute() else root / link_path
-            if not resolved.is_file():
-                raise SnowDbConfigError(
-                    root,
-                    f'dataset {name!r} link points at a missing config: {resolved}',
-                )
-            dataset_config = DatasetConfig.load(resolved)
-            specs.append(DatasetSpec.from_config(dataset_config, name))
         return cls(
-            root,
-            specs,
+            config,
             tiff_cache=tiff_cache,
             zone_layer_providers=zone_layer_providers,
             zone_layer_sources=zone_layer_sources,

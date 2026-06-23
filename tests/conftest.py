@@ -50,6 +50,27 @@ def test_settings(tmp_path) -> Settings:
     return Settings(snowdb_path=tmp_path)
 
 
+def make_snowdb(root, specs, **kwargs):
+    """Build a SnowDb in code from inline dataset configs (no files written).
+
+    The config-object replacement for the old spec-injection constructor: it
+    builds a RootConfig rooted at ``root`` (its ``path`` set but the file not
+    written) with each spec embedded as an inline dataset, then constructs the
+    SnowDb directly. Use this where a test wants a bound SnowDb without staging
+    config files on disk.
+    """
+    from pathlib import Path
+
+    from snowtool.snowdb.config import CONFIG_FILENAME, InlineDatasetLink, RootConfig
+    from snowtool.snowdb.datasets import config_from_spec
+
+    config = RootConfig.create()
+    config.path = Path(root) / CONFIG_FILENAME
+    for spec in specs:
+        config.datasets[spec.name] = InlineDatasetLink(dataset=config_from_spec(spec))
+    return SnowDb(config, **kwargs)
+
+
 def register_dataset_config(db, name, config):
     """Stage ``config`` at ``data/<name>/dataset.json`` and register its link."""
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME

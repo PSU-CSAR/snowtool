@@ -110,18 +110,19 @@ def test_create_is_idempotent(runner, cli_obj, source_dem):
     assert 'already created' in second.output
 
 
-def test_create_requires_initialized_root(runner, tmp_path, spec, source_dem):
-    # An un-initialized root: a write command must refuse rather than create it.
-    obj = CliContext(root=tmp_path, specs=(spec,))
+def test_create_requires_initialized_root(runner, tmp_path):
+    # An un-initialized root has no config, so opening it (to run any command)
+    # fails cleanly rather than silently creating one.
+    obj = CliContext(root=tmp_path)
 
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
+        ['dataset', 'create', 'test', '--template', 'snodas'],
         obj=obj,
     )
 
     assert result.exit_code != 0
-    assert 'not an initialized snowdb' in result.output
+    assert 'not a snowdb' in result.output
 
 
 def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
@@ -138,35 +139,55 @@ def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
 # --- add / activate (explicit registration) ----------------------------------
 
 
-def test_create_does_not_register_without_activate(
-    runner,
-    cli_obj,
-    initialized_root,
-    source_dem,
-):
-    result = _create(runner, cli_obj, source_dem)
-
-    assert result.exit_code == 0, result.output
-    # Staged but not registered: opening from the config serves no datasets.
-    assert list(SnowDb.open(initialized_root)) == []
-    # ... but the staged config is on disk, ready to register.
-    assert (initialized_root / 'data' / 'test' / 'dataset.json').is_file()
+def _empty_ctx(tmp_path):
+    """A CliContext over a freshly-initialized, dataset-free root."""
+    root = tmp_path / 'empty'
+    SnowDb.initialize(root)
+    return root, CliContext(root=root)
 
 
-def test_create_activate_registers(runner, cli_obj, initialized_root, source_dem):
+def test_create_template_does_not_register_without_activate(runner, tmp_path):
+    root, ctx = _empty_ctx(tmp_path)
+
     result = runner.invoke(
         cli,
-        [
-            'dataset', 'create', 'test',
-            '--source', 'terrain', str(source_dem),
-            '--activate', '--quick',
-        ],
-        obj=cli_obj,
+        ['dataset', 'create', 'snodas', '--template', 'snodas', '--quick'],
+        obj=ctx,
     )
 
     assert result.exit_code == 0, result.output
-    assert 'registered test' in result.output
-    assert list(SnowDb.open(initialized_root)) == ['test']
+    # Staged but not registered: opening from the config serves no datasets.
+    assert list(SnowDb.open(root)) == []
+    # ... but the staged config is on disk, ready to register.
+    assert (root / 'data' / 'snodas' / 'dataset.json').is_file()
+
+
+def test_create_template_activate_registers(runner, tmp_path):
+    root, ctx = _empty_ctx(tmp_path)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'create', 'snodas',
+         '--template', 'snodas', '--quick', '--activate'],
+        obj=ctx,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'registered snodas' in result.output
+    assert list(SnowDb.open(root)) == ['snodas']
+
+
+def test_create_unknown_template_errors(runner, tmp_path):
+    _, ctx = _empty_ctx(tmp_path)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'create', 'x', '--template', 'nope', '--quick'],
+        obj=ctx,
+    )
+
+    assert result.exit_code != 0
+    assert 'No such template' in result.output
 
 
 def test_add_registers_an_external_config(runner, cli_obj, initialized_root):
@@ -183,7 +204,8 @@ def test_add_registers_an_external_config(runner, cli_obj, initialized_root):
     )
 
     assert result.exit_code == 0, result.output
-    assert list(SnowDb.open(initialized_root)) == ['snodas']
+    # 'test' was already registered by the fixture; 'snodas' joins it.
+    assert sorted(SnowDb.open(initialized_root)) == ['snodas', 'test']
 
 
 def test_add_rejects_an_unusable_config(runner, cli_obj, initialized_root):
@@ -202,12 +224,12 @@ def test_add_requires_initialized_root(runner, tmp_path, spec):
 
     cfg = tmp_path / 'd.json'
     config_from_spec(spec).save(cfg)
-    obj = CliContext(root=tmp_path, specs=(spec,))
+    obj = CliContext(root=tmp_path)
 
     result = runner.invoke(cli, ['dataset', 'add', 'test', str(cfg)], obj=obj)
 
     assert result.exit_code != 0
-    assert 'not an initialized snowdb' in result.output
+    assert 'not a snowdb' in result.output
 
 
 # --- ingest (the dataset-generic seam) ---------------------------------------
@@ -225,7 +247,14 @@ def test_ingest_without_ingester_errors(runner, cli_obj, source_dem):
     assert 'no configured ingester' in result.output
 
 
-def test_ingest_delegates_to_spec_ingester(runner, tmp_path, spec, source_dem):
+def test_ingest_delegates_to_spec_ingester(
+    monkeypatch, runner, tmp_path, spec, source_dem,
+):
+    from snowtool.snowdb import datasets as datasets_mod
+    from snowtool.snowdb.datasets import config_from_spec
+
+    from ..conftest import register_dataset_config
+
     class _FakeIngester:
         def __init__(self):
             self.calls = []
@@ -234,25 +263,26 @@ def test_ingest_delegates_to_spec_ingester(runner, tmp_path, spec, source_dem):
             self.calls.append((source, dataset.spec.name, force))
             return [date(2020, 1, 1), date(2020, 1, 2)]
 
-    ingester = _FakeIngester()
-    ingestable = DatasetSpec(
-        name='test',
-        grid_params=spec.grid_params,
-        ingester=ingester,
-    )
-    SnowDb.initialize(tmp_path, [ingestable])
-    obj = CliContext(root=tmp_path, specs=(ingestable,))
+    fake = _FakeIngester()
+    # Ingesters are code, referenced by registry name: register the fake so a
+    # config naming it resolves to it.
+    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
+
+    db = SnowDb.initialize(tmp_path)
+    config = config_from_spec(spec)
+    config.ingester = 'fake'
+    register_dataset_config(db, 'test', config)
 
     result = runner.invoke(
         cli,
         ['dataset', 'ingest', 'test', str(source_dem)],
-        obj=obj,
+        obj=CliContext(root=tmp_path),
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert 'ingested test 2020-01-01' in result.output
     assert 'ingested test 2020-01-02' in result.output
-    assert len(ingester.calls) == 1
+    assert len(fake.calls) == 1
 
 
 # --- generate / rebuild-area -------------------------------------------------
@@ -340,6 +370,10 @@ def test_rebuild_area_geographic_is_idempotent(runner, cli_obj, source_dem):
 
 
 def test_rebuild_area_projected_is_noop(runner, tmp_path):
+    from snowtool.snowdb.datasets import config_from_spec
+
+    from ..conftest import register_dataset_config
+
     spec = DatasetSpec(
         name='utm',
         grid_params=GridParams(
@@ -352,10 +386,12 @@ def test_rebuild_area_projected_is_noop(runner, tmp_path):
             crs=32611,
         ),
     )
-    SnowDb.initialize(tmp_path, [spec])
-    obj = CliContext(root=tmp_path, specs=(spec,))
+    db = SnowDb.initialize(tmp_path)
+    register_dataset_config(db, 'utm', config_from_spec(spec))
 
-    result = runner.invoke(cli, ['dataset', 'rebuild-area', 'utm'], obj=obj)
+    result = runner.invoke(
+        cli, ['dataset', 'rebuild-area', 'utm'], obj=CliContext(root=tmp_path),
+    )
 
     assert result.exit_code == 0
     assert 'nothing to do' in result.output
