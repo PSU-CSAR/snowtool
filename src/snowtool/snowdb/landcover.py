@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
-from snowtool.snowdb.zoning import banded
+from snowtool.snowdb.zoning import threshold
+
+# Default forest-cover threshold (percent): cells with this much forest or more
+# read as "forested", below it as "unforested". Overridable per query.
+DEFAULT_FOREST_THRESHOLD_PCT = 40
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,15 +40,17 @@ FOREST_COVER = ZoneLayer(
     nodata=FOREST_PCT_NODATA,
     band_descriptions=('forest_cover_percent_0_100',),
     key='forest_cover',
-    # Forest cover bands span 0..100 percent in 20-point bins by default; pixels
-    # are already percent, so value_scale is 1.
-    zoning=banded(
-        domain_min=0,
-        domain_max=100,
-        default_step=20,
+    # Forest cover is a forested/unforested split at a percent threshold (default
+    # 40%), not a set of percent bands: the question is whether a cell is forested,
+    # and the threshold is the per-query knob. Pixels are already percent, so
+    # value_scale is 1.
+    zoning=threshold(
+        default_threshold=DEFAULT_FOREST_THRESHOLD_PCT,
         unit='%',
         value_scale=1,
         layer_nodata=FOREST_PCT_NODATA,
+        below_label='unforested',
+        above_label='forested',
     ),
 )
 

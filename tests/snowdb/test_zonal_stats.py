@@ -26,8 +26,8 @@ from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
-from snowtool.snowdb.zonal_stats import Result, ZonalStats, _ZoneIndex
-from snowtool.snowdb.zoning import BandedZoning, BandZone
+from snowtool.snowdb.zonal_stats import Result, ZonalStats, ZoneSelection, _ZoneIndex
+from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
 
@@ -251,6 +251,36 @@ def test_zone_index_crosses_two_axes_into_product_cells():
     numpy.testing.assert_array_equal(index.areas, [1.0, 2.0, 4.0, 8.0])
 
 
+def test_calc_reduces_each_crossed_cell_independently():
+    # Cross a 2-band elevation axis (by row) with a 2-class side axis (by column);
+    # each of the four product cells is one pixel, so each cell's mean is just its
+    # own value -- a genuinely non-uniform, multi-populated-cell crossing.
+    area = numpy.ones((2, 2), dtype=numpy.float32)
+    values = numpy.array([[10, 20], [30, 40]], dtype=numpy.int16)
+    aoi = _FakeAOI(numpy.zeros((2, 2), dtype=numpy.float32), area, values)
+
+    elev_ord = numpy.array([[0, 0], [1, 1]], dtype=numpy.int64)
+    side_ord = numpy.array([[0, 1], [0, 1]], dtype=numpy.int64)
+    elev_axis = (_band(0, 1000), _band(1000, 2000))
+    side_axis = (
+        ClassZone(key='L', label='L', code=0),
+        ClassZone(key='R', label='R', code=1),
+    )
+    index = _ZoneIndex.build(
+        [elev_axis, side_axis], [elev_ord, side_ord], aoi.array, area,
+    )
+
+    results = asyncio.run(
+        ZonalStats._calc(aoi, _variable(Reducer.MEAN), _FakeRaster(date(2018, 4, 27)),
+                         index, cache=None),
+    )
+    by_zone = {r.zone: r.value for r in results}
+    assert by_zone[(elev_axis[0], side_axis[0])] == 10.0
+    assert by_zone[(elev_axis[0], side_axis[1])] == 20.0
+    assert by_zone[(elev_axis[1], side_axis[0])] == 30.0
+    assert by_zone[(elev_axis[1], side_axis[1])] == 40.0
+
+
 def test_zone_index_excludes_pixels_out_of_any_axis():
     # A pixel out of zone on *either* axis is excluded from every crossed cell.
     mask = numpy.ones((1, 3), dtype=numpy.uint8)
@@ -282,6 +312,35 @@ def _spec_with(variable: DatasetVariable) -> DatasetSpec:
         ),
         variables=[variable],
     )
+
+
+def test_elevation_step_resolves_to_dataset_band_step_ft():
+    # The fix: an explicit elevation selection (no step) uses the dataset's
+    # band_step_ft, not the scheme's global default -- matching the omitted default.
+    spec = DatasetSpec(
+        name='t',
+        grid_params=GridParams(
+            origin_x=-120.0, origin_y=45.0, px_size=0.01, cols=8, rows=8, tile_size=8,
+        ),
+        band_step_ft=2000,
+    )
+
+    # Implicit (omitted) and explicit elevation both inherit band_step_ft...
+    assert ZonalStats._selection_overrides(
+        ZoneSelection('terrain.elevation'), spec,
+    ) == {'step': 2000}
+    # ...but an explicit step always wins.
+    assert ZonalStats._selection_overrides(
+        ZoneSelection('terrain.elevation', step=500), spec,
+    ) == {'step': 500}
+    # A non-elevation axis does not inherit band_step_ft (it uses its own default).
+    assert ZonalStats._selection_overrides(
+        ZoneSelection('landcover.forest_cover'), spec,
+    ) == {}
+    # A threshold override passes straight through.
+    assert ZonalStats._selection_overrides(
+        ZoneSelection('landcover.forest_cover', threshold=30), spec,
+    ) == {'threshold': 30}
 
 
 def _band(min_ft: int, max_ft: int) -> BandZone:

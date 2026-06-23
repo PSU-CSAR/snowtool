@@ -5,10 +5,16 @@ from itertools import pairwise
 import numpy
 
 from snowtool.snowdb.constants import M_TO_FT
+from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.terrain import ASPECT_MAJORITY, ELEVATION, ELEVATION_NODATA
 from snowtool.snowdb.zone_layer import available_zones
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
-from snowtool.snowdb.zoning import BandedZoning, BandZone, CategoricalZoning
+from snowtool.snowdb.zoning import (
+    BandedZoning,
+    BandZone,
+    CategoricalZoning,
+    ThresholdZoning,
+)
 
 
 def _elevation_scheme() -> BandedZoning:
@@ -95,6 +101,46 @@ def test_categorical_zones_are_the_class_list_in_order():
     assert labels == ['N', 'E', 'S', 'W', 'flat']
 
 
+# --- ThresholdZoning ---------------------------------------------------------
+
+
+def test_forest_cover_uses_a_threshold_split():
+    # Forest cover is a forested/unforested split, not percent bands.
+    assert isinstance(FOREST_COVER.zoning, ThresholdZoning)
+    labels = [z.label for z in FOREST_COVER.zoning.zones()]
+    assert labels == ['unforested (<40%)', 'forested (>=40%)']
+
+
+def test_threshold_assign_splits_below_and_at_or_above():
+    scheme = ThresholdZoning(
+        default_threshold=40,
+        unit='%',
+        value_scale=1,
+        layer_nodata=255,
+        below_label='unforested',
+        above_label='forested',
+    )
+    # 39 -> below (0); 40 -> at-or-above (1); 100 -> above (1); 255 nodata -> -1.
+    values = numpy.array([[39, 40, 100, 255]], dtype=numpy.uint8)
+    numpy.testing.assert_array_equal(scheme.assign(values), [[0, 1, 1, -1]])
+
+
+def test_threshold_override_moves_the_split_and_relabels():
+    scheme = ThresholdZoning(
+        default_threshold=40,
+        unit='%',
+        value_scale=1,
+        layer_nodata=255,
+        below_label='unforested',
+        above_label='forested',
+    )
+    values = numpy.array([[40, 60]], dtype=numpy.uint8)
+    # With the split raised to 50, the 40% pixel drops below it.
+    numpy.testing.assert_array_equal(scheme.assign(values, threshold=50), [[0, 1]])
+    labels = [z.label for z in scheme.zones(threshold=50)]
+    assert labels == ['unforested (<50%)', 'forested (>=50%)']
+
+
 # --- the registry ------------------------------------------------------------
 
 
@@ -123,3 +169,61 @@ def test_snowdb_available_zones_delegates(tmp_path, spec):
         'terrain.aspect',
         'landcover.forest_cover',
     }
+
+
+def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
+    # A throwaway provider added only to the registry must be visible to every
+    # generic seam -- Dataset.zones, artifact_status, diagnostics, the registry --
+    # with no edits to Dataset/SnowDb/diagnostics. (Verification #6.)
+    from snowtool.snowdb import diagnostics
+    from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.zone_layer import (
+        ZoneLayer,
+        ZoneLayerProvider,
+        ZoneLayerSource,
+    )
+    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+    from snowtool.snowdb.zoning import ClassZone, categorical
+
+    class _StubSource(ZoneLayerSource):
+        def open(self, bounds):  # pragma: no cover - never opened in this test
+            raise NotImplementedError
+
+    class TinyProvider(ZoneLayerProvider):
+        name = 'tiny'
+        subdir = 'tiny'
+        hash_tag = 'SNOWTOOL_TINY_HASH'
+        layers = (
+            ZoneLayer(
+                filename='tier.tif',
+                dtype='uint8',
+                nodata=255,
+                band_descriptions=('tier',),
+                key='tier',
+                zoning=categorical(
+                    (ClassZone(key='a', label='a', code=0),
+                     ClassZone(key='b', label='b', code=1)),
+                    layer_nodata=255,
+                ),
+            ),
+        )
+
+        def default_source(self, root):
+            return _StubSource()
+
+        def local_source(self, path):  # pragma: no cover - not exercised here
+            return _StubSource()
+
+        def generate(self, source, targets, bounds, *, force=False, **options):
+            return {}
+
+    providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
+    db = SnowDb(tmp_path, [spec], zone_layer_providers=providers)
+    ds = db['test']
+
+    # Bound as a zone-layer set, reported by artifact status + the registry...
+    assert 'tiny' in ds.zones
+    assert 'tiny' in ds.artifact_status().zone_layers
+    assert 'tiny.tier' in db.available_zones()
+    # ...and (since it isn't built on disk) surfaced as a missing artifact.
+    assert 'tiny' in diagnostics.missing_artifacts(ds)

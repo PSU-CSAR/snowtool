@@ -25,23 +25,34 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
+    from snowtool.snowdb.zone_layer import AvailableZone
 
 # The zone a query defaults to when it names none: elevation only, stepped by the
 # dataset's band_step_ft -- preserving the original elevation-only behaviour.
 DEFAULT_ZONE_KEY = 'terrain.elevation'
 
+# Cap on the crossed product size (number of cells = rows in the CSV / objects in
+# the JSON, and the cell axis of the in-memory array). Crossing several
+# fine-grained axes multiplies their zone counts, so a query is rejected before any
+# raster is read if its product would exceed this. The HTTP/CLI layer can pass a
+# settings-derived override; this is the library default.
+DEFAULT_MAX_ZONE_CELLS = 10_000
+
 
 @dataclass(frozen=True)
 class ZoneSelection:
-    """One axis of a crossed-zone query: a zone layer + an optional band step.
+    """One axis of a crossed-zone query: a zone layer + optional scheme overrides.
 
     ``layer_key`` is a registry key (``'<provider>.<layer.key>'``, e.g.
-    ``'terrain.elevation'``). ``step`` overrides a banded scheme's default band
-    width (ignored by categorical schemes); ``None`` uses the scheme's default.
+    ``'terrain.elevation'``). ``step`` overrides a banded scheme's band width
+    (elevation defaults to the dataset's ``band_step_ft``); ``threshold`` overrides
+    a threshold scheme's split point (e.g. forest cover's forested/unforested %).
+    Each is ignored by schemes that do not use it; ``None`` uses the scheme default.
     """
 
     layer_key: str
     step: int | None = None
+    threshold: float | None = None
 
 
 @dataclass
@@ -209,6 +220,28 @@ class ZonalStats:
                 )
                 writer.writerow(row)
 
+    @staticmethod
+    def _selection_overrides(
+        selection: ZoneSelection,
+        spec: DatasetSpec,
+    ) -> dict[str, object]:
+        """The scheme kwargs a selection overrides (only the ones it sets).
+
+        Elevation's per-dataset default band width is ``spec.band_step_ft`` -- it
+        applies whether elevation is the implicit default *or* an explicit
+        selection -- but an explicit ``step`` always wins. ``threshold`` (e.g.
+        forest cover) is passed straight through. Schemes ignore any kwarg they
+        don't use.
+        """
+        overrides: dict[str, object] = {}
+        if selection.step is not None:
+            overrides['step'] = selection.step
+        elif selection.layer_key == DEFAULT_ZONE_KEY:
+            overrides['step'] = spec.band_step_ft
+        if selection.threshold is not None:
+            overrides['threshold'] = selection.threshold
+        return overrides
+
     @classmethod
     async def calculate(
         cls: type[Self],
@@ -217,6 +250,8 @@ class ZonalStats:
         cache: TiffCache,
         dataset: Dataset,
         zone_selections: Sequence[ZoneSelection] = (),
+        *,
+        max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
     ) -> Self:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
@@ -225,21 +260,19 @@ class ZonalStats:
         selection defaults to elevation only, stepped by ``spec.band_step_ft`` --
         the original elevation-only behaviour. Each selected zone layer is read
         live, windowed to the AOI, and assigned to per-pixel ordinals; the crossed
-        index is the cartesian product of the axes.
+        index is the cartesian product of the axes. A query whose product would
+        exceed ``max_zone_cells`` is rejected before any raster is read.
         """
         spec = dataset.spec
-        selections = list(zone_selections) or [
-            ZoneSelection(DEFAULT_ZONE_KEY, step=spec.band_step_ft),
-        ]
+        selections = list(zone_selections) or [ZoneSelection(DEFAULT_ZONE_KEY)]
 
-        # Resolve + read each axis. The zone geometry (which pixel is in which
-        # crossed cell, and each cell's total area) depends only on the AOI mask +
-        # the zone layers -- not on any variable or date -- so it is computed once
-        # here and reused by every reduction.
+        # Resolve each axis (registry + per-selection scheme overrides). The zone
+        # geometry (which pixel is in which crossed cell, and each cell's total
+        # area) depends only on the AOI mask + the zone layers -- not on any
+        # variable or date -- so it is computed once here and reused by every
+        # reduction.
         registry = available_zones(dataset.providers.values())
-        axes: list[tuple[Zone, ...]] = []
-        ordinals_list: list[numpy.typing.NDArray[numpy.int64]] = []
-        zone_layers: list[str] = []
+        resolved = []
         for selection in selections:
             available = registry.get(selection.layer_key)
             if available is None:
@@ -247,18 +280,43 @@ class ZonalStats:
                     f'Unknown zone layer {selection.layer_key!r}; available: '
                     f'{", ".join(sorted(registry))}.',
                 )
+            resolved.append((available, cls._selection_overrides(selection, spec)))
+
+        # The axes' zones (hence the crossed product size) are known from the
+        # schemes alone, with no raster reads -- so guard against a runaway product
+        # before paying for any I/O.
+        axes: list[tuple[Zone, ...]] = [
+            available.scheme.zones(**overrides) for available, overrides in resolved
+        ]
+        n_cells = math.prod(len(axis) for axis in axes)
+        if n_cells > max_zone_cells:
+            raise ValueError(
+                f'crossed zone query would produce {n_cells} cells '
+                f'(> max_zone_cells={max_zone_cells}); use fewer axes, coarser '
+                'steps, or raise the limit.',
+            )
+
+        # Read each selected zone layer live (windowed to the AOI), concurrently.
+        async def _read_axis(available: AvailableZone) -> numpy.typing.NDArray:
             layer = available.layer
-            scheme = available.scheme
-            zone_set = dataset.zones[available.provider.name]
             values = numpy.full(aoi.array.shape, layer.nodata, dtype=layer.dtype)
             await aoi.load_raster_tiles_into_array(
-                zone_set.raster(layer),
+                dataset.zones[available.provider.name].raster(layer),
                 values,
                 cache,
             )
-            axes.append(scheme.zones(step=selection.step))
-            ordinals_list.append(scheme.assign(values, step=selection.step))
-            zone_layers.append(selection.layer_key)
+            return values
+
+        axis_arrays = await asyncio.gather(
+            *(_read_axis(available) for available, _ in resolved),
+        )
+        ordinals_list = [
+            available.scheme.assign(values, **overrides)
+            for (available, overrides), values in zip(
+                resolved, axis_arrays, strict=True,
+            )
+        ]
+        zone_layers = [selection.layer_key for selection in selections]
 
         zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array, aoi.area)
 

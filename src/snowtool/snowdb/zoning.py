@@ -167,6 +167,49 @@ class BandedZoning(ZoneScheme):
 
 
 @dataclass(frozen=True)
+class ThresholdZoning(ZoneScheme):
+    """A binary split at a threshold: *below* vs *at-or-above* it.
+
+    The query unit (e.g. forest cover: "below 40% is unforested, 40%+ is
+    forested"). ``value_scale`` maps native pixel units to the threshold's unit;
+    ``default_threshold`` is used when a query does not override it. The two zones
+    are :class:`ClassZone`\\ s (ordinal 0 below, 1 at-or-above) whose labels embed
+    the active threshold so each cell stays self-describing.
+    """
+
+    default_threshold: float
+    unit: str
+    value_scale: float
+    layer_nodata: float
+    below_label: str
+    above_label: str
+
+    def _threshold(self: Self, override: object) -> float:
+        return float(override if override is not None else self.default_threshold)  # type: ignore[arg-type]
+
+    def zones(self: Self, **override: object) -> tuple[Zone, ...]:
+        """The two classes, labelled with the active threshold."""
+        threshold = self._threshold(override.get('threshold'))
+        edge = f'{threshold:g}{self.unit}'
+        return (
+            ClassZone(key='below', label=f'{self.below_label} (<{edge})', code=0),
+            ClassZone(key='above', label=f'{self.above_label} (>={edge})', code=1),
+        )
+
+    def assign(
+        self: Self,
+        values: numpy.typing.NDArray,
+        **override: object,
+    ) -> numpy.typing.NDArray[numpy.int64]:
+        """1 where ``values`` (scaled) >= threshold, 0 below, ``-1`` for nodata."""
+        threshold = self._threshold(override.get('threshold'))
+        scaled = numpy.asarray(values, dtype=numpy.float64) * self.value_scale
+        out = (scaled >= threshold).astype(numpy.int64)
+        out[numpy.asarray(values) == self.layer_nodata] = -1
+        return out
+
+
+@dataclass(frozen=True)
 class CategoricalZoning(ZoneScheme):
     """A fixed set of discrete classes keyed by their on-disk pixel codes."""
 
@@ -219,3 +262,23 @@ def categorical(
 ) -> CategoricalZoning:
     """Convenience constructor for :class:`CategoricalZoning`."""
     return CategoricalZoning(classes=tuple(classes), layer_nodata=layer_nodata)
+
+
+def threshold(
+    *,
+    default_threshold: float,
+    unit: str,
+    value_scale: float,
+    layer_nodata: float,
+    below_label: str,
+    above_label: str,
+) -> ThresholdZoning:
+    """Convenience constructor for :class:`ThresholdZoning` (keyword-only)."""
+    return ThresholdZoning(
+        default_threshold=default_threshold,
+        unit=unit,
+        value_scale=value_scale,
+        layer_nodata=layer_nodata,
+        below_label=below_label,
+        above_label=above_label,
+    )
