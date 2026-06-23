@@ -488,6 +488,24 @@ class Dataset:
             for path in self._aoi_rasters.glob('*.tif')
         )
 
+    def load_aoi_raster(
+        self: Self,
+        station_triplet: types.StationTriplet,
+    ) -> AOIRaster:
+        """Open the burned AOI raster for ``triplet`` (the stats read input).
+
+        Raises :class:`FileNotFoundError` (pointing at ``aoi rasterize``) when the
+        raster has not been built for this dataset, so a stats query surfaces a
+        clean missing-prerequisite error rather than a bare open failure.
+        """
+        path = self.aoi_raster_path_from_triplet(station_triplet)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f'No AOI raster for {station_triplet!r} in dataset '
+                f'{self.spec.name!r}; run `aoi rasterize` first.',
+            )
+        return AOIRaster.open(path, self.grid)
+
     # --- read-only query helpers (drive the report/diagnostics commands) ------
 
     @staticmethod

@@ -15,10 +15,17 @@ from snowtool.snowdb.raster import AOIRaster, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 from snowtool.snowdb.zone_layer import available_zones
-from snowtool.snowdb.zoning import BandZone, ClassZone, ThresholdZone, Zone
+from snowtool.snowdb.zoning import (
+    BandedZoning,
+    BandZone,
+    ClassZone,
+    ThresholdZone,
+    ThresholdZoning,
+    Zone,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from pydantic import BaseModel
 
@@ -26,10 +33,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.zone_layer import AvailableZone
-
-# The zone a query defaults to when it names none: elevation only, stepped by the
-# dataset's band_step_ft -- preserving the original elevation-only behaviour.
-DEFAULT_ZONE_KEY = 'terrain.elevation'
 
 # Cap on the crossed product size (number of cells = rows in the CSV / objects in
 # the JSON, and the cell axis of the in-memory array). Crossing several
@@ -53,6 +56,50 @@ class ZoneSelection:
     layer_key: str
     step: int | None = None
     threshold: float | None = None
+
+
+def parse_zone_selection(
+    token: str,
+    registry: Mapping[str, AvailableZone],
+) -> ZoneSelection:
+    """Parse a ``LAYER[:override]`` token into a :class:`ZoneSelection`.
+
+    ``LAYER`` is a registry key (``'<provider>.<layer.key>'``); an optional
+    ``:override`` sets the axis' scheme param -- a band step (banded layers, an
+    int) or a split threshold (threshold layers, a number). The override is
+    rejected for a categorical axis (which takes none). Backs the CLI ``--zone``
+    flag, so it resolves against the registry to type the override correctly and
+    raises a clean ``ValueError`` (listing the choices) on an unknown layer.
+    """
+    layer_key, sep, raw = token.partition(':')
+    available = registry.get(layer_key)
+    if available is None:
+        raise ValueError(
+            f'Unknown zone layer {layer_key!r}; available: '
+            f'{", ".join(sorted(registry)) or "(none)"}.',
+        )
+    if not sep:
+        return ZoneSelection(layer_key)
+
+    scheme = available.scheme
+    if isinstance(scheme, BandedZoning):
+        try:
+            return ZoneSelection(layer_key, step=int(raw))
+        except ValueError as e:
+            raise ValueError(
+                f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
+            ) from e
+    if isinstance(scheme, ThresholdZoning):
+        try:
+            return ZoneSelection(layer_key, threshold=float(raw))
+        except ValueError as e:
+            raise ValueError(
+                f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
+            ) from e
+    raise ValueError(
+        f'zone {layer_key!r} takes no override (it is a categorical axis); '
+        f'drop the ":{raw}".',
+    )
 
 
 @dataclass
@@ -298,15 +345,16 @@ class ZonalStats:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
         ``zone_selections`` names the zone-layer axes to cross (each resolved
-        against ``dataset``'s zone layers + the provider registry); an empty
-        selection defaults to elevation only, stepped by ``spec.band_step_ft`` --
-        the original elevation-only behaviour. Each selected zone layer is read
-        live, windowed to the AOI, and assigned to per-pixel ordinals; the crossed
-        index is the cartesian product of the axes. A query whose product would
-        exceed ``max_zone_cells`` is rejected before any raster is read.
+        against ``dataset``'s zone layers + the provider registry). An **empty**
+        selection means *no* stratification: the reduction is over the whole basin,
+        producing a single cell per date whose ``zone`` tuple is empty (the K=0
+        case of the crossed index). Each selected zone layer is read live, windowed
+        to the AOI, and assigned to per-pixel ordinals; the crossed index is the
+        cartesian product of the axes. A query whose product would exceed
+        ``max_zone_cells`` is rejected before any raster is read.
         """
         spec = dataset.spec
-        selections = list(zone_selections) or [ZoneSelection(DEFAULT_ZONE_KEY)]
+        selections = list(zone_selections)
 
         # Resolve each axis (registry + per-selection scheme overrides). The zone
         # geometry (which pixel is in which crossed cell, and each cell's total
