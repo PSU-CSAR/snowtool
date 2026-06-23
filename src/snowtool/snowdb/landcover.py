@@ -26,7 +26,7 @@ from snowtool.snowdb.zoning import threshold
 
 # Default forest-cover threshold (percent): cells with this much forest or more
 # read as "forested", below it as "unforested". Overridable per query.
-DEFAULT_FOREST_THRESHOLD_PCT = 40
+DEFAULT_FOREST_THRESHOLD_PCT = 50
 
 if TYPE_CHECKING:
     from pathlib import Path

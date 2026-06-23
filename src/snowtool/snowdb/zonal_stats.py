@@ -194,29 +194,49 @@ class ZonalStats:
             )
         return stats
 
+    def _axis_kinds(self: Self) -> tuple[Zone, ...]:
+        """A sample zone per axis, to type the CSV columns (header + row layout).
+
+        Every cell shares the same per-axis zone kind (one scheme per axis), so any
+        cell is a faithful template. There is always at least one cell (every scheme
+        yields at least one zone).
+        """
+        return next(iter(self._cells_index))
+
     def dump_to_csv(self: Self, out: IO) -> None:
         self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
-        # One row per (date, crossed-zone cell): the date, one column per axis (the
-        # zone's label/bounds), then area + each variable.
-        headers: list[str] = [
-            'date',
-            *self.zone_layers,
-            'area_m2',
-            *(variable.stat_name for variable in self._variables_index),
-        ]
+        # One row per (date, crossed-zone cell). A banded axis expands to two
+        # unit-bearing columns (``<layer>_min_<unit>`` / ``<layer>_max_<unit>``) so
+        # the bounds are structured and the unit is explicit; a categorical axis is
+        # one column carrying the class label. Then area + each variable.
+        sample = self._axis_kinds()
+        headers: list[str] = ['date']
+        for layer, zone in zip(self.zone_layers, sample, strict=True):
+            if isinstance(zone, BandZone):
+                headers.append(f'{layer}_min_{zone.unit}')
+                headers.append(f'{layer}_max_{zone.unit}')
+            else:
+                headers.append(layer)
+        headers.append('area_m2')
+        headers.extend(variable.stat_name for variable in self._variables_index)
         writer.writerow(headers)
 
         for date_, date_idx in self._dates_index.items():
             for cell, cell_idx in self._cells_index.items():
-                stats = self._zone_stats(date_idx, cell_idx)
-                row: list[str] = [date_.isoformat(), *(str(zone) for zone in cell)]
+                row: list[str] = [date_.isoformat()]
+                for zone in cell:
+                    if isinstance(zone, BandZone):
+                        row.append(str(zone.min))
+                        row.append(str(zone.max))
+                    else:
+                        row.append(zone.label)
                 # Empty cell for a no-data reduction (nan), matching dump()'s JSON
                 # null -- never the literal 'nan'.
                 row.extend(
                     '' if math.isnan(value) else str(value)
-                    for value in stats.values()
+                    for value in self._zone_stats(date_idx, cell_idx).values()
                 )
                 writer.writerow(row)
 

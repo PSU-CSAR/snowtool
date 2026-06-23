@@ -211,7 +211,7 @@ def test_calculate_rejects_a_runaway_crossed_product(dataset, aoi_geojson, swe_c
 
 def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, swe_cog):
     # The synthetic dataset is uniform: elevation 1000 m (-> 3000-4000 ft band) and
-    # forest 100% (>= the 40% default threshold -> "forested"), so crossing the two
+    # forest 100% (>= the 50% default threshold -> "forested"), so crossing the two
     # axes yields exactly one populated cell -- the SWE value over the in-AOI area.
     aoi_with_area, stats = _crossed_stats(
         dataset,
@@ -240,7 +240,7 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
     # Forest cover is a categorical forested/unforested split, not bands.
     assert forest_ref.layer == 'landcover.forest_cover'
     assert forest_ref.code == 1
-    assert forest_ref.label == 'forested (>=40%)'
+    assert forest_ref.label == 'forested (>=50%)'
     assert cell.mean_swe_mm == SWE_VALUE
 
     inside = aoi_with_area.array == AOI_MASK_INSIDE

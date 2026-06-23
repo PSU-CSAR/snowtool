@@ -108,7 +108,7 @@ def test_forest_cover_uses_a_threshold_split():
     # Forest cover is a forested/unforested split, not percent bands.
     assert isinstance(FOREST_COVER.zoning, ThresholdZoning)
     labels = [z.label for z in FOREST_COVER.zoning.zones()]
-    assert labels == ['unforested (<40%)', 'forested (>=40%)']
+    assert labels == ['unforested (<50%)', 'forested (>=50%)']
 
 
 def test_threshold_assign_splits_below_and_at_or_above():
