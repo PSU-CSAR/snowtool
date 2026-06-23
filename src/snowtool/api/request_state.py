@@ -4,7 +4,6 @@ from typing import Any, Self
 from fastapi import FastAPI
 
 from snowtool.settings import Settings
-from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.tiff_cache import TiffCache
 
@@ -13,13 +12,12 @@ class RequestState(Mapping):
     def __init__(self, app: FastAPI, settings: Settings) -> None:
         self.app = app
         self.settings = settings
-        # One SnowDb for the app's lifetime: all configured datasets, their
-        # grids, generated response models, and the shared COG-handle cache
-        # (sized from settings), discovered under the configured root. Exposed on
+        # One SnowDb for the app's lifetime, opened from the root config: it serves
+        # exactly the datasets registered there (their grids, generated response
+        # models, and the shared COG-handle cache sized from settings). Exposed on
         # request.state for the routers; the read path uses snowdb.tiff_cache.
-        self.snowdb = SnowDb(
+        self.snowdb = SnowDb.open(
             settings.snowdb_path,
-            DEFAULT_DATASET_SPECS,
             tiff_cache=TiffCache(settings.tiff_cache_size),
         )
 

@@ -8,9 +8,11 @@ from click.testing import CliRunner
 
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext, pass_snowdb
+from snowtool.snowdb.db import SnowDb
 
 
 def test_context_builds_snowdb_lazily_and_once(tmp_path):
+    SnowDb.initialize(tmp_path)  # open() requires a root config
     ctx = CliContext(root=tmp_path)
     # Nothing is built until snowdb is read.
     assert ctx._snowdb is None
@@ -24,6 +26,7 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
 
 def test_context_falls_back_to_settings(tmp_path, monkeypatch):
     # With no --root, the snowdb_path setting supplies the root.
+    SnowDb.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
     ctx = CliContext(root=None)
 
@@ -76,6 +79,7 @@ def _app() -> click.Group:
 
 
 def test_pass_snowdb_injects_root_db(tmp_path):
+    SnowDb.initialize(tmp_path)
     result = CliRunner().invoke(_app(), ['--root', str(tmp_path), 'show'])
 
     assert result.exit_code == 0
@@ -83,6 +87,7 @@ def test_pass_snowdb_injects_root_db(tmp_path):
 
 
 def test_pass_snowdb_uses_settings_without_root(tmp_path, monkeypatch):
+    SnowDb.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
 
     result = CliRunner().invoke(_app(), ['show'])

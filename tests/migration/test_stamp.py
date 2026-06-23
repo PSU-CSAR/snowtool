@@ -5,21 +5,6 @@ import pytest
 from snowtool.migration.stamp import stamp_root
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.spec import DatasetSpec, GridParams
-
-
-def _spec(name: str) -> DatasetSpec:
-    return DatasetSpec(
-        name=name,
-        grid_params=GridParams(
-            origin_x=-120.0,
-            origin_y=45.0,
-            px_size=0.01,
-            cols=256,
-            rows=256,
-            tile_size=256,
-        ),
-    )
 
 
 def _legacy_root(tmp_path):
@@ -36,7 +21,7 @@ def test_stamp_writes_a_loadable_config(tmp_path):
 
     assert written is True
     assert config_path == root / CONFIG_FILENAME
-    assert RootConfig.load(config_path).datasets == []
+    assert RootConfig.load(config_path).datasets == {}
 
 
 def test_open_succeeds_after_stamping(tmp_path):
@@ -44,9 +29,11 @@ def test_open_succeeds_after_stamping(tmp_path):
 
     stamp_root(root)
 
-    # The whole point: a legacy root that open() refused now opens cleanly.
-    db = SnowDb.open(root, [_spec('snodas')])
-    assert list(db) == ['snodas']
+    # The whole point: a legacy root that open() refused now opens cleanly. No
+    # datasets are registered yet (a stamped root starts empty; they are added
+    # with `dataset add`).
+    db = SnowDb.open(root)
+    assert list(db) == []
 
 
 def test_stamp_is_idempotent(tmp_path):

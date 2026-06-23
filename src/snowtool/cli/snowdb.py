@@ -166,7 +166,7 @@ def snowdb_init(
 
     db = SnowDb.initialize(
         root,
-        cli_ctx.specs,
+        cli_ctx.specs or (),
         zone_layer_providers=cli_ctx.zone_layer_providers,
         zone_layer_sources=cli_ctx.zone_layer_sources,
     )
