@@ -81,8 +81,8 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     async def run():
         # one cache, one event loop for the whole read path
         cache = TiffCache(maxsize=8)
-        # No zone selection -> the elevation-only default (terrain.elevation,
-        # stepped by spec.band_step_ft), preserving the original behaviour.
+        # No zone selection -> a whole-basin reduction: a single cell per date
+        # whose zone tuple is empty (the K=0 crossed-index case).
         return await ZonalStats.calculate(
             aoi_raster,
             collection,
@@ -93,35 +93,15 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     stats = asyncio.run(run())
     dumped = stats.dump()
     assert len(dumped) == 1
-    # Single elevation axis -> each cell's zone is one ref against terrain.elevation.
-    assert dumped[0].zone_layers == ['terrain.elevation']
-    cells = dumped[0].zones
-
-    # Exactly one band (the one containing 1000 m == ~3280 ft) has data.
-    with_data = [c for c in cells if c.area_m2 > 0]
-    assert len(with_data) == 1
-    cell = with_data[0]
-    # Read the band via the new generic zone refs.
-    (ref,) = cell.zone
-    assert ref.layer == 'terrain.elevation'
-    assert ref.min == 3000
-    assert ref.max == 4000
-    assert ref.unit == 'ft'
+    # No stratification -> no zone axes, exactly one whole-basin cell.
+    assert dumped[0].zone_layers == []
+    (cell,) = dumped[0].zones
+    assert cell.zone == []
     assert cell.mean_swe_mm == SWE_VALUE
 
     # area equals the summed geodesic area of the in-AOI pixels -- which the AOI
     # raster now carries directly (cell area inside, 0 outside), so its full sum.
     assert cell.area_m2 == float(aoi_raster.array.sum())
-
-    # all other cells are empty (area 0; mean is nan in-model, serialized to
-    # None by the model's field serializer)
-    import math
-
-    for other in cells:
-        if other is cell:
-            continue
-        assert other.area_m2 == 0
-        assert math.isnan(other.mean_swe_mm)
 
 
 def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):

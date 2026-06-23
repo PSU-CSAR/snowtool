@@ -16,6 +16,7 @@ from snowtool.cli._context import CliContext
 from snowtool.cli.aoi import aoi
 from snowtool.cli.dataset import dataset
 from snowtool.cli.migration import migration
+from snowtool.cli.query import query
 from snowtool.cli.report import report
 from snowtool.cli.snowdb import snowdb
 from snowtool.cli.version import version
@@ -41,4 +42,5 @@ cli.add_command(snowdb)
 cli.add_command(dataset)
 cli.add_command(aoi)
 cli.add_command(report)
+cli.add_command(query)
 cli.add_command(migration)

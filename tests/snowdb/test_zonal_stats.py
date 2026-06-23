@@ -26,7 +26,13 @@ from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
-from snowtool.snowdb.zonal_stats import Result, ZonalStats, ZoneSelection, _ZoneIndex
+from snowtool.snowdb.zonal_stats import (
+    Result,
+    ZonalStats,
+    ZoneSelection,
+    _ZoneIndex,
+    parse_zone_selection,
+)
 from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone, ThresholdZone
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
@@ -279,6 +285,20 @@ def test_calc_reduces_each_crossed_cell_independently():
     assert by_zone[(elev_axis[1], side_axis[1])] == 40.0
 
 
+def test_zone_index_with_no_axes_is_one_whole_basin_cell():
+    # The K=0 case: no zone axes -> a single product cell with an empty zone tuple,
+    # whose area is the whole in-AOI area. This is the whole-basin default.
+    area = numpy.array([[1.0, 2.0], [0.0, 4.0]], dtype=numpy.float32)
+
+    index = _ZoneIndex.build([], [], area)
+
+    assert index.dims == []
+    assert index.cell_zones == ((),)
+    # Only the area > 0 pixels count (the 0-area pixel is outside the basin).
+    assert float(index.areas[0]) == 7.0
+    assert index.in_zone.tolist() == [[True, True], [False, True]]
+
+
 def test_zone_index_excludes_pixels_out_of_any_axis():
     # A pixel out of zone on *either* axis is excluded from every crossed cell.
     area = numpy.array([[1.0, 1.0, 1.0]], dtype=numpy.float32)
@@ -348,6 +368,55 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
     assert ZonalStats._selection_overrides(
         ZoneSelection('landcover.forest_cover', threshold=30), forest, spec,
     ) == {'threshold': 30}
+
+
+# --- parse_zone_selection (the --zone token parser) --------------------------
+
+
+def _registry():
+    from snowtool.snowdb.zone_layer import available_zones
+    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+
+    return available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)
+
+
+def test_parse_zone_selection_bare_layer():
+    assert parse_zone_selection('terrain.elevation', _registry()) == ZoneSelection(
+        'terrain.elevation',
+    )
+
+
+def test_parse_zone_selection_band_step_override():
+    assert parse_zone_selection('terrain.elevation:500', _registry()) == ZoneSelection(
+        'terrain.elevation', step=500,
+    )
+
+
+def test_parse_zone_selection_threshold_override():
+    assert parse_zone_selection(
+        'landcover.forest_cover:40', _registry(),
+    ) == ZoneSelection('landcover.forest_cover', threshold=40.0)
+
+
+def test_parse_zone_selection_unknown_layer():
+    import pytest
+
+    with pytest.raises(ValueError, match='Unknown zone layer'):
+        parse_zone_selection('terrain.nope', _registry())
+
+
+def test_parse_zone_selection_categorical_rejects_override():
+    import pytest
+
+    with pytest.raises(ValueError, match='takes no override'):
+        parse_zone_selection('terrain.aspect:5', _registry())
+
+
+def test_parse_zone_selection_non_integer_step():
+    import pytest
+
+    with pytest.raises(ValueError, match='band step must be an integer'):
+        parse_zone_selection('terrain.elevation:x', _registry())
 
 
 def _band(min_ft: int, max_ft: int) -> BandZone:
