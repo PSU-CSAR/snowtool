@@ -35,3 +35,9 @@ class Settings(BaseSettings):
 
     # Max number of open async-tiff handles kept in the read-path LRU cache.
     tiff_cache_size: int = 16384
+
+    # Cap on a crossed zonal-stats query's product size (number of zone cells =
+    # output rows). Crossing several fine-grained zone axes multiplies their zone
+    # counts; a query over this is rejected before any raster is read. Passed into
+    # ZonalStats.calculate by the (future) stats route/command.
+    max_zone_cells: int = 10_000

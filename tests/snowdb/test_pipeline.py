@@ -164,7 +164,7 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
         assert math.isnan(other.mean_swe_mm)
 
 
-def _crossed_stats(dataset, aoi_geojson, selections):
+def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
     """Run ZonalStats over the synthetic SWE COG crossed by ``selections``."""
     aoi = AOI.from_geojson(aoi_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
@@ -188,16 +188,31 @@ def _crossed_stats(dataset, aoi_geojson, selections):
             cache,
             dataset,
             zone_selections=selections,
+            max_zone_cells=max_zone_cells,
         )
         return aoi_with_area, stats
 
     return asyncio.run(run())
 
 
+def test_calculate_rejects_a_runaway_crossed_product(dataset, aoi_geojson, swe_cog):
+    import pytest
+
+    # 16 elevation bands alone already exceed a deliberately tiny cap, and the
+    # guard fires before any raster read.
+    with pytest.raises(ValueError, match='max_zone_cells'):
+        _crossed_stats(
+            dataset,
+            aoi_geojson,
+            [ZoneSelection('terrain.elevation')],
+            max_zone_cells=4,
+        )
+
+
 def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, swe_cog):
     # The synthetic dataset is uniform: elevation 1000 m (-> 3000-4000 ft band) and
-    # forest 100% (-> the 100-120 % band), so crossing the two axes yields exactly
-    # one populated product cell -- with the SWE value over the whole in-AOI area.
+    # forest 100% (>= the 40% default threshold -> "forested"), so crossing the two
+    # axes yields exactly one populated cell -- the SWE value over the in-AOI area.
     aoi_with_area, stats = _crossed_stats(
         dataset,
         aoi_geojson,
@@ -209,9 +224,9 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
 
     dumped = stats.dump()
     assert dumped[0].zone_layers == ['terrain.elevation', 'landcover.forest_cover']
-    # 16 elevation bands x 6 forest bands = 96 product cells; one carries data.
+    # 16 elevation bands x 2 forest classes (forested/unforested) = 32 cells.
     cells = dumped[0].zones
-    assert len(cells) == 96
+    assert len(cells) == 32
     with_data = [c for c in cells if c.area_m2 > 0]
     assert len(with_data) == 1
     cell = with_data[0]
@@ -222,15 +237,28 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
         3000,
         4000,
     )
-    assert (forest_ref.layer, forest_ref.min, forest_ref.max) == (
-        'landcover.forest_cover',
-        100,
-        120,
-    )
+    # Forest cover is a categorical forested/unforested split, not bands.
+    assert forest_ref.layer == 'landcover.forest_cover'
+    assert forest_ref.code == 1
+    assert forest_ref.label == 'forested (>=40%)'
     assert cell.mean_swe_mm == SWE_VALUE
 
     inside = aoi_with_area.array == AOI_MASK_INSIDE
     assert cell.area_m2 == float(aoi_with_area.area[inside].sum())
+
+
+def test_zonal_stats_forest_threshold_is_overridable(dataset, aoi_geojson, swe_cog):
+    # The synthetic forest layer is 100%; a threshold above 100 flips the whole AOI
+    # from "forested" to "unforested", proving the per-query threshold knob works.
+    _, stats = _crossed_stats(
+        dataset,
+        aoi_geojson,
+        [ZoneSelection('landcover.forest_cover', threshold=100.5)],
+    )
+    (cell,) = [c for c in stats.dump()[0].zones if c.area_m2 > 0]
+    (forest_ref,) = cell.zone
+    assert forest_ref.code == 0
+    assert forest_ref.label == 'unforested (<100.5%)'
 
 
 def test_zonal_stats_crosses_elevation_and_categorical_aspect(
