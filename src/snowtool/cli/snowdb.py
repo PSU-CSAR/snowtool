@@ -110,7 +110,7 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     an existing root config is left untouched.
     """
     from snowtool.settings import Settings
-    from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.manager import SnowDbManager
 
     if path is not None:
         root = path
@@ -119,7 +119,7 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     else:
         root = Settings().snowdb_path
 
-    SnowDb.initialize(
+    SnowDbManager.initialize(
         root,
         zone_layer_providers=cli_ctx.zone_layer_providers,
         zone_layer_sources=cli_ctx.zone_layer_sources,

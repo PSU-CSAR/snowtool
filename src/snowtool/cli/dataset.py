@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_snowdb
+from snowtool.cli._context import pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset, require_initialized
 from snowtool.cli._render import DATE, _emit, _emit_record
 from snowtool.exceptions import SNODASError
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.manager import SnowDbManager
 
 
 @click.group()
@@ -137,9 +138,9 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
     'per-worker memory (~workers x block_size^2); no effect on the result.',
 )
-@pass_snowdb
+@pass_manager
 def create_dataset(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     name: str,
     template: str | None,
     sources: tuple[tuple[str, Path], ...],
@@ -163,9 +164,9 @@ def create_dataset(
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
     from snowtool.snowdb.dataset import Dataset
 
-    require_initialized(snowdb)
-    ds, config = _resolve_create_target(snowdb, name, template)
-    overrides = _resolve_source_overrides(snowdb, sources)
+    require_initialized(manager)
+    ds, config = _resolve_create_target(manager.db, name, template)
+    overrides = _resolve_source_overrides(manager.db, sources)
     try:
         Dataset.create(ds.spec, ds.path)
     except FileExistsError:
@@ -178,7 +179,7 @@ def create_dataset(
     config_path = ds.path / DATASET_CONFIG_FILENAME
     config.save(config_path)
     if activate:
-        snowdb.register_dataset(name, config_path)
+        manager.register_dataset(name, config_path)
         click.echo(
             f'registered {name} (run `aoi reindex` + restart to go live)',
         )
@@ -186,13 +187,13 @@ def create_dataset(
     if quick:
         return
 
-    for provider_name, provider in snowdb.zone_layer_providers.items():
+    for provider_name, provider in manager.db.zone_layer_providers.items():
         if ds.zones[provider_name].present():
             continue
         source = (
             provider.local_source(overrides[provider_name])
             if provider_name in overrides
-            else snowdb.zone_layer_sources[provider_name]
+            else manager.db.zone_layer_sources[provider_name]
         )
         try:
             ds.generate_zone_layers(
@@ -254,8 +255,8 @@ def _resolve_source_overrides(
     'config_path',
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
-@pass_snowdb
-def add_dataset(snowdb: SnowDb, name: str, config_path: Path) -> None:
+@pass_manager
+def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     """Register dataset NAME from its config at CONFIG_PATH (writes the link).
 
     The explicit-registration step: a dataset built/staged out of band (anywhere)
@@ -269,7 +270,7 @@ def add_dataset(snowdb: SnowDb, name: str, config_path: Path) -> None:
     from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.spec import DatasetSpec
 
-    require_initialized(snowdb)
+    require_initialized(manager)
     try:
         config = DatasetConfig.load(config_path)
         DatasetSpec.from_config(config, name)  # validate it resolves (ingester, ...)
@@ -278,7 +279,7 @@ def add_dataset(snowdb: SnowDb, name: str, config_path: Path) -> None:
             f'Not a usable dataset config ({config_path}): {e}',
         ) from e
 
-    snowdb.register_dataset(name, config_path)
+    manager.register_dataset(name, config_path)
     click.echo(
         f'registered {name} -> {config_path} '
         '(run `aoi reindex` + restart to go live)',
@@ -293,9 +294,9 @@ def add_dataset(snowdb: SnowDb, name: str, config_path: Path) -> None:
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
-@pass_snowdb
+@pass_manager
 def ingest_dataset(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     name: str,
     archives: tuple[Path, ...],
 ) -> None:
@@ -304,8 +305,8 @@ def ingest_dataset(
     Idempotent: re-ingesting an archive overwrites that date's COGs with the
     same (deterministic) result.
     """
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
+    require_initialized(manager)
+    ds = get_dataset(manager.db, name)
     for archive in archives:
         try:
             dates = ds.ingest(archive, force=True)
@@ -347,9 +348,9 @@ def ingest_dataset(
     help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
     'per-worker memory (~workers x block_size^2); no effect on the result.',
 )
-@pass_snowdb
+@pass_manager
 def generate_zones(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     name: str,
     provider_names: tuple[str, ...],
     sources: tuple[tuple[str, Path], ...],
@@ -365,21 +366,21 @@ def generate_zones(
     default 3DEP source streams from S3) and land cover downloads the MRLC Annual
     NLCD national raster (~1.5 GB) on first use.
     """
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
-    overrides = _resolve_source_overrides(snowdb, sources)
+    require_initialized(manager)
+    ds = get_dataset(manager.db, name)
+    overrides = _resolve_source_overrides(manager.db, sources)
 
-    selected = provider_names or tuple(snowdb.zone_layer_providers)
+    selected = provider_names or tuple(manager.db.zone_layer_providers)
     for provider_name in selected:
-        if provider_name not in snowdb.zone_layer_providers:
+        if provider_name not in manager.db.zone_layer_providers:
             raise click.ClickException(f'No such zone-layer provider: {provider_name}')
 
     for provider_name in selected:
-        provider = snowdb.zone_layer_providers[provider_name]
+        provider = manager.db.zone_layer_providers[provider_name]
         source = (
             provider.local_source(overrides[provider_name])
             if provider_name in overrides
-            else snowdb.zone_layer_sources[provider_name]
+            else manager.db.zone_layer_sources[provider_name]
         )
         try:
             ds.generate_zone_layers(
@@ -392,11 +393,11 @@ def generate_zones(
 
 @dataset.command('rebuild-area')
 @click.argument('name')
-@pass_snowdb
-def rebuild_area(snowdb: SnowDb, name: str) -> None:
+@pass_manager
+def rebuild_area(manager: SnowDbManager, name: str) -> None:
     """Rebuild dataset NAME's per-pixel area raster (no-op on a projected grid)."""
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
+    require_initialized(manager)
+    ds = get_dataset(manager.db, name)
     if not ds.spec.is_geographic:
         click.echo(f'{name}: projected grid uses a constant cell area; nothing to do.')
         return
@@ -408,16 +409,16 @@ def rebuild_area(snowdb: SnowDb, name: str) -> None:
 @click.argument('name')
 @click.argument('removal_date', metavar='DATE', type=DATE)
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
-@pass_snowdb
+@pass_manager
 def remove_date(
-    snowdb: SnowDb,
+    manager: SnowDbManager,
     name: str,
     removal_date: date,
     dry_run: bool,
 ) -> None:
     """Remove a single ingested DATE from dataset NAME."""
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
+    require_initialized(manager)
+    ds = get_dataset(manager.db, name)
     iso = removal_date.isoformat()
 
     if dry_run:
@@ -440,11 +441,11 @@ def remove_date(
     help='Remove all ingested dates strictly before this date.',
 )
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
-@pass_snowdb
-def prune_dates(snowdb: SnowDb, name: str, before: date, dry_run: bool) -> None:
+@pass_manager
+def prune_dates(manager: SnowDbManager, name: str, before: date, dry_run: bool) -> None:
     """Remove every ingested date in dataset NAME older than --before."""
-    require_initialized(snowdb)
-    ds = get_dataset(snowdb, name)
+    require_initialized(manager)
+    ds = get_dataset(manager.db, name)
     targets = ds.dates_before(before)
 
     if not targets:

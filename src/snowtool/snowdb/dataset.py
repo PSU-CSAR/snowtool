@@ -375,7 +375,7 @@ class Dataset:
     def rasterize_aoi(self, aoi: AOI, force: bool = False) -> AOIRaster:
         # A management (write) op may run against a dataset that has no data yet,
         # so create the aoi-rasters dir if it is missing (but never the base
-        # snowdb dirs -- those are SnowDb.initialize's job).
+        # snowdb dirs -- those are SnowDbManager.initialize's job).
         self._aoi_rasters.mkdir(parents=True, exist_ok=True)
 
         path = self.aoi_raster_path_from_triplet(aoi.station_triplet)

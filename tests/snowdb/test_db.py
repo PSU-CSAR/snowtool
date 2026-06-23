@@ -1,4 +1,4 @@
-"""SnowDb binds its configured specs and rasterizes AOIs across them."""
+"""SnowDb binds its configured specs; SnowDbManager creates/registers/rasterizes."""
 
 import shutil
 
@@ -9,9 +9,10 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
-from ..conftest import make_snowdb
+from ..conftest import make_manager, make_snowdb
 
 
 def _spec(name: str) -> DatasetSpec:
@@ -56,7 +57,7 @@ def test_missing_dirs_logs_a_warning(tmp_path, caplog):
 
 
 def test_no_warning_on_an_initialized_root(tmp_path, caplog):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     with caplog.at_level('WARNING'):
         make_snowdb(tmp_path, [_spec('snodas')])
@@ -65,27 +66,27 @@ def test_no_warning_on_an_initialized_root(tmp_path, caplog):
 
 
 def test_initialize_creates_the_base_layout(tmp_path):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     assert (tmp_path / 'aois').is_dir()
     assert (tmp_path / 'data').is_dir()
     assert (tmp_path / 'data' / 'snodas').is_dir()
 
 
-def _register(db: SnowDb, spec: DatasetSpec) -> None:
+def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
     """Stage ``spec`` as an on-disk dataset config and register its link."""
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
     from snowtool.snowdb.datasets import config_from_spec
 
-    ds_dir = db.data_path / spec.name
+    ds_dir = manager.db.data_path / spec.name
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config_from_spec(spec).save(config_path)
-    db.register_dataset(spec.name, config_path)
+    manager.register_dataset(spec.name, config_path)
 
 
 def test_initialize_writes_a_loadable_root_config(tmp_path):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     config = RootConfig.load(tmp_path / CONFIG_FILENAME)
     # No datasets are registered by init -- a dataset goes live only by adding its
@@ -95,11 +96,11 @@ def test_initialize_writes_a_loadable_root_config(tmp_path):
 
 
 def test_initialize_preserves_an_existing_config(tmp_path):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
     config_path = tmp_path / CONFIG_FILENAME
     created_at = RootConfig.load(config_path).created_at
 
-    db.initialize(tmp_path, [_spec('snodas')])  # idempotent re-init
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])  # idempotent re-init
 
     assert RootConfig.load(config_path).created_at == created_at
 
@@ -111,7 +112,7 @@ def test_open_requires_a_root_config(tmp_path):
 
 
 def test_open_sees_no_datasets_after_bare_init(tmp_path):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     # init registers nothing, so open (which follows links) binds no datasets even
     # though a data/<name>/ dir was staged.
@@ -119,15 +120,15 @@ def test_open_sees_no_datasets_after_bare_init(tmp_path):
 
 
 def test_open_binds_registered_datasets(tmp_path):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    _register(db, _spec('snodas'))
+    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    _register(manager, _spec('snodas'))
 
     assert list(SnowDb.open(tmp_path)) == ['snodas']
 
 
 def test_open_accepts_the_config_file_directly(tmp_path):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    _register(db, _spec('snodas'))
+    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    _register(manager, _spec('snodas'))
 
     opened = SnowDb.open(tmp_path / CONFIG_FILENAME)
 
@@ -136,34 +137,34 @@ def test_open_accepts_the_config_file_directly(tmp_path):
 
 
 def test_open_errors_on_a_dangling_link(tmp_path):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
-    _register(db, _spec('snodas'))
+    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    _register(manager, _spec('snodas'))
     # Remove the linked config out of band -> open must fail cleanly.
-    (db.data_path / 'snodas' / 'dataset.json').unlink()
+    (manager.db.data_path / 'snodas' / 'dataset.json').unlink()
 
     with pytest.raises(SnowDbConfigError, match='missing config'):
         SnowDb.open(tmp_path)
 
 
 def test_initialize_is_idempotent(tmp_path):
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
     # A second init against the same root must not raise.
-    SnowDb.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     assert (tmp_path / 'data' / 'snodas').is_dir()
 
 
 def test_require_initialized_raises_on_uninitialized_root(tmp_path):
-    db = make_snowdb(tmp_path, [_spec('snodas')])
+    manager = make_manager(tmp_path, [_spec('snodas')])
 
     with pytest.raises(FileNotFoundError, match='not an initialized snowdb'):
-        db.require_initialized()
+        manager.require_initialized()
 
 
 def test_require_initialized_passes_after_init(tmp_path):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
-    assert db.require_initialized() is db
+    assert manager.require_initialized() is manager
 
 
 def test_duplicate_spec_names_rejected():
@@ -198,8 +199,8 @@ def test_rasterize_aoi_burns_every_active_dataset(
     Dataset.create(spec, data / spec.name, source_dem)
     Dataset.create(spec_b, data / spec_b.name, source_dem)
 
-    db = make_snowdb(tmp_path, [spec, spec_b])
-    rasters = db.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+    manager = make_manager(tmp_path, [spec, spec_b])
+    rasters = manager.rasterize_aoi(AOI.from_geojson(aoi_geojson))
 
     assert set(rasters) == {'test', 'snodas'}
     for name, raster in rasters.items():
@@ -235,7 +236,7 @@ def test_aoi_paths_empty_without_records_dir(tmp_path):
 
 
 def test_aoi_paths_lists_and_sorts_geojson(tmp_path, aoi_geojson):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
     shutil.copy(aoi_geojson, db.aoi_records_path / 'b.geojson')
     shutil.copy(aoi_geojson, db.aoi_records_path / 'a.geojson')
     # A non-geojson file is ignored.
@@ -248,7 +249,7 @@ def test_aoi_paths_lists_and_sorts_geojson(tmp_path, aoi_geojson):
 
 
 def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
     shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
 
     aois = list(db.aois())
@@ -258,7 +259,7 @@ def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
 
 
 def test_aoi_triplets(tmp_path, aoi_geojson):
-    db = SnowDb.initialize(tmp_path, [_spec('snodas')])
+    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
     shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
 
     assert db.aoi_triplets() == {'12345:MT:USGS'}

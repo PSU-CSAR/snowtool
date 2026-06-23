@@ -16,7 +16,7 @@ from snowtool.snowdb.zoning import (
     ThresholdZoning,
 )
 
-from ..conftest import make_snowdb
+from ..conftest import make_manager, make_snowdb
 
 
 def _elevation_scheme() -> BandedZoning:
@@ -191,7 +191,8 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
         ),
         zones={'terrain': {'elevation': {'band_step_ft': 1000}}},
     )
-    db = make_snowdb(tmp_path, [terrain_only])
+    manager = make_manager(tmp_path, [terrain_only])
+    db = manager.db
     ds = db['terr']
 
     # Bound to terrain only -- land cover is neither a provider nor a zone set.
@@ -202,7 +203,7 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
     assert 'terrain.elevation' in zones
     assert 'landcover.forest_cover' not in zones
     # Generation for a provider no dataset enables targets nothing.
-    assert db.generate_zone_layers('landcover') == {}
+    assert manager.generate_zone_layers('landcover') == {}
 
 
 def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):

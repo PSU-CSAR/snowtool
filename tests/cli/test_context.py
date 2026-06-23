@@ -7,12 +7,12 @@ import click
 from click.testing import CliRunner
 
 from snowtool.cli import cli
-from snowtool.cli._context import CliContext, pass_snowdb
-from snowtool.snowdb.db import SnowDb
+from snowtool.cli._context import CliContext, pass_manager, pass_snowdb
+from snowtool.snowdb.manager import SnowDbManager
 
 
 def test_context_builds_snowdb_lazily_and_once(tmp_path):
-    SnowDb.initialize(tmp_path)  # open() requires a root config
+    SnowDbManager.initialize(tmp_path)  # open() requires a root config
     ctx = CliContext(root=tmp_path)
     # Nothing is built until snowdb is read.
     assert ctx._snowdb is None
@@ -26,7 +26,7 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
 
 def test_context_falls_back_to_settings(tmp_path, monkeypatch):
     # With no --root, the snowdb_path setting supplies the root.
-    SnowDb.initialize(tmp_path)
+    SnowDbManager.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
     ctx = CliContext(root=None)
 
@@ -75,19 +75,39 @@ def _app() -> click.Group:
     def show(snowdb) -> None:
         click.echo(str(snowdb.path))
 
+    @app.command('show-mgr')
+    @pass_manager
+    def show_mgr(manager) -> None:
+        click.echo(str(manager.db.path))
+
     return app
 
 
 def test_pass_snowdb_injects_root_db(tmp_path):
-    SnowDb.initialize(tmp_path)
+    SnowDbManager.initialize(tmp_path)
     result = CliRunner().invoke(_app(), ['--root', str(tmp_path), 'show'])
 
     assert result.exit_code == 0
     assert result.output.strip() == str(tmp_path)
 
 
+def test_pass_manager_injects_root_manager(tmp_path):
+    SnowDbManager.initialize(tmp_path)
+    result = CliRunner().invoke(_app(), ['--root', str(tmp_path), 'show-mgr'])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == str(tmp_path)
+
+
+def test_manager_wraps_the_lazy_snowdb(tmp_path):
+    SnowDbManager.initialize(tmp_path)
+    ctx = CliContext(root=tmp_path)
+
+    assert ctx.manager.db is ctx.snowdb
+
+
 def test_pass_snowdb_uses_settings_without_root(tmp_path, monkeypatch):
-    SnowDb.initialize(tmp_path)
+    SnowDbManager.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
 
     result = CliRunner().invoke(_app(), ['show'])
