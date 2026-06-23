@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from griffine.grid import AffineGridTile, TiledAffineGrid
     from shapely import Geometry
 
+    from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import WritableRaster
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
@@ -170,6 +171,11 @@ class Dataset:
     @property
     def grid(self: Self) -> TiledAffineGrid:
         return self.spec.grid
+
+    @property
+    def coverage_domain(self: Self) -> CoverageDomain:
+        """The static region this dataset can serve (for AOI coverage)."""
+        return self.spec.coverage_domain
 
     @property
     def grid_crs(self: Self) -> rasterio.crs.CRS:

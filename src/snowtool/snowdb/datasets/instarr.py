@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Self
 
 import numpy
 import rasterio
+import shapely
 
 from snowtool.exceptions import SNODASError
 from snowtool.snowdb.cog import write_cog
@@ -67,6 +68,20 @@ _PX_SIZE = 463.3127165693847  # native cell size (m)
 # The tile block the grid covers: h08-h10 (3 wide) x v04-v05 (2 tall).
 _H_MIN, _H_MAX = 8, 10
 _V_MIN, _V_MAX = 4, 5
+
+# The h10v05 (SE) corner of the block is never ingested -- it is permanently
+# nodata (see the module docstring). It sits inside the grid's bounding
+# rectangle, so without carving it out a basin over it would be reported as
+# fully covered. Excluded from the coverage domain (a static grid fact, not a
+# per-date data gap).
+_EMPTY_TILES = ((10, 5),)
+
+
+def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
+    """The MODIS sinusoidal extent of tile ``(h, v)`` as a shapely box."""
+    ul_x = _MODIS_X_MIN + h * _MODIS_TILE_M
+    ul_y = _MODIS_Y_MAX - v * _MODIS_TILE_M
+    return shapely.box(ul_x, ul_y - _MODIS_TILE_M, ul_x + _MODIS_TILE_M, ul_y)
 
 
 # --- INSTARR variables --------------------------------------------------------
@@ -258,4 +273,5 @@ INSTARR_SPEC = DatasetSpec(
     ),
     variables=INSTARR_VARIABLES,
     ingester=InstarrIngester(),
+    domain_exclusions=tuple(_modis_tile_polygon(h, v) for h, v in _EMPTY_TILES),
 )

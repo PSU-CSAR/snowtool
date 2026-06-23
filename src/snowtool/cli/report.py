@@ -105,7 +105,7 @@ def missing_files(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> N
 @format_option
 @pass_snowdb
 def aoi_coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
-    """Global AOIs with no raster in a dataset, and orphaned AOI rasters."""
+    """AOI/raster mismatches and AOIs a dataset's grid only partially covers."""
     rows: list[dict[str, str]] = []
     for ds in resolve_datasets(snowdb, dataset_names):
         result = diagnostics.aoi_coverage_report(snowdb, ds)
@@ -116,6 +116,14 @@ def aoi_coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> No
         rows.extend(
             {'dataset': result.name, 'triplet': triplet, 'issue': 'orphan raster'}
             for triplet in result.orphan_rasters
+        )
+        rows.extend(
+            {'dataset': result.name, 'triplet': triplet, 'issue': 'partial coverage'}
+            for triplet in result.partial
+        )
+        rows.extend(
+            {'dataset': result.name, 'triplet': triplet, 'issue': 'no coverage'}
+            for triplet in result.uncovered
         )
     _emit(rows, fmt)
 
