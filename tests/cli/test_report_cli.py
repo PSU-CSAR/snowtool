@@ -189,3 +189,20 @@ def test_validate_rolls_up_completeness_and_aoi_coverage(
     assert result.exit_code == 1
     assert 'incomplete: test 2018-01-01' in result.output
     assert 'aoi-no-raster: test 12345:MT:USGS' in result.output
+
+
+def test_validate_flags_grid_drift(runner, cli_obj, initialized_root, grid):
+    # A COG whose shape does not match the declared grid surfaces as a finding.
+    cogs = initialized_root / 'data' / 'test' / 'cogs' / '20180101'
+    cogs.mkdir(parents=True)
+    write_cog(
+        cogs / f'{snodas_swe_name("20180101")}.tif',
+        numpy.zeros((256, 256), dtype=numpy.int16),
+        transform=grid.base_grid.transform,
+        tile_size=TILE,
+    )
+
+    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
+
+    assert result.exit_code == 1
+    assert 'grid: test' in result.output
