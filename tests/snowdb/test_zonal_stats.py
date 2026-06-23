@@ -376,9 +376,48 @@ def test_dump_to_csv_renders_a_no_data_cell_as_an_empty_cell():
     stats.dump_to_csv(out)
     header, data_row, nodata_row = list(csv.reader(io.StringIO(out.getvalue())))
 
-    # Columns: date, one per zone axis, area_m2, then the variable stat.
-    assert header == ['date', 'terrain.elevation', 'area_m2', 'mean_swe_mm']
-    assert data_row == [day.isoformat(), '0_10000', '100.0', '12.5']
+    # A banded axis expands to two unit-bearing columns (min/max); then area + stat.
+    assert header == [
+        'date',
+        'terrain.elevation_min_ft',
+        'terrain.elevation_max_ft',
+        'area_m2',
+        'mean_swe_mm',
+    ]
+    assert data_row == [day.isoformat(), '0', '10000', '100.0', '12.5']
     # The no-data cell's mean is empty, never the literal 'nan'.
-    assert nodata_row == [day.isoformat(), '10000_20000', '0.0', '']
+    assert nodata_row == [day.isoformat(), '10000', '20000', '0.0', '']
     assert 'nan' not in out.getvalue()
+
+
+def test_dump_to_csv_band_axis_splits_class_axis_stays_one_column():
+    # A crossed (band x class) cell: the banded axis is two unit-bearing columns,
+    # the categorical axis a single label column.
+    variable = _variable(Reducer.MEAN)
+    band = _band(0, 1000)
+    forested = ClassZone(key='above', label='forested (>=50%)', code=1)
+    day = date(2018, 4, 27)
+    cell = (band, forested)
+
+    stats = ZonalStats(
+        _spec_with(variable),
+        {variable},
+        ('terrain.elevation', 'landcover.forest_cover'),
+        (cell,),
+        (day,),
+        Result(date=day, zone=cell, variable=variable, value=5.0, area=10.0),
+    )
+
+    out = io.StringIO()
+    stats.dump_to_csv(out)
+    header, row = list(csv.reader(io.StringIO(out.getvalue())))
+
+    assert header == [
+        'date',
+        'terrain.elevation_min_ft',
+        'terrain.elevation_max_ft',
+        'landcover.forest_cover',
+        'area_m2',
+        'mean_swe_mm',
+    ]
+    assert row == [day.isoformat(), '0', '1000', 'forested (>=50%)', '10.0', '5.0']
