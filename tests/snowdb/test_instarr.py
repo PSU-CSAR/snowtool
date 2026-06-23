@@ -35,7 +35,7 @@ def test_spec_is_native_modis_sinusoidal():
     # 512-cell tiles (vs 256 on the ~925 m geographic grids) so the ~463 m cells
     # give a comparable ground footprint per read window.
     assert spec.grid_params.tile_size == 512
-    # Projected (sinusoidal, no EPSG) -> constant cell area, no areas.tif.
+    # Projected (sinusoidal, no EPSG) -> constant cell area, burned into AOIs.
     assert spec.crs.to_epsg() is None
     assert spec.crs.to_dict().get('proj') == 'sinu'
     assert spec.is_geographic is False

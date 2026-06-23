@@ -63,18 +63,18 @@ class _FakeRaster:
 
 
 class _FakeAOI:
-    """Stands in for AOIRasterWithArea; load_* just stamps fixed values.
+    """Stands in for AOIRaster; load_* just stamps fixed values.
 
-    ``array`` is now the boolean AOI mask (decoupled from the DEM); elevation is
-    held separately and fed to the zone index, mirroring the real read path where
-    elevation is loaded live from the terrain set. The mask is all-inside here so
-    cell selection covers the whole window.
+    ``array`` is the AOI raster: per-pixel cell area inside the basin, 0 outside
+    -- both the in/out membership signal and the area weights. Elevation is held
+    separately (decoupled from the DEM) and fed to the zone index, mirroring the
+    real read path where elevation is loaded live from the terrain set. Every
+    pixel here carries a positive area, so cell selection covers the whole window.
     """
 
     def __init__(self, elevation, area, values) -> None:
         self.elevation = elevation
-        self.array = numpy.ones(elevation.shape, dtype=numpy.uint8)
-        self.area = area
+        self.array = area
         self._values = values
 
     async def load_raster_tiles_into_array(self, raster, values_array, cache):
@@ -85,7 +85,7 @@ def _run_calc(aoi, variable, raster, scheme, *, step=None):
     # A single elevation axis: the K=1 case of the crossed index.
     ordinals = scheme.assign(aoi.elevation, step=step)
     zone_index = _ZoneIndex.build(
-        [scheme.zones(step=step)], [ordinals], aoi.array, aoi.area,
+        [scheme.zones(step=step)], [ordinals], aoi.array,
     )
     return asyncio.run(ZonalStats._calc(aoi, variable, raster, zone_index, cache=None))
 
@@ -215,7 +215,6 @@ def test_zone_index_crosses_two_axes_into_product_cells():
     # A 2x2 window. Elevation splits it top (low band) vs bottom (high band);
     # a second binary axis splits it left (class 0) vs right (class 1). Crossed,
     # that is four product cells, each one pixel.
-    mask = numpy.ones((2, 2), dtype=numpy.uint8)
     area = numpy.array([[1.0, 2.0], [4.0, 8.0]], dtype=numpy.float32)
 
     elev_ordinals = numpy.array([[0, 0], [1, 1]], dtype=numpy.int64)  # rows -> band
@@ -235,7 +234,6 @@ def test_zone_index_crosses_two_axes_into_product_cells():
     index = _ZoneIndex.build(
         [elev_axis, side_axis],
         [elev_ordinals, side_ordinals],
-        mask,
         area,
     )
 
@@ -267,7 +265,7 @@ def test_calc_reduces_each_crossed_cell_independently():
         ClassZone(key='R', label='R', code=1),
     )
     index = _ZoneIndex.build(
-        [elev_axis, side_axis], [elev_ord, side_ord], aoi.array, area,
+        [elev_axis, side_axis], [elev_ord, side_ord], aoi.array,
     )
 
     results = asyncio.run(
@@ -283,13 +281,12 @@ def test_calc_reduces_each_crossed_cell_independently():
 
 def test_zone_index_excludes_pixels_out_of_any_axis():
     # A pixel out of zone on *either* axis is excluded from every crossed cell.
-    mask = numpy.ones((1, 3), dtype=numpy.uint8)
     area = numpy.array([[1.0, 1.0, 1.0]], dtype=numpy.float32)
     axis_a = numpy.array([[0, -1, 0]], dtype=numpy.int64)  # middle out on axis A
     axis_b = numpy.array([[0, 0, -1]], dtype=numpy.int64)  # last out on axis B
 
     zones = (BandZone(key='z', label='z', min=0, max=1, unit='x'),)
-    index = _ZoneIndex.build([zones, zones], [axis_a, axis_b], mask, area)
+    index = _ZoneIndex.build([zones, zones], [axis_a, axis_b], area)
 
     # Only the first pixel is in-zone on both axes.
     assert index.in_zone.tolist() == [[True, False, False]]

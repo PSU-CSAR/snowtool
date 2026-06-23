@@ -183,7 +183,7 @@ class SwannIngester:
 
 # Grid literals read directly from a product file's `crs` variable GeoTransform
 # (-125.0208 0.008333325394357 ... 49.9375 ...) and lat/lon dimensions
-# (3105 x 7025). Geographic NAD83 -> gets the geodesic areas.tif path.
+# (3105 x 7025). Geographic NAD83 -> AOI rasters burn per-row geodesic cell area.
 SWANN_800M_SPEC = DatasetSpec(
     name='swann-800m',
     grid_params=GridParams(

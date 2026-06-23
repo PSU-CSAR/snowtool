@@ -2,7 +2,7 @@
 
 Thin wrappers over the ``Dataset`` API: each command resolves the dataset,
 calls a domain method, and renders. Write commands (create/ingest/generate/
-rebuild-area/remove-date/prune) first require an initialized snowdb root.
+remove-date/prune) first require an initialized snowdb root.
 """
 
 from __future__ import annotations
@@ -85,7 +85,6 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
             }
             for name in ds.zones
         },
-        'area': 'n/a' if artifacts.area is None else artifacts.area,
         'cogs': artifacts.cogs,
         'aoi_rasters': artifacts.aoi_rasters,
         'dates': status.date_count,
@@ -389,20 +388,6 @@ def generate_zones(
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
         click.echo(f'generated {provider_name} for {name}')
-
-
-@dataset.command('rebuild-area')
-@click.argument('name')
-@pass_manager
-def rebuild_area(manager: SnowDbManager, name: str) -> None:
-    """Rebuild dataset NAME's per-pixel area raster (no-op on a projected grid)."""
-    require_initialized(manager)
-    ds = get_dataset(manager.db, name)
-    if not ds.spec.is_geographic:
-        click.echo(f'{name}: projected grid uses a constant cell area; nothing to do.')
-        return
-    ds.make_area_raster(force=True)
-    click.echo(f'rebuilt area raster for {name}')
 
 
 @dataset.command('remove-date')

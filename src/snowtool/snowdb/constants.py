@@ -1,8 +1,14 @@
 """Generic, dataset-agnostic snowtool constants.
 
 Dataset-specific values (grid geometry, DEM range, nodata) live on the dataset's
-``DatasetSpec`` — see :mod:`snowtool.snowdb.datasets`.
+``DatasetSpec`` — see :mod:`snowtool.snowdb.datasets`. The on-disk *format
+version* each provenance tag carries is owned by that artifact's producer (a
+zone-layer provider's ``format_version``; the AOI writer's
+``AOI_RASTER_FORMAT_VERSION`` in :mod:`snowtool.snowdb.dataset`), and the
+``versioned_hash``/``parse_format_version`` helpers live in
+:mod:`snowtool.snowdb.provenance`.
 """
+
 
 # AOI raster metadata: the grid-tile bounding box the AOI window spans, stored
 # as four space-separated ints "ul_row ul_col br_row br_col" (a dataset-agnostic
@@ -11,33 +17,36 @@ Dataset-specific values (grid geometry, DEM range, nodata) live on the dataset's
 # command rewrites those to this tag -- see snowtool.migration.aoi_tags.)
 TILE_BBOX_TAG = 'SNOWTOOL_TILE_BBOX'
 
-# AOI rasters are bare geometry masks: 1 inside the basin polygon, 0 (= nodata)
-# outside. Elevation/aspect are read live from the terrain set at query time, so
-# the mask itself carries no DEM-derived values.
-AOI_MASK_INSIDE = 1
+# AOI rasters burn per-pixel cell area (m^2) inside the basin polygon and 0
+# (= nodata) outside -- so the raster is both the in/out membership signal and the
+# area weights, with no separate area raster. Elevation/aspect are read live from
+# the terrain set at query time, so the AOI raster carries no DEM-derived values.
 AOI_MASK_NODATA = 0
 
-# AOI raster provenance: the hex sha256 of the AOI basin polygon's WKB the raster
-# was burned from (see AOI.geometry_hash). An AOI raster is stale when this tag no
-# longer matches the AOI's current geometry hash -- a cheap tag-only read drives
-# `aoi rasterize`'s missing-or-stale rebuild without opening the full raster.
+# AOI raster provenance tag: a ``versioned_hash`` of the AOI basin polygon's WKB
+# sha256 (see AOI.geometry_hash), carrying the AOI writer's
+# AOI_RASTER_FORMAT_VERSION. An AOI raster is stale when this tag no longer matches
+# the AOI's current versioned hash -- a changed basin OR a format bump -- a cheap
+# tag-only read that drives `aoi rasterize`'s missing-or-stale rebuild without
+# opening the full raster.
 AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
 
-# Terrain provenance: the hex sha256 of the generated mean-elevation array, stamped
-# on every layer of a dataset's terrain set (elevation + aspect). It identifies the
-# DEM the whole set was derived from, so a terrain set can be reconciled against the
-# source it came from. Unlike the AOI hash, this never rides on AOI rasters: AOI
-# rasters are bare geometry masks (decoupled from the DEM), so elevation/aspect are
-# read live from the terrain set at query time and a terrain rebuild needs no AOI
-# rebuild.
+# Terrain provenance tag: a ``versioned_hash`` of the generated mean-elevation
+# array's sha256 (carrying TerrainProvider.format_version), stamped on every layer
+# of a dataset's terrain set (elevation + aspect). It identifies the DEM the whole
+# set was derived from, so a terrain set can be reconciled against the source it
+# came from. Unlike the AOI hash, this never rides on AOI rasters: AOI rasters are
+# decoupled from the DEM (they carry cell area, not elevation), so elevation/aspect
+# are read live from the terrain set at query time and a terrain rebuild needs no
+# AOI rebuild.
 DEM_HASH_TAG = 'SNOWTOOL_DEM_HASH'
 
-# Land-cover provenance: the hex sha256 of the generated percent-forest array,
-# stamped on every layer of a dataset's land-cover set. It identifies the NLCD
-# source the layer was derived from -- the land-cover analogue of DEM_HASH_TAG.
-# Like the DEM hash (and unlike the AOI hash) it never rides on AOI rasters: the
-# layer is read live from the land-cover set at query time, so a regeneration
-# needs no AOI rebuild.
+# Land-cover provenance tag: a ``versioned_hash`` of the generated percent-forest
+# array's sha256 (carrying LandCoverProvider.format_version), stamped on every
+# layer of a dataset's land-cover set. It identifies the NLCD source the layer was
+# derived from -- the land-cover analogue of DEM_HASH_TAG. Like the DEM hash (and
+# unlike the AOI hash) it never rides on AOI rasters: the layer is read live from
+# the land-cover set at query time, so a regeneration needs no AOI rebuild.
 NLCD_HASH_TAG = 'SNOWTOOL_NLCD_HASH'
 
 # Percent forest cover is stored as a uint8 0..100 with 255 nodata (the same

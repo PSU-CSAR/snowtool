@@ -11,7 +11,7 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
-from snowtool.snowdb.raster import AOIRasterWithArea, DataRaster
+from snowtool.snowdb.raster import AOIRaster, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 from snowtool.snowdb.zone_layer import available_zones
@@ -287,7 +287,7 @@ class ZonalStats:
     @classmethod
     async def calculate(
         cls: type[Self],
-        aoi: AOIRasterWithArea,
+        aoi: AOIRaster,
         rasters: RasterCollection,
         cache: TiffCache,
         dataset: Dataset,
@@ -362,7 +362,7 @@ class ZonalStats:
         ]
         zone_layers = [selection.layer_key for selection in selections]
 
-        zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array, aoi.area)
+        zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array)
 
         # Fan out across the raster set; each raster's tile reads fan out
         # further inside _calc. The handle cache dedupes/bounds open COGs.
@@ -388,7 +388,7 @@ class ZonalStats:
 
     @staticmethod
     async def _calc(
-        aoi: AOIRasterWithArea,
+        aoi: AOIRaster,
         variable: DatasetVariable,
         raster: DataRaster,
         zone_index: _ZoneIndex,
@@ -403,7 +403,9 @@ class ZonalStats:
         # The reduction runs only over in-zone pixels that actually have data;
         # everything else (zone geometry, cell areas) was precomputed once.
         selection = zone_index.in_zone & (values_array != variable.nodata)
-        values = zone_index.reduce(variable.reducer, values_array, aoi.area, selection)
+        values = zone_index.reduce(
+            variable.reducer, values_array, aoi.array, selection,
+        )
 
         return [
             Result(
@@ -441,19 +443,20 @@ class _ZoneIndex:
         cls: type[Self],
         axes: list[tuple[Zone, ...]],
         ordinals: list[numpy.typing.NDArray[numpy.int64]],
-        mask: numpy.typing.NDArray[numpy.uint8],
         area: numpy.typing.NDArray[numpy.float32],
     ) -> Self:
         """Cross K per-axis ordinal arrays into one crossed-cell index.
 
-        A pixel is in-zone only when every axis assigns it a real ordinal
-        (``>= 0``) and it is inside the AOI mask; its crossed cell is the
+        ``area`` is the AOI raster: per-pixel cell area inside the basin, 0
+        outside -- so it is both the in/out membership signal and the area
+        weights. A pixel is in-zone only when every axis assigns it a real ordinal
+        (``>= 0``) and it is inside the AOI (``area > 0``); its crossed cell is the
         mixed-radix combination of the per-axis ordinals.
         """
         dims = [len(axis) for axis in axes]
         n = math.prod(dims)
-        in_zone = mask != 0
-        combined = numpy.zeros(mask.shape, dtype=numpy.int64)
+        in_zone = area > 0
+        combined = numpy.zeros(area.shape, dtype=numpy.int64)
         for ords, dim in zip(ordinals, dims, strict=True):
             in_zone = in_zone & (ords >= 0)
             # Out-of-zone ordinals (-1) make combined garbage, but those pixels are

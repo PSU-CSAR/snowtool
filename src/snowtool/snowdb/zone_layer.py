@@ -91,12 +91,16 @@ class ZoneLayerSet:
         directory: Path,
         layers: Iterable[ZoneLayer],
         hash_tag: str,
+        format_version: int,
     ) -> None:
         self.directory = directory
         self.layers = tuple(layers)
         # The provenance tag this set's generation stamps on every layer (e.g.
         # SNOWTOOL_DEM_HASH); read back via provenance_hash().
         self.hash_tag = hash_tag
+        # The current on-disk format version for this kind of layer; a built set
+        # stamped with an older version is stale (see format_is_current()).
+        self.format_version = format_version
 
     def layer_path(self: Self, layer: ZoneLayer) -> Path:
         return self.directory / layer.filename
@@ -127,6 +131,25 @@ class ZoneLayerSet:
             return None
         with rasterio.open(path) as ds:
             return ds.tags().get(self.hash_tag)
+
+    def stored_format_version(self: Self) -> int | None:
+        """The format version stamped on the built set, or ``None`` if unbuilt or
+        the provenance tag is missing/untagged (legacy)."""
+        from snowtool.snowdb.provenance import parse_format_version
+
+        return parse_format_version(self.provenance_hash())
+
+    def format_is_current(self: Self) -> bool | None:
+        """Whether a built set's stamped format version matches the current one.
+
+        ``None`` when the set is not built (nothing to check); otherwise ``True``
+        only if the stamped version equals :attr:`format_version`. A built set
+        with a missing/legacy tag reads as ``False`` (its stored version is
+        ``None``), so it is flagged for a rebuild.
+        """
+        if self.provenance_hash() is None:
+            return None
+        return self.stored_format_version() == self.format_version
 
 
 class ZoneLayerSource(ABC):
@@ -162,6 +185,7 @@ class ZoneLayerProvider(ABC):
     subdir: str
     layers: tuple[ZoneLayer, ...]
     hash_tag: str
+    format_version: int
 
     @abstractmethod
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
@@ -203,7 +227,9 @@ class ZoneLayerProvider(ABC):
 
     def layer_set(self: Self, directory: Path) -> ZoneLayerSet:
         """The :class:`ZoneLayerSet` for this provider rooted at ``directory``."""
-        return ZoneLayerSet(directory, self.layers, self.hash_tag)
+        return ZoneLayerSet(
+            directory, self.layers, self.hash_tag, self.format_version,
+        )
 
 
 @dataclass(frozen=True)

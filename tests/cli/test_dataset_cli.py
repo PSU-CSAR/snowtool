@@ -10,7 +10,6 @@ from snowtool.cli import cli
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 
 def _json(result):
@@ -286,7 +285,7 @@ def test_ingest_delegates_to_spec_ingester(
     assert len(fake.calls) == 1
 
 
-# --- generate / rebuild-area -------------------------------------------------
+# --- generate ----------------------------------------------------------------
 
 
 def test_generate_is_idempotent(runner, cli_obj, source_dem):
@@ -361,42 +360,6 @@ def test_generate_landcover_is_idempotent(runner, cli_obj, source_dem, source_nl
         assert 'generated landcover for test' in result.output
 
 
-def test_rebuild_area_geographic_is_idempotent(runner, cli_obj, source_dem):
-    _create(runner, cli_obj, source_dem)
-
-    for _ in range(2):
-        result = runner.invoke(cli, ['dataset', 'rebuild-area', 'test'], obj=cli_obj)
-        assert result.exit_code == 0
-        assert 'rebuilt area raster for test' in result.output
-
-
-def test_rebuild_area_projected_is_noop(runner, tmp_path):
-    from snowtool.snowdb.datasets import config_from_spec
-
-    from ..conftest import register_dataset_config
-
-    spec = DatasetSpec(
-        name='utm',
-        grid_params=GridParams(
-            origin_x=500000.0,
-            origin_y=5000000.0,
-            px_size=30.0,
-            cols=256,
-            rows=256,
-            tile_size=256,
-            crs=32611,
-        ),
-    )
-    manager = SnowDbManager.initialize(tmp_path)
-    register_dataset_config(manager, 'utm', config_from_spec(spec))
-
-    result = runner.invoke(
-        cli, ['dataset', 'rebuild-area', 'utm'], obj=CliContext(root=tmp_path),
-    )
-
-    assert result.exit_code == 0
-    assert 'nothing to do' in result.output
-    assert not (tmp_path / 'data' / 'utm' / 'areas.tif').exists()
 
 
 # --- remove-date / prune -----------------------------------------------------

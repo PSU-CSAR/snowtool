@@ -21,13 +21,15 @@ from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.landcover import FOREST_COVER
+from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
+from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
     ELEVATION,
+    TERRAIN_FORMAT_VERSION,
 )
 
 # Small synthetic grid parameters.
@@ -166,7 +168,10 @@ def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
     tile = dataset.spec.grid_params.tile_size
 
     elevation = numpy.full(shape, elevation_value, dtype='float32')
-    dem_hash = hashlib.sha256(elevation.tobytes()).hexdigest()
+    dem_hash = versioned_hash(
+        TERRAIN_FORMAT_VERSION,
+        hashlib.sha256(elevation.tobytes()).hexdigest(),
+    )
     tags = {DEM_HASH_TAG: dem_hash}
 
     write_cog(
@@ -216,7 +221,10 @@ def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
     shape = (base.rows, base.cols)
 
     forest = numpy.full(shape, pct, dtype='uint8')
-    nlcd_hash = hashlib.sha256(forest.tobytes()).hexdigest()
+    nlcd_hash = versioned_hash(
+        LANDCOVER_FORMAT_VERSION,
+        hashlib.sha256(forest.tobytes()).hexdigest(),
+    )
 
     write_cog(
         directory / FOREST_COVER.filename,

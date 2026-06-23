@@ -24,6 +24,11 @@ from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
 from snowtool.snowdb.zoning import threshold
 
+# On-disk format version of a land-cover layer set, owned by LandCoverProvider and
+# stamped (via provenance.versioned_hash) onto NLCD_HASH_TAG by the generator. Bump
+# on a material change to the land-cover layer encoding so existing sets read stale.
+LANDCOVER_FORMAT_VERSION = 1
+
 # Default forest-cover threshold (percent): cells with this much forest or more
 # read as "forested", below it as "unforested". Overridable per query.
 DEFAULT_FOREST_THRESHOLD_PCT = 50
@@ -65,6 +70,7 @@ class LandCoverProvider(ZoneLayerProvider):
     subdir = 'landcover'
     layers = LANDCOVER_LAYERS
     hash_tag = NLCD_HASH_TAG
+    format_version = LANDCOVER_FORMAT_VERSION
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default NLCD source -- the MRLC Annual NLCD bundle, cached locally.

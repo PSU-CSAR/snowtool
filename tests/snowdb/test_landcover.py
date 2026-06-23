@@ -11,9 +11,14 @@ def test_present_and_provenance_hash_on_a_built_dataset(dataset):
     assert landcover.present() is True
     assert landcover.missing_layers() == []
 
+    from snowtool.snowdb.landcover import LANDCOVER_FORMAT_VERSION
+
     digest = landcover.provenance_hash()
     assert digest is not None
-    assert len(digest) == 64
+    # Versioned provenance: a vN: prefix in front of the 64-hex sha256.
+    version, _, hex_digest = digest.partition(':')
+    assert version == f'v{LANDCOVER_FORMAT_VERSION}'
+    assert len(hex_digest) == 64
 
 
 def test_missing_layers_reports_an_absent_layer(dataset):

@@ -64,7 +64,6 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
         zone_layers={'terrain': True, 'landcover': True},
         aoi_rasters=True,
         cogs=True,
-        area=True,
     )
 
 
@@ -99,9 +98,8 @@ def test_remove_absent_date_is_a_noop(dataset):
     assert dataset.remove_date(date(2018, 1, 1)) is False
 
 
-def test_artifact_status_area_is_none_on_projected_grid(tmp_path):
-    # A projected grid stores no areas.tif, so `area` is reported as None
-    # (not applicable) rather than False.
+def test_artifact_status_for_created_projected_dataset(tmp_path):
+    # No area raster is tracked for any grid -- the AOI raster carries cell area.
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.spec import DatasetSpec, GridParams
 
@@ -119,4 +117,7 @@ def test_artifact_status_area_is_none_on_projected_grid(tmp_path):
     )
     dataset = Dataset.create(spec, tmp_path / 'utm')
 
-    assert dataset.artifact_status().area is None
+    status = dataset.artifact_status()
+    assert status.aoi_rasters is True
+    assert status.cogs is True
+    assert not hasattr(status, 'area')

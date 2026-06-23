@@ -1,12 +1,11 @@
-"""The projected-grid (planar) area path: no areas.tif, constant cell_area.
+"""The projected-grid (planar) area path: constant cell_area burned into the AOI.
 
-On a geographic grid per-pixel area varies by latitude and is stored in
-``areas.tif`` (see test_pipeline). On a projected grid every cell has the same
-planar area, so no area raster is written or read -- ``spec.cell_area`` is
-broadcast over the AOI window instead (decision #7).
+On a geographic grid per-pixel cell area varies by latitude (per-row geodesic
+area; see test_pipeline). On a projected grid every cell has the same planar
+area, so ``spec.cell_area`` is burned uniformly into every in-basin pixel of the
+AOI raster. There is no separate area raster either way.
 """
 
-import asyncio
 import json
 
 import numpy
@@ -17,10 +16,7 @@ from pyproj import Transformer
 from rasterio.crs import CRS
 
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.constants import AOI_MASK_INSIDE
 from snowtool.snowdb.dataset import Dataset
-from snowtool.snowdb.grid import PixelCoord
-from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 from .conftest import write_terrain
@@ -58,10 +54,10 @@ def dataset(tmp_path, spec):
     return ds
 
 
-def test_create_skips_area_raster_on_projected_grid(dataset):
+def test_create_writes_no_area_raster(dataset):
     assert dataset.spec.is_geographic is False
-    # No areas.tif on a projected grid...
-    assert not dataset._area_raster.exists()
+    # No area raster is written for any grid (the AOI raster carries cell area)...
+    assert not (dataset.path / 'areas.tif').exists()
     # ...and terrain is written in the grid's own CRS.
     from snowtool.snowdb.terrain import ELEVATION
 
@@ -111,8 +107,11 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
 
     aoi_raster = dataset.rasterize_aoi(AOI.from_geojson(geojson))
 
-    inside = aoi_raster.array == AOI_MASK_INSIDE
+    inside = aoi_raster.array > 0
     assert 0 < inside.sum() < aoi_raster.array.size
+    # Projected grid: every in-basin pixel carries the constant cell area (m^2).
+    assert (aoi_raster.array[inside] == numpy.float32(dataset.spec.cell_area)).all()
+    assert dataset.spec.cell_area == pytest.approx(PX * PX)
     # Every selected tile is within the 2x2-tile grid.
     for tile in aoi_raster.tiles:
         assert 0 <= tile.row < SIZE // TILE
@@ -141,22 +140,3 @@ def test_cell_area_converts_non_metre_units_to_m2():
     assert spec.cell_area == pytest.approx((px_feet * us_foot_to_metre) ** 2)
     # ...and emphatically not the raw planar ft^2 value.
     assert spec.cell_area != pytest.approx(px_feet * px_feet)
-
-
-def test_load_aoi_with_area_uses_constant_cell_area(dataset):
-    aoi_raster = AOIRaster(
-        path=dataset.path / 'fake.tif',
-        array=numpy.full((4, 4), AOI_MASK_INSIDE, dtype=numpy.uint8),
-        tiles=[],
-        origin=PixelCoord(0, 0),
-    )
-
-    # cache=None proves the projected branch never reads an area raster.
-    result = asyncio.run(dataset.load_aoi_with_area(aoi_raster, cache=None))
-
-    assert result.area.shape == aoi_raster.array.shape
-    assert (result.area == numpy.float32(dataset.spec.cell_area)).all()
-    assert dataset.spec.cell_area == pytest.approx(PX * PX)
-    # The constant area is a zero-copy broadcast view, not a materialized
-    # N-pixel array, so it carries no per-pixel storage.
-    assert result.area.flags['OWNDATA'] is False

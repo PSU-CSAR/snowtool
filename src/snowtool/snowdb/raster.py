@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -80,10 +80,6 @@ class TiledRaster[T: numpy.generic]:
         ]
 
 
-class AreaRaster(TiledRaster[numpy.float32]):
-    pass
-
-
 class DataRaster(TiledRaster[numpy.generic]):
     """A dated data COG for one variable on one date.
 
@@ -122,15 +118,20 @@ def tiles_from_tags(
 
 @dataclass
 class AOIRaster:
-    """A burned AOI: a boolean in/out-of-polygon mask over its tile-bbox window.
+    """A burned AOI: per-pixel cell area inside the basin, 0 outside, over its
+    tile-bbox window.
 
-    Decoupled from the DEM -- ``array`` is a ``uint8`` mask (1 inside the basin,
-    0 outside), not elevation. Elevation banding and any other terrain variable
-    are read live from the dataset's terrain set at query time.
+    Decoupled from the DEM -- ``array`` is a ``float32`` of geographic cell area
+    in square metres (the value the cell rasterizes to on this grid) for every
+    pixel whose centre falls inside the basin polygon, and ``0`` everywhere else.
+    It is therefore both the in/out membership signal (``array > 0``) and the
+    area weights the zonal reduction needs, so no separate area raster is read.
+    Elevation banding and any other terrain variable are read live from the
+    dataset's terrain set at query time.
     """
 
     path: Path
-    array: numpy.typing.NDArray[numpy.uint8]
+    array: numpy.typing.NDArray[numpy.float32]
     tiles: list[AffineGridTile]
     origin: PixelCoord
 
@@ -147,7 +148,7 @@ class AOIRaster:
         with rasterio.open(path) as ds:
             tags = ds.tags()
             origin, tiles = tiles_from_tags(grid, tags)
-            array: numpy.typing.NDArray[numpy.uint8] = ds.read(1)
+            array: numpy.typing.NDArray[numpy.float32] = ds.read(1)
 
         return cls(
             path=path,
@@ -172,58 +173,6 @@ class AOIRaster:
                 offset_row : offset_row + tile.rows,
                 offset_col : offset_col + tile.cols,
             ] = block
-
-
-@dataclass
-class AOIRasterWithArea(AOIRaster):
-    area: numpy.typing.NDArray[numpy.float32]
-
-    @classmethod
-    def _with_area(
-        cls: type[Self],
-        aoi_raster: AOIRaster,
-        area: numpy.typing.NDArray[numpy.float32],
-    ) -> Self:
-        """Wrap an AOIRaster with its per-pixel ``area``, forwarding every base
-        field so a new AOIRaster field needs no change at the call sites below.
-        """
-        base = {f.name: getattr(aoi_raster, f.name) for f in fields(AOIRaster)}
-        return cls(area=area, **base)
-
-    @classmethod
-    def with_constant_area(
-        cls: type[Self],
-        aoi_raster: AOIRaster,
-        cell_area: float,
-    ) -> Self:
-        """Attach a constant per-pixel area (projected grids have no area raster).
-
-        On a projected/linear grid every cell has identical planar area, so the
-        per-pixel area is just ``spec.cell_area`` -- no ``areas.tif`` is read.
-        It is exposed as a zero-copy ``broadcast_to`` view (stride 0) rather than
-        a materialized array: the zonal-stats reduction only ever reads
-        ``area`` through boolean masks, so a full N-pixel copy of one constant
-        would waste memory on the long-lived AOI for no information.
-        """
-        area = numpy.broadcast_to(
-            numpy.float32(cell_area),
-            aoi_raster.array.shape,
-        )
-        return cls._with_area(aoi_raster, area)
-
-    @classmethod
-    async def from_aoi_raster(
-        cls: type[Self],
-        aoi_raster: AOIRaster,
-        area_raster: AreaRaster,
-        cache: TiffCache,
-    ) -> Self:
-        area = numpy.zeros_like(
-            aoi_raster.array,
-            dtype=numpy.float32,
-        )
-        await aoi_raster.load_raster_tiles_into_array(area_raster, area, cache)
-        return cls._with_area(aoi_raster, area)
 
 
 @dataclass

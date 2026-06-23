@@ -38,7 +38,7 @@ def test_spec_grid_matches_product_file():
     assert spec.grid_params.cols == 7025
     assert spec.grid_params.rows == 3105
     assert spec.crs.to_epsg() == 4269
-    # NAD83 is geographic -> gets the geodesic areas.tif path on create.
+    # NAD83 is geographic -> AOI rasters burn per-row geodesic cell area.
     assert spec.is_geographic is True
     assert spec.ingester is not None
     # Distinct response-model prefix -> no OpenAPI schema collision with snodas.

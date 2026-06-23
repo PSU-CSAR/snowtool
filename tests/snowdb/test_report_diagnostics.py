@@ -90,6 +90,35 @@ def test_missing_artifacts_reports_deleted_landcover(dataset):
     assert 'landcover' in diagnostics.missing_artifacts(dataset)
 
 
+def test_stale_format_zone_layers_empty_for_current_dataset(dataset):
+    # Freshly built sets carry the current format version -> no findings.
+    assert diagnostics.stale_format_zone_layers(dataset) == []
+
+
+def test_stale_format_zone_layers_flags_an_old_format(dataset):
+    # Simulate a format bump: the provider now expects a newer version than what
+    # is stamped on the built terrain set, so it is flagged for a rebuild.
+    terrain = dataset.zones['terrain']
+    stamped = terrain.stored_format_version()
+    terrain.format_version = stamped + 1
+
+    findings = diagnostics.stale_format_zone_layers(dataset)
+
+    assert [(f.provider, f.stored, f.expected) for f in findings] == [
+        ('terrain', stamped, stamped + 1),
+    ]
+
+
+def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
+    # An unbuilt set is a missing-artifact finding, not a stale-format one.
+    from snowtool.snowdb.landcover import FOREST_COVER
+
+    dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
+
+    providers = {f.provider for f in diagnostics.stale_format_zone_layers(dataset)}
+    assert 'landcover' not in providers
+
+
 # --- aoi-coverage ------------------------------------------------------------
 
 
@@ -198,12 +227,12 @@ def test_aoi_health_all_healthy(dataset, aoi_geojson):
     assert health[0].issue is None
 
 
-def test_aoi_health_flags_empty_mask(dataset, grid):
-    # AOI rasters are bare masks now (decoupled from the DEM). An all-zero mask
-    # means the AOI polygon falls outside the grid -> flagged as an empty mask.
+def test_aoi_health_flags_empty_aoi(dataset, grid):
+    # AOI rasters carry per-pixel cell area now (decoupled from the DEM). An
+    # all-zero raster means the AOI polygon falls outside the grid -> flagged.
     write_cog(
         dataset._aoi_rasters / '99999_MT_USGS.tif',
-        numpy.zeros((TILE, TILE), dtype=numpy.uint8),
+        numpy.zeros((TILE, TILE), dtype=numpy.float32),
         transform=grid.base_grid[0, 0].transform,
         tile_size=TILE,
         nodata=0,
@@ -213,7 +242,7 @@ def test_aoi_health_flags_empty_mask(dataset, grid):
 
     bad = [h for h in diagnostics.aoi_health_report(dataset) if not h.ok]
     assert len(bad) == 1
-    assert 'empty mask' in bad[0].issue
+    assert 'empty AOI' in bad[0].issue
 
 
 def test_aoi_health_reports_missing_tile_bbox(dataset, grid):

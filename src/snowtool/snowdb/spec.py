@@ -191,15 +191,15 @@ class DatasetSpec:
     @cached_property
     def is_geographic(self) -> bool:
         """Whether cell area varies across the grid (geographic CRS) or is
-        constant (projected/linear CRS). Drives whether an area raster is
-        needed."""
+        constant (projected/linear CRS). Drives whether an AOI raster burns
+        per-row geodesic area or the constant ``cell_area``."""
         return self.crs.is_geographic
 
     @cached_property
     def cell_area(self) -> float:
         """The constant per-cell area, in square metres. Only meaningful on a
         projected grid; raises on a geographic grid, where area varies by
-        latitude and an area raster is required instead.
+        latitude and the AOI raster burns per-row geodesic area instead.
 
         griffine reports a projected grid's planar cell area in the CRS's own
         linear units squared, so it is converted to m^2 here -- every area we

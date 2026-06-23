@@ -41,6 +41,11 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource, ZoneLayerTarget
 
+# On-disk format version of a terrain layer set, owned by TerrainProvider and
+# stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
+# on a material change to the terrain layer encoding so existing sets read as stale.
+TERRAIN_FORMAT_VERSION = 1
+
 # Aspect majority classes (cell's modal cardinal quadrant, or flat).
 ASPECT_N = 0
 ASPECT_E = 1
@@ -111,6 +116,7 @@ class TerrainProvider(ZoneLayerProvider):
     subdir = 'terrain'
     layers = TERRAIN_LAYERS
     hash_tag = DEM_HASH_TAG
+    format_version = TERRAIN_FORMAT_VERSION
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default DEM source -- USGS 3DEP streamed from the public bucket."""
