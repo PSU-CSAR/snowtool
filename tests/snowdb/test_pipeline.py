@@ -6,8 +6,8 @@ import numpy
 import rasterio
 
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.constants import AOI_MASK_INSIDE, TILE_BBOX_TAG
-from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea
+from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
@@ -28,48 +28,7 @@ def test_terrain_elevation(dataset, grid):
     assert numpy.allclose(data, DEM_ELEVATION_M)
 
 
-def test_area_raster(dataset, grid):
-    with rasterio.open(dataset._area_raster) as ds:
-        assert ds.shape == (SIZE, SIZE)
-        data = ds.read(1)
-    assert (data > 0).all()
-    # area depends only on row; matches per-row geodesic area
-    assert data[0, 0] == data[0, -1]
-    assert data[10, 5] != data[400, 5]
-    expected_row0 = grid.base_grid[0, 0].area
-    assert data[0, 0] == numpy.float32(expected_row0)
-
-
-def test_area_raster_uses_grid_crs_not_hardcoded_wgs84(tmp_path):
-    # A non-4326 geographic CRS (NAD83) proves the area raster is written in the
-    # grid's own CRS, not a hardcoded WGS84.
-    from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.spec import DatasetSpec, GridParams
-
-    spec = DatasetSpec(
-        name='nad83',
-        grid_params=GridParams(
-            origin_x=-120.0,
-            origin_y=45.0,
-            px_size=0.01,
-            cols=128,
-            rows=128,
-            tile_size=128,
-            crs=4269,  # NAD83 geographic
-        ),
-    )
-    path = tmp_path / 'db'
-    path.mkdir()
-    dataset = Dataset(spec, path)
-
-    dataset.make_area_raster()
-
-    with rasterio.open(dataset._area_raster) as ds:
-        assert ds.crs.to_epsg() == dataset.grid_crs.to_epsg() == 4269
-        assert ds.crs.to_epsg() != 4326
-
-
-def test_rasterize_aoi(dataset, aoi_geojson):
+def test_rasterize_aoi(dataset, aoi_geojson, grid):
     aoi = AOI.from_geojson(aoi_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
 
@@ -84,10 +43,18 @@ def test_rasterize_aoi(dataset, aoi_geojson):
     assert len(bbox) == 4
     assert len(aoi_raster.tiles) >= 1
 
-    # The AOI raster is a bare boolean mask (decoupled from the DEM): inside
-    # pixels are AOI_MASK_INSIDE, and there are some but not the whole window.
-    inside = aoi_raster.array == AOI_MASK_INSIDE
+    # The AOI raster burns per-pixel cell area (decoupled from the DEM): inside
+    # pixels carry their geodesic cell area, 0 outside, over some but not the whole
+    # window.
+    inside = aoi_raster.array > 0
     assert 0 < inside.sum() < TILE * TILE
+    # The burned value is the grid's geodesic cell area for that row.
+    ul = bbox[0] * TILE  # the window's upper-left base row
+    inside_rows = numpy.where(inside.any(axis=1))[0]
+    sample_row = int(inside_rows[0])
+    assert aoi_raster.array[sample_row][inside[sample_row]][0] == numpy.float32(
+        grid.base_grid[ul + sample_row, 0].area,
+    )
 
 
 def test_aoi_raster_reopen_roundtrips_tiles(dataset, aoi_geojson):
@@ -114,22 +81,16 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     async def run():
         # one cache, one event loop for the whole read path
         cache = TiffCache(maxsize=8)
-        aoi_with_area = await AOIRasterWithArea.from_aoi_raster(
-            aoi_raster,
-            dataset.area_raster(),
-            cache,
-        )
         # No zone selection -> the elevation-only default (terrain.elevation,
         # stepped by spec.band_step_ft), preserving the original behaviour.
-        stats = await ZonalStats.calculate(
-            aoi_with_area,
+        return await ZonalStats.calculate(
+            aoi_raster,
             collection,
             cache,
             dataset,
         )
-        return aoi_with_area, stats
 
-    aoi_with_area, stats = asyncio.run(run())
+    stats = asyncio.run(run())
     dumped = stats.dump()
     assert len(dumped) == 1
     # Single elevation axis -> each cell's zone is one ref against terrain.elevation.
@@ -148,10 +109,9 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     assert ref.unit == 'ft'
     assert cell.mean_swe_mm == SWE_VALUE
 
-    # area equals the summed geodesic area of the in-AOI pixels
-    inside = aoi_with_area.array == AOI_MASK_INSIDE
-    expected_area = float(aoi_with_area.area[inside].sum())
-    assert cell.area_m2 == expected_area
+    # area equals the summed geodesic area of the in-AOI pixels -- which the AOI
+    # raster now carries directly (cell area inside, 0 outside), so its full sum.
+    assert cell.area_m2 == float(aoi_raster.array.sum())
 
     # all other cells are empty (area 0; mean is nan in-model, serialized to
     # None by the model's field serializer)
@@ -177,20 +137,15 @@ def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
 
     async def run():
         cache = TiffCache(maxsize=8)
-        aoi_with_area = await AOIRasterWithArea.from_aoi_raster(
-            aoi_raster,
-            dataset.area_raster(),
-            cache,
-        )
         stats = await ZonalStats.calculate(
-            aoi_with_area,
+            aoi_raster,
             collection,
             cache,
             dataset,
             zone_selections=selections,
             max_zone_cells=max_zone_cells,
         )
-        return aoi_with_area, stats
+        return aoi_raster, stats
 
     return asyncio.run(run())
 
@@ -213,7 +168,7 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
     # The synthetic dataset is uniform: elevation 1000 m (-> 3000-4000 ft band) and
     # forest 100% (>= the 50% default threshold -> "forested"), so crossing the two
     # axes yields exactly one populated cell -- the SWE value over the in-AOI area.
-    aoi_with_area, stats = _crossed_stats(
+    aoi_raster, stats = _crossed_stats(
         dataset,
         aoi_geojson,
         [
@@ -245,8 +200,7 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
     assert forest_ref.label == 'forested'
     assert cell.mean_swe_mm == SWE_VALUE
 
-    inside = aoi_with_area.array == AOI_MASK_INSIDE
-    assert cell.area_m2 == float(aoi_with_area.area[inside].sum())
+    assert cell.area_m2 == float(aoi_raster.array.sum())
 
 
 def test_zonal_stats_forest_threshold_is_overridable(dataset, aoi_geojson, swe_cog):
@@ -296,16 +250,16 @@ def test_calculate_rejects_an_unknown_zone_layer(dataset, aoi_geojson, swe_cog):
         _crossed_stats(dataset, aoi_geojson, [ZoneSelection('terrain.nope')])
 
 
-def test_aoi_raster_open_reads_mask_without_dem(tmp_path, grid):
-    """A bare mask reopens cleanly -- AOI rasters no longer depend on a DEM."""
+def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):
+    """An area-valued AOI raster reopens cleanly -- no dependence on a DEM."""
     from snowtool.snowdb.cog import write_cog
 
-    path = tmp_path / 'mask_aoi.tif'
-    mask = numpy.zeros((TILE, TILE), dtype=numpy.uint8)
-    mask[10:20, 10:20] = AOI_MASK_INSIDE
+    path = tmp_path / 'area_aoi.tif'
+    area = numpy.zeros((TILE, TILE), dtype=numpy.float32)
+    area[10:20, 10:20] = 123.5  # in-basin cell area
     write_cog(
         path,
-        mask,
+        area,
         transform=grid.base_grid[0, 0].transform,
         tile_size=TILE,
         nodata=0,
@@ -315,7 +269,8 @@ def test_aoi_raster_open_reads_mask_without_dem(tmp_path, grid):
 
     aoi_raster = AOIRaster.open(path, grid)
     assert aoi_raster.array.shape == (TILE, TILE)
-    assert (aoi_raster.array == AOI_MASK_INSIDE).sum() == 100
+    assert aoi_raster.array.dtype == numpy.float32
+    assert (aoi_raster.array > 0).sum() == 100
 
 
 class _SingleDateQuery:

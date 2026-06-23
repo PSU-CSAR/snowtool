@@ -137,6 +137,7 @@ from rasterio.windows import transform as window_transform
 from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_E,
@@ -148,6 +149,7 @@ from snowtool.snowdb.terrain import (
     ASPECT_W,
     ELEVATION,
     ELEVATION_NODATA,
+    TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
 )
 
@@ -609,7 +611,7 @@ def generate_terrain(
         finalized.append((acc, majority, components, elevation))
         digest.update(acc.target.name.encode('utf-8'))
         digest.update(elevation.tobytes())
-    dem_hash = digest.hexdigest()
+    dem_hash = versioned_hash(TERRAIN_FORMAT_VERSION, digest.hexdigest())
 
     for acc, majority, components, elevation in finalized:
         acc.write_layers(majority, components, elevation, dem_hash)

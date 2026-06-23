@@ -17,13 +17,15 @@ from click.testing import CliRunner
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dem_source import LocalFile
-from snowtool.snowdb.landcover import FOREST_COVER
+from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
 from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
+from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
     ELEVATION,
+    TERRAIN_FORMAT_VERSION,
 )
 
 
@@ -88,7 +90,10 @@ def _fake_generate_terrain(
         shape = (base.rows, base.cols)
         crs = rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
         elevation = numpy.full(shape, 1000.0, dtype='float32')
-        dem_hash = hashlib.sha256(elevation.tobytes()).hexdigest()
+        dem_hash = versioned_hash(
+            TERRAIN_FORMAT_VERSION,
+            hashlib.sha256(elevation.tobytes()).hexdigest(),
+        )
         tags = {DEM_HASH_TAG: dem_hash}
         target.directory.mkdir(parents=True, exist_ok=True)
         common = {
@@ -139,7 +144,10 @@ def _fake_generate_landcover(source, targets, *, force=False):
         shape = (base.rows, base.cols)
         crs = rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
         forest = numpy.full(shape, 100, dtype='uint8')
-        nlcd_hash = hashlib.sha256(forest.tobytes()).hexdigest()
+        nlcd_hash = versioned_hash(
+            LANDCOVER_FORMAT_VERSION,
+            hashlib.sha256(forest.tobytes()).hexdigest(),
+        )
         target.directory.mkdir(parents=True, exist_ok=True)
         write_cog(
             target.directory / FOREST_COVER.filename,

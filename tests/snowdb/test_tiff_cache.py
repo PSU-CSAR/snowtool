@@ -76,7 +76,7 @@ def test_load_tile_reads_correct_block(tmp_path):
 
 
 def test_load_tiles_batched_preserves_order(tmp_path):
-    from snowtool.snowdb.raster import AreaRaster
+    from snowtool.snowdb.raster import TiledRaster
 
     grid = _grid()
     path = tmp_path / 'blocks.tif'
@@ -85,7 +85,7 @@ def test_load_tiles_batched_preserves_order(tmp_path):
 
     async def run():
         cache = TiffCache(maxsize=8)
-        return await AreaRaster(path).load_tiles(tiles, cache)
+        return await TiledRaster(path).load_tiles(tiles, cache)
 
     blocks = asyncio.run(run())
     assert len(blocks) == len(tiles)

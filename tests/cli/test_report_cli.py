@@ -206,3 +206,31 @@ def test_validate_flags_grid_drift(runner, cli_obj, initialized_root, grid):
 
     assert result.exit_code == 1
     assert 'grid: test' in result.output
+
+
+def test_validate_flags_stale_zone_layer_format(
+    runner,
+    cli_obj,
+    source_dem,
+    initialized_root,
+):
+    # Re-stamp the built terrain set with an old format version (what an artifact
+    # from before a format bump would carry) -> validate flags it for a rebuild.
+    import rasterio
+
+    from snowtool.snowdb.constants import DEM_HASH_TAG
+    from snowtool.snowdb.terrain import ELEVATION
+
+    _create(runner, cli_obj, source_dem)
+    elevation = (
+        initialized_root / 'data' / 'test' / 'terrain' / ELEVATION.filename
+    )
+    with rasterio.open(
+        elevation, 'r+', IGNORE_COG_LAYOUT_BREAK='YES',
+    ) as ds:
+        ds.update_tags(**{DEM_HASH_TAG: 'v999:deadbeef'})
+
+    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
+
+    assert result.exit_code == 1
+    assert 'zone-layer-format: test terrain stored 999 != current 1' in result.output

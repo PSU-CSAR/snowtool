@@ -16,8 +16,14 @@ from rasterio.crs import CRS
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.grid import make_grid
-from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_LAYERS, LandCoverProvider
+from snowtool.snowdb.landcover import (
+    FOREST_COVER,
+    LANDCOVER_FORMAT_VERSION,
+    LANDCOVER_LAYERS,
+    LandCoverProvider,
+)
 from snowtool.snowdb.landcover_generate import generate_landcover
+from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
 
@@ -131,7 +137,10 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     landcover = _landcover_set(target.directory)
     with rasterio.open(landcover.layer_path(FOREST_COVER)) as ds:
         forest_pct = ds.read(1)
-    expected = hashlib.sha256(b't' + forest_pct.tobytes()).hexdigest()
+    expected = versioned_hash(
+        LANDCOVER_FORMAT_VERSION,
+        hashlib.sha256(b't' + forest_pct.tobytes()).hexdigest(),
+    )
     assert first['t'] == expected
     assert landcover.provenance_hash() == expected
 

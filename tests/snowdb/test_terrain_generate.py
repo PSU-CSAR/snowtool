@@ -16,12 +16,14 @@ from rasterio.crs import CRS
 
 from snowtool.exceptions import SNODASWarning
 from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_MAJORITY,
     ASPECT_W,
     ELEVATION,
     ELEVATION_NODATA,
+    TERRAIN_FORMAT_VERSION,
     TerrainProvider,
 )
 from snowtool.snowdb.terrain_generate import generate_terrain
@@ -156,8 +158,12 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     terrain = _terrain_set(target.directory)
     with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
-    # The id is a digest of name + finalized elevation (one per pass).
-    expected = hashlib.sha256(b't' + elevation.tobytes()).hexdigest()
+    # The id is a digest of name + finalized elevation (one per pass), carrying
+    # the terrain format version.
+    expected = versioned_hash(
+        TERRAIN_FORMAT_VERSION,
+        hashlib.sha256(b't' + elevation.tobytes()).hexdigest(),
+    )
     assert first['t'] == expected
     assert terrain.provenance_hash() == expected
 

@@ -227,6 +227,7 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
         name = 'tiny'
         subdir = 'tiny'
         hash_tag = 'SNOWTOOL_TINY_HASH'
+        format_version = 1
         layers = (
             ZoneLayer(
                 filename='tier.tif',

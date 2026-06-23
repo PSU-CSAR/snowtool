@@ -193,14 +193,41 @@ def test_reindex_rebuilds_from_records(manager, db, aoi_geojson):
 
 
 def test_aoi_raster_hash_matches_aoi(db, aoi_geojson):
+    from snowtool.snowdb.dataset import aoi_provenance
+
     aoi = AOI.from_geojson(aoi_geojson)
     db['test'].rasterize_aoi(aoi)
-    assert db['test'].aoi_raster_hash('12345:MT:USGS') == aoi.geometry_hash
+    # The stored tag is the versioned provenance (geometry hash + format version),
+    # not the bare geometry hash.
+    assert db['test'].aoi_raster_hash('12345:MT:USGS') == aoi_provenance(
+        aoi.geometry_hash,
+    )
     assert db['test'].aoi_raster_is_current(aoi)
 
 
 def test_aoi_raster_hash_none_when_absent(db):
     assert db['test'].aoi_raster_hash('99999:MT:USGS') is None
+
+
+def test_format_version_bump_makes_aoi_raster_stale(db, aoi_geojson, monkeypatch):
+    # A material format change is detected by the same staleness check as a changed
+    # basin: bump the burned-raster format version and an already-current raster
+    # (unchanged geometry) reads as stale, forcing a rebuild.
+    import snowtool.snowdb.dataset as dataset_mod
+
+    aoi = AOI.from_geojson(aoi_geojson)
+    ds = db['test']
+    ds.rasterize_aoi(aoi)
+    assert ds.aoi_raster_is_current(aoi) is True
+
+    monkeypatch.setattr(
+        dataset_mod,
+        'AOI_RASTER_FORMAT_VERSION',
+        dataset_mod.AOI_RASTER_FORMAT_VERSION + 1,
+    )
+    assert ds.aoi_raster_is_current(aoi) is False
+    assert ds.rasterize_aoi_if_needed(aoi) is True
+    assert ds.aoi_raster_is_current(aoi) is True
 
 
 def test_rasterize_if_needed_builds_then_skips_then_rebuilds(

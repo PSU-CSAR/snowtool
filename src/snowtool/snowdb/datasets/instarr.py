@@ -13,8 +13,8 @@ resolution. The grid currently covers the h08-h10 x v04-v05 tile block (7200x480
 the missing h10v05 corner is just nodata. Because the mosaic is a lossless stitch
 of the kept source tiles, widening the grid later is a re-ingest, not a reprocess.
 
-Being projected (constant cell area), INSTARR uses ``spec.cell_area`` and writes
-no ``areas.tif`` (the geodesic path is geographic-only).
+Being projected, INSTARR has a constant cell area (``spec.cell_area``), which is
+burned uniformly into every in-basin pixel of its AOI rasters.
 """
 
 from __future__ import annotations

@@ -38,9 +38,18 @@ from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
 from snowtool.snowdb.cog import write_cog
-from snowtool.snowdb.constants import FOREST_CLASSES, FOREST_PCT_NODATA, NLCD_HASH_TAG
+from snowtool.snowdb.constants import (
+    FOREST_CLASSES,
+    FOREST_PCT_NODATA,
+    NLCD_HASH_TAG,
+)
 from snowtool.snowdb.grid import grid_extent_4326
-from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_LAYERS
+from snowtool.snowdb.landcover import (
+    FOREST_COVER,
+    LANDCOVER_FORMAT_VERSION,
+    LANDCOVER_LAYERS,
+)
+from snowtool.snowdb.provenance import versioned_hash
 
 if TYPE_CHECKING:
     from snowtool.snowdb.zone_layer import ZoneLayerTarget
@@ -186,7 +195,7 @@ def generate_landcover(
         finalized.append((acc, forest_pct))
         digest.update(acc.target.name.encode('utf-8'))
         digest.update(forest_pct.tobytes())
-    nlcd_hash = digest.hexdigest()
+    nlcd_hash = versioned_hash(LANDCOVER_FORMAT_VERSION, digest.hexdigest())
 
     for acc, forest_pct in finalized:
         acc.write_layer(forest_pct, nlcd_hash)

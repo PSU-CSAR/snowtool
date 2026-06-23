@@ -19,20 +19,20 @@ from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326, tile_base_origin
-from snowtool.snowdb.raster import AOIRaster, AOIRasterWithArea, AreaRaster
+from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from affine import Affine
-    from griffine.grid import AffineGridTile, TiledAffineGrid
+    from griffine.grid import AffineGrid, AffineGridTile, TiledAffineGrid
     from shapely import Geometry
 
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import WritableRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zone_layer import (
         ZoneLayerProvider,
@@ -41,23 +41,27 @@ if TYPE_CHECKING:
         ZoneLayerTarget,
     )
 
+# On-disk format version of the burned AOI raster (per-pixel cell area, 0 outside).
+# The AOI raster has no ingester/provider -- the Dataset burns it generically -- so
+# its version is owned here, by its writer, and stamped onto AOI_HASH_TAG via
+# aoi_provenance. Bump on a material format change (e.g. the boolean-mask ->
+# cell-area switch) so existing rasters read as stale and re-rasterize.
+AOI_RASTER_FORMAT_VERSION = 1
+
 
 @dataclass(frozen=True)
 class DatasetArtifacts:
     """Which of a dataset's on-disk artifacts are present.
 
-    A read-only snapshot used by the diagnostics/report commands. ``area`` is
-    ``None`` when an area raster is not applicable (a projected grid has a
-    constant cell area and stores no ``areas.tif``); otherwise it reflects
-    whether ``areas.tif`` exists. ``zone_layers`` maps each configured
-    zone-layer provider's name (``terrain``, ``landcover``, ...) to whether its
-    complete set is present on disk.
+    A read-only snapshot used by the diagnostics/report commands.
+    ``zone_layers`` maps each configured zone-layer provider's name
+    (``terrain``, ``landcover``, ...) to whether its complete set is present on
+    disk.
     """
 
     zone_layers: dict[str, bool]
     aoi_rasters: bool
     cogs: bool
-    area: bool | None
 
 
 def make_geometry_mask(
@@ -81,6 +85,41 @@ def make_geometry_mask(
     return burned.astype(bool)
 
 
+def _window_cell_areas(
+    base_grid: AffineGrid,
+    start_row: int,
+    height: int,
+    width: int,
+    cell_area: float | None,
+) -> numpy.typing.NDArray[numpy.float32]:
+    """Per-pixel cell area (m^2) for an AOI window, broadcast to ``(height, width)``.
+
+    A projected grid passes its constant ``cell_area`` (every cell is identical).
+    A geographic grid passes ``None``: geodesic cell area depends only on latitude
+    (row), so one value per window row is computed from ``base_grid`` and
+    broadcast across the columns.
+    """
+    if cell_area is not None:
+        return numpy.broadcast_to(numpy.float32(cell_area), (height, width))
+    row_areas = numpy.fromiter(
+        (base_grid[start_row + i, 0].area for i in range(height)),
+        dtype=numpy.float32,
+        count=height,
+    )
+    return numpy.broadcast_to(row_areas[:, numpy.newaxis], (height, width))
+
+
+def aoi_provenance(geometry_hash: str) -> str:
+    """The versioned tag an AOI raster is stamped with and checked against.
+
+    Combines the AOI's pure geometry digest with the burned-raster format version
+    (see :func:`~snowtool.snowdb.provenance.versioned_hash`), so a format change
+    invalidates every existing raster through the same equality check that catches
+    a geometry change.
+    """
+    return versioned_hash(AOI_RASTER_FORMAT_VERSION, geometry_hash)
+
+
 def write_aoi_raster(
     path: Path,
     geometry: Geometry,
@@ -88,15 +127,28 @@ def write_aoi_raster(
     start_tile: AffineGridTile,
     end_tile: AffineGridTile,
     tile_size: int,
-    geometry_hash: str,
+    provenance: str,
+    *,
+    base_grid: AffineGrid,
+    cell_area: float | None,
 ) -> None:
-    """Burn ``geometry`` to a boolean AOI mask COG over its tile-bbox window.
+    """Burn ``geometry`` to a per-pixel cell-area AOI COG over its tile-bbox window.
 
-    The AOI raster is a bare in/out-of-polygon mask (1 inside, 0 outside) -- it
-    is deliberately decoupled from the DEM. Elevation (for banding) and any other
-    terrain variable are read live from the dataset's terrain set at query time,
-    so a terrain rebuild never invalidates an AOI raster: its only provenance axis
-    is the AOI geometry (the ``SNOWTOOL_AOI_HASH`` tag).
+    Each pixel whose centre falls inside the basin gets the area (m^2) it
+    rasterizes to on this grid; every other pixel is ``0``. The single raster is
+    therefore both the in/out-of-polygon membership signal and the area weights
+    the zonal reduction needs -- there is no separate ``areas.tif``. ``cell_area``
+    is the grid's constant cell area on a projected grid, or ``None`` on a
+    geographic grid (per-row geodesic area is computed from ``base_grid``).
+
+    ``provenance`` is the versioned AOI tag (see :func:`aoi_provenance`): the AOI
+    geometry digest plus the burned-raster format version.
+
+    It is deliberately decoupled from the DEM. Elevation (for banding) and any
+    other terrain variable are read live from the dataset's terrain set at query
+    time, so a terrain rebuild never invalidates an AOI raster: its only AOI-side
+    provenance axis is the geometry (the ``SNOWTOOL_AOI_HASH`` tag); the cell
+    areas are a pure function of the fixed dataset grid.
     """
     start = tile_base_origin(start_tile)
     end_origin = tile_base_origin(end_tile)
@@ -115,26 +167,28 @@ def write_aoi_raster(
         out_shape=(height, width),
         transform=transform,
     )
+    areas = _window_cell_areas(base_grid, start.row, height, width, cell_area)
+    aoi_area = numpy.where(aoi_mask, areas, numpy.float32(0)).astype(numpy.float32)
 
     tags = {
         TILE_BBOX_TAG: (
             f'{start_tile.row} {start_tile.col} {end_tile.row} {end_tile.col}'
         ),
-        # Records which AOI geometry this raster was burned from, so a changed
-        # basin can be detected (and re-rasterized) by a cheap tag read.
-        AOI_HASH_TAG: geometry_hash,
+        # Records the geometry + format version this raster was burned from, so a
+        # changed basin OR a format bump is detected (and re-rasterized) by a cheap
+        # tag read.
+        AOI_HASH_TAG: provenance,
     }
 
     write_cog(
         path,
-        aoi_mask.astype('uint8'),
+        aoi_area,
         transform=transform,
         crs=crs,
-        # 0 = outside the AOI; the mask carries no other information so stats are
-        # pointless.
+        # 0 = outside the AOI (no real cell has 0 area), so it doubles as the
+        # nodata sentinel.
         nodata=AOI_MASK_NODATA,
         tile_size=tile_size,
-        predictor=2,
         tags=tags,
         compute_stats=False,
     )
@@ -143,9 +197,9 @@ def write_aoi_raster(
 class Dataset:
     """A :class:`DatasetSpec` bound to its ``data/<name>/`` directory.
 
-    Owns the per-dataset filesystem layout (``aoi-rasters/``, ``areas.tif``, the
-    per-provider zone-layer subdirs, ``cogs/``) and the operations on it;
-    grid/variables are reached through ``self.spec``.
+    Owns the per-dataset filesystem layout (``aoi-rasters/``, the per-provider
+    zone-layer subdirs, ``cogs/``) and the operations on it; grid/variables are
+    reached through ``self.spec``.
     """
 
     def __init__(
@@ -158,7 +212,6 @@ class Dataset:
         self.path = path
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
-        self._area_raster = self.path / 'areas.tif'
         # One zone-layer set per provider this dataset *enables* (its config's
         # zones block), keyed by provider name (e.g. 'terrain', 'landcover'). A
         # registered provider the dataset does not enable is bound to neither
@@ -207,7 +260,7 @@ class Dataset:
         path: Path,
         force: bool = False,
     ) -> Self:
-        """Create the dataset's directory skeleton and area raster.
+        """Create the dataset's directory skeleton.
 
         Zone layers (terrain, land cover, ...) are *not* built here: each needs a
         source and is generated separately by :meth:`generate_zone_layers` (so
@@ -220,16 +273,11 @@ class Dataset:
             # The dataset dir itself may already exist as an empty skeleton from
             # `snowdb init`, so tolerate it; whether the dataset is already
             # *populated* is enforced by the artifact guards below (the
-            # aoi-rasters/cogs dirs and the area raster), which still refuse to
-            # clobber existing data without force.
+            # aoi-rasters/cogs dirs), which still refuse to clobber existing data
+            # without force.
             self.path.mkdir(parents=True, exist_ok=True)
             self._aoi_rasters.mkdir(exist_ok=force)
             self._cogs.mkdir(exist_ok=force)
-            # A per-pixel area raster only carries information on a geographic
-            # grid (geodesic area varies by latitude); a projected grid has a
-            # constant cell area, supplied at read time from spec.cell_area.
-            if self.spec.is_geographic:
-                self.make_area_raster(force=force)
         except FileExistsError as e:
             raise FileExistsError(
                 f'Could not create {self.spec.name} dataset: {self.path} already '
@@ -237,74 +285,6 @@ class Dataset:
             ) from e
 
         return self
-
-    def area_raster(self: Self) -> AreaRaster:
-        return AreaRaster(self._area_raster)
-
-    async def load_aoi_with_area(
-        self: Self,
-        aoi_raster: AOIRaster,
-        cache: TiffCache,
-    ) -> AOIRasterWithArea:
-        """Attach per-pixel area to an AOI raster, however this grid stores it.
-
-        Geographic grids read the per-row geodesic ``areas.tif``; projected grids
-        have no area raster and use the constant ``spec.cell_area`` instead (see
-        :meth:`AOIRasterWithArea.with_constant_area`).
-        """
-        if self.spec.is_geographic:
-            return await AOIRasterWithArea.from_aoi_raster(
-                aoi_raster,
-                self.area_raster(),
-                cache,
-            )
-        return AOIRasterWithArea.with_constant_area(aoi_raster, self.spec.cell_area)
-
-    def ensure_area_raster(self: Self) -> bool:
-        """Build the area raster if it is needed and missing; True if it was built.
-
-        Idempotent (drives ``snowdb init``): a projected grid needs none, and an
-        existing one is left untouched.
-        """
-        if not self.spec.is_geographic or self._area_raster.exists():
-            return False
-        self.make_area_raster()
-        return True
-
-    def make_area_raster(self: Self, force: bool = False) -> None:
-        if not force and self._area_raster.exists():
-            raise FileExistsError(
-                'Could not create area raster: '
-                f'{self._area_raster} already exists. '
-                'Remove and try again or use `force=True`.',
-            )
-
-        base = self.grid.base_grid
-        rows, cols = base.rows, base.cols
-
-        # Geodesic pixel area depends only on latitude (row), so compute one
-        # value per row and broadcast across columns.
-        row_areas = numpy.fromiter(
-            (base[row, 0].area for row in range(rows)),
-            dtype=numpy.float32,
-            count=rows,
-        )
-        area_array = numpy.broadcast_to(
-            row_areas[:, numpy.newaxis],
-            (rows, cols),
-        )
-
-        write_cog(
-            self._area_raster,
-            area_array,
-            transform=base.transform,
-            # Match the DEM/COGs: the area raster shares the grid's CRS, not a
-            # hardcoded WGS84 (identical for a 4326 grid, correct for any other
-            # geographic CRS).
-            crs=self.grid_crs,
-            tile_size=self.spec.grid_params.tile_size,
-            predictor=3,
-        )
 
     def zone_target(self: Self, provider: ZoneLayerProvider) -> ZoneLayerTarget:
         """This dataset's grid as a target for ``provider``'s generation engine."""
@@ -390,6 +370,10 @@ class Dataset:
         geometry = aoi.geometry_in_crs(self.grid.crs)
         ul_tile, br_tile = bounding_tiles(self.grid, geometry.bounds)
 
+        # A projected grid burns its constant cell area; a geographic grid burns
+        # per-row geodesic area, computed from the base grid (cell_area=None).
+        cell_area = None if self.spec.is_geographic else self.spec.cell_area
+
         write_aoi_raster(
             path,
             geometry,
@@ -397,7 +381,9 @@ class Dataset:
             ul_tile,
             br_tile,
             tile_size=self.spec.grid_params.tile_size,
-            geometry_hash=aoi.geometry_hash,
+            provenance=aoi_provenance(aoi.geometry_hash),
+            base_grid=self.grid.base_grid,
+            cell_area=cell_area,
         )
 
         return AOIRaster.open(path, self.grid)
@@ -418,12 +404,15 @@ class Dataset:
             return ds.tags().get(AOI_HASH_TAG)
 
     def aoi_raster_is_current(self: Self, aoi: AOI) -> bool:
-        """Whether a burned AOI raster exists AND matches ``aoi``'s geometry.
+        """Whether a burned AOI raster exists AND matches ``aoi``'s geometry AND
+        the current burned-raster format version.
 
-        ``False`` means missing or stale -- either way :meth:`rasterize_aoi`
-        should (re)build it.
+        ``False`` means missing or stale (changed geometry *or* an old format
+        version) -- either way :meth:`rasterize_aoi` should (re)build it.
         """
-        return self.aoi_raster_hash(aoi.station_triplet) == aoi.geometry_hash
+        return self.aoi_raster_hash(aoi.station_triplet) == aoi_provenance(
+            aoi.geometry_hash,
+        )
 
     def rasterize_aoi_if_needed(
         self: Self,
@@ -574,7 +563,6 @@ class Dataset:
             },
             aoi_rasters=self._aoi_rasters.is_dir(),
             cogs=self._cogs.is_dir(),
-            area=self._area_raster.is_file() if self.spec.is_geographic else None,
         )
 
     def dates_before(self: Self, before: date) -> list[date]:

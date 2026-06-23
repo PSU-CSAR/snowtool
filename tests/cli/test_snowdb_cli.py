@@ -28,8 +28,8 @@ def test_status_reflects_created_dataset(runner, cli_obj, source_dem):
 
     row = json.loads(result.output)[0]
     assert row['terrain'] is True
-    assert row['area'] is True  # geographic grid has an area raster
     assert row['cogs'] is True
+    assert 'area' not in row  # no area raster is tracked; the AOI raster carries it
 
 
 def test_status_table_smoke(runner, cli_obj):

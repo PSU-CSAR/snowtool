@@ -134,22 +134,55 @@ def completeness_report(
 def missing_artifacts(dataset: Dataset) -> list[str]:
     """The dataset's expected on-disk artifacts that are absent.
 
-    Skips the area raster on a projected grid, where it is not applicable
-    (``DatasetArtifacts.area is None``). Every configured zone layer (terrain,
-    land cover, ...) is expected -- ``snowdb init`` builds each from its default
-    source -- so a missing one is a finding, reported by provider name.
+    Every configured zone layer (terrain, land cover, ...) is expected --
+    ``snowdb init`` builds each from its default source -- so a missing one is a
+    finding, reported by provider name.
     """
     artifacts = dataset.artifact_status()
     missing: list[str] = [
         name for name, present in artifacts.zone_layers.items() if not present
     ]
-    if artifacts.area is False:
-        missing.append('area')
     if not artifacts.cogs:
         missing.append('cogs')
     if not artifacts.aoi_rasters:
         missing.append('aoi-rasters')
     return missing
+
+
+@dataclass(frozen=True)
+class ZoneLayerFormat:
+    """A built zone-layer set whose stamped format version is out of date.
+
+    ``stored`` is the version read off the set's provenance tag (``None`` for a
+    missing/legacy tag); ``expected`` is the provider's current format version.
+    Only stale sets are emitted, so ``stored != expected`` always holds.
+    """
+
+    name: str  # dataset name
+    provider: str  # zone-layer provider (terrain, landcover, ...)
+    stored: int | None
+    expected: int
+
+
+def stale_format_zone_layers(dataset: Dataset) -> list[ZoneLayerFormat]:
+    """Built zone-layer sets stamped with an out-of-date on-disk format version.
+
+    Skips sets that are not built (``missing_artifacts`` already reports those);
+    a built set whose stamped version differs from the provider's current one --
+    including a missing/legacy tag (stored ``None``) -- is flagged for a rebuild.
+    """
+    findings: list[ZoneLayerFormat] = []
+    for provider_name, zone_set in dataset.zones.items():
+        if zone_set.format_is_current() is False:
+            findings.append(
+                ZoneLayerFormat(
+                    name=dataset.spec.name,
+                    provider=provider_name,
+                    stored=zone_set.stored_format_version(),
+                    expected=zone_set.format_version,
+                ),
+            )
+    return findings
 
 
 @dataclass(frozen=True)
@@ -221,10 +254,10 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
         except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
             issue = f'unreadable: {e}'
         else:
-            # The mask burned to all-zero: the AOI polygon falls outside the grid,
-            # so it would contribute no pixels to any query.
+            # Burned to all-zero (no in-basin cell area): the AOI polygon falls
+            # outside the grid, so it would contribute no pixels to any query.
             if not aoi_raster.array.any():
-                issue = 'empty mask (AOI does not overlap the grid)'
+                issue = 'empty AOI (does not overlap the grid)'
         findings.append(
             AoiRasterHealth(dataset.spec.name, triplet, issue is None, issue),
         )

@@ -41,7 +41,6 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
             row[provider_name] = present
         row.update(
             {
-                'area': 'n/a' if artifacts.area is None else artifacts.area,
                 'cogs': artifacts.cogs,
                 'aoi_rasters': artifacts.aoi_rasters,
                 'dates': status.date_count,
@@ -80,6 +79,11 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
         missing = diagnostics.missing_artifacts(ds)
         if missing:
             findings.append(f'missing-files: {name}: {", ".join(missing)}')
+        for fmt in diagnostics.stale_format_zone_layers(ds):
+            findings.append(
+                f'zone-layer-format: {name} {fmt.provider} '
+                f'stored {fmt.stored} != current {fmt.expected}',
+            )
         coverage = diagnostics.aoi_coverage_report(snowdb, ds)
         findings.extend(f'aoi-no-raster: {name} {t}' for t in coverage.unrasterized)
         findings.extend(f'aoi-orphan: {name} {t}' for t in coverage.orphan_rasters)
