@@ -68,6 +68,10 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     findings: list[str] = []
     for ds in resolve_datasets(snowdb, dataset_names):
         name = ds.spec.name
+        findings.extend(
+            f'grid: {name}: {issue}'
+            for issue in diagnostics.grid_validation_report(ds)
+        )
         for inc in diagnostics.completeness_report(ds):
             missing_vars = ', '.join(inc.missing)
             findings.append(

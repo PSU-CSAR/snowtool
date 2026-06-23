@@ -255,3 +255,78 @@ def test_grid_report(dataset):
     left, _bottom, _right, top = result.extent
     assert left == -120.0
     assert top == 45.0
+
+
+# --- grid validation ---------------------------------------------------------
+
+
+def test_grid_validation_clean_when_cog_matches(dataset, swe_cog):
+    # swe_cog is written on the declared grid (matching transform + 512x512).
+    assert diagnostics.grid_validation_report(dataset) == []
+
+
+def test_grid_validation_skipped_without_a_cog(dataset):
+    # No variable COG ingested yet -> grid check has nothing to compare against.
+    assert diagnostics.grid_validation_report(dataset) == []
+
+
+def test_grid_validation_flags_shape_mismatch(dataset):
+    from ..conftest import snodas_swe_name
+
+    date_dir = dataset._cogs / '20180101'
+    date_dir.mkdir(parents=True)
+    # A 256x256 COG on a 512x512 declared grid (transform still matches origin/px).
+    write_cog(
+        date_dir / f'{snodas_swe_name("20180101")}.tif',
+        numpy.zeros((256, 256), dtype=numpy.int16),
+        transform=dataset.grid.base_grid.transform,
+        tile_size=TILE,
+    )
+
+    issues = diagnostics.grid_validation_report(dataset)
+
+    assert any('512x512' in issue and 'is 256x256' in issue for issue in issues)
+
+
+def test_grid_validation_flags_transform_mismatch(dataset):
+    import rasterio
+
+    from ..conftest import snodas_swe_name
+
+    date_dir = dataset._cogs / '20180101'
+    date_dir.mkdir(parents=True)
+    # Right shape, but the origin is shifted a full degree off the declared grid.
+    shifted = dataset.grid.base_grid.transform * rasterio.Affine.translation(0, 0)
+    shifted = rasterio.Affine(
+        shifted.a, shifted.b, shifted.c + 1.0, shifted.d, shifted.e, shifted.f,
+    )
+    write_cog(
+        date_dir / f'{snodas_swe_name("20180101")}.tif',
+        numpy.zeros((512, 512), dtype=numpy.int16),
+        transform=shifted,
+        tile_size=TILE,
+    )
+
+    issues = diagnostics.grid_validation_report(dataset)
+
+    assert any('transform' in issue for issue in issues)
+
+
+def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
+    from snowtool.snowdb.spec import DatasetSpec
+
+    class _Ingester:
+        def ingest(self, source, dataset, *, force=False):  # pragma: no cover
+            return []
+
+    bare = DatasetSpec(
+        name='bare',
+        grid_params=spec.grid_params,
+        variables=(),
+        ingester=_Ingester(),
+    )
+    ds = Dataset(bare, tmp_path / 'bare', ())
+
+    assert diagnostics.grid_validation_report(ds) == [
+        'has an ingester but declares no variables',
+    ]

@@ -22,6 +22,9 @@ from snowtool import types
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from datetime import date
+    from pathlib import Path
+
+    from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
     from snowtool.snowdb.db import SnowDb
@@ -310,3 +313,67 @@ def grid_report(dataset: Dataset) -> GridReport:
         extent=(left, bottom, right, top),
         cell_area_m2=None if spec.is_geographic else spec.cell_area,
     )
+
+
+def _first_present_cog(dataset: Dataset) -> Path | None:
+    """The first variable COG present on disk (scanning dates ascending)."""
+    for d in dataset.available_dates():
+        for variable in dataset.spec.variables.values():
+            path = dataset.variable_path(d, variable)
+            if path is not None:
+                return path
+    return None
+
+
+def _transforms_close(a: Affine, b: Affine) -> bool:
+    """Whether two affine transforms agree to within float noise."""
+    return all(
+        math.isclose(x, y, rel_tol=1e-9, abs_tol=1e-9)
+        for x, y in zip(tuple(a)[:6], tuple(b)[:6], strict=True)
+    )
+
+
+def grid_validation_report(dataset: Dataset) -> list[str]:
+    """Cheap declaration-vs-reality checks for ``snowdb validate``.
+
+    Returns a list of human-readable problems (empty == consistent):
+
+    1. **Ingester vs variables.** An ingester with no variables has nothing to
+       write -- almost certainly a misconfiguration. (The reverse -- variables but
+       no ingester -- is *not* flagged: that is a valid read-only/derived dataset,
+       populated out of band.)
+    2. **Declared grid vs the first present COG.** Opens the first variable COG on
+       disk and checks its shape + transform against the declared grid, catching a
+       config that has drifted from the real rasters. Skipped when no COG exists
+       yet (that is a completeness concern, not an inconsistency).
+
+    A deeper variables-vs-ingester check (the ingester's *required* variable keys
+    being a subset of those declared) would need the ``Ingester`` protocol to
+    expose its expected keys; that is left as a follow-up.
+    """
+    import rasterio
+
+    issues: list[str] = []
+    spec = dataset.spec
+
+    if spec.ingester is not None and not spec.variables:
+        issues.append('has an ingester but declares no variables')
+
+    cog = _first_present_cog(dataset)
+    if cog is not None:
+        grid = spec.grid_params
+        declared = dataset.grid.base_grid.transform
+        with rasterio.open(cog) as src:
+            actual = src.transform
+            width, height = src.width, src.height
+        if (width, height) != (grid.cols, grid.rows):
+            issues.append(
+                f'declared grid is {grid.cols}x{grid.rows} (cols x rows) but COG '
+                f'{cog.name} is {width}x{height}',
+            )
+        if not _transforms_close(declared, actual):
+            issues.append(
+                f'declared grid transform {tuple(declared)[:6]} does not match '
+                f'COG {cog.name} transform {tuple(actual)[:6]}',
+            )
+    return issues
