@@ -6,6 +6,8 @@ import pytest
 
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.aoi_index import AOIIndex, AOIIndexEntry
+from snowtool.snowdb.coverage import Coverage, CoverageDomain
+from snowtool.snowdb.grid import make_grid
 
 
 def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
@@ -13,6 +15,22 @@ def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
     return {
         'type': 'Polygon',
         'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
+    }
+
+
+def _grids():
+    """Two synthetic domains: one covering the test basin, one disjoint from it."""
+    covers = make_grid(
+        origin_x=-120.0, origin_y=45.0, px_size=0.01,
+        cols=512, rows=512, tile_size=256, crs=4326,
+    )
+    disjoint = make_grid(
+        origin_x=-100.0, origin_y=45.0, px_size=0.01,
+        cols=512, rows=512, tile_size=256, crs=4326,
+    )
+    return {
+        'covers': CoverageDomain.from_grid(covers),
+        'disjoint': CoverageDomain.from_grid(disjoint),
     }
 
 
@@ -92,7 +110,7 @@ def test_geometry_hash_raises_without_a_polygon(tmp_path):
 
 
 def test_entry_from_aoi_denormalizes_list_fields(aoi_geojson):
-    entry = AOIIndexEntry.from_aoi(AOI.from_geojson(aoi_geojson))
+    entry = AOIIndexEntry.from_aoi(AOI.from_geojson(aoi_geojson), _grids())
     assert entry.triplet == '12345:MT:USGS'
     assert entry.name == 'Test Basin'
     assert entry.source == 'test'
@@ -100,15 +118,28 @@ def test_entry_from_aoi_denormalizes_list_fields(aoi_geojson):
     assert len(entry.geometry_hash) == 64
 
 
+def test_entry_from_aoi_computes_per_dataset_coverage(aoi_geojson):
+    entry = AOIIndexEntry.from_aoi(AOI.from_geojson(aoi_geojson), _grids())
+    assert entry.coverage == {
+        'covers': Coverage.FULL,
+        'disjoint': Coverage.NONE,
+    }
+
+
 def test_entry_feature_round_trips(tmp_path):
     aoi = AOI.from_geojson(_write_pourpoint(tmp_path / 'p.geojson'))
-    entry = AOIIndexEntry.from_aoi(aoi)
+    entry = AOIIndexEntry.from_aoi(aoi, _grids())
     feature = entry.to_feature()
     assert feature['type'] == 'Feature'
     assert feature['id'] == '12345:MT:USGS'
     assert feature['geometry']['type'] == 'Point'
     assert feature['properties']['active'] is True
     assert feature['properties']['basinarea'] == 5.2
+    # Coverage serializes to plain strings and round-trips back to the enum.
+    assert feature['properties']['coverage'] == {
+        'covers': 'full',
+        'disjoint': 'none',
+    }
     assert AOIIndexEntry.from_feature(feature) == entry
 
 
@@ -121,8 +152,13 @@ def test_index_from_records_and_save_load_round_trip(tmp_path):
     _write_pourpoint(records / 'b.geojson', triplet='20000:MT:USGS')
     _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
 
-    index = AOIIndex.from_records(records)
+    index = AOIIndex.from_records(records, _grids())
     assert index.triplets() == {'10000:MT:USGS', '20000:MT:USGS'}
+    # Coverage is derived per dataset during the rebuild.
+    assert index['10000:MT:USGS'].coverage == {
+        'covers': Coverage.FULL,
+        'disjoint': Coverage.NONE,
+    }
 
     out = tmp_path / 'index.geojson'
     index.save(out)
@@ -151,12 +187,12 @@ def test_index_from_records_skips_point_only_records(tmp_path):
         with_polygon=False,
     )
 
-    index = AOIIndex.from_records(records)
+    index = AOIIndex.from_records(records, _grids())
     assert index.triplets() == {'10000:MT:USGS'}
 
 
 def test_index_from_records_empty_when_dir_absent(tmp_path):
-    assert AOIIndex.from_records(tmp_path / 'nope').triplets() == set()
+    assert AOIIndex.from_records(tmp_path / 'nope', _grids()).triplets() == set()
 
 
 def test_index_load_missing_file_is_empty(tmp_path):

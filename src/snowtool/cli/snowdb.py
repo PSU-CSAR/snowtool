@@ -80,6 +80,8 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
         coverage = diagnostics.aoi_coverage_report(snowdb, ds)
         findings.extend(f'aoi-no-raster: {name} {t}' for t in coverage.unrasterized)
         findings.extend(f'aoi-orphan: {name} {t}' for t in coverage.orphan_rasters)
+        findings.extend(f'aoi-partial: {name} {t}' for t in coverage.partial)
+        findings.extend(f'aoi-uncovered: {name} {t}' for t in coverage.uncovered)
         for health in diagnostics.aoi_health_report(ds):
             if not health.ok:
                 findings.append(f'aoi-health: {name} {health.triplet}: {health.issue}')

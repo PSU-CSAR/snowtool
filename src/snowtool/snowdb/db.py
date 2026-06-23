@@ -26,6 +26,11 @@ from snowtool import types
 from snowtool.exceptions import AOIPruneDestinationRequiredError, GeoJSONValidationError
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.aoi_index import AOIIndex
+from snowtool.snowdb.coverage import (
+    Coverage,
+    dataset_coverage,
+    require_full_coverage,
+)
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.tiff_cache import TiffCache
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
@@ -358,10 +363,55 @@ class SnowDb:
         return AOIIndex.load(self.aoi_index_path)
 
     def reindex_aois(self: Self) -> AOIIndex:
-        """Rebuild ``index.geojson`` from the ``records/`` dir and persist it."""
-        index = AOIIndex.from_records(self.aoi_records_path)
+        """Rebuild ``index.geojson`` from the ``records/`` dir and persist it.
+
+        Coverage is re-derived against every dataset's current grid, so the
+        manifest always reflects the live grids (a grid change is picked up by
+        re-running this).
+        """
+        domains = {
+            name: ds.coverage_domain for name, ds in self.datasets.items()
+        }
+        index = AOIIndex.from_records(self.aoi_records_path, domains)
         index.save(self.aoi_index_path)
         return index
+
+    def aoi_dataset_coverage(
+        self: Self,
+        triplet: types.StationTriplet,
+        dataset_name: str,
+    ) -> Coverage:
+        """How fully ``dataset_name``'s grid covers AOI ``triplet``'s basin.
+
+        Computed live from the stored basin geometry (not the cached index), so it
+        is authoritative even if the index is stale. Raises if either the AOI or
+        the dataset is unknown.
+        """
+        aoi = self.load_aoi(triplet)
+        return dataset_coverage(aoi, self.datasets[dataset_name].coverage_domain)
+
+    def require_aoi_coverage(
+        self: Self,
+        triplet: types.StationTriplet,
+        dataset_name: str,
+        *,
+        allow_partial: bool = False,
+    ) -> Coverage:
+        """Query guard: raise unless ``dataset_name`` fully covers AOI ``triplet``.
+
+        The seam a stats/query call uses before reading rasters, closing the
+        silent-partial-stats gap. ``allow_partial`` permits a knowingly-clipped
+        query over a partially-covered AOI; a wholly off-grid AOI always raises.
+        Returns the computed :class:`Coverage` for callers that want to log it.
+        """
+        coverage = self.aoi_dataset_coverage(triplet, dataset_name)
+        require_full_coverage(
+            coverage,
+            triplet=triplet,
+            dataset=dataset_name,
+            allow_partial=allow_partial,
+        )
+        return coverage
 
     # --- AOI import / sync / lifecycle ----------------------------------------
 

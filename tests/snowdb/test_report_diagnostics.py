@@ -1,17 +1,40 @@
 """Unit tests for the read-only report builders in snowdb.diagnostics."""
 
+import json
+
 from datetime import date
 
 import numpy
+import pytest
 
+from snowtool.exceptions import AOICoverageError
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 
 from .conftest import TILE
+
+
+def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
+    """Write an AOI record with a rectangular basin to ``records_dir``."""
+    point = {'type': 'Point', 'coordinates': [(x0 + x1) / 2, (y0 + y1) / 2]}
+    polygon = {
+        'type': 'Polygon',
+        'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
+    }
+    feature = {
+        'type': 'GeometryCollection',
+        'id': triplet,
+        'geometries': [point, polygon],
+        'properties': {'name': 'Basin', 'source': 'test'},
+    }
+    path = records_dir / f'{triplet.replace(":", "_")}.geojson'
+    path.write_text(json.dumps(feature))
+    return path
 
 # --- coverage / completeness -------------------------------------------------
 
@@ -99,6 +122,66 @@ def test_aoi_coverage_flags_orphan_raster(tmp_path, spec, aoi_geojson):
     result = diagnostics.aoi_coverage_report(db, ds)
 
     assert result.orphan_rasters == ('12345:MT:USGS',)
+
+
+def test_aoi_coverage_classifies_full_partial_none(tmp_path, spec, aoi_geojson):
+    # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
+    SnowDb.initialize(tmp_path, [spec])
+    Dataset.create(spec, tmp_path / 'data' / 'test')
+    db = SnowDb(tmp_path, [spec])
+    records = db.aoi_records_path
+    # Fully inside.
+    _write_basin(records, '100:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
+    # Straddles the western edge -> partial.
+    _write_basin(records, '200:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)
+    # Entirely east of the grid -> none.
+    _write_basin(records, '300:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
+
+    result = diagnostics.aoi_coverage_report(db, db.datasets['test'])
+
+    assert result.partial == ('200:MT:USGS',)
+    assert result.uncovered == ('300:MT:USGS',)
+
+
+# --- query guard: SnowDb.require_aoi_coverage --------------------------------
+
+
+@pytest.fixture
+def guard_db(tmp_path, spec):
+    """A SnowDb with three AOIs: full, partial, and uncovered by the grid."""
+    SnowDb.initialize(tmp_path, [spec])
+    Dataset.create(spec, tmp_path / 'data' / 'test')
+    db = SnowDb(tmp_path, [spec])
+    records = db.aoi_records_path
+    _write_basin(records, 'full:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
+    _write_basin(records, 'part:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)
+    _write_basin(records, 'none:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
+    return db
+
+
+def test_guard_passes_full_coverage(guard_db):
+    assert (
+        guard_db.require_aoi_coverage('full:MT:USGS', 'test') is Coverage.FULL
+    )
+
+
+def test_guard_raises_on_partial(guard_db):
+    with pytest.raises(AOICoverageError, match='partially covered'):
+        guard_db.require_aoi_coverage('part:MT:USGS', 'test')
+
+
+def test_guard_allow_partial_bypasses(guard_db):
+    assert (
+        guard_db.require_aoi_coverage(
+            'part:MT:USGS', 'test', allow_partial=True,
+        )
+        is Coverage.PARTIAL
+    )
+
+
+def test_guard_raises_on_uncovered_despite_allow_partial(guard_db):
+    with pytest.raises(AOICoverageError, match='not covered'):
+        guard_db.require_aoi_coverage('none:MT:USGS', 'test', allow_partial=True)
 
 
 # --- aoi-health --------------------------------------------------------------

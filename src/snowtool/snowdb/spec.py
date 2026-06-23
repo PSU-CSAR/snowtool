@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from pydantic import BaseModel
+    from shapely import Geometry
 
+    from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import Ingester
     from snowtool.snowdb.variables import DatasetVariable
 
@@ -55,6 +57,7 @@ class DatasetSpec:
         variables: Iterable[DatasetVariable] = (),
         band_step_ft: int = 1000,
         ingester: Ingester | None = None,
+        domain_exclusions: Iterable[Geometry] = (),
     ) -> None:
         self.name = name
         self.grid_params = grid_params
@@ -65,6 +68,10 @@ class DatasetSpec:
         # None means the dataset has no ingest (e.g. read-only / derived). See
         # snowtool.snowdb.ingest.
         self.ingester = ingester
+        # Permanently-empty regions of the grid (in grid CRS) to carve out of the
+        # coverage domain -- e.g. a MODIS tile this dataset never ingests. Static
+        # (grid definition), not per-date; see CoverageDomain.
+        self.domain_exclusions = tuple(domain_exclusions)
 
     @cached_property
     def crs(self) -> CRS:
@@ -77,6 +84,18 @@ class DatasetSpec:
         if crs is None:  # pragma: no cover - defensive; make_grid always sets one
             raise ValueError(f'{self.name}: grid has no CRS')
         return crs
+
+    @cached_property
+    def coverage_domain(self) -> CoverageDomain:
+        """The static region this dataset can serve (grid extent minus holes).
+
+        Used by AOI coverage classification; ``domain_exclusions`` carves out
+        permanently-empty parts of the grid so a basin over one is not reported
+        as fully covered.
+        """
+        from snowtool.snowdb.coverage import CoverageDomain
+
+        return CoverageDomain.from_grid(self.grid, exclude=self.domain_exclusions)
 
     @cached_property
     def is_geographic(self) -> bool:

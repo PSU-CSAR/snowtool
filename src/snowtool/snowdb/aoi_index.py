@@ -16,15 +16,18 @@ from __future__ import annotations
 
 import json
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 from snowtool import types
 from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.coverage import Coverage, dataset_coverage
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
+
+    from snowtool.snowdb.coverage import CoverageDomain
 
 
 @dataclass(frozen=True)
@@ -38,9 +41,18 @@ class AOIIndexEntry:
     geometry_hash: str
     active: bool | None = None
     basinarea: float | None = None
+    # Per-dataset geometric coverage of this AOI's basin, keyed by dataset name.
+    # Derived (a grid change => `aoi reindex`), so it is recomputed by
+    # `AOIIndex.from_records`, never edited in place; absent for a point-only AOI
+    # (which is not indexed anyway).
+    coverage: dict[str, Coverage] = field(default_factory=dict)
 
     @classmethod
-    def from_aoi(cls: type[Self], aoi: AOI) -> Self:
+    def from_aoi(
+        cls: type[Self],
+        aoi: AOI,
+        domains: Mapping[str, CoverageDomain],
+    ) -> Self:
         return cls(
             triplet=aoi.station_triplet,
             name=aoi.name,
@@ -49,6 +61,10 @@ class AOIIndexEntry:
             geometry_hash=aoi.geometry_hash,
             active=aoi.properties.get('active'),
             basinarea=aoi.properties.get('basinarea'),
+            coverage={
+                name: dataset_coverage(aoi, domain)
+                for name, domain in domains.items()
+            },
         )
 
     def to_feature(self: Self) -> dict[str, Any]:
@@ -62,6 +78,9 @@ class AOIIndexEntry:
                 'active': self.active,
                 'basinarea': self.basinarea,
                 'geometry_hash': self.geometry_hash,
+                'coverage': {
+                    name: cov.value for name, cov in self.coverage.items()
+                },
             },
         }
 
@@ -76,6 +95,10 @@ class AOIIndexEntry:
             geometry_hash=properties['geometry_hash'],
             active=properties.get('active'),
             basinarea=properties.get('basinarea'),
+            coverage={
+                name: Coverage(value)
+                for name, value in properties['coverage'].items()
+            },
         )
 
 
@@ -95,11 +118,19 @@ class AOIIndex:
         return cls({entry.triplet: entry for entry in entries})
 
     @classmethod
-    def from_records(cls: type[Self], records_dir: Path) -> Self:
+    def from_records(
+        cls: type[Self],
+        records_dir: Path,
+        domains: Mapping[str, CoverageDomain],
+    ) -> Self:
         """Rebuild the index by parsing every ``records/<triplet>.geojson``.
 
-        Point-only pourpoints are skipped: with no basin they are not AOIs (the
-        same rule import applies), and they have no geometry hash to index.
+        Per-dataset coverage is computed here against ``domains`` (dataset name ->
+        :class:`~snowtool.snowdb.coverage.CoverageDomain`) so it stays derived:
+        rebuilding the index re-derives it, and a grid/domain change is picked up
+        by a plain ``aoi reindex``. Point-only pourpoints are skipped: with no
+        basin they are not AOIs (the same rule import applies), and they have no
+        geometry hash to index.
         """
         if not records_dir.is_dir():
             return cls({})
@@ -108,7 +139,7 @@ class AOIIndex:
             aoi = AOI.from_geojson(path)
             if aoi.polygon is None:
                 continue
-            entries.append(AOIIndexEntry.from_aoi(aoi))
+            entries.append(AOIIndexEntry.from_aoi(aoi, domains))
         return cls.from_entries(entries)
 
     @classmethod
