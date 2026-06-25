@@ -843,7 +843,13 @@ class _TerrainStreamer:
         """Main-thread step: bin one block into every accumulator (serial, ordered)."""
         for acc, (xt, yt) in zip(self._accumulators, result.coords, strict=True):
             acc.bin_into(
-                xt, yt, result.cls, result.cos, result.sin, result.wt, result.z,
+                xt,
+                yt,
+                result.cls,
+                result.cos,
+                result.sin,
+                result.wt,
+                result.z,
             )
 
     def run(self: Self, workers: int) -> None:
@@ -888,5 +894,13 @@ def _stream_blocks(
     block_size: int,
 ) -> None:
     _TerrainStreamer(
-        wvrt, dst_transform, dst_w, dst_h, px, py, accumulators, work_crs, block_size,
+        wvrt,
+        dst_transform,
+        dst_w,
+        dst_h,
+        px,
+        py,
+        accumulators,
+        work_crs,
+        block_size,
     ).run(workers)

@@ -21,12 +21,22 @@ def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
 def _grids():
     """Two synthetic domains: one covering the test basin, one disjoint from it."""
     covers = make_grid(
-        origin_x=-120.0, origin_y=45.0, px_size=0.01,
-        cols=512, rows=512, tile_size=256, crs=4326,
+        origin_x=-120.0,
+        origin_y=45.0,
+        px_size=0.01,
+        cols=512,
+        rows=512,
+        tile_size=256,
+        crs=4326,
     )
     disjoint = make_grid(
-        origin_x=-100.0, origin_y=45.0, px_size=0.01,
-        cols=512, rows=512, tile_size=256, crs=4326,
+        origin_x=-100.0,
+        origin_y=45.0,
+        px_size=0.01,
+        cols=512,
+        rows=512,
+        tile_size=256,
+        crs=4326,
     )
     return {
         'covers': CoverageDomain.from_grid(covers),

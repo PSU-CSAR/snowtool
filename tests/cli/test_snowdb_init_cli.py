@@ -8,7 +8,9 @@ from snowtool.snowdb.db import SnowDb
 
 def _init(runner, root):
     return runner.invoke(
-        cli, ['snowdb', 'init', str(root)], obj=CliContext(config=root),
+        cli,
+        ['snowdb', 'init', str(root)],
+        obj=CliContext(config=root),
     )
 
 

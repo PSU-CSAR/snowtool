@@ -31,6 +31,7 @@ def _landcover_set(directory):
     """The land-cover ZoneLayerSet rooted at ``directory`` (test reader)."""
     return LandCoverProvider().layer_set(directory)
 
+
 WORK_EPSG = 5070
 ORIGIN_X = -500_000.0
 ORIGIN_Y = 2_000_000.0

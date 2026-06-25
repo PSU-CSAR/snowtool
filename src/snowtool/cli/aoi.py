@@ -98,8 +98,7 @@ def sync_aois(
         verb = 'would prune' if dry_run else 'pruned'
         dest = f' to {prune_to}' if prune_to else ''
         click.echo(
-            f'{verb} {len(result.pruned)} AOI(s){dest}: '
-            f'{", ".join(result.pruned)}',
+            f'{verb} {len(result.pruned)} AOI(s){dest}: {", ".join(result.pruned)}',
         )
     _fail_if_invalid(result)
 
@@ -230,6 +229,5 @@ def rasterize_aois(
     for triplet_, dataset_name in result.built:
         click.echo(f'built {triplet_} [{dataset_name}]')
     click.echo(
-        f'built {len(result.built)}, '
-        f'skipped {len(result.skipped)} (already current)',
+        f'built {len(result.built)}, skipped {len(result.skipped)} (already current)',
     )

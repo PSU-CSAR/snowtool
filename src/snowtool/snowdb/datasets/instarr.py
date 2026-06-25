@@ -242,9 +242,7 @@ class InstarrIngester:
         force: bool = False,
     ) -> list[date]:
         candidates = (
-            sorted(source.glob('**/SPIRES_NRT_*.nc'))
-            if source.is_dir()
-            else [source]
+            sorted(source.glob('**/SPIRES_NRT_*.nc')) if source.is_dir() else [source]
         )
 
         tiles_by_date: dict[date, list[Path]] = defaultdict(list)

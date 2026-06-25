@@ -62,8 +62,7 @@ class AOIIndexEntry:
             active=aoi.properties.get('active'),
             basinarea=aoi.properties.get('basinarea'),
             coverage={
-                name: dataset_coverage(aoi, domain)
-                for name, domain in domains.items()
+                name: dataset_coverage(aoi, domain) for name, domain in domains.items()
             },
         )
 
@@ -78,9 +77,7 @@ class AOIIndexEntry:
                 'active': self.active,
                 'basinarea': self.basinarea,
                 'geometry_hash': self.geometry_hash,
-                'coverage': {
-                    name: cov.value for name, cov in self.coverage.items()
-                },
+                'coverage': {name: cov.value for name, cov in self.coverage.items()},
             },
         }
 
@@ -96,8 +93,7 @@ class AOIIndexEntry:
             active=properties.get('active'),
             basinarea=properties.get('basinarea'),
             coverage={
-                name: Coverage(value)
-                for name, value in properties['coverage'].items()
+                name: Coverage(value) for name, value in properties['coverage'].items()
             },
         )
 
@@ -149,16 +145,14 @@ class AOIIndex:
             return cls({})
         collection = json.loads(path.read_text())
         return cls.from_entries(
-            AOIIndexEntry.from_feature(feature)
-            for feature in collection['features']
+            AOIIndexEntry.from_feature(feature) for feature in collection['features']
         )
 
     def to_feature_collection(self: Self) -> dict[str, Any]:
         return {
             'type': 'FeatureCollection',
             'features': [
-                self.entries[triplet].to_feature()
-                for triplet in sorted(self.entries)
+                self.entries[triplet].to_feature() for triplet in sorted(self.entries)
             ],
         }
 
