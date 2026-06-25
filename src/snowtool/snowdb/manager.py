@@ -11,7 +11,6 @@ snowdb, not the other way around."
 
 from __future__ import annotations
 
-import logging
 import shutil
 
 from dataclasses import dataclass
@@ -42,9 +41,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
-
-
-logger = logging.getLogger(__name__)
 
 
 def _combined_extent(
@@ -167,23 +163,6 @@ class SnowDbManager:
                 zone_layer_sources=zone_layer_sources,
             ),
         )
-
-    def require_initialized(self: Self) -> Self:
-        """Raise unless the root has its base structure (``aois/`` + ``data/``).
-
-        Read paths tolerate a missing layout (they just serve no data), but
-        management commands that write call this first so they refuse to operate
-        on a root that was never ``snowdb init``-ed rather than silently creating
-        the base directories themselves.
-        """
-        missing = self.db._missing_base_dirs()
-        if missing:
-            raise FileNotFoundError(
-                f'{self.db.path} is not an initialized snowdb (missing '
-                f'{", ".join(str(p) for p in missing)}). '
-                'Run `snowtool snowdb init` first.',
-            )
-        return self
 
     def _read_root_config(self: Self) -> RootConfig:
         """Load this root's on-disk config (raises if it is absent)."""

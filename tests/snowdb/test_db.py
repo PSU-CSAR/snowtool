@@ -49,20 +49,33 @@ def test_binds_every_spec_without_data_on_disk(tmp_path):
     assert db['snodas'].path == tmp_path / 'data' / 'snodas'
 
 
-def test_missing_dirs_logs_a_warning(tmp_path, caplog):
-    with caplog.at_level('WARNING'):
-        make_snowdb(tmp_path, [_spec('snodas')])
+def test_in_code_config_with_absolute_paths_opens_without_root(tmp_path):
+    # A config built in code (never saved -> no root) opens as long as its links
+    # are absolute: here an inline dataset with an absolute data_dir.
+    from snowtool.snowdb.config import InlineDatasetLink, RootConfig
+    from snowtool.snowdb.datasets import config_from_spec
 
-    assert 'snowdb init' in caplog.text
+    data_dir = tmp_path / 'anywhere' / 'snodas'
+    dataset_config = config_from_spec(_spec('snodas'))
+    dataset_config.data_dir = data_dir
+    config = RootConfig.create()
+    config.aoi_records = str(tmp_path / 'aois' / 'records')
+    config.aoi_index = str(tmp_path / 'aois' / 'index.geojson')
+    config.datasets['snodas'] = InlineDatasetLink(dataset=dataset_config)
+
+    db = SnowDb(config)  # no config.path set -> no root
+
+    assert db.root is None
+    assert db['snodas'].path == data_dir
 
 
-def test_no_warning_on_an_initialized_root(tmp_path, caplog):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+def test_relative_path_without_root_raises(tmp_path):
+    # The default aoi_records is relative; with no root it cannot resolve, so
+    # construction fails with a precise error rather than a silent default.
+    config = RootConfig.create()
 
-    with caplog.at_level('WARNING'):
-        make_snowdb(tmp_path, [_spec('snodas')])
-
-    assert caplog.text == ''
+    with pytest.raises(SnowDbConfigError, match='no location'):
+        SnowDb(config)
 
 
 def test_initialize_creates_the_base_layout(tmp_path):
@@ -152,19 +165,6 @@ def test_initialize_is_idempotent(tmp_path):
     SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     assert (tmp_path / 'data' / 'snodas').is_dir()
-
-
-def test_require_initialized_raises_on_uninitialized_root(tmp_path):
-    manager = make_manager(tmp_path, [_spec('snodas')])
-
-    with pytest.raises(FileNotFoundError, match='not an initialized snowdb'):
-        manager.require_initialized()
-
-
-def test_require_initialized_passes_after_init(tmp_path):
-    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
-
-    assert manager.require_initialized() is manager
 
 
 def test_duplicate_spec_names_rejected():

@@ -108,6 +108,12 @@ class DatasetConfig(ResourceModel):
     ingester: str | None = None
     zones: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     footprint: dict[str, Any] | None = None
+    # Where this dataset's data lives (the dir holding cogs/, aoi-rasters/, ...).
+    # Absolute -> anywhere (decoupled from the config's location); relative ->
+    # against the config's own dir; omitted -> the convention (beside a referenced
+    # config, ``data/<name>/`` for an inline one). ponytail: a plain path, not a
+    # typed source union -- add that when a second (e.g. remote) backend is real.
+    data_dir: Path | None = None
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:

@@ -17,7 +17,6 @@ reads.
 
 from __future__ import annotations
 
-import logging
 import shutil
 
 from pathlib import Path
@@ -54,9 +53,6 @@ if TYPE_CHECKING:
     )
 
 
-logger = logging.getLogger(__name__)
-
-
 class SnowDb:
     def __init__(
         self: Self,
@@ -74,38 +70,45 @@ class SnowDb:
         -- loaded from a file (:meth:`open`) or built in code -- and resolves
         everything the config defines. The config's own
         :attr:`~snowtool.snowdb.config.RootConfig.path` gives the root (its parent),
-        which every relative link resolves against; a config with no path (built in
-        code, never saved) therefore cannot be opened, since its relative links and
-        data tree have nothing to resolve against. Each registered dataset is either
+        the base relative links resolve against. A config built in code (no path)
+        has no root, so it works only if every link it uses is absolute -- a
+        relative link raises when resolved. Each registered dataset is either
         embedded *inline* (its config carried in the link) or *referenced* by a path
-        link to a ``dataset.json`` (relative to the root, or absolute); the linked
-        config is deserialized into a :class:`DatasetSpec` and the dataset bound to
-        its directory (beside its config for a reference, ``data/<name>/`` for an
-        inline one). The AOI index/records locations come from the config too, so
-        the code follows the config rather than assuming paths.
+        link to a ``dataset.json``; the linked config is deserialized into a
+        :class:`DatasetSpec` and the dataset bound to its directory, which comes from
+        the dataset config's ``data_dir`` (absolute, or relative to that config's own
+        location) and defaults to the convention (beside a referenced config,
+        ``data/<name>/`` for an inline one). The AOI index/records locations come
+        from the config too, so the code follows the config rather than assuming
+        paths.
         """
         from snowtool.snowdb.config import InlineDatasetLink
         from snowtool.snowdb.spec import DatasetSpec
 
-        if config.path is None:
-            raise SnowDbConfigError(
-                None,
-                'this root config has no path (it was built in code, not loaded '
-                'from a file), so its root and relative links cannot be resolved. '
-                'Save it first, or set its path.',
-            )
         self.config = config
         self.config_path = config.path
-        self.root = config.path.parent
+        # The root is the config file's directory: the base relative links resolve
+        # against. A config built in code (no path) has no root -- fine as long as
+        # every link it uses is absolute; a relative one raises when resolved.
+        self.root = config.path.parent if config.path is not None else None
         # `path` is kept as an alias for `root` (the many read helpers below, and
         # callers, refer to `self.path`).
         self.path = self.root
-        self.aois_path = self.root / 'aois'
-        self.data_path = self.root / 'data'
+        self.data_path = self.root / 'data' if self.root is not None else None
 
-        def resolve(link: str) -> Path:
-            link_path = Path(link)
-            return link_path if link_path.is_absolute() else self.root / link_path
+        def resolve(link: str | Path, base: Path | None = None) -> Path:
+            p = Path(link)
+            if p.is_absolute():
+                return p
+            anchor = base if base is not None else self.root
+            if anchor is None:
+                raise SnowDbConfigError(
+                    self.root,
+                    f'cannot resolve relative path {str(p)!r}: this config has no '
+                    'location (built in code, not saved). Make the path absolute, '
+                    'or save the config first.',
+                )
+            return anchor / p
 
         self.aoi_records_path = resolve(config.aoi_records)
         self.aoi_index_path = resolve(config.aoi_index)
@@ -117,7 +120,7 @@ class SnowDb:
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
                 dataset_config = link.dataset
-                self._dataset_paths[name] = self.data_path / name
+                base, default = self.root, Path('data') / name
             else:  # PathDatasetLink
                 resolved = resolve(link.path)
                 if not resolved.is_file():
@@ -127,8 +130,14 @@ class SnowDb:
                         f'{resolved}',
                     )
                 dataset_config = DatasetConfig.load(resolved)
-                # The dataset's data lives beside its config, wherever it points.
-                self._dataset_paths[name] = resolved.parent
+                base, default = resolved.parent, resolved.parent
+            # The data dir is the config's `data_dir` (absolute -> anywhere;
+            # relative -> against the config's own location), else the convention.
+            spec_dir = dataset_config.data_dir
+            self._dataset_paths[name] = resolve(
+                spec_dir if spec_dir is not None else default,
+                base,
+            )
             specs.append(DatasetSpec.from_config(dataset_config, name))
 
         self._specs = self._index_specs(specs)
@@ -151,11 +160,14 @@ class SnowDb:
         # default source is used (3DEP for terrain, the MRLC bundle for land cover),
         # so `init` works out of the box.
         overrides = zone_layer_sources or {}
+        # default_source needs the root; a rootless (in-code) config keeps only the
+        # sources explicitly injected. Reads don't use sources -- only generation,
+        # which needs a root anyway.
         self.zone_layer_sources: dict[str, ZoneLayerSource] = {
             name: overrides.get(name) or provider.default_source(self.path)
             for name, provider in self.zone_layer_providers.items()
+            if self.path is not None or overrides.get(name) is not None
         }
-        self._warn_if_uninitialized()
 
     @staticmethod
     def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:
@@ -182,41 +194,13 @@ class SnowDb:
         return {
             name: Dataset(
                 spec,
-                # The dataset's directory: where its config link placed it (which
-                # may be outside the tree), else the conventional data/<name>/.
-                self._dataset_paths.get(name, self.data_path / name),
+                # The dataset's directory, resolved from its config's data_dir
+                # (or the convention) in __init__.
+                self._dataset_paths[name],
                 self.zone_layer_providers.values(),
             )
             for name, spec in self._specs.items()
         }
-
-    def _missing_base_dirs(self: Self) -> list[Path]:
-        """Base directories (``aois/`` + ``data/``) the root lacks."""
-        return [p for p in (self.aois_path, self.data_path) if not p.is_dir()]
-
-    def _missing_dirs(self: Self) -> list[Path]:
-        """Base/dataset directories the root is expected to have but doesn't."""
-        missing = self._missing_base_dirs()
-        # Only enumerate per-dataset dirs when data/ exists; a missing data/
-        # already implies every dataset dir is absent.
-        if self.data_path.is_dir():
-            missing.extend(
-                dataset.path
-                for dataset in self.datasets.values()
-                if not dataset.path.is_dir()
-            )
-        return missing
-
-    def _warn_if_uninitialized(self: Self) -> None:
-        missing = self._missing_dirs()
-        if missing:
-            logger.warning(
-                'snowdb at %s is missing expected directories (%s); affected '
-                'datasets will serve no data. Run `snowtool snowdb init` to '
-                'create the layout.',
-                self.path,
-                ', '.join(str(p) for p in missing),
-            )
 
     @classmethod
     def open(

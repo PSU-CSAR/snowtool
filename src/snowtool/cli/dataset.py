@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._context import pass_manager, pass_snowdb
-from snowtool.cli._datasets import format_option, get_dataset, require_initialized
+from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._render import DATE, _emit, _emit_record
 from snowtool.exceptions import SNODASError
 
@@ -163,7 +163,6 @@ def create_dataset(
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
     from snowtool.snowdb.dataset import Dataset
 
-    require_initialized(manager)
     ds, config = _resolve_create_target(manager.db, name, template)
     overrides = _resolve_source_overrides(manager.db, sources)
     try:
@@ -269,7 +268,6 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.spec import DatasetSpec
 
-    require_initialized(manager)
     try:
         config = DatasetConfig.load(config_path)
         DatasetSpec.from_config(config, name)  # validate it resolves (ingester, ...)
@@ -304,7 +302,6 @@ def ingest_dataset(
     Idempotent: re-ingesting an archive overwrites that date's COGs with the
     same (deterministic) result.
     """
-    require_initialized(manager)
     ds = get_dataset(manager.db, name)
     for archive in archives:
         try:
@@ -365,7 +362,6 @@ def generate_zones(
     default 3DEP source streams from S3) and land cover downloads the MRLC Annual
     NLCD national raster (~1.5 GB) on first use.
     """
-    require_initialized(manager)
     ds = get_dataset(manager.db, name)
     overrides = _resolve_source_overrides(manager.db, sources)
 
@@ -402,7 +398,6 @@ def remove_date(
     dry_run: bool,
 ) -> None:
     """Remove a single ingested DATE from dataset NAME."""
-    require_initialized(manager)
     ds = get_dataset(manager.db, name)
     iso = removal_date.isoformat()
 
@@ -429,7 +424,6 @@ def remove_date(
 @pass_manager
 def prune_dates(manager: SnowDbManager, name: str, before: date, dry_run: bool) -> None:
     """Remove every ingested date in dataset NAME older than --before."""
-    require_initialized(manager)
     ds = get_dataset(manager.db, name)
     targets = ds.dates_before(before)
 
