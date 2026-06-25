@@ -2,6 +2,9 @@
 
 import pytest
 
+from click.testing import CliRunner
+
+from snowtool.cli import cli
 from snowtool.migration.stamp import stamp_root
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.db import SnowDb
@@ -64,9 +67,6 @@ def test_stamp_rejects_a_non_snowdb_dir(tmp_path):
 
 
 def test_cli_migration_stamp(tmp_path):
-    from click.testing import CliRunner
-
-    from snowtool.cli import cli
 
     root = _legacy_root(tmp_path)
 

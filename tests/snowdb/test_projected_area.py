@@ -18,6 +18,7 @@ from rasterio.crs import CRS
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.spec import DatasetSpec, GridParams
+from snowtool.snowdb.terrain import ELEVATION
 
 from .conftest import write_terrain
 
@@ -59,7 +60,6 @@ def test_create_writes_no_area_raster(dataset):
     # No area raster is written for any grid (the AOI raster carries cell area)...
     assert not (dataset.path / 'areas.tif').exists()
     # ...and terrain is written in the grid's own CRS.
-    from snowtool.snowdb.terrain import ELEVATION
 
     terrain = dataset.zones['terrain']
     assert terrain.present()

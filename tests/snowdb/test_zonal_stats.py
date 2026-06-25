@@ -21,6 +21,7 @@ import math
 from datetime import date
 
 import numpy
+import pytest
 
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -33,6 +34,8 @@ from snowtool.snowdb.zonal_stats import (
     _ZoneIndex,
     parse_zone_selection,
 )
+from snowtool.snowdb.zone_layer import available_zones
+from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone, ThresholdZone
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
@@ -91,7 +94,9 @@ def _run_calc(aoi, variable, raster, scheme, *, step=None):
     # A single elevation axis: the K=1 case of the crossed index.
     ordinals = scheme.assign(aoi.elevation, step=step)
     zone_index = _ZoneIndex.build(
-        [scheme.zones(step=step)], [ordinals], aoi.array,
+        [scheme.zones(step=step)],
+        [ordinals],
+        aoi.array,
     )
     return asyncio.run(ZonalStats._calc(aoi, variable, raster, zone_index, cache=None))
 
@@ -102,16 +107,25 @@ def _bounds(result: Result) -> tuple[int, int]:
     return band.min, band.max
 
 
-def test_calc_area_is_variable_independent_and_mean_is_area_weighted():
+@pytest.mark.parametrize(
+    ('reducer', 'expected_value'),
+    [
+        # Mean is weighted by each valid pixel's area and excludes the nodata cell:
+        # an area-weighted 300 (vs ~233.3 unweighted -> the exact 300 proves weighting).
+        (Reducer.MEAN, 300.0),
+        # Total is the area-weighted sum over the valid pixels: a basin total of 21000.
+        (Reducer.TOTAL, 21000.0),
+    ],
+)
+def test_calc_area_reducer_independent_and_weighted(reducer, expected_value):
     # All four elevations (m) fall inside the single 0..10000 ft band, so the cell
-    # selection is the whole window.
+    # selection is the whole window. The bottom-left pixel (area 30) is nodata.
     elevations = numpy.array([[500.0, 1000.0], [1500.0, 2000.0]], dtype=numpy.float32)
     # Deliberately non-uniform per-pixel ground areas.
     areas = numpy.array([[10.0, 20.0], [30.0, 40.0]], dtype=numpy.float32)
-    # The bottom-left pixel (area 30) is nodata for this variable.
     values = numpy.array([[100, 200], [NODATA, 400]], dtype=numpy.int16)
 
-    variable = _variable(Reducer.MEAN)
+    variable = _variable(reducer)
     aoi = _FakeAOI(elevations, areas, values)
     raster = _FakeRaster(date(2018, 4, 27))
 
@@ -121,30 +135,10 @@ def test_calc_area_is_variable_independent_and_mean_is_area_weighted():
     assert result.date == raster.date
     assert result.variable is variable
     assert _bounds(result) == (0, 10000)
-
-    # area counts every in-cell pixel, including the one that is nodata for this
-    # variable (10 + 20 + 30 + 40).
+    # area counts every in-cell pixel, including the nodata one (10 + 20 + 30 + 40),
+    # independent of the reducer.
     assert result.area == 100.0
-
-    # Mean is weighted by each valid pixel's area and excludes the nodata cell,
-    # giving an area-weighted average of 300 (vs ~233.3 unweighted).
-    assert result.value == 300.0
-    assert result.value != (100 + 200 + 400) / 3
-
-
-def test_calc_total_is_area_weighted_sum():
-    elevations = numpy.array([[500.0, 1000.0], [1500.0, 2000.0]], dtype=numpy.float32)
-    areas = numpy.array([[10.0, 20.0], [30.0, 40.0]], dtype=numpy.float32)
-    values = numpy.array([[100, 200], [NODATA, 400]], dtype=numpy.int16)
-
-    variable = _variable(Reducer.TOTAL)
-    aoi = _FakeAOI(elevations, areas, values)
-    raster = _FakeRaster(date(2018, 4, 27))
-
-    (result,) = _run_calc(aoi, variable, raster, _scheme(9999, step=10000))
-
-    # Area-weighted sum over the valid pixels gives a basin total of 21000.
-    assert result.value == 21000.0
+    assert result.value == expected_value
 
 
 def test_calc_cell_with_terrain_but_no_data_has_area_and_nan_value():
@@ -230,7 +224,6 @@ def test_zone_index_crosses_two_axes_into_product_cells():
         BandZone(key='0_1000', label='0-1000 ft', min=0, max=1000, unit='ft'),
         BandZone(key='1000_2000', label='1000-2000 ft', min=1000, max=2000, unit='ft'),
     )
-    from snowtool.snowdb.zoning import ClassZone
 
     side_axis = (
         ClassZone(key='L', label='L', code=0),
@@ -271,12 +264,19 @@ def test_calc_reduces_each_crossed_cell_independently():
         ClassZone(key='R', label='R', code=1),
     )
     index = _ZoneIndex.build(
-        [elev_axis, side_axis], [elev_ord, side_ord], aoi.array,
+        [elev_axis, side_axis],
+        [elev_ord, side_ord],
+        aoi.array,
     )
 
     results = asyncio.run(
-        ZonalStats._calc(aoi, _variable(Reducer.MEAN), _FakeRaster(date(2018, 4, 27)),
-                         index, cache=None),
+        ZonalStats._calc(
+            aoi,
+            _variable(Reducer.MEAN),
+            _FakeRaster(date(2018, 4, 27)),
+            index,
+            cache=None,
+        ),
     )
     by_zone = {r.zone: r.value for r in results}
     assert by_zone[(elev_axis[0], side_axis[0])] == 10.0
@@ -335,13 +335,16 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
     # Each axis inherits the dataset's configured default for *its* layer
     # (band_step_ft for elevation, threshold_pct for forest cover), translated to
     # the scheme's kwarg; an explicit selection value always wins.
-    from snowtool.snowdb.zone_layer import available_zones
-    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
     spec = DatasetSpec(
         name='t',
         grid_params=GridParams(
-            origin_x=-120.0, origin_y=45.0, px_size=0.01, cols=8, rows=8, tile_size=8,
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=8,
+            rows=8,
+            tile_size=8,
         ),
         zones={
             'terrain': {'elevation': {'band_step_ft': 2000}},
@@ -354,19 +357,27 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
 
     # Elevation inherits the dataset's band_step_ft...
     assert ZonalStats._selection_overrides(
-        ZoneSelection('terrain.elevation'), elevation, spec,
+        ZoneSelection('terrain.elevation'),
+        elevation,
+        spec,
     ) == {'step': 2000}
     # ...but an explicit step always wins.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('terrain.elevation', step=500), elevation, spec,
+        ZoneSelection('terrain.elevation', step=500),
+        elevation,
+        spec,
     ) == {'step': 500}
     # Forest cover inherits the dataset's threshold_pct.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('landcover.forest_cover'), forest, spec,
+        ZoneSelection('landcover.forest_cover'),
+        forest,
+        spec,
     ) == {'threshold': 50}
     # A threshold override passes straight through.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('landcover.forest_cover', threshold=30), forest, spec,
+        ZoneSelection('landcover.forest_cover', threshold=30),
+        forest,
+        spec,
     ) == {'threshold': 30}
 
 
@@ -374,49 +385,36 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
 
 
 def _registry():
-    from snowtool.snowdb.zone_layer import available_zones
-    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
     return available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)
 
 
-def test_parse_zone_selection_bare_layer():
-    assert parse_zone_selection('terrain.elevation', _registry()) == ZoneSelection(
-        'terrain.elevation',
-    )
+@pytest.mark.parametrize(
+    ('token', 'expected'),
+    [
+        ('terrain.elevation', ZoneSelection('terrain.elevation')),
+        ('terrain.elevation:500', ZoneSelection('terrain.elevation', step=500)),
+        (
+            'landcover.forest_cover:40',
+            ZoneSelection('landcover.forest_cover', threshold=40.0),
+        ),
+    ],
+)
+def test_parse_zone_selection_valid(token, expected):
+    assert parse_zone_selection(token, _registry()) == expected
 
 
-def test_parse_zone_selection_band_step_override():
-    assert parse_zone_selection('terrain.elevation:500', _registry()) == ZoneSelection(
-        'terrain.elevation', step=500,
-    )
-
-
-def test_parse_zone_selection_threshold_override():
-    assert parse_zone_selection(
-        'landcover.forest_cover:40', _registry(),
-    ) == ZoneSelection('landcover.forest_cover', threshold=40.0)
-
-
-def test_parse_zone_selection_unknown_layer():
-    import pytest
-
-    with pytest.raises(ValueError, match='Unknown zone layer'):
-        parse_zone_selection('terrain.nope', _registry())
-
-
-def test_parse_zone_selection_categorical_rejects_override():
-    import pytest
-
-    with pytest.raises(ValueError, match='takes no override'):
-        parse_zone_selection('terrain.aspect:5', _registry())
-
-
-def test_parse_zone_selection_non_integer_step():
-    import pytest
-
-    with pytest.raises(ValueError, match='band step must be an integer'):
-        parse_zone_selection('terrain.elevation:x', _registry())
+@pytest.mark.parametrize(
+    ('token', 'match'),
+    [
+        ('terrain.nope', 'Unknown zone layer'),
+        ('terrain.aspect:5', 'takes no override'),
+        ('terrain.elevation:x', 'band step must be an integer'),
+    ],
+)
+def test_parse_zone_selection_invalid(token, match):
+    with pytest.raises(ValueError, match=match):
+        parse_zone_selection(token, _registry())
 
 
 def _band(min_ft: int, max_ft: int) -> BandZone:
@@ -429,107 +427,105 @@ def _band(min_ft: int, max_ft: int) -> BandZone:
     )
 
 
-def test_dump_to_csv_renders_a_no_data_cell_as_an_empty_cell():
-    # One cell with data and one in-range-but-no-data cell (nan value), so the CSV
-    # path's missing-value rendering is exercised. CSV is long form: one row/cell.
-    variable = _variable(Reducer.MEAN)
-    data_band = _band(0, 10000)
-    nodata_band = _band(10000, 20000)
-    day = date(2018, 4, 27)
+_DUMP_DAY = date(2018, 4, 27)
+_FLAT = ClassZone(key='flat', label='flat', code=4)
+_FORESTED = ThresholdZone(
+    key='above',
+    label='forested',
+    threshold=50,
+    unit='%',
+    side='above',
+)
 
+
+@pytest.mark.parametrize(
+    ('zone_layers', 'cells', 'results_spec', 'expected_header', 'expected_rows'),
+    [
+        pytest.param(
+            ('terrain.elevation',),
+            ((_band(0, 10000),), (_band(10000, 20000),)),
+            # One cell with data and one in-range-but-no-data cell (nan value), so
+            # the CSV missing-value rendering is exercised. Long form: one row/cell.
+            [
+                ((_band(0, 10000),), 12.5, 100.0),
+                ((_band(10000, 20000),), float('nan'), 0.0),
+            ],
+            [
+                'date',
+                'terrain.elevation_min_ft',
+                'terrain.elevation_max_ft',
+                'area_m2',
+                'mean_swe_mm',
+            ],
+            # A banded axis -> two unit-bearing columns (min/max); the no-data cell's
+            # mean renders empty, never the literal 'nan'.
+            [
+                [_DUMP_DAY.isoformat(), '0', '10000', '100.0', '12.5'],
+                [_DUMP_DAY.isoformat(), '10000', '20000', '0.0', ''],
+            ],
+            id='nodata-cell-empty',
+        ),
+        pytest.param(
+            ('terrain.elevation', 'terrain.aspect'),
+            ((_band(0, 1000), _FLAT),),
+            [((_band(0, 1000), _FLAT), 5.0, 10.0)],
+            # The categorical (aspect) axis is a single label column.
+            [
+                'date',
+                'terrain.elevation_min_ft',
+                'terrain.elevation_max_ft',
+                'terrain.aspect',
+                'area_m2',
+                'mean_swe_mm',
+            ],
+            [[_DUMP_DAY.isoformat(), '0', '1000', 'flat', '10.0', '5.0']],
+            id='band-x-categorical',
+        ),
+        pytest.param(
+            ('terrain.elevation', 'landcover.forest_cover'),
+            ((_band(0, 1000), _FORESTED),),
+            [((_band(0, 1000), _FORESTED), 5.0, 10.0)],
+            # A threshold axis -> a label "side" column + a unit-bearing threshold
+            # column, so the split point is structured (not buried in a string).
+            [
+                'date',
+                'terrain.elevation_min_ft',
+                'terrain.elevation_max_ft',
+                'landcover.forest_cover_side',
+                'landcover.forest_cover_threshold_%',
+                'area_m2',
+                'mean_swe_mm',
+            ],
+            [[_DUMP_DAY.isoformat(), '0', '1000', 'forested', '50', '10.0', '5.0']],
+            id='band-x-threshold',
+        ),
+    ],
+)
+def test_dump_to_csv_expands_each_axis_kind(
+    zone_layers,
+    cells,
+    results_spec,
+    expected_header,
+    expected_rows,
+):
+    variable = _variable(Reducer.MEAN)
+    results = [
+        Result(date=_DUMP_DAY, zone=zone, variable=variable, value=value, area=area)
+        for zone, value, area in results_spec
+    ]
     stats = ZonalStats(
         _spec_with(variable),
         {variable},
-        ('terrain.elevation',),
-        ((data_band,), (nodata_band,)),
-        (day,),
-        Result(date=day, zone=(data_band,), variable=variable, value=12.5, area=100.0),
-        Result(date=day, zone=(nodata_band,), variable=variable,
-               value=float('nan'), area=0.0),
+        zone_layers,
+        cells,
+        (_DUMP_DAY,),
+        *results,
     )
 
     out = io.StringIO()
     stats.dump_to_csv(out)
-    header, data_row, nodata_row = list(csv.reader(io.StringIO(out.getvalue())))
+    header, *rows = list(csv.reader(io.StringIO(out.getvalue())))
 
-    # A banded axis expands to two unit-bearing columns (min/max); then area + stat.
-    assert header == [
-        'date',
-        'terrain.elevation_min_ft',
-        'terrain.elevation_max_ft',
-        'area_m2',
-        'mean_swe_mm',
-    ]
-    assert data_row == [day.isoformat(), '0', '10000', '100.0', '12.5']
-    # The no-data cell's mean is empty, never the literal 'nan'.
-    assert nodata_row == [day.isoformat(), '10000', '20000', '0.0', '']
+    assert header == expected_header
+    assert rows == expected_rows
     assert 'nan' not in out.getvalue()
-
-
-def test_dump_to_csv_band_axis_splits_categorical_axis_stays_one_column():
-    # A crossed (band x categorical) cell: the banded axis is two unit-bearing
-    # columns, the categorical (aspect) axis a single label column.
-    variable = _variable(Reducer.MEAN)
-    band = _band(0, 1000)
-    flat = ClassZone(key='flat', label='flat', code=4)
-    day = date(2018, 4, 27)
-    cell = (band, flat)
-
-    stats = ZonalStats(
-        _spec_with(variable),
-        {variable},
-        ('terrain.elevation', 'terrain.aspect'),
-        (cell,),
-        (day,),
-        Result(date=day, zone=cell, variable=variable, value=5.0, area=10.0),
-    )
-
-    out = io.StringIO()
-    stats.dump_to_csv(out)
-    header, row = list(csv.reader(io.StringIO(out.getvalue())))
-
-    assert header == [
-        'date',
-        'terrain.elevation_min_ft',
-        'terrain.elevation_max_ft',
-        'terrain.aspect',
-        'area_m2',
-        'mean_swe_mm',
-    ]
-    assert row == [day.isoformat(), '0', '1000', 'flat', '10.0', '5.0']
-
-
-def test_dump_to_csv_threshold_axis_splits_into_side_and_threshold():
-    # A threshold axis expands to a label "side" column + a unit-bearing threshold
-    # column, so the split point is structured (not buried in a string).
-    variable = _variable(Reducer.MEAN)
-    band = _band(0, 1000)
-    forested = ThresholdZone(
-        key='above', label='forested', threshold=50, unit='%', side='above',
-    )
-    day = date(2018, 4, 27)
-    cell = (band, forested)
-
-    stats = ZonalStats(
-        _spec_with(variable),
-        {variable},
-        ('terrain.elevation', 'landcover.forest_cover'),
-        (cell,),
-        (day,),
-        Result(date=day, zone=cell, variable=variable, value=5.0, area=10.0),
-    )
-
-    out = io.StringIO()
-    stats.dump_to_csv(out)
-    header, row = list(csv.reader(io.StringIO(out.getvalue())))
-
-    assert header == [
-        'date',
-        'terrain.elevation_min_ft',
-        'terrain.elevation_max_ft',
-        'landcover.forest_cover_side',
-        'landcover.forest_cover_threshold_%',
-        'area_m2',
-        'mean_swe_mm',
-    ]
-    assert row == [day.isoformat(), '0', '1000', 'forested', '50', '10.0', '5.0']

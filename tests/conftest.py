@@ -151,74 +151,76 @@ def source_dem(tmp_path, grid):
     return path
 
 
-def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
-    """Write a uniform terrain set onto a dataset's grid (no engine run).
+def write_uniform_terrain(
+    directory,
+    *,
+    base_grid,
+    crs,
+    tile_size: int,
+    elevation_value: float = DEM_ELEVATION_M,
+) -> str:
+    """Write a uniform terrain set (elevation + flat aspect) into ``directory``.
 
-    Mirrors what :func:`generate_terrain` produces -- uniform elevation, all-flat
-    aspect -- so tests that just need terrain present (e.g. elevation banding) get
-    deterministic, hand-computable values without the streaming generation pass.
-    Returns the provenance hash stamped on every layer.
+    The shared primitive behind both the ``dataset`` fixture's :func:`write_terrain`
+    and the CLI suite's fake terrain engine: given the raw grid pieces, it writes
+    what :func:`generate_terrain` produces -- uniform elevation, all-flat aspect --
+    and stamps the DEM provenance hash on every layer. Returns that hash.
     """
-    directory = dataset.zones['terrain'].directory
     directory.mkdir(parents=True, exist_ok=True)
-    base = dataset.grid.base_grid
-    shape = (base.rows, base.cols)
-    transform = base.transform
-    crs = dataset.grid_crs
-    tile = dataset.spec.grid_params.tile_size
+    shape = (base_grid.rows, base_grid.cols)
 
     elevation = numpy.full(shape, elevation_value, dtype='float32')
     dem_hash = versioned_hash(
         TERRAIN_FORMAT_VERSION,
         hashlib.sha256(elevation.tobytes()).hexdigest(),
     )
-    tags = {DEM_HASH_TAG: dem_hash}
+    common = {
+        'transform': base_grid.transform,
+        'crs': crs,
+        'tile_size': tile_size,
+        'tags': {DEM_HASH_TAG: dem_hash},
+    }
 
     write_cog(
         directory / ELEVATION.filename,
         elevation,
-        transform=transform,
-        crs=crs,
-        tile_size=tile,
         nodata=ELEVATION.nodata,
-        tags=tags,
         band_descriptions=ELEVATION.band_descriptions,
+        **common,
     )
     write_cog(
         directory / ASPECT_MAJORITY.filename,
         numpy.full(shape, ASPECT_FLAT, dtype='uint8'),
-        transform=transform,
-        crs=crs,
-        tile_size=tile,
         nodata=ASPECT_MAJORITY.nodata,
-        tags=tags,
         band_descriptions=ASPECT_MAJORITY.band_descriptions,
+        **common,
     )
     write_cog(
         directory / ASPECT_COMPONENTS.filename,
         numpy.full((2, *shape), numpy.nan, dtype='float32'),
-        transform=transform,
-        crs=crs,
-        tile_size=tile,
         nodata=ASPECT_COMPONENTS.nodata,
-        tags=tags,
         compute_stats=False,
         band_descriptions=ASPECT_COMPONENTS.band_descriptions,
+        **common,
     )
     return dem_hash
 
 
-def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
-    """Write a uniform percent-forest land-cover layer onto a dataset's grid.
+def write_uniform_landcover(
+    directory,
+    *,
+    base_grid,
+    crs,
+    tile_size: int,
+    pct: int = FOREST_PCT_VALUE,
+) -> str:
+    """Write a uniform percent-forest land-cover layer into ``directory``.
 
-    Mirrors what :func:`generate_landcover` produces (a uint8 0..100 forest layer)
-    so tests that just need land cover present get a deterministic value without
-    the streaming generation pass. Returns the provenance hash stamped on it.
+    The shared primitive behind the ``dataset`` fixture's :func:`write_landcover`
+    and the CLI suite's fake land-cover engine. Returns the NLCD provenance hash.
     """
-    directory = dataset.zones['landcover'].directory
     directory.mkdir(parents=True, exist_ok=True)
-    base = dataset.grid.base_grid
-    shape = (base.rows, base.cols)
+    shape = (base_grid.rows, base_grid.cols)
 
     forest = numpy.full(shape, pct, dtype='uint8')
     nlcd_hash = versioned_hash(
@@ -229,14 +231,40 @@ def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
     write_cog(
         directory / FOREST_COVER.filename,
         forest,
-        transform=base.transform,
-        crs=dataset.grid_crs,
-        tile_size=dataset.spec.grid_params.tile_size,
+        transform=base_grid.transform,
+        crs=crs,
+        tile_size=tile_size,
         nodata=FOREST_COVER.nodata,
         tags={NLCD_HASH_TAG: nlcd_hash},
         band_descriptions=FOREST_COVER.band_descriptions,
     )
     return nlcd_hash
+
+
+def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
+    """Write a uniform terrain set onto a dataset's grid (no engine run).
+
+    Convenience wrapper over :func:`write_uniform_terrain` for tests that hold a
+    ``dataset`` and just need terrain present (e.g. elevation banding).
+    """
+    return write_uniform_terrain(
+        dataset.zones['terrain'].directory,
+        base_grid=dataset.grid.base_grid,
+        crs=dataset.grid_crs,
+        tile_size=dataset.spec.grid_params.tile_size,
+        elevation_value=elevation_value,
+    )
+
+
+def write_landcover(dataset, pct: int = FOREST_PCT_VALUE) -> str:
+    """Write a uniform land-cover layer onto a dataset's grid (no engine run)."""
+    return write_uniform_landcover(
+        dataset.zones['landcover'].directory,
+        base_grid=dataset.grid.base_grid,
+        crs=dataset.grid_crs,
+        tile_size=dataset.spec.grid_params.tile_size,
+        pct=pct,
+    )
 
 
 @pytest.fixture

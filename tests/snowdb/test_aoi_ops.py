@@ -4,9 +4,11 @@ import json
 
 import pytest
 
+import snowtool.snowdb.dataset as dataset_mod
+
 from snowtool.exceptions import AOIPruneDestinationRequiredError
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.dataset import Dataset, aoi_provenance
 from snowtool.snowdb.manager import SnowDbManager
 
 from ..conftest import make_manager
@@ -193,7 +195,6 @@ def test_reindex_rebuilds_from_records(manager, db, aoi_geojson):
 
 
 def test_aoi_raster_hash_matches_aoi(db, aoi_geojson):
-    from snowtool.snowdb.dataset import aoi_provenance
 
     aoi = AOI.from_geojson(aoi_geojson)
     db['test'].rasterize_aoi(aoi)
@@ -213,7 +214,6 @@ def test_format_version_bump_makes_aoi_raster_stale(db, aoi_geojson, monkeypatch
     # A material format change is detected by the same staleness check as a changed
     # basin: bump the burned-raster format version and an already-current raster
     # (unchanged geometry) reads as stale, forcing a rebuild.
-    import snowtool.snowdb.dataset as dataset_mod
 
     aoi = AOI.from_geojson(aoi_geojson)
     ds = db['test']

@@ -34,9 +34,14 @@ LANDCOVER_FORMAT_VERSION = 1
 DEFAULT_FOREST_THRESHOLD_PCT = 50
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource, ZoneLayerTarget
+
+    # The land-cover generation engine (landcover_generate.generate_landcover);
+    # injectable so a test can supply a fast stand-in. Returns per-target hashes.
+    LandCoverEngine = Callable[..., dict[str, str]]
 
 
 FOREST_COVER = ZoneLayer(
@@ -72,6 +77,12 @@ class LandCoverProvider(ZoneLayerProvider):
     hash_tag = NLCD_HASH_TAG
     format_version = LANDCOVER_FORMAT_VERSION
 
+    def __init__(self: Self, engine: LandCoverEngine | None = None) -> None:
+        # The generation engine, injectable for tests; None resolves lazily to the
+        # real streaming engine in generate() (landcover_generate imports landcover,
+        # so a module-level import would cycle).
+        self._engine = engine
+
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default NLCD source -- the MRLC Annual NLCD bundle, cached locally.
 
@@ -98,7 +109,11 @@ class LandCoverProvider(ZoneLayerProvider):
         **options: object,
     ) -> dict[str, str]:
         """Stream the NLCD ``source`` once, binning forest cover into every target."""
-        from snowtool.snowdb.landcover_generate import generate_landcover
+        engine = self._engine
+        if engine is None:
+            from snowtool.snowdb.landcover_generate import generate_landcover
+
+            engine = generate_landcover
 
         with source.open(bounds) as src:
-            return generate_landcover(src, targets, force=force)
+            return engine(src, targets, force=force)

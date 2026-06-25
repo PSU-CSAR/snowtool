@@ -6,8 +6,14 @@ import pytest
 
 from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
+from snowtool.snowdb.config import (
+    CONFIG_FILENAME,
+    DATASET_CONFIG_FILENAME,
+    InlineDatasetLink,
+    RootConfig,
+)
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -52,8 +58,6 @@ def test_binds_every_spec_without_data_on_disk(tmp_path):
 def test_in_code_config_with_absolute_paths_opens_without_root(tmp_path):
     # A config built in code (never saved -> no root) opens as long as its links
     # are absolute: here an inline dataset with an absolute data_dir.
-    from snowtool.snowdb.config import InlineDatasetLink, RootConfig
-    from snowtool.snowdb.datasets import config_from_spec
 
     data_dir = tmp_path / 'anywhere' / 'snodas'
     dataset_config = config_from_spec(_spec('snodas'))
@@ -88,8 +92,6 @@ def test_initialize_creates_the_base_layout(tmp_path):
 
 def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
     """Stage ``spec`` as an on-disk dataset config and register its link."""
-    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
-    from snowtool.snowdb.datasets import config_from_spec
 
     ds_dir = manager.db.data_path / spec.name
     ds_dir.mkdir(parents=True, exist_ok=True)
@@ -222,7 +224,6 @@ def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, aoi_geojson):
 
 def test_default_specs_bind_snodas(tmp_path):
     """The built-in DEFAULT_DATASET_SPECS wires up the real snodas spec."""
-    from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 
     db = make_snowdb(tmp_path, DEFAULT_DATASET_SPECS)
 

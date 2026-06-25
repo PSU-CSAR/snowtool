@@ -1,7 +1,9 @@
 """DatasetSpec: grid construction and the CRS-driven area properties."""
 
 import pytest
+import shapely
 
+from snowtool.snowdb.coverage import _grid_extent_polygon
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 
@@ -36,9 +38,6 @@ def _projected_spec() -> DatasetSpec:
 
 
 def test_coverage_domain_defaults_to_the_grid_extent():
-    import shapely
-
-    from snowtool.snowdb.coverage import _grid_extent_polygon
 
     spec = _geographic_spec()
     # No footprint -> the served domain is the full grid-extent rectangle.
@@ -48,7 +47,6 @@ def test_coverage_domain_defaults_to_the_grid_extent():
 
 
 def test_footprint_overrides_the_coverage_domain():
-    import shapely
 
     # A footprint smaller than the extent *is* the served domain.
     footprint = shapely.box(-119.5, 44.5, -119.0, 44.0)

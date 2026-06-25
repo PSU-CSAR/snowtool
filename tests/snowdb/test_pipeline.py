@@ -2,13 +2,18 @@
 
 import asyncio
 
+from datetime import date
+
 import numpy
+import pytest
 import rasterio
 
 from snowtool.snowdb.aoi import AOI
+from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.raster_collection import RasterCollection
+from snowtool.snowdb.terrain import ELEVATION
 from snowtool.snowdb.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 
@@ -16,7 +21,6 @@ from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 
 def test_terrain_elevation(dataset, grid):
-    from snowtool.snowdb.terrain import ELEVATION
 
     terrain = dataset.zones['terrain']
     with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
@@ -130,18 +134,25 @@ def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
     return asyncio.run(run())
 
 
-def test_calculate_rejects_a_runaway_crossed_product(dataset, aoi_geojson, swe_cog):
-    import pytest
-
-    # 16 elevation bands alone already exceed a deliberately tiny cap, and the
-    # guard fires before any raster read.
-    with pytest.raises(ValueError, match='max_zone_cells'):
-        _crossed_stats(
-            dataset,
-            aoi_geojson,
-            [ZoneSelection('terrain.elevation')],
-            max_zone_cells=4,
-        )
+@pytest.mark.parametrize(
+    ('selections', 'kwargs', 'match'),
+    [
+        # 16 elevation bands alone exceed a deliberately tiny cap; the guard fires
+        # before any raster read.
+        ([ZoneSelection('terrain.elevation')], {'max_zone_cells': 4}, 'max_zone_cells'),
+        ([ZoneSelection('terrain.nope')], {}, 'Unknown zone layer'),
+    ],
+)
+def test_calculate_rejects_bad_crossed_request(
+    dataset,
+    aoi_geojson,
+    swe_cog,
+    selections,
+    kwargs,
+    match,
+):
+    with pytest.raises(ValueError, match=match):
+        _crossed_stats(dataset, aoi_geojson, selections, **kwargs)
 
 
 def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, swe_cog):
@@ -223,16 +234,8 @@ def test_zonal_stats_crosses_elevation_and_categorical_aspect(
     assert aspect_ref.label == 'flat'
 
 
-def test_calculate_rejects_an_unknown_zone_layer(dataset, aoi_geojson, swe_cog):
-    import pytest
-
-    with pytest.raises(ValueError, match='Unknown zone layer'):
-        _crossed_stats(dataset, aoi_geojson, [ZoneSelection('terrain.nope')])
-
-
 def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):
     """An area-valued AOI raster reopens cleanly -- no dependence on a DEM."""
-    from snowtool.snowdb.cog import write_cog
 
     path = tmp_path / 'area_aoi.tif'
     area = numpy.zeros((TILE, TILE), dtype=numpy.float32)
@@ -257,7 +260,6 @@ class _SingleDateQuery:
     """Minimal DateQuery for 2018-04-27 only."""
 
     def generate_sequence(self):
-        from datetime import date
 
         yield date(2018, 4, 27)
 

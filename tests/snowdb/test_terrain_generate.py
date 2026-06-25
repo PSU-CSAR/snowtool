@@ -7,32 +7,45 @@ keeps the reprojection a near-identity, so the geometry is exact.
 """
 
 import hashlib
+import os
 
 import numpy
 import pytest
 import rasterio
 
 from rasterio.crs import CRS
+from rasterio.transform import from_origin
+from rasterio.warp import transform_bounds
 
 from snowtool.exceptions import SNODASWarning
-from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
+from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_MAJORITY,
+    ASPECT_MAJORITY_NODATA,
     ASPECT_W,
     ELEVATION,
     ELEVATION_NODATA,
     TERRAIN_FORMAT_VERSION,
+    TERRAIN_LAYERS,
     TerrainProvider,
 )
-from snowtool.snowdb.terrain_generate import generate_terrain
+from snowtool.snowdb.terrain_generate import (
+    MAX_AUTO_WORKERS,
+    _clip_grid_to_bounds,
+    _effective_workers,
+    generate_terrain,
+)
 from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
 
 def _terrain_set(directory):
     """The terrain ZoneLayerSet rooted at ``directory`` (test reader)."""
     return TerrainProvider().layer_set(directory)
+
 
 WORK_EPSG = 5070
 ORIGIN_X = -500_000.0
@@ -146,8 +159,6 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
 
 
 def test_generate_hash_is_one_stable_generation_id(tmp_path):
-    from snowtool.snowdb.constants import DEM_HASH_TAG
-    from snowtool.snowdb.terrain import TERRAIN_LAYERS
 
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
@@ -259,7 +270,6 @@ def test_generate_auto_derives_resolution_when_none(tmp_path):
 
 
 def test_generate_refuses_to_overwrite_without_force(tmp_path):
-    import pytest
 
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
@@ -296,11 +306,19 @@ def test_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
 
     with rasterio.open(src_path) as src:
         serial_hash = generate_terrain(
-            src, [serial_t], workers=1, block_size=block_size, force=True,
+            src,
+            [serial_t],
+            workers=1,
+            block_size=block_size,
+            force=True,
         )
     with rasterio.open(src_path) as src:
         parallel_hash = generate_terrain(
-            src, [parallel_t], workers=workers, block_size=block_size, force=True,
+            src,
+            [parallel_t],
+            workers=workers,
+            block_size=block_size,
+            force=True,
         )
 
     assert serial_hash['t'] == parallel_hash['t']
@@ -342,12 +360,18 @@ def test_parallel_matches_serial_for_multiple_targets(tmp_path):
 
     with rasterio.open(src_path) as src:
         serial_hash = generate_terrain(
-            src, [serial_fine, serial_coarse], workers=1, block_size=block_size,
+            src,
+            [serial_fine, serial_coarse],
+            workers=1,
+            block_size=block_size,
             force=True,
         )
     with rasterio.open(src_path) as src:
         parallel_hash = generate_terrain(
-            src, [parallel_fine, parallel_coarse], workers=4, block_size=block_size,
+            src,
+            [parallel_fine, parallel_coarse],
+            workers=4,
+            block_size=block_size,
             force=True,
         )
 
@@ -365,9 +389,6 @@ def test_parallel_matches_serial_for_multiple_targets(tmp_path):
 
 
 def test_effective_workers_defaults_and_honors_explicit_request():
-    import os
-
-    from snowtool.snowdb.terrain_generate import MAX_AUTO_WORKERS, _effective_workers
 
     # An explicit request is honoured as-is -- no silent memory override.
     assert _effective_workers(4) == 4
@@ -382,14 +403,14 @@ def test_effective_workers_defaults_and_honors_explicit_request():
 
 
 def test_clip_grid_to_bounds_shrinks_to_footprint_on_lattice():
-    from rasterio.transform import from_origin
-
-    from snowtool.snowdb.terrain_generate import _clip_grid_to_bounds
 
     # A big 10000x10000 @ 10 m work grid; clip to a 1 km box in the middle.
     full = from_origin(0.0, 100_000.0, 10.0, 10.0)
     transform, width, height = _clip_grid_to_bounds(
-        full, 10_000, 10_000, (40_000.0, 50_000.0, 41_000.0, 51_000.0),
+        full,
+        10_000,
+        10_000,
+        (40_000.0, 50_000.0, 41_000.0, 51_000.0),
     )
 
     # Same resolution, and the origin shifts by a whole number of pixels (the clip
@@ -411,9 +432,6 @@ def test_clip_grid_to_bounds_shrinks_to_footprint_on_lattice():
 
 
 def test_clip_grid_to_bounds_none_when_disjoint():
-    from rasterio.transform import from_origin
-
-    from snowtool.snowdb.terrain_generate import _clip_grid_to_bounds
 
     full = from_origin(0.0, 100_000.0, 10.0, 10.0)
     # A box nowhere near the grid -> nothing to stream.
@@ -436,7 +454,10 @@ def test_generate_clips_to_subregion_target_of_larger_source(tmp_path):
         crs=WORK_EPSG,
     )
     target = ZoneLayerTarget(
-        name='sub', grid=grid, tile_size=64, directory=tmp_path / 'sub' / 'terrain',
+        name='sub',
+        grid=grid,
+        tile_size=64,
+        directory=tmp_path / 'sub' / 'terrain',
     )
 
     with rasterio.open(src_path) as src:
@@ -460,10 +481,6 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
     # projected target CRS (the instarr MODIS-Sinusoidal grid) end to end -- the
     # work-CRS -> target-CRS transform, the clip footprint, and the COG write -- and
     # confirms parallel still matches serial there.
-    from rasterio.warp import transform_bounds
-
-    from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
-    from snowtool.snowdb.grid import grid_extent_4326
 
     # A small sinusoidal target inside the instarr coverage (~Colorado).
     sin_grid = make_grid(
@@ -483,7 +500,8 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
     sw, ss, se, sn = sw - pad, ss - pad, se + pad, sn + pad
     width, height = int((se - sw) / res), int((sn - ss) / res)
     elevation = numpy.broadcast_to(
-        numpy.arange(width, dtype='float32') * res, (height, width),
+        numpy.arange(width, dtype='float32') * res,
+        (height, width),
     ).copy()
     src_path = tmp_path / 'src.tif'
     with rasterio.open(
@@ -502,11 +520,18 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
 
     def _run(directory, workers):
         target = ZoneLayerTarget(
-            name='sin', grid=sin_grid, tile_size=96, directory=directory / 'terrain',
+            name='sin',
+            grid=sin_grid,
+            tile_size=96,
+            directory=directory / 'terrain',
         )
         with rasterio.open(src_path) as src:
             return generate_terrain(
-                src, [target], work_resolution=res, workers=workers, force=True,
+                src,
+                [target],
+                work_resolution=res,
+                workers=workers,
+                force=True,
             )
 
     serial = _run(tmp_path / 's', 1)
@@ -530,7 +555,6 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
     # A target that doesn't overlap the source exercises the clip's no-overlap path
     # (_clip_grid_to_bounds -> None): the engine skips streaming, finalizes empty
     # accumulators, and still writes a valid all-nodata terrain set (no error).
-    from snowtool.snowdb.terrain import ASPECT_MAJORITY_NODATA
 
     src_path = _source_dem(tmp_path / 'src.tif')
     far = make_grid(

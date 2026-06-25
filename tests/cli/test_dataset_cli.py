@@ -8,8 +8,12 @@ import pytest
 
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
+from snowtool.snowdb import datasets as datasets_mod
+from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
+
+from ..conftest import register_dataset_config
 
 
 def _json(result):
@@ -167,8 +171,15 @@ def test_create_template_activate_registers(runner, tmp_path):
 
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'snodas',
-         '--template', 'snodas', '--quick', '--activate'],
+        [
+            'dataset',
+            'create',
+            'snodas',
+            '--template',
+            'snodas',
+            '--quick',
+            '--activate',
+        ],
         obj=ctx,
     )
 
@@ -191,7 +202,6 @@ def test_create_unknown_template_errors(runner, tmp_path):
 
 
 def test_add_registers_an_external_config(runner, cli_obj, initialized_root):
-    from snowtool.snowdb.datasets import DATASET_TEMPLATES
 
     external = initialized_root / 'staged' / 'dataset.json'
     external.parent.mkdir()
@@ -220,7 +230,6 @@ def test_add_rejects_an_unusable_config(runner, cli_obj, initialized_root):
 
 
 def test_add_requires_initialized_root(runner, tmp_path, spec):
-    from snowtool.snowdb.datasets import config_from_spec
 
     cfg = tmp_path / 'd.json'
     config_from_spec(spec).save(cfg)
@@ -248,12 +257,12 @@ def test_ingest_without_ingester_errors(runner, cli_obj, source_dem):
 
 
 def test_ingest_delegates_to_spec_ingester(
-    monkeypatch, runner, tmp_path, spec, source_dem,
+    monkeypatch,
+    runner,
+    tmp_path,
+    spec,
+    source_dem,
 ):
-    from snowtool.snowdb import datasets as datasets_mod
-    from snowtool.snowdb.datasets import config_from_spec
-
-    from ..conftest import register_dataset_config
 
     class _FakeIngester:
         def __init__(self):
@@ -296,9 +305,14 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
         result = runner.invoke(
             cli,
             [
-                'dataset', 'generate-zones', 'test',
-                '--provider', 'terrain',
-                '--source', 'terrain', str(source_dem),
+                'dataset',
+                'generate-zones',
+                'test',
+                '--provider',
+                'terrain',
+                '--source',
+                'terrain',
+                str(source_dem),
             ],
             obj=cli_obj,
         )
@@ -306,35 +320,36 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
         assert 'generated terrain for test' in result.output
 
 
-def test_generate_threads_workers_and_block_size_to_engine(
-    runner,
-    cli_obj,
-    source_dem,
-    monkeypatch,
-):
+def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, source_dem):
     # --workers and --block-size must reach the terrain engine (the two knobs).
-    from tests.cli.conftest import _fake_generate_terrain
-
+    # Wrap the already-injected engine to capture its kwargs -- reconfiguring the
+    # injected dependency, not patching a module global.
     captured = {}
+    terrain = next(p for p in cli_obj.zone_layer_providers if p.name == 'terrain')
+    inner = terrain._engine
 
     def _capture(source, targets, **kwargs):
         captured.update(workers=kwargs.get('workers'), block=kwargs.get('block_size'))
-        return _fake_generate_terrain(source, targets, **kwargs)
+        return inner(source, targets, **kwargs)
 
-    monkeypatch.setattr(
-        'snowtool.snowdb.terrain_generate.generate_terrain',
-        _capture,
-    )
+    terrain._engine = _capture
     _create(runner, cli_obj, source_dem)
 
     result = runner.invoke(
         cli,
         [
-            'dataset', 'generate-zones', 'test',
-            '--provider', 'terrain',
-            '--source', 'terrain', str(source_dem),
-            '--workers', '3',
-            '--block-size', '512',
+            'dataset',
+            'generate-zones',
+            'test',
+            '--provider',
+            'terrain',
+            '--source',
+            'terrain',
+            str(source_dem),
+            '--workers',
+            '3',
+            '--block-size',
+            '512',
         ],
         obj=cli_obj,
     )
@@ -350,16 +365,19 @@ def test_generate_landcover_is_idempotent(runner, cli_obj, source_dem, source_nl
         result = runner.invoke(
             cli,
             [
-                'dataset', 'generate-zones', 'test',
-                '--provider', 'landcover',
-                '--source', 'landcover', str(source_nlcd),
+                'dataset',
+                'generate-zones',
+                'test',
+                '--provider',
+                'landcover',
+                '--source',
+                'landcover',
+                str(source_nlcd),
             ],
             obj=cli_obj,
         )
         assert result.exit_code == 0
         assert 'generated landcover for test' in result.output
-
-
 
 
 # --- remove-date / prune -----------------------------------------------------

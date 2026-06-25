@@ -111,9 +111,7 @@ class ZoneLayerSet:
 
     def missing_layers(self: Self) -> list[ZoneLayer]:
         """The layers that are not present on disk (the report selection)."""
-        return [
-            layer for layer in self.layers if not self.layer_path(layer).is_file()
-        ]
+        return [layer for layer in self.layers if not self.layer_path(layer).is_file()]
 
     def raster(self: Self, layer: ZoneLayer) -> TiledRaster[numpy.generic]:
         """A tiled COG reader for ``layer`` (for query-time reads)."""
@@ -217,8 +215,10 @@ class ZoneLayerProvider(ABC):
     ) -> dict[str, str]:
         """Open ``source`` over ``bounds`` and bin its layers into every target.
 
-        Owns the ``with source.open(bounds)`` and the engine call (importing its
-        engine at call time so test monkeypatches of the engine still take). Returns
+        Owns the ``with source.open(bounds)`` and the engine call. The engine is
+        injectable per provider (a test passes a fast stand-in via the constructor);
+        an un-injected provider resolves the real engine lazily, since the engine
+        module imports its provider and a module-level import would cycle. Returns
         the per-target provenance hash. ``**options`` carries engine-specific knobs
         (e.g. terrain's ``workers``/``block_size``); a provider ignores any it does
         not use.
@@ -228,7 +228,10 @@ class ZoneLayerProvider(ABC):
     def layer_set(self: Self, directory: Path) -> ZoneLayerSet:
         """The :class:`ZoneLayerSet` for this provider rooted at ``directory``."""
         return ZoneLayerSet(
-            directory, self.layers, self.hash_tag, self.format_version,
+            directory,
+            self.layers,
+            self.hash_tag,
+            self.format_version,
         )
 
 
