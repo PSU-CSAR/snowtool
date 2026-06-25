@@ -69,7 +69,7 @@ name to upgrade. By default that command will upgrade all dependencies.
 Run the app with uvicorn:
 
 ```commandline
-uvicorn snowtool.main:app --reload
+uvicorn snowtool.api.main:app --reload
 ```
 
 With the `uvicorn` defaults, the app should be accessible at
