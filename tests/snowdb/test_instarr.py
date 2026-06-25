@@ -59,7 +59,7 @@ def test_all_nine_variables():
     }
     for variable in INSTARR_VARIABLES:
         assert variable.reducer.value == 'mean'
-        assert variable.glob == f'{variable.key}.tif'
+        assert variable.glob == f'*__{variable.key}.tif'
     # uint8 (%, nodata 255) vs uint16 (nodata 65535) split.
     assert by_key['snow_fraction'].dtype == 'uint8'
     assert by_key['snow_fraction'].nodata == 255.0
@@ -108,6 +108,20 @@ def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
     assert len(swe_like.source_uris) == 2
     assert all(uri.endswith(':snow_fraction') for uri in swe_like.source_uris)
     assert len(written[date(2026, 6, 14)][0].source_uris) == 1
+    # Distilled provenance name (per-tile h##v## dropped) + tags with the tiles.
+    assert (
+        swe_like.out_name
+        == 'SPIRES_NRT_MOD09GA061_20260613_V1.0__snow_fraction.tif'
+    )
+    assert swe_like.tags['SOURCE_FILES'] == ' '.join(
+        sorted(
+            [
+                'SPIRES_NRT_h08v04_MOD09GA061_20260613_V1.0.nc',
+                'SPIRES_NRT_h09v04_MOD09GA061_20260613_V1.0.nc',
+            ],
+        ),
+    )
+    assert swe_like.tags['SOURCE_VERSION'] == 'V1.0'
 
 
 def _sinusoidal_tile(path, value, *, left, top, size, px):
@@ -162,8 +176,10 @@ def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
         variable,
         [str(tl), str(br)],
         grid,
+        out_name='snow_fraction.tif',
         transform=rasterio.transform.from_origin(origin_x, origin_y, px, px),
         crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
+        tags={'SOURCE_DATASET': 'instarr', 'SOURCE_VARIABLE': 'snow_fraction'},
     )
     out_dir = tmp_path / 'cogs'
     out_dir.mkdir()
@@ -172,6 +188,8 @@ def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
     with rasterio.open(out_dir / 'snow_fraction.tif') as cog:
         mosaic = cog.read(1)
         assert cog.nodata == 255.0
+        assert cog.tags()['SOURCE_DATASET'] == 'instarr'
+        assert cog.tags()['SOURCE_VARIABLE'] == 'snow_fraction'
     # top-left quadrant == 10, bottom-right == 40, the other two all nodata.
     assert (mosaic[:tile_px, :tile_px] == 10).all()
     assert (mosaic[tile_px:, tile_px:] == 40).all()
