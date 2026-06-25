@@ -10,16 +10,20 @@ directory listing or HTML crawling is required.
 
 Usage
 -----
-    # Download everything from each source's earliest available date
-    # through yesterday
-    python backlog_import.py swann --start 1981-10-01  --dest /d/projects/gisdata/swann/unprocessed
-    python backlog_import.py instarr --start 2001-01-01 --dest /d/projects/gisdata/instarr/unprocessed
+    # Download SWANN backlog from earliest available date through yesterday
+    snowtool backlog swann /d/projects/gisdata/swann/unprocessed --start 1981-10-01
+
+    # Download INSTARR backlog from earliest available date through yesterday
+    snowtool backlog instarr /d/projects/gisdata/instarr/unprocessed --start 2001-01-01
 
     # Resume a partially-completed run (already-downloaded files are skipped)
-    python backlog_import.py swann --start 1981-10-01 --dest /d/projects/gisdata/swann/unprocessed
+    snowtool backlog swann /d/projects/gisdata/swann/unprocessed --start 1981-10-01
 
-    # Limit request rate to prevent the sources from blacklisting us
-    python backlog_import.py instarr --start 2001-01-01 --dest /d/projects/gisdata/instarr --delay 1.0
+    # Download a specific date range
+    snowtool backlog swann /d/projects/gisdata/swann/unprocessed --start 2024-01-01 --end 2024-12-31
+
+    # Limit request rate to avoid being blocked by the source server
+    snowtool backlog instarr /d/projects/gisdata/instarr/unprocessed --start 2001-01-01 --delay 1.0
 
 Output layout
 -------------
