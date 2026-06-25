@@ -405,7 +405,9 @@ class ZonalStats:
         ordinals_list = [
             available.scheme.assign(values, **overrides)
             for (available, overrides), values in zip(
-                resolved, axis_arrays, strict=True,
+                resolved,
+                axis_arrays,
+                strict=True,
             )
         ]
         zone_layers = [selection.layer_key for selection in selections]
@@ -452,7 +454,10 @@ class ZonalStats:
         # everything else (zone geometry, cell areas) was precomputed once.
         selection = zone_index.in_zone & (values_array != variable.nodata)
         values = zone_index.reduce(
-            variable.reducer, values_array, aoi.array, selection,
+            variable.reducer,
+            values_array,
+            aoi.array,
+            selection,
         )
 
         return [

@@ -64,8 +64,19 @@ def test_query_stats_whole_basin_json(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test',
-            '--start', DATE, '--end', DATE, '--variable', 'swe', '--format', 'json',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
+            '--format',
+            'json',
         ],
         obj=cli_obj,
     )
@@ -84,9 +95,21 @@ def test_query_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test',
-            '--start', DATE, '--end', DATE, '--variable', 'swe',
-            '--zone', 'terrain.elevation', '--format', 'csv',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
+            '--zone',
+            'terrain.elevation',
+            '--format',
+            'csv',
         ],
         obj=cli_obj,
     )
@@ -107,9 +130,21 @@ def test_query_stats_threshold_zone_override(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test',
-            '--start', DATE, '--end', DATE, '--variable', 'swe',
-            '--zone', 'landcover.forest_cover:100.5', '--format', 'json',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
+            '--zone',
+            'landcover.forest_cover:100.5',
+            '--format',
+            'json',
         ],
         obj=cli_obj,
     )
@@ -129,9 +164,22 @@ def test_query_stats_day_of_year_mode(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test', '--variable', 'swe',
-            '--doy', '4', '27', '--start-year', '2018', '--end-year', '2018',
-            '--format', 'json',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--variable',
+            'swe',
+            '--doy',
+            '4',
+            '27',
+            '--start-year',
+            '2018',
+            '--end-year',
+            '2018',
+            '--format',
+            'json',
         ],
         obj=cli_obj,
     )
@@ -145,8 +193,20 @@ def test_query_stats_rejects_mixing_date_modes(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test', '--variable', 'swe',
-            '--start', DATE, '--end', DATE, '--doy', '4', '27',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--variable',
+            'swe',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--doy',
+            '4',
+            '27',
         ],
         obj=cli_obj,
     )
@@ -155,15 +215,27 @@ def test_query_stats_rejects_mixing_date_modes(runner, cli_obj, populated_root):
 
 
 def test_query_stats_missing_aoi_raster_is_clean_error(
-    runner, cli_obj, initialized_root, aoi_geojson,
+    runner,
+    cli_obj,
+    initialized_root,
+    aoi_geojson,
 ):
     # AOI imported (so coverage passes) but never rasterized -> a clean prereq error.
     SnowDbManager.open(initialized_root).import_aois(aoi_geojson)
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test',
-            '--start', DATE, '--end', DATE, '--variable', 'swe',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
         ],
         obj=cli_obj,
     )
@@ -175,9 +247,19 @@ def test_query_stats_unknown_zone_is_clean_error(runner, cli_obj, populated_root
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'test',
-            '--start', DATE, '--end', DATE, '--variable', 'swe',
-            '--zone', 'terrain.nope',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
+            '--zone',
+            'terrain.nope',
         ],
         obj=cli_obj,
     )
@@ -199,8 +281,17 @@ def test_query_stats_unknown_dataset_is_clean_error(runner, cli_obj, populated_r
     result = runner.invoke(
         cli,
         [
-            'query', 'stats', TRIPLET, '-d', 'nope',
-            '--start', DATE, '--end', DATE, '--variable', 'swe',
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'nope',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
         ],
         obj=cli_obj,
     )
@@ -216,7 +307,9 @@ def test_query_dates_lists_ingested_dates(runner, cli_obj, populated_root):
 
 def test_query_dates_filters_by_range(runner, cli_obj, populated_root):
     result = runner.invoke(
-        cli, ['query', 'dates', 'test', '--start', '20190101'], obj=cli_obj,
+        cli,
+        ['query', 'dates', 'test', '--start', '20190101'],
+        obj=cli_obj,
     )
     assert result.exit_code == 0, result.output
     assert '2018-04-27' not in result.output

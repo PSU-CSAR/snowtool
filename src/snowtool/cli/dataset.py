@@ -195,7 +195,11 @@ def create_dataset(
         )
         try:
             ds.generate_zone_layers(
-                provider, source, force=True, workers=workers, block_size=block_size,
+                provider,
+                source,
+                force=True,
+                workers=workers,
+                block_size=block_size,
             )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
@@ -278,8 +282,7 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
 
     manager.register_dataset(name, config_path)
     click.echo(
-        f'registered {name} -> {config_path} '
-        '(run `aoi reindex` + restart to go live)',
+        f'registered {name} -> {config_path} (run `aoi reindex` + restart to go live)',
     )
 
 
@@ -379,7 +382,11 @@ def generate_zones(
         )
         try:
             ds.generate_zone_layers(
-                provider, source, force=True, workers=workers, block_size=block_size,
+                provider,
+                source,
+                force=True,
+                workers=workers,
+                block_size=block_size,
             )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e

@@ -109,10 +109,7 @@ def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
     assert all(uri.endswith(':snow_fraction') for uri in swe_like.source_uris)
     assert len(written[date(2026, 6, 14)][0].source_uris) == 1
     # Distilled provenance name (per-tile h##v## dropped) + tags with the tiles.
-    assert (
-        swe_like.out_name
-        == 'SPIRES_NRT_MOD09GA061_20260613_V1.0__snow_fraction.tif'
-    )
+    assert swe_like.out_name == 'SPIRES_NRT_MOD09GA061_20260613_V1.0__snow_fraction.tif'
     assert swe_like.tags['SOURCE_FILES'] == ' '.join(
         sorted(
             [

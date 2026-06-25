@@ -484,8 +484,7 @@ class Dataset:
 
     def aoi_rasters(self: Self) -> Iterator[AOIRaster]:
         yield from (
-            AOIRaster.open(path, self.grid)
-            for path in self._aoi_rasters.glob('*.tif')
+            AOIRaster.open(path, self.grid) for path in self._aoi_rasters.glob('*.tif')
         )
 
     def load_aoi_raster(
@@ -569,9 +568,7 @@ class Dataset:
 
     def aoi_raster_triplets(self: Self) -> set[types.StationTriplet]:
         """Station triplets that have a burned ``aoi-rasters/<triplet>.tif``."""
-        return {
-            types.stem_to_triplet(path.stem) for path in self.aoi_raster_paths()
-        }
+        return {types.stem_to_triplet(path.stem) for path in self.aoi_raster_paths()}
 
     def artifact_status(self: Self) -> DatasetArtifacts:
         """Which of this dataset's on-disk artifacts currently exist."""

@@ -9,7 +9,6 @@ zone-layer provider's ``format_version``; the AOI writer's
 :mod:`snowtool.snowdb.provenance`.
 """
 
-
 # AOI raster metadata: the grid-tile bounding box the AOI window spans, stored
 # as four space-separated ints "ul_row ul_col br_row br_col" (a dataset-agnostic
 # tag). The window's upper-left tile is the origin; all tiles in the box are read.

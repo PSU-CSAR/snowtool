@@ -28,6 +28,7 @@ def bounds(transformable) -> tuple[float, float, float, float]:
         max(origin.y, antiorigin.y),
     )
 
+
 # --- legacy reference implementations (verbatim math from the old code) -------
 
 
@@ -100,8 +101,12 @@ def test_point_to_tile_matches_pixel_floor_div() -> None:
 def test_tiles_in_bbox() -> None:
     tiles = tiles_in_bbox(SNODAS_GRID, 2, 4, 3, 6)
     assert [(t.row, t.col) for t in tiles] == [
-        (2, 4), (2, 5), (2, 6),
-        (3, 4), (3, 5), (3, 6),
+        (2, 4),
+        (2, 5),
+        (2, 6),
+        (3, 4),
+        (3, 5),
+        (3, 6),
     ]
 
 

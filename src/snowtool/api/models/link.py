@@ -47,4 +47,3 @@ class Link(BaseModel, extra='allow'):
         }
         attrs.update(**kwargs)
         return cls.model_validate(attrs)
-
