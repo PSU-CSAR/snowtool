@@ -1,11 +1,16 @@
 """The `report` group and `snowdb validate`, against the synthetic snowdb."""
 
 import json
+import shutil
 
 import numpy
+import rasterio
 
 from snowtool.cli import cli
+from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.terrain import ELEVATION
 
 from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
 
@@ -116,7 +121,6 @@ def test_aoi_coverage_cli_flags_unrasterized(
     initialized_root,
     aoi_geojson,
 ):
-    import shutil
 
     _create(runner, cli_obj, source_dem)
     shutil.copy(aoi_geojson, initialized_root / 'aois' / 'records' / 'pp.geojson')
@@ -133,7 +137,6 @@ def test_aoi_coverage_cli_flags_unrasterized(
 
 
 def test_aoi_health_cli_clean_when_rasterized(runner, cli_obj, source_dem, aoi_geojson):
-    from snowtool.snowdb.aoi import AOI
 
     _create(runner, cli_obj, source_dem)
     cli_obj.snowdb['test'].rasterize_aoi(AOI.from_geojson(aoi_geojson))
@@ -176,7 +179,6 @@ def test_validate_rolls_up_completeness_and_aoi_coverage(
     initialized_root,
     aoi_geojson,
 ):
-    import shutil
 
     _create(runner, cli_obj, source_dem)
     # A date dir with no variables (completeness finding).
@@ -216,17 +218,13 @@ def test_validate_flags_stale_zone_layer_format(
 ):
     # Re-stamp the built terrain set with an old format version (what an artifact
     # from before a format bump would carry) -> validate flags it for a rebuild.
-    import rasterio
-
-    from snowtool.snowdb.constants import DEM_HASH_TAG
-    from snowtool.snowdb.terrain import ELEVATION
 
     _create(runner, cli_obj, source_dem)
-    elevation = (
-        initialized_root / 'data' / 'test' / 'terrain' / ELEVATION.filename
-    )
+    elevation = initialized_root / 'data' / 'test' / 'terrain' / ELEVATION.filename
     with rasterio.open(
-        elevation, 'r+', IGNORE_COG_LAYOUT_BREAK='YES',
+        elevation,
+        'r+',
+        IGNORE_COG_LAYOUT_BREAK='YES',
     ) as ds:
         ds.update_tags(**{DEM_HASH_TAG: 'v999:deadbeef'})
 

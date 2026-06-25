@@ -4,16 +4,25 @@ from itertools import pairwise
 
 import numpy
 
+from snowtool.snowdb import diagnostics
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.landcover import FOREST_COVER
+from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ASPECT_MAJORITY, ELEVATION, ELEVATION_NODATA
-from snowtool.snowdb.zone_layer import available_zones
+from snowtool.snowdb.zone_layer import (
+    ZoneLayer,
+    ZoneLayerProvider,
+    ZoneLayerSource,
+    available_zones,
+)
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 from snowtool.snowdb.zoning import (
     BandedZoning,
     BandZone,
     CategoricalZoning,
+    ClassZone,
     ThresholdZoning,
+    categorical,
 )
 
 from ..conftest import make_manager, make_snowdb
@@ -112,10 +121,16 @@ def test_forest_cover_uses_a_threshold_split():
     assert isinstance(FOREST_COVER.zoning, ThresholdZoning)
     below, above = FOREST_COVER.zoning.zones()
     assert (below.label, below.side, below.threshold, below.unit) == (
-        'unforested', 'below', 50, '%',
+        'unforested',
+        'below',
+        50,
+        '%',
     )
     assert (above.label, above.side, above.threshold, above.unit) == (
-        'forested', 'above', 50, '%',
+        'forested',
+        'above',
+        50,
+        '%',
     )
 
 
@@ -181,13 +196,16 @@ def test_snowdb_available_zones_delegates(tmp_path, spec):
 
 
 def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
-    from snowtool.snowdb.spec import DatasetSpec, GridParams
-
     # A terrain-only dataset: its zones enable terrain but not land cover.
     terrain_only = DatasetSpec(
         name='terr',
         grid_params=GridParams(
-            origin_x=-120.0, origin_y=45.0, px_size=0.01, cols=8, rows=8, tile_size=8,
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=8,
+            rows=8,
+            tile_size=8,
         ),
         zones={'terrain': {'elevation': {'band_step_ft': 1000}}},
     )
@@ -210,15 +228,6 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     # A throwaway provider added only to the registry must be visible to every
     # generic seam -- Dataset.zones, artifact_status, diagnostics, the registry --
     # with no edits to Dataset/SnowDb/diagnostics. (Verification #6.)
-    from snowtool.snowdb import diagnostics
-    from snowtool.snowdb.zone_layer import (
-        ZoneLayer,
-        ZoneLayerProvider,
-        ZoneLayerSource,
-    )
-    from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
-    from snowtool.snowdb.zoning import ClassZone, categorical
-
     class _StubSource(ZoneLayerSource):
         def open(self, bounds):  # pragma: no cover - never opened in this test
             raise NotImplementedError
@@ -236,8 +245,10 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
                 band_descriptions=('tier',),
                 key='tier',
                 zoning=categorical(
-                    (ClassZone(key='a', label='a', code=0),
-                     ClassZone(key='b', label='b', code=1)),
+                    (
+                        ClassZone(key='a', label='a', code=0),
+                        ClassZone(key='b', label='b', code=1),
+                    ),
                     layer_nodata=255,
                 ),
             ),

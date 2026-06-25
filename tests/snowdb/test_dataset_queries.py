@@ -3,7 +3,9 @@
 from datetime import date
 
 from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.dataset import DatasetArtifacts
+from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
+from snowtool.snowdb.spec import DatasetSpec, GridParams
+from snowtool.snowdb.terrain import ELEVATION
 
 
 def test_available_dates_empty_when_no_cogs(dataset):
@@ -68,7 +70,6 @@ def test_artifact_status_full_for_created_geographic_dataset(dataset):
 
 
 def test_artifact_status_reports_missing_terrain(dataset):
-    from snowtool.snowdb.terrain import ELEVATION
 
     dataset.zones['terrain'].layer_path(ELEVATION).unlink()
 
@@ -100,8 +101,6 @@ def test_remove_absent_date_is_a_noop(dataset):
 
 def test_artifact_status_for_created_projected_dataset(tmp_path):
     # No area raster is tracked for any grid -- the AOI raster carries cell area.
-    from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.spec import DatasetSpec, GridParams
 
     spec = DatasetSpec(
         name='utm',

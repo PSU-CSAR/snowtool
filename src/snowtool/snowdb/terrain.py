@@ -37,9 +37,14 @@ from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
 from snowtool.snowdb.zoning import ClassZone, banded, categorical
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource, ZoneLayerTarget
+
+    # The terrain generation engine (terrain_generate.generate_terrain); injectable
+    # so a test can supply a fast stand-in. Returns the per-target provenance hash.
+    TerrainEngine = Callable[..., dict[str, str]]
 
 # On-disk format version of a terrain layer set, owned by TerrainProvider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
@@ -118,6 +123,12 @@ class TerrainProvider(ZoneLayerProvider):
     hash_tag = DEM_HASH_TAG
     format_version = TERRAIN_FORMAT_VERSION
 
+    def __init__(self: Self, engine: TerrainEngine | None = None) -> None:
+        # The generation engine, injectable for tests; None resolves lazily to the
+        # real streaming engine in generate() (terrain_generate imports terrain, so
+        # a module-level import would cycle).
+        self._engine = engine
+
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default DEM source -- USGS 3DEP streamed from the public bucket."""
         from snowtool.snowdb.dem_source import ThreeDEP
@@ -146,12 +157,17 @@ class TerrainProvider(ZoneLayerProvider):
         grid (``work_crs``/``work_resolution``).
         """
         from snowtool.snowdb.dem_source import DemSource
-        from snowtool.snowdb.terrain_generate import generate_terrain
+
+        engine = self._engine
+        if engine is None:
+            from snowtool.snowdb.terrain_generate import generate_terrain
+
+            engine = generate_terrain
 
         if not isinstance(source, DemSource):  # pragma: no cover - defensive
             raise TypeError(f'terrain generation needs a DemSource, got {source!r}')
         with source.open(bounds) as src:
-            return generate_terrain(
+            return engine(
                 src,
                 targets,
                 work_crs=source.work_crs,

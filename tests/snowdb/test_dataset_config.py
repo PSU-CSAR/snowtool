@@ -15,6 +15,7 @@ from snowtool.snowdb.config import (
 from snowtool.snowdb.datasets import (
     DATASET_TEMPLATES,
     DEFAULT_DATASET_SPECS,
+    SwannIngester,
     config_from_spec,
 )
 from snowtool.snowdb.spec import DatasetSpec
@@ -71,7 +72,6 @@ def test_builtin_config_round_trips_through_json(tmp_path, spec):
 
 
 def test_ingester_name_resolves_to_the_right_code():
-    from snowtool.snowdb.datasets import SwannIngester
 
     config = config_from_spec(DEFAULT_DATASET_SPECS[0])  # snodas
     swann_config = DATASET_TEMPLATES['swann-800m']

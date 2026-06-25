@@ -1,6 +1,10 @@
 """The land-cover ZoneLayerSet: presence, missing layers, and provenance hash."""
 
-from snowtool.snowdb.landcover import FOREST_COVER, LandCoverProvider
+from snowtool.snowdb.landcover import (
+    FOREST_COVER,
+    LANDCOVER_FORMAT_VERSION,
+    LandCoverProvider,
+)
 from snowtool.snowdb.raster import TiledRaster
 from snowtool.snowdb.zone_layer import ZoneLayerSet
 
@@ -10,8 +14,6 @@ def test_present_and_provenance_hash_on_a_built_dataset(dataset):
     assert isinstance(landcover, ZoneLayerSet)
     assert landcover.present() is True
     assert landcover.missing_layers() == []
-
-    from snowtool.snowdb.landcover import LANDCOVER_FORMAT_VERSION
 
     digest = landcover.provenance_hash()
     assert digest is not None

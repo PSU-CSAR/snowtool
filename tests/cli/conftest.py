@@ -4,28 +4,31 @@ Commands run against the small synthetic `spec` (top-level conftest), injected
 into the CLI via a pre-seeded CliContext on ctx.obj -- the root `cli` group
 honors an existing context, so `runner.invoke(cli, args, obj=cli_obj)` drives the
 real commands against the tiny grid instead of the full snodas spec.
+
+The real terrain/land-cover engines reproject the source onto a 10 m grid, which
+is intractable on the degree-scale synthetic grid. So `cli_obj` injects providers
+carrying fast stand-in engines (uniform writes) through the same
+``zone_layer_providers`` seam the CLI already uses -- no monkeypatching. The
+engines themselves are exercised in test_terrain_generate / test_landcover_generate.
 """
 
-import hashlib
-
-import numpy
 import pytest
 import rasterio
 
 from click.testing import CliRunner
 
 from snowtool.cli._context import CliContext
-from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
+from snowtool.snowdb.datasets import config_from_spec
 from snowtool.snowdb.dem_source import LocalFile
-from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
+from snowtool.snowdb.landcover import LandCoverProvider
 from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
-from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.terrain import (
-    ASPECT_COMPONENTS,
-    ASPECT_FLAT,
-    ASPECT_MAJORITY,
-    ELEVATION,
-    TERRAIN_FORMAT_VERSION,
+from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.terrain import TerrainProvider
+
+from ..conftest import (
+    register_dataset_config,
+    write_uniform_landcover,
+    write_uniform_terrain,
 )
 
 
@@ -42,34 +45,18 @@ def initialized_root(tmp_path, spec):
     opening the root serves 'test' -- the config-path equivalent of the old spec
     injection.
     """
-    from snowtool.snowdb.datasets import config_from_spec
-    from snowtool.snowdb.manager import SnowDbManager
-
-    from ..conftest import register_dataset_config
-
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
     return tmp_path
 
 
-@pytest.fixture
-def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
-    """A CliContext over the initialized synthetic snowdb (inject as obj=).
-
-    The terrain/land-cover sources are local files (keyed by provider name) so the
-    zone-layer commands never reach 3DEP or the MRLC download.
-    """
-    return CliContext(
-        config=initialized_root,
-        zone_layer_sources={
-            'terrain': LocalFile(source_dem),
-            'landcover': LocalNLCD(source_nlcd),
-        },
-    )
+def _target_crs(target):
+    """The target grid's CRS as a rasterio CRS (griffine CRS -> WKT -> rasterio)."""
+    return rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
 
 
-def _fake_generate_terrain(
-    source,
+def _fake_terrain_engine(
+    src,
     targets,
     *,
     work_crs=None,
@@ -78,103 +65,51 @@ def _fake_generate_terrain(
     block_size=None,
     force=False,
 ):
-    """Stand in for the streaming engine: write a uniform terrain set per target.
+    """Stand in for generate_terrain: a uniform terrain set per target.
 
-    The real engine reprojects the source to a 10 m grid, which is intractable on
-    the degree-scale synthetic CLI grid; these tests only exercise CLI wiring, so
-    a uniform write is enough (the engine itself is tested in test_terrain_generate).
+    Matches the real engine's signature so it drops into ``TerrainProvider`` via
+    the ``engine=`` seam; only CLI wiring is under test here.
     """
-    hashes = {}
-    for target in targets:
-        base = target.grid.base_grid
-        shape = (base.rows, base.cols)
-        crs = rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
-        elevation = numpy.full(shape, 1000.0, dtype='float32')
-        dem_hash = versioned_hash(
-            TERRAIN_FORMAT_VERSION,
-            hashlib.sha256(elevation.tobytes()).hexdigest(),
-        )
-        tags = {DEM_HASH_TAG: dem_hash}
-        target.directory.mkdir(parents=True, exist_ok=True)
-        common = {
-            'transform': base.transform,
-            'crs': crs,
-            'tile_size': target.tile_size,
-        }
-        from snowtool.snowdb.cog import write_cog
-
-        write_cog(
-            target.directory / ELEVATION.filename,
-            elevation,
-            nodata=ELEVATION.nodata,
-            tags=tags,
-            **common,
-        )
-        write_cog(
-            target.directory / ASPECT_MAJORITY.filename,
-            numpy.full(shape, ASPECT_FLAT, dtype='uint8'),
-            nodata=ASPECT_MAJORITY.nodata,
-            tags=tags,
-            **common,
-        )
-        write_cog(
-            target.directory / ASPECT_COMPONENTS.filename,
-            numpy.full((2, *shape), numpy.nan, dtype='float32'),
-            nodata=ASPECT_COMPONENTS.nodata,
-            compute_stats=False,
-            tags=tags,
-            **common,
-        )
-        hashes[target.name] = dem_hash
-    return hashes
-
-
-def _fake_generate_landcover(source, targets, *, force=False):
-    """Stand in for the streaming land-cover engine: a uniform write per target.
-
-    Like ``_fake_generate_terrain``, this exercises only the CLI wiring (which
-    datasets get generated, --quick, the override flag); the engine itself is
-    tested in test_landcover_generate.
-    """
-    from snowtool.snowdb.cog import write_cog
-
-    hashes = {}
-    for target in targets:
-        base = target.grid.base_grid
-        shape = (base.rows, base.cols)
-        crs = rasterio.crs.CRS.from_wkt(target.grid.crs.to_wkt())
-        forest = numpy.full(shape, 100, dtype='uint8')
-        nlcd_hash = versioned_hash(
-            LANDCOVER_FORMAT_VERSION,
-            hashlib.sha256(forest.tobytes()).hexdigest(),
-        )
-        target.directory.mkdir(parents=True, exist_ok=True)
-        write_cog(
-            target.directory / FOREST_COVER.filename,
-            forest,
-            transform=base.transform,
-            crs=crs,
+    return {
+        target.name: write_uniform_terrain(
+            target.directory,
+            base_grid=target.grid.base_grid,
+            crs=_target_crs(target),
             tile_size=target.tile_size,
-            nodata=FOREST_COVER.nodata,
-            tags={NLCD_HASH_TAG: nlcd_hash},
         )
-        hashes[target.name] = nlcd_hash
-    return hashes
+        for target in targets
+    }
 
 
-@pytest.fixture(autouse=True)
-def _fast_terrain(monkeypatch):
-    """Replace the streaming terrain engine with a fast uniform writer for CLI tests."""
-    monkeypatch.setattr(
-        'snowtool.snowdb.terrain_generate.generate_terrain',
-        _fake_generate_terrain,
-    )
+def _fake_landcover_engine(src, targets, *, force=False):
+    """Stand in for generate_landcover: a uniform forest layer per target."""
+    return {
+        target.name: write_uniform_landcover(
+            target.directory,
+            base_grid=target.grid.base_grid,
+            crs=_target_crs(target),
+            tile_size=target.tile_size,
+        )
+        for target in targets
+    }
 
 
-@pytest.fixture(autouse=True)
-def _fast_landcover(monkeypatch):
-    """Replace the streaming land-cover engine with a fast uniform writer."""
-    monkeypatch.setattr(
-        'snowtool.snowdb.landcover_generate.generate_landcover',
-        _fake_generate_landcover,
+@pytest.fixture
+def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
+    """A CliContext over the initialized synthetic snowdb (inject as obj=).
+
+    Providers carry fast stand-in engines (no real reprojection), and the
+    terrain/land-cover sources are local files (keyed by provider name) so the
+    zone-layer commands never reach 3DEP or the MRLC download.
+    """
+    return CliContext(
+        config=initialized_root,
+        zone_layer_providers=(
+            TerrainProvider(engine=_fake_terrain_engine),
+            LandCoverProvider(engine=_fake_landcover_engine),
+        ),
+        zone_layer_sources={
+            'terrain': LocalFile(source_dem),
+            'landcover': LocalNLCD(source_nlcd),
+        },
     )

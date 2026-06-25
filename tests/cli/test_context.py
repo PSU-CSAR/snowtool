@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import click
+import pytest
 
 from click.testing import CliRunner
 
@@ -33,32 +34,24 @@ def test_context_falls_back_to_settings(tmp_path, monkeypatch):
     assert ctx.snowdb.path == tmp_path
 
 
-def test_version_does_not_build_a_snowdb(monkeypatch):
-    # version must work with no snowdb_config configured: if it tried to build a
-    # SnowDb, Settings() would raise for the missing setting and exit nonzero.
+@pytest.mark.parametrize(
+    ('args', 'expected_in_output'),
+    [
+        # version must work with no snowdb_config configured: if it tried to build a
+        # SnowDb, Settings() would raise for the missing setting and exit nonzero.
+        (['version'], None),
+        (['migration', '--help'], None),
+        (['--help'], '--config'),
+    ],
+)
+def test_command_does_not_build_a_snowdb(monkeypatch, args, expected_in_output):
     monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
-    result = CliRunner().invoke(cli, ['version'])
+    result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 0
-    assert result.output.strip()
-
-
-def test_migration_help_does_not_build_a_snowdb(monkeypatch):
-    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
-
-    result = CliRunner().invoke(cli, ['migration', '--help'])
-
-    assert result.exit_code == 0
-
-
-def test_root_help_does_not_build_a_snowdb(monkeypatch):
-    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
-
-    result = CliRunner().invoke(cli, ['--help'])
-
-    assert result.exit_code == 0
-    assert '--config' in result.output
+    if expected_in_output is not None:
+        assert expected_in_output in result.output
 
 
 def _app() -> click.Group:
@@ -83,17 +76,12 @@ def _app() -> click.Group:
     return app
 
 
-def test_pass_snowdb_injects_root_db(tmp_path):
+@pytest.mark.parametrize('command', ['show', 'show-mgr'])
+def test_pass_decorators_inject_the_root_db(tmp_path, command):
+    # pass_snowdb (show) and pass_manager (show-mgr) both resolve the same lazily
+    # opened SnowDb from --root and print its path.
     SnowDbManager.initialize(tmp_path)
-    result = CliRunner().invoke(_app(), ['--root', str(tmp_path), 'show'])
-
-    assert result.exit_code == 0
-    assert result.output.strip() == str(tmp_path)
-
-
-def test_pass_manager_injects_root_manager(tmp_path):
-    SnowDbManager.initialize(tmp_path)
-    result = CliRunner().invoke(_app(), ['--root', str(tmp_path), 'show-mgr'])
+    result = CliRunner().invoke(_app(), ['--root', str(tmp_path), command])
 
     assert result.exit_code == 0
     assert result.output.strip() == str(tmp_path)

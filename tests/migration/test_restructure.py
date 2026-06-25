@@ -1,5 +1,8 @@
 import pytest
 
+from click.testing import CliRunner
+
+from snowtool.cli import cli
 from snowtool.migration.restructure import restructure_to_snowdb
 
 
@@ -41,9 +44,6 @@ def test_restructure_rejects_non_directory_source(tmp_path):
 
 
 def test_cli_migration_restructure(tmp_path):
-    from click.testing import CliRunner
-
-    from snowtool.cli import cli
 
     src = tmp_path / 'rasterdb'
     _make_flat(src)

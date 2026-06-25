@@ -1,11 +1,13 @@
 """Unit tests for the read-only report builders in snowdb.diagnostics."""
 
 import json
+import shutil
 
 from datetime import date
 
 import numpy
 import pytest
+import rasterio
 
 from snowtool.exceptions import AOICoverageError
 from snowtool.snowdb import diagnostics
@@ -14,9 +16,12 @@ from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.spec import DatasetSpec
+from snowtool.snowdb.terrain import ELEVATION
 
-from ..conftest import make_snowdb
+from ..conftest import make_snowdb, snodas_swe_name
 from .conftest import TILE
 
 
@@ -36,6 +41,7 @@ def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
     path = records_dir / f'{triplet.replace(":", "_")}.geojson'
     path.write_text(json.dumps(feature))
     return path
+
 
 # --- coverage / completeness -------------------------------------------------
 
@@ -75,7 +81,6 @@ def test_missing_artifacts_empty_for_created_dataset(dataset):
 
 
 def test_missing_artifacts_reports_deleted_terrain(dataset):
-    from snowtool.snowdb.terrain import ELEVATION
 
     dataset.zones['terrain'].layer_path(ELEVATION).unlink()
 
@@ -83,7 +88,6 @@ def test_missing_artifacts_reports_deleted_terrain(dataset):
 
 
 def test_missing_artifacts_reports_deleted_landcover(dataset):
-    from snowtool.snowdb.landcover import FOREST_COVER
 
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
@@ -111,7 +115,6 @@ def test_stale_format_zone_layers_flags_an_old_format(dataset):
 
 def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
     # An unbuilt set is a missing-artifact finding, not a stale-format one.
-    from snowtool.snowdb.landcover import FOREST_COVER
 
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
@@ -127,7 +130,6 @@ def test_aoi_coverage_unrasterized_then_covered(
     spec,
     aoi_geojson,
 ):
-    import shutil
 
     SnowDbManager.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
@@ -190,9 +192,7 @@ def guard_db(tmp_path, spec):
 
 
 def test_guard_passes_full_coverage(guard_db):
-    assert (
-        guard_db.require_aoi_coverage('full:MT:USGS', 'test') is Coverage.FULL
-    )
+    assert guard_db.require_aoi_coverage('full:MT:USGS', 'test') is Coverage.FULL
 
 
 def test_guard_raises_on_partial(guard_db):
@@ -203,7 +203,9 @@ def test_guard_raises_on_partial(guard_db):
 def test_guard_allow_partial_bypasses(guard_db):
     assert (
         guard_db.require_aoi_coverage(
-            'part:MT:USGS', 'test', allow_partial=True,
+            'part:MT:USGS',
+            'test',
+            allow_partial=True,
         )
         is Coverage.PARTIAL
     )
@@ -300,7 +302,6 @@ def test_grid_validation_skipped_without_a_cog(dataset):
 
 
 def test_grid_validation_flags_shape_mismatch(dataset):
-    from ..conftest import snodas_swe_name
 
     date_dir = dataset._cogs / '20180101'
     date_dir.mkdir(parents=True)
@@ -318,16 +319,18 @@ def test_grid_validation_flags_shape_mismatch(dataset):
 
 
 def test_grid_validation_flags_transform_mismatch(dataset):
-    import rasterio
-
-    from ..conftest import snodas_swe_name
 
     date_dir = dataset._cogs / '20180101'
     date_dir.mkdir(parents=True)
     # Right shape, but the origin is shifted a full degree off the declared grid.
     shifted = dataset.grid.base_grid.transform * rasterio.Affine.translation(0, 0)
     shifted = rasterio.Affine(
-        shifted.a, shifted.b, shifted.c + 1.0, shifted.d, shifted.e, shifted.f,
+        shifted.a,
+        shifted.b,
+        shifted.c + 1.0,
+        shifted.d,
+        shifted.e,
+        shifted.f,
     )
     write_cog(
         date_dir / f'{snodas_swe_name("20180101")}.tif',
@@ -342,7 +345,6 @@ def test_grid_validation_flags_transform_mismatch(dataset):
 
 
 def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
-    from snowtool.snowdb.spec import DatasetSpec
 
     class _Ingester:
         def ingest(self, source, dataset, *, force=False):  # pragma: no cover

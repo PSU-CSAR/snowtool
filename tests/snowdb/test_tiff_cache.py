@@ -6,7 +6,7 @@ import numpy
 import rasterio
 
 from snowtool.snowdb.grid import make_grid
-from snowtool.snowdb.raster import load_tile
+from snowtool.snowdb.raster import TiledRaster, load_tile
 from snowtool.snowdb.tiff_cache import TiffCache
 
 TILE = 256
@@ -76,7 +76,6 @@ def test_load_tile_reads_correct_block(tmp_path):
 
 
 def test_load_tiles_batched_preserves_order(tmp_path):
-    from snowtool.snowdb.raster import TiledRaster
 
     grid = _grid()
     path = tmp_path / 'blocks.tif'

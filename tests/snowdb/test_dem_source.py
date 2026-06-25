@@ -22,6 +22,7 @@ from snowtool.snowdb.dem_source import (
     candidate_tiles,
     discover_tiles,
 )
+from snowtool.snowdb.terrain_generate import DEFAULT_WORK_CRS, DEFAULT_WORK_RESOLUTION
 
 
 def _tile(path, x0, y0, value, n=4, px=1.0):
@@ -60,11 +61,6 @@ def test_local_file_open_yields_the_dataset(tmp_path):
 
 
 def test_work_grid_defaults_and_overrides(tmp_path):
-    from snowtool.snowdb.terrain_generate import (
-        DEFAULT_WORK_CRS,
-        DEFAULT_WORK_RESOLUTION,
-    )
-
     path = _tile(tmp_path / 'dem.tif', 0.0, 4.0, 7.0)
 
     # 3DEP pins its native 10 m CONUS-Albers grid.
@@ -215,7 +211,10 @@ def test_threedep_open_errors_when_no_tiles(monkeypatch):
 
     monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
 
-    with pytest.raises(RuntimeError, match='No 3DEP tiles'), ThreeDEP().open(
-        (0.0, 0.0, 1.0, 1.0),
+    with (
+        pytest.raises(RuntimeError, match='No 3DEP tiles'),
+        ThreeDEP().open(
+            (0.0, 0.0, 1.0, 1.0),
+        ),
     ):
         pass

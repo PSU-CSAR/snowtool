@@ -12,10 +12,16 @@ import math
 
 import numpy
 import pytest
+import rasterio
 
+from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
 from snowtool.snowdb.dem_source import ThreeDEP, candidate_tiles, discover_tiles
+from snowtool.snowdb.grid import grid_extent_4326, make_grid
+from snowtool.snowdb.terrain import TerrainProvider
+from snowtool.snowdb.terrain_generate import generate_terrain
+from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
 pytestmark = pytest.mark.network
 
@@ -89,14 +95,6 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
     grid spans the seam, so this also covers cross-tile stitching. Serial vs. parallel
     must match exactly, including the generation hash.
     """
-    import rasterio
-
-    from rasterio.warp import transform_bounds
-
-    from snowtool.snowdb.grid import grid_extent_4326, make_grid
-    from snowtool.snowdb.terrain import TerrainProvider
-    from snowtool.snowdb.terrain_generate import generate_terrain
-    from snowtool.snowdb.zone_layer import ZoneLayerTarget
 
     source = ThreeDEP()
     west, south, east, north = transform_bounds('EPSG:4326', 'EPSG:5070', *SEAM_BOX)

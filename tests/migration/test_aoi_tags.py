@@ -2,15 +2,20 @@ import numpy
 import pytest
 import rasterio
 
+from click.testing import CliRunner
+
+from snowtool.cli import cli
 from snowtool.migration.aoi_tags import (
     LEGACY_ORIGIN_TILE_TAG,
     LEGACY_TILE_TAG_PREFIX,
     migrate_aoi_raster_tags,
     quadkey_to_tile_coords,
 )
+from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.datasets import SNODAS_SPEC
 from snowtool.snowdb.grid import tile_base_origin
+from snowtool.snowdb.raster import AOIRaster
 
 SNODAS_GRID = SNODAS_SPEC.grid
 TILE = 256
@@ -18,7 +23,6 @@ TILE = 256
 
 def _write_legacy(path, quadkeys, origin):
     """Write a tiny COG tagged like a legacy snodas AOI raster."""
-    from snowtool.snowdb.cog import write_cog
 
     write_cog(
         path,
@@ -91,7 +95,6 @@ def test_migrate_is_idempotent(tmp_path) -> None:
 
 
 def test_migrate_missing_tags_raises(tmp_path) -> None:
-    from snowtool.snowdb.cog import write_cog
 
     path = tmp_path / 'plain.tif'
     write_cog(
@@ -108,7 +111,6 @@ def test_migrate_missing_tags_raises(tmp_path) -> None:
 def test_migrated_raster_reads_via_bbox(tmp_path) -> None:
     """End-to-end: after migration the runtime reads the same window it did
     from the legacy quadkey tags (the bbox spans the legacy tile set)."""
-    from snowtool.snowdb.raster import AOIRaster
 
     path = tmp_path / 'legacy.tif'
     _write_legacy(path, ['0120'], origin='0120')  # tile (2, 4)
@@ -123,9 +125,6 @@ def test_migrated_raster_reads_via_bbox(tmp_path) -> None:
 
 
 def test_cli_migration_aoi_tags(tmp_path) -> None:
-    from click.testing import CliRunner
-
-    from snowtool.cli import cli
 
     path = tmp_path / 'legacy.tif'
     _write_legacy(path, ['0120'], origin='0120')

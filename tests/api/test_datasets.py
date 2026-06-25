@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from snowtool.api.app import get_app
 
+from ..conftest import init_with_builtins
+
 
 @pytest.fixture
 def snodas_client(test_settings) -> Iterator[TestClient]:
@@ -14,7 +16,6 @@ def snodas_client(test_settings) -> Iterator[TestClient]:
     DatasetInfo is derived entirely from the spec, so no COGs are needed; the
     snodas dataset is served because its config is registered in the root config.
     """
-    from ..conftest import init_with_builtins
 
     init_with_builtins(test_settings.snowdb_config)
     with TestClient(get_app(settings=test_settings)) as client:

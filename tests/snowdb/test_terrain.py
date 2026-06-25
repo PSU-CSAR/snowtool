@@ -3,7 +3,12 @@
 import pytest
 
 from snowtool.snowdb.raster import TiledRaster
-from snowtool.snowdb.terrain import ELEVATION, TerrainProvider
+from snowtool.snowdb.terrain import (
+    ASPECT_MAJORITY,
+    ELEVATION,
+    TERRAIN_FORMAT_VERSION,
+    TerrainProvider,
+)
 from snowtool.snowdb.zone_layer import ZoneLayerSet
 
 
@@ -12,8 +17,6 @@ def test_present_and_provenance_hash_on_a_built_dataset(dataset):
     assert isinstance(terrain, ZoneLayerSet)
     assert terrain.present() is True
     assert terrain.missing_layers() == []
-
-    from snowtool.snowdb.terrain import TERRAIN_FORMAT_VERSION
 
     digest = terrain.provenance_hash()
     assert digest is not None
@@ -24,7 +27,6 @@ def test_present_and_provenance_hash_on_a_built_dataset(dataset):
 
 
 def test_missing_layers_reports_an_absent_layer(dataset):
-    from snowtool.snowdb.terrain import ASPECT_MAJORITY
 
     terrain = dataset.zones['terrain']
     terrain.layer_path(ASPECT_MAJORITY).unlink()
