@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 class CliContext:
     """The state the root ``cli`` group hands every command via ``ctx.obj``.
 
-    Holds the ``--root`` value (or ``None`` to fall back to the ``snowdb_path``
+    Holds the ``--config`` value (or ``None`` to fall back to the ``snowdb_path``
     setting) and the zone-layer providers to bind, and lazily *opens* a single
     :class:`SnowDb` from its root config the first time :attr:`snowdb` is read --
     so the CLI serves exactly the registered datasets. ``zone_layer_sources``
@@ -54,7 +54,7 @@ class CliContext:
     def snowdb(self) -> SnowDb:
         """The invocation's SnowDb, opened once on first access.
 
-        Resolves ``--root`` if given, otherwise the ``snowdb_path`` setting (read
+        Resolves ``--config`` if given, otherwise the ``snowdb_path`` setting (read
         only here, so commands that never touch the database never require it), and
         opens the snowdb from the root config there.
         """

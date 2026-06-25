@@ -226,7 +226,7 @@ def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
         spec = DatasetSpec.from_config(config, name)
         ds = Dataset(
             spec,
-            snowdb.data_path / name,
+            snowdb.dataset_dir(name, config),
             snowdb.zone_layer_providers.values(),
         )
         return ds, config

@@ -1,6 +1,6 @@
 """The ``snowtool`` CLI: a thin shell over the snowdb Python API.
 
-The root ``cli`` group exposes ``--root`` and seeds a :class:`CliContext` on
+The root ``cli`` group exposes ``--config`` and seeds a :class:`CliContext` on
 ``ctx.obj``; subcommand groups live in sibling modules and are registered here.
 Command bodies stay thin -- they resolve a SnowDb (via
 :func:`snowtool.cli._context.pass_snowdb`), call a domain method, and render with
@@ -24,15 +24,18 @@ from snowtool.cli.version import version
 
 @click.group()
 @click.option(
-    '--root',
-    type=click.Path(file_okay=False, path_type=Path),
+    '--config',
+    '-C',
+    'root',
+    type=click.Path(path_type=Path),
     default=None,
-    help='Snowdb root directory (defaults to the SNOWTOOL_SNOWDB_PATH setting).',
+    help='Snowdb config file or its directory '
+    '(defaults to the SNOWTOOL_SNOWDB_PATH setting).',
 )
 @click.pass_context
 def cli(ctx: click.Context, root: Path | None) -> None:
     # Honor a CliContext already placed on ctx.obj (tests inject one carrying
-    # synthetic specs); otherwise build one from --root for the normal entrypoint.
+    # synthetic specs); otherwise build one from --config for the normal entrypoint.
     if not isinstance(ctx.obj, CliContext):
         ctx.obj = CliContext(root=root)
 
