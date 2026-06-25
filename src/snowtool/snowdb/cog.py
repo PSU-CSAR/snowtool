@@ -60,11 +60,17 @@ def write_cog(
         'nodata': nodata,
         'blocksize': tile_size,
         'compress': 'DEFLATE',
-        'predictor': predictor if predictor is not None else _default_predictor(
+        'predictor': predictor
+        if predictor is not None
+        else _default_predictor(
             array.dtype,
         ),
         # rasterio's bundled GDAL caps DEFLATE at 9 (no libdeflate).
         'level': 9,
+        # No overviews: the read path only ever reads full resolution (z=0), and
+        # the legacy pipeline built none either. Skipping them keeps the output
+        # smaller and deterministic.
+        'overviews': 'NONE',
     }
 
     with rasterio.open(path, 'w', **profile) as dst:
