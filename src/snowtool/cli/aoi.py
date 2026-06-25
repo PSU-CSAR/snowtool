@@ -18,7 +18,6 @@ from snowtool.cli._context import pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
     format_option,
-    require_initialized,
     resolve_datasets,
 )
 from snowtool.cli._render import _emit, _emit_record
@@ -62,7 +61,6 @@ def import_aois(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
     Imports polygon-bearing pourpoints, skips point-only ones, and reports
     unparseable files (nonzero exit). Never removes a stored AOI.
     """
-    require_initialized(manager)
     result = manager.import_aois(src, dry_run=dry_run)
     _echo_import(result, dry_run=dry_run)
     _fail_if_invalid(result)
@@ -90,7 +88,6 @@ def sync_aois(
     removed (cascading to its per-dataset rasters). If a prune would happen and
     ``--prune-to`` is absent, the command errors before changing anything.
     """
-    require_initialized(manager)
     try:
         result = manager.sync_aois(src, prune_to=prune_to, dry_run=dry_run)
     except AOIPruneDestinationRequiredError as e:
@@ -175,7 +172,6 @@ def dump_aoi(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
 @pass_manager
 def reindex_aois(manager: SnowDbManager) -> None:
     """Rebuild the index.geojson manifest from the stored records."""
-    require_initialized(manager)
     index = manager.reindex_aois()
     click.echo(f'reindexed {len(index)} AOI(s) into {manager.db.aoi_index_path}')
 
@@ -186,7 +182,6 @@ def reindex_aois(manager: SnowDbManager) -> None:
 @pass_manager
 def remove_aoi(manager: SnowDbManager, triplet: str, dry_run: bool) -> None:
     """Remove a stored AOI and its per-dataset rasters (cascade)."""
-    require_initialized(manager)
     if dry_run:
         present = manager.db.aoi_record_path(triplet).is_file()
         click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
@@ -215,7 +210,6 @@ def rasterize_aois(
     Provide a single TRIPLET or ``--all``. By default only missing/stale rasters
     are (re)built; ``--rebuild`` forces all selected.
     """
-    require_initialized(manager)
     if bool(triplet) == bool(all_aois):
         raise click.ClickException('Provide exactly one of TRIPLET or --all.')
 

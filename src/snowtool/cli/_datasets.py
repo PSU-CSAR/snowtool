@@ -16,7 +16,6 @@ from snowtool.cli._render import FORMATS
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.manager import SnowDbManager
 
 format_option = click.option(
     '--format',
@@ -51,11 +50,3 @@ def resolve_datasets(snowdb: SnowDb, names: tuple[str, ...]) -> list[Dataset]:
     if not names:
         return [snowdb[name] for name in sorted(snowdb)]
     return [get_dataset(snowdb, name) for name in names]
-
-
-def require_initialized(manager: SnowDbManager) -> None:
-    """Refuse to run a write command against an un-initialized snowdb root."""
-    try:
-        manager.require_initialized()
-    except FileNotFoundError as e:
-        raise click.ClickException(str(e)) from e
