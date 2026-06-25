@@ -7,6 +7,10 @@ class SNODASWarning(UserWarning):
 
     A distinct category so callers can filter or escalate snowtool's warnings
     specifically (e.g. ``warnings.simplefilter('error', SNODASWarning)``).
+
+    Convention: ``warnings.warn(..., SNODASWarning)`` for suspect data/state
+    conditions the operation tolerates (escalatable, deduped per call site);
+    ``logging`` for operational progress and errors.
     """
 
 
