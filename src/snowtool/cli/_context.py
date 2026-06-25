@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.manager import SnowDbManager
-    from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
+    from snowtool.snowdb.zone_layer import ZoneLayerProvider
 
 
 @dataclass
@@ -39,15 +39,12 @@ class CliContext:
     Holds the ``--config`` value (or ``None`` to fall back to the ``snowdb_config``
     setting) and the zone-layer providers to bind, and lazily *opens* a single
     :class:`SnowDb` from its root config the first time :attr:`snowdb` is read --
-    so the CLI serves exactly the registered datasets. ``zone_layer_sources``
-    overrides a provider's default generation source by provider name (tests inject
-    local files to avoid hitting 3DEP / the MRLC download); an unlisted provider
-    keeps SnowDb's default source.
+    so the CLI serves exactly the registered datasets. Generation sources are
+    declared in the config (``RootConfig.sources``), not injected here.
     """
 
     config: Path | None = None
     zone_layer_providers: tuple[ZoneLayerProvider, ...] = DEFAULT_ZONE_LAYER_PROVIDERS
-    zone_layer_sources: dict[str, ZoneLayerSource] | None = None
     _snowdb: SnowDb | None = field(default=None, init=False, repr=False)
 
     @property
@@ -68,7 +65,6 @@ class CliContext:
             self._snowdb = SnowDb.open(
                 location,
                 zone_layer_providers=self.zone_layer_providers,
-                zone_layer_sources=self.zone_layer_sources,
             )
         return self._snowdb
 

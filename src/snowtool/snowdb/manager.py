@@ -107,7 +107,6 @@ class SnowDbManager:
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
-        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
         """Open the read :class:`SnowDb` at ``path`` and wrap it in a manager."""
         return cls(
@@ -115,7 +114,6 @@ class SnowDbManager:
                 path,
                 tiff_cache=tiff_cache,
                 zone_layer_providers=zone_layer_providers,
-                zone_layer_sources=zone_layer_sources,
             ),
         )
 
@@ -129,7 +127,6 @@ class SnowDbManager:
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
-        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
         """Create the base snowdb layout + an empty root config at ``path``.
 
@@ -160,15 +157,15 @@ class SnowDbManager:
                 config,
                 tiff_cache=tiff_cache,
                 zone_layer_providers=zone_layer_providers,
-                zone_layer_sources=zone_layer_sources,
             ),
         )
 
     def _read_root_config(self: Self) -> RootConfig:
         """Load this root's on-disk config (raises if it is absent)."""
-        if not self.db.config_path.is_file():
+        config_path = self.db.config_path
+        if config_path is None or not config_path.is_file():
             raise SnowDbConfigError(self.db.path)
-        return RootConfig.load(self.db.config_path)
+        return RootConfig.load(config_path)
 
     def register_dataset(
         self: Self,
@@ -188,8 +185,11 @@ class SnowDbManager:
         if link_type != 'path':
             raise ValueError(f'unknown dataset link type: {link_type!r}')
         config = self._read_root_config()
+        config_path = self.db.config_path
+        if config_path is None:  # pragma: no cover - _read_root_config guarantees it
+            raise SnowDbConfigError(self.db.path)
         dataset_config_path = Path(dataset_config_path).resolve()
-        root = self.db.path.resolve()
+        root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
         # the dataset is staged elsewhere.
         if dataset_config_path.is_relative_to(root):
@@ -197,7 +197,7 @@ class SnowDbManager:
         else:
             link = str(dataset_config_path)
         config.datasets[name] = PathDatasetLink(path=link)
-        config.save(self.db.config_path)
+        config.save(config_path)
         return config
 
     def rasterize_aoi(
@@ -267,9 +267,7 @@ class SnowDbManager:
         manifest always reflects the live grids (a grid change is picked up by
         re-running this).
         """
-        domains = {
-            name: ds.coverage_domain for name, ds in self.db.datasets.items()
-        }
+        domains = {name: ds.coverage_domain for name, ds in self.db.datasets.items()}
         index = AOIIndex.from_records(self.db.aoi_records_path, domains)
         index.save(self.db.aoi_index_path)
         return index

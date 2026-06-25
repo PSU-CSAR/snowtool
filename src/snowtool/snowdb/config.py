@@ -172,6 +172,10 @@ class RootConfig(ResourceModel):
     datasets: dict[str, DatasetLink] = Field(default_factory=dict)
     aoi_index: str = 'aois/index.geojson'
     aoi_records: str = 'aois/records'
+    # Per-provider generation source paths (provider name -> path; absolute, or
+    # relative to this config). A provider absent here uses its default source
+    # (3DEP for terrain, the MRLC bundle for land cover).
+    sources: dict[str, str] = Field(default_factory=dict)
 
     # Where this config lives on disk: set when loaded/saved, ``None`` when built
     # in code. It is the base every relative link resolves against, so a config

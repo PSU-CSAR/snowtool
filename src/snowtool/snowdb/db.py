@@ -62,7 +62,6 @@ class SnowDb:
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
-        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> None:
         """Build a snowdb from a root ``config``.
 
@@ -114,8 +113,7 @@ class SnowDb:
                 if not resolved.is_file():
                     raise SnowDbConfigError(
                         self.root,
-                        f'dataset {name!r} link points at a missing config: '
-                        f'{resolved}',
+                        f'dataset {name!r} link points at a missing config: {resolved}',
                     )
                 dataset_config = DatasetConfig.load(resolved)
                 self._dataset_paths[name] = self.dataset_dir(
@@ -139,21 +137,21 @@ class SnowDb:
         # Injected so the entrypoint can size it from settings; defaulted so
         # tests/CLI can build a SnowDb without wiring one up.
         self.tiff_cache = tiff_cache if tiff_cache is not None else TiffCache()
-        # The source each provider reads from during generation. A source belongs
-        # to the whole database (one source bins into every grid in a single pass),
-        # not to any one dataset. Per-provider overrides win (the CLI/tests inject
-        # local files to avoid 3DEP/the MRLC download); otherwise the provider's
-        # default source is used (3DEP for terrain, the MRLC bundle for land cover),
-        # so `init` works out of the box.
-        overrides = zone_layer_sources or {}
-        # default_source needs the root; a rootless (in-code) config keeps only the
-        # sources explicitly injected. Reads don't use sources -- only generation,
-        # which needs a root anyway.
-        self.zone_layer_sources: dict[str, ZoneLayerSource] = {
-            name: overrides.get(name) or provider.default_source(self.path)
-            for name, provider in self.zone_layer_providers.items()
-            if self.path is not None or overrides.get(name) is not None
-        }
+        # The source each provider reads from during generation -- declared in the
+        # config (provider name -> path, resolved like any other config path). A
+        # source belongs to the whole database (one source bins into every grid in
+        # a single pass), not to any one dataset. A provider with no configured
+        # source falls back to its default (3DEP / the MRLC bundle), which needs a
+        # root. Reads never touch sources -- only generation does.
+        self.zone_layer_sources: dict[str, ZoneLayerSource] = {}
+        for name, provider in self.zone_layer_providers.items():
+            configured = config.sources.get(name)
+            if configured is not None:
+                self.zone_layer_sources[name] = provider.local_source(
+                    self._resolve_path(configured),
+                )
+            elif self.root is not None:
+                self.zone_layer_sources[name] = provider.default_source(self.root)
 
     def _resolve_path(self: Self, link: str | Path, base: Path | None = None) -> Path:
         """Resolve a config path: absolute -> as-is; relative -> against ``base``
@@ -206,7 +204,7 @@ class SnowDb:
                     f'Dataset specs {prefixes[spec.model_prefix]!r} and '
                     f'{spec.name!r} generate the same response-model name '
                     f'{spec.model_prefix!r} (their names differ only by case or '
-                    "-/_ separators). Rename one.",
+                    '-/_ separators). Rename one.',
                 )
             prefixes[spec.model_prefix] = spec.name
             indexed[spec.name] = spec
@@ -233,7 +231,6 @@ class SnowDb:
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
-        zone_layer_sources: dict[str, ZoneLayerSource] | None = None,
     ) -> Self:
         """Open a snowdb from its root config file -- the "from file" constructor.
 
@@ -254,7 +251,6 @@ class SnowDb:
             config,
             tiff_cache=tiff_cache,
             zone_layer_providers=zone_layer_providers,
-            zone_layer_sources=zone_layer_sources,
         )
 
     def available_zones(self: Self) -> dict[str, AvailableZone]:

@@ -18,10 +18,9 @@ import rasterio
 from click.testing import CliRunner
 
 from snowtool.cli._context import CliContext
+from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
-from snowtool.snowdb.dem_source import LocalFile
 from snowtool.snowdb.landcover import LandCoverProvider
-from snowtool.snowdb.landcover_source import LocalFile as LocalNLCD
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.terrain import TerrainProvider
 
@@ -98,18 +97,18 @@ def _fake_landcover_engine(src, targets, *, force=False):
 def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
     """A CliContext over the initialized synthetic snowdb (inject as obj=).
 
-    Providers carry fast stand-in engines (no real reprojection), and the
-    terrain/land-cover sources are local files (keyed by provider name) so the
-    zone-layer commands never reach 3DEP or the MRLC download.
+    Providers carry fast stand-in engines (no real reprojection); the
+    terrain/land-cover generation sources are declared in the root config (local
+    files) so the zone-layer commands never reach 3DEP or the MRLC download.
     """
+    config_path = initialized_root / CONFIG_FILENAME
+    config = RootConfig.load(config_path)
+    config.sources = {'terrain': str(source_dem), 'landcover': str(source_nlcd)}
+    config.save(config_path)
     return CliContext(
         config=initialized_root,
         zone_layer_providers=(
             TerrainProvider(engine=_fake_terrain_engine),
             LandCoverProvider(engine=_fake_landcover_engine),
         ),
-        zone_layer_sources={
-            'terrain': LocalFile(source_dem),
-            'landcover': LocalNLCD(source_nlcd),
-        },
     )
