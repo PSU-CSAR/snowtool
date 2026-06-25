@@ -68,8 +68,7 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     for ds in resolve_datasets(snowdb, dataset_names):
         name = ds.spec.name
         findings.extend(
-            f'grid: {name}: {issue}'
-            for issue in diagnostics.grid_validation_report(ds)
+            f'grid: {name}: {issue}' for issue in diagnostics.grid_validation_report(ds)
         )
         for inc in diagnostics.completeness_report(ds):
             missing_vars = ', '.join(inc.missing)
@@ -130,6 +129,5 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     SnowDbManager.initialize(
         root,
         zone_layer_providers=cli_ctx.zone_layer_providers,
-        zone_layer_sources=cli_ctx.zone_layer_sources,
     )
     click.echo(f'initialized snowdb: {root}')
