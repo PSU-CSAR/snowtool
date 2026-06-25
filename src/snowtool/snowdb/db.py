@@ -96,33 +96,21 @@ class SnowDb:
         self.path = self.root
         self.data_path = self.root / 'data' if self.root is not None else None
 
-        def resolve(link: str | Path, base: Path | None = None) -> Path:
-            p = Path(link)
-            if p.is_absolute():
-                return p
-            anchor = base if base is not None else self.root
-            if anchor is None:
-                raise SnowDbConfigError(
-                    self.root,
-                    f'cannot resolve relative path {str(p)!r}: this config has no '
-                    'location (built in code, not saved). Make the path absolute, '
-                    'or save the config first.',
-                )
-            return anchor / p
+        self.aoi_records_path = self._resolve_path(config.aoi_records)
+        self.aoi_index_path = self._resolve_path(config.aoi_index)
 
-        self.aoi_records_path = resolve(config.aoi_records)
-        self.aoi_index_path = resolve(config.aoi_index)
-
-        # Resolve every registered dataset (inline definition or referenced config
-        # file) into a spec, and record where each one's data lives.
+        # Resolve every registered dataset (inline or referenced) into a spec and
+        # record where its data lives -- the `dataset_dir` rule reads and writes
+        # share. Inline uses the root + `data/<name>` convention; a referenced one
+        # defaults beside its own config file.
         specs: list[DatasetSpec] = []
         self._dataset_paths: dict[str, Path] = {}
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
                 dataset_config = link.dataset
-                base, default = self.root, Path('data') / name
+                self._dataset_paths[name] = self.dataset_dir(name, dataset_config)
             else:  # PathDatasetLink
-                resolved = resolve(link.path)
+                resolved = self._resolve_path(link.path)
                 if not resolved.is_file():
                     raise SnowDbConfigError(
                         self.root,
@@ -130,14 +118,12 @@ class SnowDb:
                         f'{resolved}',
                     )
                 dataset_config = DatasetConfig.load(resolved)
-                base, default = resolved.parent, resolved.parent
-            # The data dir is the config's `data_dir` (absolute -> anywhere;
-            # relative -> against the config's own location), else the convention.
-            spec_dir = dataset_config.data_dir
-            self._dataset_paths[name] = resolve(
-                spec_dir if spec_dir is not None else default,
-                base,
-            )
+                self._dataset_paths[name] = self.dataset_dir(
+                    name,
+                    dataset_config,
+                    base=resolved.parent,
+                    default=resolved.parent,
+                )
             specs.append(DatasetSpec.from_config(dataset_config, name))
 
         self._specs = self._index_specs(specs)
@@ -168,6 +154,42 @@ class SnowDb:
             for name, provider in self.zone_layer_providers.items()
             if self.path is not None or overrides.get(name) is not None
         }
+
+    def _resolve_path(self: Self, link: str | Path, base: Path | None = None) -> Path:
+        """Resolve a config path: absolute -> as-is; relative -> against ``base``
+        (the root by default). A relative path with no root has nothing to resolve
+        against, so it raises."""
+        p = Path(link)
+        if p.is_absolute():
+            return p
+        anchor = base if base is not None else self.root
+        if anchor is None:
+            raise SnowDbConfigError(
+                self.root,
+                f'cannot resolve relative path {str(p)!r}: this config has no '
+                'location (built in code, not saved). Make the path absolute, or '
+                'save the config first.',
+            )
+        return anchor / p
+
+    def dataset_dir(
+        self: Self,
+        name: str,
+        dataset_config: DatasetConfig,
+        *,
+        base: Path | None = None,
+        default: Path | None = None,
+    ) -> Path:
+        """Where ``name``'s data lives -- the single rule reads and writes share.
+
+        The config's ``data_dir`` (absolute -> anywhere; relative -> against
+        ``base``), else the convention ``default`` (``data/<name>``). ``base``
+        defaults to the root.
+        """
+        location = dataset_config.data_dir
+        if location is None:
+            location = default if default is not None else Path('data') / name
+        return self._resolve_path(location, base)
 
     @staticmethod
     def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:

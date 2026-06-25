@@ -25,7 +25,7 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
 
 
 def test_context_falls_back_to_settings(tmp_path, monkeypatch):
-    # With no --root, the snowdb_path setting supplies the root.
+    # With no --config, the snowdb_path setting supplies the root.
     SnowDbManager.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
     ctx = CliContext(root=None)
@@ -58,7 +58,7 @@ def test_root_help_does_not_build_a_snowdb(monkeypatch):
     result = CliRunner().invoke(cli, ['--help'])
 
     assert result.exit_code == 0
-    assert '--root' in result.output
+    assert '--config' in result.output
 
 
 def _app() -> click.Group:

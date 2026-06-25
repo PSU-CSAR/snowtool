@@ -89,7 +89,7 @@ def register_dataset_config(manager, name, config):
     """Stage ``config`` at ``data/<name>/dataset.json`` and register its link."""
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
-    ds_dir = manager.db.data_path / name
+    ds_dir = manager.db.dataset_dir(name, config)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)
