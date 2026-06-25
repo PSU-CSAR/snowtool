@@ -157,8 +157,28 @@ class SNODASInputRaster(BaseFileInfo):
             crs=crs,
             nodata=nodata,
             tile_size=SNODAS_SPEC.grid_params.tile_size,
+            tags=self._provenance_tags(),
             predictor=2,
         )
+
+    def _provenance_tags(self: Self) -> dict[str, str]:
+        # SNODAS already keeps its full source stem as the COG name; these tags
+        # add the parsed fields as a structured, queryable record in the file.
+        return {
+            'SOURCE_DATASET': SNODAS_SPEC.name,
+            'SOURCE_DATE': self.datetime.date().isoformat(),
+            'SOURCE_VARIABLE': self.product.value,
+            'SOURCE_FILES': self.path.name,
+            'SOURCE_REGION': self.region.value,
+            'SOURCE_MODEL': self.model.value,
+            'SOURCE_DATATYPE': self.datatype.value,
+            'SOURCE_SCALED': str(self.scaled),
+            'SOURCE_VCODE': self.vcode,
+            'SOURCE_TIMECODE': self.timecode.value,
+            'SOURCE_INTERVAL': self.interval.value,
+            'SOURCE_OFFSET': self.offset.value,
+            'SOURCE_TIMESTEP': self.datetime.isoformat(),
+        }
 
 
 class SNODASInputRasterSet:

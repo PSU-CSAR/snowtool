@@ -37,8 +37,9 @@ if TYPE_CHECKING:
 # --- SWANN 800m variables -----------------------------------------------------
 
 # Both variables are int16 millimetres with the product's -999 fill, reported as
-# area-weighted means (intensive depths, like SNODAS swe/depth). The ``glob`` is
-# the literal COG filename ingest writes into each cogs/<date>/ dir.
+# area-weighted means (intensive depths, like SNODAS swe/depth). Ingest names
+# each COG `<source-stem>__<key>.tif` to keep the source provenance in the
+# filename; the ``glob`` matches that on the `__<key>` suffix.
 _mm = Unit(name='mm', scale_factor=1)
 _NODATA = -999.0
 
@@ -49,7 +50,7 @@ SWANN_800M_VARIABLES = (
         reducer=Reducer.MEAN,
         dtype='int16',
         nodata=_NODATA,
-        glob='swe.tif',
+        glob='*__swe.tif',
     ),
     DatasetVariable(
         key='depth',
@@ -57,12 +58,12 @@ SWANN_800M_VARIABLES = (
         reducer=Reducer.MEAN,
         dtype='int16',
         nodata=_NODATA,
-        glob='depth.tif',
+        glob='*__depth.tif',
     ),
 )
 
 # NetCDF subdataset name -> dataset variable key. The ingester reads each
-# subdataset and writes it to the matching variable's COG (variable.glob).
+# subdataset and writes it to the matching variable's provenance-named COG.
 _SUBDATASET_TO_VARIABLE = {
     'SWE': 'swe',
     'DEPTH': 'depth',
@@ -94,6 +95,7 @@ class SwannRaster:
         crs: rasterio.crs.CRS,
         tile_size: int,
         nodata: float,
+        tags: dict[str, str] | None = None,
     ) -> None:
         self.source_uri = source_uri
         self.out_name = out_name
@@ -101,6 +103,7 @@ class SwannRaster:
         self.crs = crs
         self.tile_size = tile_size
         self.nodata = nodata
+        self.tags = tags
 
     def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
         output_path = output_dir / self.out_name
@@ -121,6 +124,7 @@ class SwannRaster:
             crs=self.crs,
             nodata=self.nodata,
             tile_size=self.tile_size,
+            tags=self.tags,
             predictor=2,
         )
 
@@ -173,14 +177,23 @@ class SwannIngester:
         crs = dataset.grid_crs
         tile_size = dataset.spec.grid_params.tile_size
 
+        # Name each COG after the source file (+ variable) so the provenance is
+        # visible in the filesystem; the full record also goes into COG tags.
         rasters = [
             SwannRaster(
                 f'netcdf:{source}:{subdataset}',
-                variable.glob,
+                f'{source.stem}__{variable.key}.tif',
                 transform=transform,
                 crs=crs,
                 tile_size=tile_size,
                 nodata=variable.nodata,
+                tags={
+                    'SOURCE_DATASET': dataset.spec.name,
+                    'SOURCE_DATE': ingest_date.isoformat(),
+                    'SOURCE_VARIABLE': variable.key,
+                    'SOURCE_FILES': source.name,
+                    'SOURCE_STAGE': match['stage'],
+                },
             )
             for subdataset, key in _SUBDATASET_TO_VARIABLE.items()
             for variable in (dataset.spec.variables[key],)

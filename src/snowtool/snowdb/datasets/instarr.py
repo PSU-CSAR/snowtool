@@ -107,8 +107,10 @@ def _instarr_footprint() -> shapely.Geometry:
 
 # All nine SPIRES variables are intensive per-pixel quantities -> area-weighted
 # MEAN (area is the constant sinusoidal cell area). Reads are the native uint8
-# (255 nodata) or uint16 (65535 nodata) with no scale/offset; glob is the literal
-# per-variable COG filename ingest writes.
+# (255 nodata) or uint16 (65535 nodata) with no scale/offset. Ingest names each
+# mosaic COG `<distilled-source-stem>__<key>.tif`; the glob matches that on the
+# `__<key>` suffix (the doubled delimiter keeps `snow_fraction` from also
+# matching `viewable_snow_fraction`).
 _PERCENT = Unit(name='percent', scale_factor=1)  # %
 _MICRON = Unit(name='um', scale_factor=1)
 _PPM = Unit(name='ppm', scale_factor=1)
@@ -126,7 +128,7 @@ def _variable(key: str, unit: Unit, dtype: str, nodata: float) -> DatasetVariabl
         reducer=Reducer.MEAN,
         dtype=dtype,
         nodata=nodata,
-        glob=f'{key}.tif',
+        glob=f'*__{key}.tif',
     )
 
 
@@ -164,17 +166,21 @@ class InstarrMosaicRaster:
         source_uris: list[str],
         grid_params: GridParams,
         *,
+        out_name: str,
         transform: Affine,
         crs: rasterio.crs.CRS,
+        tags: dict[str, str] | None = None,
     ) -> None:
         self.variable = variable
         self.source_uris = source_uris
         self.grid_params = grid_params
+        self.out_name = out_name
         self.transform = transform
         self.crs = crs
+        self.tags = tags
 
     def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
-        output_path = output_dir / self.variable.glob
+        output_path = output_dir / self.out_name
 
         if not force and output_path.exists():
             raise FileExistsError(
@@ -207,6 +213,7 @@ class InstarrMosaicRaster:
             crs=self.crs,
             nodata=self.variable.nodata,
             tile_size=gp.tile_size,
+            tags=self.tags,
             predictor=2,
         )
 
@@ -223,7 +230,8 @@ class InstarrIngester:
     """
 
     filename_re = re.compile(
-        r'SPIRES_NRT_h(?P<h>\d\d)v(?P<v>\d\d)_MOD09GA\d+_(?P<date>\d{8})_V[\d.]+\.nc$',
+        r'SPIRES_NRT_h(?P<h>\d\d)v(?P<v>\d\d)_(?P<collection>MOD09GA\d+)_'
+        r'(?P<date>\d{8})_(?P<version>V[\d.]+)\.nc$',
     )
 
     def ingest(
@@ -258,19 +266,56 @@ class InstarrIngester:
         crs = dataset.grid_crs
 
         for ingest_date, tile_paths in sorted(tiles_by_date.items()):
+            stem, collection, version = self._distilled_stem(tile_paths)
+            # Filesystem-visible provenance is the distilled stem; the COG tags
+            # carry the full record, including the exact contributing tiles.
+            source_files = ' '.join(sorted(p.name for p in tile_paths))
             rasters = [
                 InstarrMosaicRaster(
                     variable,
                     [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
                     grid_params,
+                    out_name=f'{stem}__{variable.key}.tif',
                     transform=transform,
                     crs=crs,
+                    tags={
+                        'SOURCE_DATASET': dataset.spec.name,
+                        'SOURCE_DATE': ingest_date.isoformat(),
+                        'SOURCE_VARIABLE': variable.key,
+                        'SOURCE_COLLECTION': collection,
+                        'SOURCE_VERSION': version,
+                        'SOURCE_FILES': source_files,
+                    },
                 )
                 for variable in dataset.spec.variables.values()
             ]
             dataset.write_date_cogs(ingest_date, rasters, force=force)
 
         return sorted(tiles_by_date)
+
+    def _distilled_stem(self: Self, tile_paths: list[Path]) -> tuple[str, str, str]:
+        """The mosaic's provenance stem plus its ``(collection, version)``.
+
+        Drops the per-tile ``h##v##`` (the output spans all the date's tiles) and
+        keeps the fields shared across them. Refuses a date whose tiles disagree
+        on collection or version -- that would mix products into one mosaic.
+        """
+        identities = set()
+        for path in tile_paths:
+            match = self.filename_re.search(path.name)
+            if match is not None:
+                identities.add(
+                    (match['collection'], match['date'], match['version']),
+                )
+
+        if len(identities) > 1:
+            raise SNODASError(
+                'INSTARR tiles for one date disagree on collection/version: '
+                f'{sorted(identities)}',
+            )
+
+        collection, datestr, version = identities.pop()
+        return f'SPIRES_NRT_{collection}_{datestr}_{version}', collection, version
 
 
 # --- INSTARR spec -------------------------------------------------------------

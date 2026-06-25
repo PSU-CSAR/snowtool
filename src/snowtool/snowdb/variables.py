@@ -39,6 +39,18 @@ class DatasetVariable:
     nodata: float
     glob: str  # filename glob within a cogs/<YYYYMMDD>/ dir
 
+    def __post_init__(self: Self) -> None:
+        # COGs are named `<source-provenance>__<key>.tif` and the read glob
+        # anchors on that `__` boundary (`*__swe.tif`). A `__` inside a key would
+        # let one variable's glob match another's file, so keys must not contain
+        # it. (Single underscores are fine; the delimiter is doubled to stay
+        # distinct from in-key separators like `viewable_snow_fraction`.)
+        if '__' in self.key:
+            raise ValueError(
+                f'DatasetVariable key {self.key!r} must not contain "__": it is '
+                'the COG filename delimiter separating provenance from variable.',
+            )
+
     @property
     def stat_name(self: Self) -> str:
         """The reduced-stat field name, e.g. ``mean_swe_mm``."""

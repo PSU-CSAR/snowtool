@@ -53,9 +53,9 @@ def test_variables():
         assert variable.nodata == -999.0
         assert variable.reducer.value == 'mean'
         assert variable.unit.name == 'mm'
-    # glob is the literal COG filename ingest writes for each variable.
-    assert by_key['swe'].glob == 'swe.tif'
-    assert by_key['depth'].glob == 'depth.tif'
+    # glob matches the provenance filename on its __<key> suffix.
+    assert by_key['swe'].glob == '*__swe.tif'
+    assert by_key['depth'].glob == '*__depth.tif'
 
 
 def test_registered_in_default_specs():
@@ -106,9 +106,18 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
     assert captured['force'] is True
 
     rasters = {r.out_name: r for r in captured['rasters']}
-    assert set(rasters) == {'swe.tif', 'depth.tif'}
-    assert rasters['swe.tif'].source_uri == f'netcdf:{source}:SWE'
-    assert rasters['depth.tif'].source_uri == f'netcdf:{source}:DEPTH'
+    stem = 'UA_SWE_Depth_800m_v1_20240115_early'
+    assert set(rasters) == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
+    assert rasters[f'{stem}__swe.tif'].source_uri == f'netcdf:{source}:SWE'
+    assert rasters[f'{stem}__depth.tif'].source_uri == f'netcdf:{source}:DEPTH'
+    # Source provenance is carried into the COG tags.
+    assert rasters[f'{stem}__swe.tif'].tags == {
+        'SOURCE_DATASET': 'swann-800m',
+        'SOURCE_DATE': '2024-01-15',
+        'SOURCE_VARIABLE': 'swe',
+        'SOURCE_FILES': source.name,
+        'SOURCE_STAGE': 'early',
+    }
 
     grid_transform = tuple(ds.grid.base_grid.transform)[:6]
     for raster in rasters.values():
@@ -150,6 +159,7 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
         crs=crs,
         tile_size=16,
         nodata=-999.0,
+        tags={'SOURCE_DATASET': 'swann-800m', 'SOURCE_VARIABLE': 'swe'},
     )
     out_dir = tmp_path / 'cogs' / '20240115'
     out_dir.mkdir(parents=True)
@@ -161,6 +171,9 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
         assert cog.is_tiled
         assert tuple(cog.transform)[:6] == tuple(transform)[:6]
         assert numpy.array_equal(cog.read(1), array)
+        # tags round-trip into the written COG
+        assert cog.tags()['SOURCE_DATASET'] == 'swann-800m'
+        assert cog.tags()['SOURCE_VARIABLE'] == 'swe'
 
 
 def test_swann_raster_refuses_overwrite_without_force(tmp_path):
