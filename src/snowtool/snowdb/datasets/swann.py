@@ -136,11 +136,15 @@ class SwannIngester:
 
     # The product is published in three processing stages -- `_early` (newest),
     # then `_provisional`, then `_stable` (finalized) -- all the same format.
-    # Output COGs are named per variable (swe.tif/depth.tif), so re-ingesting a
-    # later stage cleanly overwrites the earlier one for a date (force=True)
-    # rather than coexisting as a second file.
+    # We pin ingest to `_early`: a dataset must hold a single consistent
+    # revision, and `_early` is available first (the latency-over-finality
+    # policy SNODAS also follows by pinning to its 05 time-step hour). The regex
+    # still matches all three stages so a wrong-stage file earns a precise error
+    # (below) rather than a generic "not a SWANN file"; `PINNED_STAGE` does the
+    # refusing. Drop the stage check to allow finalized data.
+    PINNED_STAGE = 'early'
     filename_re = re.compile(
-        r'UA_SWE_Depth_800m_v1_(?P<date>\d{8})_(?:early|provisional|stable)\.nc$',
+        r'UA_SWE_Depth_800m_v1_(?P<date>\d{8})_(?P<stage>early|provisional|stable)\.nc$',
     )
 
     def ingest(
@@ -155,6 +159,13 @@ class SwannIngester:
             raise SNODASError(
                 f'Not a SWANN 800m file: {source.name!r} does not match '
                 f'{self.filename_re.pattern!r}.',
+            )
+        if match['stage'] != self.PINNED_STAGE:
+            raise SNODASError(
+                f'Refusing to ingest {match["stage"]!r}-stage SWANN file '
+                f'{source.name!r}: this dataset pins to the {self.PINNED_STAGE!r} '
+                'revision so a date is never a mix of revisions. Remove the '
+                'stage pin to ingest finalized data.',
             )
         ingest_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
 

@@ -183,6 +183,7 @@ class SNODASInputRasterSet:
         self.precip_liquid = precip_liquid
         self.average_temp = average_temp
         self.date = self.validate_dates(self)
+        self.validate_revision(self)
 
     def __iter__(self: Self) -> Iterator[SNODASInputRaster]:
         yield self.swe
@@ -206,6 +207,31 @@ class SNODASInputRasterSet:
             )
 
         return dates.pop()
+
+    # Temporary policy gate: pin ingest to the 05 time-step hour. The hour in a
+    # SNODAS filename is the `hh` of the time-step code (TSyyyymmddhh) -- the
+    # standard daily product uses 05 for every variable (both the T0001
+    # snapshots and the T0024 24-hr integrations). The parser above stays
+    # general (any hour), but a dataset must hold a single consistent revision,
+    # so we refuse anything but the 05 daily product here (SWANN pins to
+    # `_early` for the same latency-over-finality reason). Remove this method
+    # (and its call in __init__) to allow other hours.
+    PINNED_TIMESTEP_HOUR: ClassVar[int] = 5
+
+    @classmethod
+    def validate_revision(
+        cls: type[Self],
+        rasters: Iterable[SNODASInputRaster],
+    ) -> None:
+        pinned = cls.PINNED_TIMESTEP_HOUR
+        off = sorted({r.datetime.hour for r in rasters if r.datetime.hour != pinned})
+        if off:
+            raise SNODASError(
+                f'Refusing SNODAS time-step hour(s) {off}: ingest pins to the '
+                f'{cls.PINNED_TIMESTEP_HOUR:02d} time-step (the standard daily '
+                'product) so a date never mixes revisions. Remove the revision '
+                'pin to allow other hours.',
+            )
 
     @classmethod
     def from_archive(
