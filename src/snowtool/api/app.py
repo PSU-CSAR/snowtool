@@ -32,7 +32,7 @@ def get_app(
         logger = logging.getLogger(__name__)
 
     app: FastAPI = FastAPI(
-        title='My FastAPI skeleton project',
+        title='PSU CSAR snowtool API',
         lifespan=lifespan,
         openapi_tags=Tags.metadata(),
     )
