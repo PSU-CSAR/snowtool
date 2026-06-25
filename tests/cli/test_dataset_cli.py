@@ -113,7 +113,7 @@ def test_create_is_idempotent(runner, cli_obj, source_dem):
 def test_create_requires_initialized_root(runner, tmp_path):
     # An un-initialized root has no config, so opening it (to run any command)
     # fails cleanly rather than silently creating one.
-    obj = CliContext(root=tmp_path)
+    obj = CliContext(config=tmp_path)
 
     result = runner.invoke(
         cli,
@@ -143,7 +143,7 @@ def _empty_ctx(tmp_path):
     """A CliContext over a freshly-initialized, dataset-free root."""
     root = tmp_path / 'empty'
     SnowDbManager.initialize(root)
-    return root, CliContext(root=root)
+    return root, CliContext(config=root)
 
 
 def test_create_template_does_not_register_without_activate(runner, tmp_path):
@@ -224,7 +224,7 @@ def test_add_requires_initialized_root(runner, tmp_path, spec):
 
     cfg = tmp_path / 'd.json'
     config_from_spec(spec).save(cfg)
-    obj = CliContext(root=tmp_path)
+    obj = CliContext(config=tmp_path)
 
     result = runner.invoke(cli, ['dataset', 'add', 'test', str(cfg)], obj=obj)
 
@@ -276,7 +276,7 @@ def test_ingest_delegates_to_spec_ingester(
     result = runner.invoke(
         cli,
         ['dataset', 'ingest', 'test', str(source_dem)],
-        obj=CliContext(root=tmp_path),
+        obj=CliContext(config=tmp_path),
     )
 
     assert result.exit_code == 0, result.output

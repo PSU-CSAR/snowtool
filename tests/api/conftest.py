@@ -14,7 +14,7 @@ def test_app(test_settings) -> FastAPI:
     # initialized with the built-in datasets registered for it to serve them.
     from ..conftest import init_with_builtins
 
-    init_with_builtins(test_settings.snowdb_path)
+    init_with_builtins(test_settings.snowdb_config)
     return get_app(settings=test_settings)
 
 

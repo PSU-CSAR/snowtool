@@ -16,7 +16,7 @@ def snodas_client(test_settings) -> Iterator[TestClient]:
     """
     from ..conftest import init_with_builtins
 
-    init_with_builtins(test_settings.snowdb_path)
+    init_with_builtins(test_settings.snowdb_config)
     with TestClient(get_app(settings=test_settings)) as client:
         yield client
 

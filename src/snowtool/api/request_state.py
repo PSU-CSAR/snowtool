@@ -17,7 +17,7 @@ class RequestState(Mapping):
         # models, and the shared COG-handle cache sized from settings). Exposed on
         # request.state for the routers; the read path uses snowdb.tiff_cache.
         self.snowdb = SnowDb.open(
-            settings.snowdb_path,
+            settings.snowdb_config,
             tiff_cache=TiffCache(settings.tiff_cache_size),
         )
 

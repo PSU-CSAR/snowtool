@@ -13,7 +13,7 @@ from snowtool.snowdb.manager import SnowDbManager
 
 def test_context_builds_snowdb_lazily_and_once(tmp_path):
     SnowDbManager.initialize(tmp_path)  # open() requires a root config
-    ctx = CliContext(root=tmp_path)
+    ctx = CliContext(config=tmp_path)
     # Nothing is built until snowdb is read.
     assert ctx._snowdb is None
 
@@ -25,18 +25,18 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
 
 
 def test_context_falls_back_to_settings(tmp_path, monkeypatch):
-    # With no --config, the snowdb_path setting supplies the root.
+    # With no --config, the snowdb_config setting supplies the root.
     SnowDbManager.initialize(tmp_path)
-    monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
-    ctx = CliContext(root=None)
+    monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(tmp_path))
+    ctx = CliContext(config=None)
 
     assert ctx.snowdb.path == tmp_path
 
 
 def test_version_does_not_build_a_snowdb(monkeypatch):
-    # version must work with no snowdb_path configured: if it tried to build a
+    # version must work with no snowdb_config configured: if it tried to build a
     # SnowDb, Settings() would raise for the missing setting and exit nonzero.
-    monkeypatch.delenv('SNOWTOOL_SNOWDB_PATH', raising=False)
+    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
     result = CliRunner().invoke(cli, ['version'])
 
@@ -45,7 +45,7 @@ def test_version_does_not_build_a_snowdb(monkeypatch):
 
 
 def test_migration_help_does_not_build_a_snowdb(monkeypatch):
-    monkeypatch.delenv('SNOWTOOL_SNOWDB_PATH', raising=False)
+    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
     result = CliRunner().invoke(cli, ['migration', '--help'])
 
@@ -53,7 +53,7 @@ def test_migration_help_does_not_build_a_snowdb(monkeypatch):
 
 
 def test_root_help_does_not_build_a_snowdb(monkeypatch):
-    monkeypatch.delenv('SNOWTOOL_SNOWDB_PATH', raising=False)
+    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
     result = CliRunner().invoke(cli, ['--help'])
 
@@ -68,7 +68,7 @@ def _app() -> click.Group:
     @click.option('--root', type=click.Path(path_type=Path), default=None)
     @click.pass_context
     def app(ctx: click.Context, root: Path | None) -> None:
-        ctx.obj = CliContext(root=root)
+        ctx.obj = CliContext(config=root)
 
     @app.command()
     @pass_snowdb
@@ -101,14 +101,14 @@ def test_pass_manager_injects_root_manager(tmp_path):
 
 def test_manager_wraps_the_lazy_snowdb(tmp_path):
     SnowDbManager.initialize(tmp_path)
-    ctx = CliContext(root=tmp_path)
+    ctx = CliContext(config=tmp_path)
 
     assert ctx.manager.db is ctx.snowdb
 
 
 def test_pass_snowdb_uses_settings_without_root(tmp_path, monkeypatch):
     SnowDbManager.initialize(tmp_path)
-    monkeypatch.setenv('SNOWTOOL_SNOWDB_PATH', str(tmp_path))
+    monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(tmp_path))
 
     result = CliRunner().invoke(_app(), ['show'])
 

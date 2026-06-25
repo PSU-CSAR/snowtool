@@ -109,7 +109,7 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
 )
 @click.pass_obj
 def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
-    """Create an empty snowdb at PATH (defaults to the snowdb_path setting).
+    """Create an empty snowdb at PATH (defaults to the snowdb_config setting).
 
     Lays out the root config (``snowdb_conf.json``), ``aois/``, and ``data/``. No
     datasets are registered: a dataset goes live by staging it (``dataset
@@ -122,10 +122,10 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
 
     if path is not None:
         root = path
-    elif cli_ctx.root is not None:
-        root = cli_ctx.root
+    elif cli_ctx.config is not None:
+        root = cli_ctx.config
     else:
-        root = Settings().snowdb_path
+        root = Settings().snowdb_config
 
     SnowDbManager.initialize(
         root,
