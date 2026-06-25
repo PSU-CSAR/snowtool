@@ -8,8 +8,8 @@ database take :func:`pass_snowdb`, which builds (and caches) it on first use.
 
 The build is *lazy* on purpose: ``version``, ``migration`` (path-only), and
 ``--help`` must never construct a SnowDb -- doing so would require the
-``snowdb_path`` setting and emit an "uninitialized" warning for commands that
-have no business touching the database.
+``snowdb_config`` setting for commands that have no business touching the
+database.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 class CliContext:
     """The state the root ``cli`` group hands every command via ``ctx.obj``.
 
-    Holds the ``--config`` value (or ``None`` to fall back to the ``snowdb_path``
+    Holds the ``--config`` value (or ``None`` to fall back to the ``snowdb_config``
     setting) and the zone-layer providers to bind, and lazily *opens* a single
     :class:`SnowDb` from its root config the first time :attr:`snowdb` is read --
     so the CLI serves exactly the registered datasets. ``zone_layer_sources``
@@ -45,7 +45,7 @@ class CliContext:
     keeps SnowDb's default source.
     """
 
-    root: Path | None = None
+    config: Path | None = None
     zone_layer_providers: tuple[ZoneLayerProvider, ...] = DEFAULT_ZONE_LAYER_PROVIDERS
     zone_layer_sources: dict[str, ZoneLayerSource] | None = None
     _snowdb: SnowDb | None = field(default=None, init=False, repr=False)
@@ -54,7 +54,7 @@ class CliContext:
     def snowdb(self) -> SnowDb:
         """The invocation's SnowDb, opened once on first access.
 
-        Resolves ``--config`` if given, otherwise the ``snowdb_path`` setting (read
+        Resolves ``--config`` if given, otherwise the ``snowdb_config`` setting (read
         only here, so commands that never touch the database never require it), and
         opens the snowdb from the root config there.
         """
@@ -62,9 +62,11 @@ class CliContext:
             from snowtool.settings import Settings
             from snowtool.snowdb.db import SnowDb
 
-            root = self.root if self.root is not None else Settings().snowdb_path
+            location = (
+                self.config if self.config is not None else Settings().snowdb_config
+            )
             self._snowdb = SnowDb.open(
-                root,
+                location,
                 zone_layer_providers=self.zone_layer_providers,
                 zone_layer_sources=self.zone_layer_sources,
             )

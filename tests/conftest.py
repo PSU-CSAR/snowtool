@@ -49,7 +49,7 @@ FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
 
 @pytest.fixture
 def test_settings(tmp_path) -> Settings:
-    return Settings(snowdb_path=tmp_path)
+    return Settings(snowdb_config=tmp_path)
 
 
 def make_snowdb(root, specs, **kwargs):

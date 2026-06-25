@@ -60,7 +60,7 @@ def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
     zone-layer commands never reach 3DEP or the MRLC download.
     """
     return CliContext(
-        root=initialized_root,
+        config=initialized_root,
         zone_layer_sources={
             'terrain': LocalFile(source_dem),
             'landcover': LocalNLCD(source_nlcd),

@@ -26,18 +26,17 @@ from snowtool.cli.version import version
 @click.option(
     '--config',
     '-C',
-    'root',
     type=click.Path(path_type=Path),
     default=None,
     help='Snowdb config file or its directory '
-    '(defaults to the SNOWTOOL_SNOWDB_PATH setting).',
+    '(defaults to the SNOWTOOL_SNOWDB_CONFIG setting).',
 )
 @click.pass_context
-def cli(ctx: click.Context, root: Path | None) -> None:
+def cli(ctx: click.Context, config: Path | None) -> None:
     # Honor a CliContext already placed on ctx.obj (tests inject one carrying
     # synthetic specs); otherwise build one from --config for the normal entrypoint.
     if not isinstance(ctx.obj, CliContext):
-        ctx.obj = CliContext(root=root)
+        ctx.obj = CliContext(config=config)
 
 
 cli.add_command(version)
