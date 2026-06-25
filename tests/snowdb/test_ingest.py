@@ -1,12 +1,13 @@
 """The ingest seam: generic write path, delegation, and the SNODAS ingester."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
 from snowtool.exceptions import SNODASError
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_SPEC, SnodasIngester
+from snowtool.snowdb.input_rasters import SNODASInputRasterSet
 from snowtool.snowdb.spec import DatasetSpec
 
 
@@ -91,6 +92,26 @@ def test_ingest_delegates_to_ingester(tmp_path, spec, source_dem):
 
 def test_snodas_spec_has_a_snodas_ingester():
     assert isinstance(SNODAS_SPEC.ingester, SnodasIngester)
+
+
+class _RevisionRaster:
+    """Minimal stand-in carrying just the time-step datetime the pin inspects."""
+
+    def __init__(self, hour: int) -> None:
+        self.datetime = datetime(2020, 1, 5, hour, tzinfo=UTC)
+
+
+def test_snodas_set_accepts_pinned_05_timestep():
+    # All rasters at the pinned 05 time-step (the daily product) -> no error.
+    SNODASInputRasterSet.validate_revision([_RevisionRaster(5), _RevisionRaster(5)])
+
+
+def test_snodas_set_refuses_other_timestep_hours():
+    # Any other time-step hour is refused so a date never mixes revisions.
+    with pytest.raises(SNODASError, match='pins to the 05 time-step'):
+        SNODASInputRasterSet.validate_revision(
+            [_RevisionRaster(5), _RevisionRaster(18)],
+        )
 
 
 def test_snodas_ingester_writes_date_cogs(dataset, tmp_path, monkeypatch):

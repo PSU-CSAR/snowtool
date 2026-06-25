@@ -68,14 +68,24 @@ def test_ingest_rejects_unrecognized_filename(tmp_path):
         ds.ingest(tmp_path / 'some_other_file.nc')
 
 
-@pytest.mark.parametrize('variant', ['early', 'provisional', 'stable'])
-def test_ingest_accepts_every_processing_stage(tmp_path, monkeypatch, variant):
-    # The product ships three stages -- early -> provisional -> stable -- all the
-    # same format, all parsing to the same date.
+def test_ingest_accepts_the_early_stage(tmp_path, monkeypatch):
+    # Ingest is pinned to the `_early` revision (fastest available); it is the
+    # one stage accepted.
+    ds = Dataset(SWANN_800M_SPEC, tmp_path)
+    monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: None)
+    source = tmp_path / 'UA_SWE_Depth_800m_v1_20260613_early.nc'
+    assert ds.ingest(source) == [date(2026, 6, 13)]
+
+
+@pytest.mark.parametrize('variant', ['provisional', 'stable'])
+def test_ingest_refuses_non_early_stages(tmp_path, monkeypatch, variant):
+    # The regex still recognizes provisional/stable (so the error is precise),
+    # but the stage pin refuses them to keep a single consistent revision.
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
     monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: None)
     source = tmp_path / f'UA_SWE_Depth_800m_v1_20260613_{variant}.nc'
-    assert ds.ingest(source) == [date(2026, 6, 13)]
+    with pytest.raises(SNODASError, match=f"Refusing to ingest '{variant}'-stage"):
+        ds.ingest(source)
 
 
 def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatch):
@@ -90,7 +100,7 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
 
     monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
 
-    source = tmp_path / 'UA_SWE_Depth_800m_v1_20240115_stable.nc'
+    source = tmp_path / 'UA_SWE_Depth_800m_v1_20240115_early.nc'
     assert ds.ingest(source, force=True) == [date(2024, 1, 15)]
     assert captured['date'] == date(2024, 1, 15)
     assert captured['force'] is True
