@@ -92,11 +92,11 @@ def test_initialize_creates_the_base_layout(tmp_path):
 
 def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
     """Stage ``spec`` as an on-disk dataset config and register its link."""
-
-    ds_dir = manager.db.data_path / spec.name
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir(spec.name, config)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
-    config_from_spec(spec).save(config_path)
+    config.save(config_path)
     manager.register_dataset(spec.name, config_path)
 
 
