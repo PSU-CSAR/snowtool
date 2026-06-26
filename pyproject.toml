@@ -95,6 +95,8 @@ scripts_are_modules = true
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = 'function'
+# Warnings are failures: a new deprecation should break the build, not scroll by.
+filterwarnings = ['error']
 addopts = [
     "--cov=snowtool",
     "--import-mode=importlib",
@@ -114,7 +116,9 @@ sort = "Cover"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
+    # starlette.testclient (FastAPI's TestClient) prefers httpx2 and deprecates
+    # plain httpx; track the migration so the test suite stays warning-clean.
+    "httpx2>=2.5.0",
     "mypy>=1.18.1",
     "pre-commit>=4.3.0",
     "pre-commit-hooks>=6.0.0",
