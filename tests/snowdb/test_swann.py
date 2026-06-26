@@ -168,7 +168,7 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
     with rasterio.open(out_dir / 'swe.tif') as cog:
         assert cog.crs.to_epsg() == 4269
         assert cog.nodata == -999.0
-        assert cog.is_tiled
+        assert cog.block_shapes[0] == (16, 16)
         assert tuple(cog.transform)[:6] == tuple(transform)[:6]
         assert numpy.array_equal(cog.read(1), array)
         # tags round-trip into the written COG

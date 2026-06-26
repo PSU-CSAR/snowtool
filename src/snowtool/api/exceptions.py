@@ -30,4 +30,4 @@ class NotFoundError(APIError):
 
 
 class ValidationError(APIError):
-    http_status_code: int = status.HTTP_422_UNPROCESSABLE_ENTITY
+    http_status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT

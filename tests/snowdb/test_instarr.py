@@ -37,7 +37,8 @@ def test_spec_is_native_modis_sinusoidal():
     assert spec.grid_params.tile_size == 512
     # Projected (sinusoidal, no EPSG) -> constant cell area, burned into AOIs.
     assert spec.crs.to_epsg() is None
-    assert spec.crs.to_dict().get('proj') == 'sinu'
+    # Identify the projection without to_dict()/to_proj4() (lossy, and warns).
+    assert spec.crs.coordinate_operation.method_name == 'Sinusoidal'
     assert spec.is_geographic is False
     assert spec.cell_area == pytest.approx(463.3127165693847**2)
     assert spec.ingester is not None
