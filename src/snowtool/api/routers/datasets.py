@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from gazebo.ext.fastapi import GazeboRouter, Inject
-from gazebo.problems import ProblemException
 
 from snowtool.api.models.dataset import DatasetInfo, DatasetList
+from snowtool.api.problems import DATASET_NOT_FOUND
 from snowtool.api.tags import Tags
 from snowtool.snowdb.db import SnowDb
 
@@ -26,5 +26,5 @@ async def get_dataset(dataset: str, snowdb: CatalogDb) -> DatasetInfo:
     try:
         bound = snowdb[dataset]
     except KeyError as e:
-        raise ProblemException(404, detail=f'No such dataset: {dataset!r}') from e
+        raise DATASET_NOT_FOUND.exception(detail=f'No such dataset: {dataset!r}') from e
     return DatasetInfo.from_dataset(bound)

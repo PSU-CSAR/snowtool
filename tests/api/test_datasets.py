@@ -50,3 +50,5 @@ def test_get_dataset_info(snodas_client) -> None:
 def test_get_unknown_dataset_returns_404(test_client) -> None:
     response = test_client.get('/datasets/nope')
     assert response.status_code == 404
+    # The problem carries the registered, resolvable type URI -- not about:blank.
+    assert response.json()['type'] == '/problems/dataset-not-found'
