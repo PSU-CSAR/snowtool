@@ -20,7 +20,7 @@ def test_init_creates_an_empty_layout(runner, tmp_path):
     result = _init(runner, root)
 
     assert result.exit_code == 0, result.output
-    assert (root / 'aois' / 'records').is_dir()
+    assert (root / 'pourpoints' / 'records').is_dir()
     assert (root / 'data').is_dir()
     # The root config exists and registers no datasets -- they are added later.
     config = RootConfig.load(root / CONFIG_FILENAME)

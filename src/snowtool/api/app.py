@@ -3,7 +3,7 @@
 ``get_app`` builds one catalog :class:`SnowDb` (cache-free) from the configured
 root and registers it -- with :class:`Settings` and the app-scoped
 :class:`SnowDbReader` -- as gazebo providers. Catalog-only routes (``/``,
-``/datasets``, ``/aois``) inject ``SnowDb``; the stats routes inject
+``/datasets``, ``/pourpoints``) inject ``SnowDb``; the stats routes inject
 ``SnowDbReader`` (its loop-affine COG cache is born in the app's event loop at
 lifespan). The per-dataset stats routers are registered by looping the catalog's
 datasets, so each dataset's generated response model surfaces a precise OpenAPI
@@ -28,8 +28,8 @@ from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.reader import SnowDbReader
 
 from .exceptions import install_exception_handlers
-from .routers.aois import router as aois_router
 from .routers.datasets import router as datasets_router
+from .routers.pourpoints import router as pourpoints_router
 from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
 from .routers.stats import build_stats_router
@@ -73,7 +73,7 @@ def get_app(
 
     app.include_router(root_router)
     app.include_router(datasets_router)
-    app.include_router(aois_router)
+    app.include_router(pourpoints_router)
     for name in catalog.datasets:
         app.include_router(build_stats_router(catalog[name]))
 

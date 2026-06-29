@@ -5,7 +5,6 @@ import shutil
 import pytest
 
 from snowtool.exceptions import SnowDbConfigError
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -16,6 +15,7 @@ from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 from ..conftest import make_manager, make_snowdb
@@ -63,8 +63,8 @@ def test_in_code_config_with_absolute_paths_opens_without_root(tmp_path):
     dataset_config = config_from_spec(_spec('snodas'))
     dataset_config.data_dir = data_dir
     config = RootConfig.create()
-    config.aoi_records = str(tmp_path / 'aois' / 'records')
-    config.aoi_index = str(tmp_path / 'aois' / 'index.geojson')
+    config.pourpoint_records = str(tmp_path / 'pourpoints' / 'records')
+    config.pourpoint_index = str(tmp_path / 'pourpoints' / 'index.geojson')
     config.datasets['snodas'] = InlineDatasetLink(dataset=dataset_config)
 
     db = SnowDb(config)  # no config.path set -> no root
@@ -74,7 +74,7 @@ def test_in_code_config_with_absolute_paths_opens_without_root(tmp_path):
 
 
 def test_relative_path_without_root_raises(tmp_path):
-    # The default aoi_records is relative; with no root it cannot resolve, so
+    # The default pourpoint_records is relative; with no root it cannot resolve, so
     # construction fails with a precise error rather than a silent default.
     config = RootConfig.create()
 
@@ -85,7 +85,7 @@ def test_relative_path_without_root_raises(tmp_path):
 def test_initialize_creates_the_base_layout(tmp_path):
     SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
-    assert (tmp_path / 'aois').is_dir()
+    assert (tmp_path / 'pourpoints').is_dir()
     assert (tmp_path / 'data').is_dir()
     assert (tmp_path / 'data' / 'snodas').is_dir()
 
@@ -187,7 +187,7 @@ def test_rasterize_aoi_burns_every_active_dataset(
     tmp_path,
     spec,
     source_dem,
-    aoi_geojson,
+    pourpoint_geojson,
 ):
     """A global AOI is rasterized once per active dataset, on each one's grid."""
     spec_b = DatasetSpec(
@@ -202,7 +202,7 @@ def test_rasterize_aoi_burns_every_active_dataset(
     Dataset.create(spec_b, data / spec_b.name, source_dem)
 
     manager = make_manager(tmp_path, [spec, spec_b])
-    rasters = manager.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+    rasters = manager.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     assert set(rasters) == {'test', 'snodas'}
     for name, raster in rasters.items():
@@ -210,13 +210,13 @@ def test_rasterize_aoi_burns_every_active_dataset(
         assert raster.path.parent == data / name / 'aoi-rasters'
 
 
-def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, aoi_geojson):
+def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, pourpoint_geojson):
     # A dataset with no data on disk yet (here: its aoi-rasters/ dir removed)
     # still rasterizes -- the write path recreates the dataset subdir.
     shutil.rmtree(dataset._aoi_rasters)
     assert not dataset._aoi_rasters.exists()
 
-    raster = dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+    raster = dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     assert dataset._aoi_rasters.is_dir()
     assert raster.path.exists()
@@ -233,34 +233,34 @@ def test_default_specs_bind_snodas(tmp_path):
 def test_aoi_paths_empty_without_records_dir(tmp_path):
     db = make_snowdb(tmp_path, [_spec('snodas')])
 
-    assert db.aoi_paths() == []
+    assert db.pourpoint_paths() == []
 
 
-def test_aoi_paths_lists_and_sorts_geojson(tmp_path, aoi_geojson):
+def test_aoi_paths_lists_and_sorts_geojson(tmp_path, pourpoint_geojson):
     db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
-    shutil.copy(aoi_geojson, db.aoi_records_path / 'b.geojson')
-    shutil.copy(aoi_geojson, db.aoi_records_path / 'a.geojson')
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'b.geojson')
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'a.geojson')
     # A non-geojson file is ignored.
-    (db.aoi_records_path / 'notes.txt').write_text('x')
+    (db.pourpoint_records_path / 'notes.txt').write_text('x')
 
-    assert db.aoi_paths() == [
-        db.aoi_records_path / 'a.geojson',
-        db.aoi_records_path / 'b.geojson',
+    assert db.pourpoint_paths() == [
+        db.pourpoint_records_path / 'a.geojson',
+        db.pourpoint_records_path / 'b.geojson',
     ]
 
 
-def test_aois_parse_global_geojson(tmp_path, aoi_geojson):
+def test_aois_parse_global_geojson(tmp_path, pourpoint_geojson):
     db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
-    shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pourpoint.geojson')
 
-    aois = list(db.aois())
+    pourpoints = list(db.pourpoints())
 
-    assert len(aois) == 1
-    assert aois[0].station_triplet == '12345:MT:USGS'
+    assert len(pourpoints) == 1
+    assert pourpoints[0].station_triplet == '12345:MT:USGS'
 
 
-def test_aoi_triplets(tmp_path, aoi_geojson):
+def test_aoi_triplets(tmp_path, pourpoint_geojson):
     db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
-    shutil.copy(aoi_geojson, db.aoi_records_path / 'pourpoint.geojson')
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pourpoint.geojson')
 
-    assert db.aoi_triplets() == {'12345:MT:USGS'}
+    assert db.pourpoint_triplets() == {'12345:MT:USGS'}

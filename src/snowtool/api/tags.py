@@ -21,7 +21,7 @@ class Tag(BaseModel, frozen=True):
 class Tags(StrEnum):
     ROOT = 'root'
     DATASETS = 'datasets'
-    AOIS = 'aois'
+    POURPOINTS = 'pourpoints'
     STATS = 'stats'
 
     def __init__(

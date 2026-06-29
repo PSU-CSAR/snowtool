@@ -38,8 +38,8 @@ class SnowDbConfigError(SNODASError):
         super().__init__(message)
 
 
-class AOICoverageError(SNODASError):
-    """Raised when an AOI is queried against a dataset that does not fully cover it.
+class PourpointCoverageError(SNODASError):
+    """Raised when a pourpoint is queried against a dataset not fully covering it.
 
     Closes the silent-partial-stats gap: a basin that spills outside (or sits
     entirely off) a dataset's grid would otherwise return zonal stats over only
@@ -62,13 +62,13 @@ class AOICoverageError(SNODASError):
             )
         else:
             detail = 'is not covered by it (the basin is entirely outside the grid)'
-        super().__init__(f'AOI {triplet!r} {detail} (dataset {dataset!r}).')
+        super().__init__(f'Pourpoint {triplet!r} {detail} (dataset {dataset!r}).')
 
 
-class AOINotFoundError(SNODASError, FileNotFoundError):
-    """Raised when no stored AOI record exists for a requested triplet.
+class PourpointNotFoundError(SNODASError, FileNotFoundError):
+    """Raised when no stored pourpoint record exists for a requested triplet.
 
-    A *client* error (the caller referenced an AOI that is not in the database),
+    A *client* error (the caller referenced a pourpoint not in the database),
     distinct from a bare ``FileNotFoundError`` (a missing file the server expected
     -- a 500). Subclasses ``FileNotFoundError`` so existing ``except
     FileNotFoundError`` call sites (and the CLI) keep catching it, while the HTTP
@@ -79,9 +79,10 @@ class AOINotFoundError(SNODASError, FileNotFoundError):
 class AOIRasterNotFoundError(SNODASError, FileNotFoundError):
     """Raised when an AOI's burned raster has not been built for a dataset.
 
-    A missing prerequisite the caller can fix (``aoi rasterize``), so the HTTP API
-    maps it to 404 rather than letting it 500. See :class:`AOINotFoundError` for the
-    ``FileNotFoundError`` subclassing rationale.
+    A missing prerequisite the caller can fix (``pourpoint rasterize``), so the API
+    maps it to 404 rather than letting it 500. See
+    :class:`PourpointNotFoundError` for the ``FileNotFoundError`` subclassing
+    rationale.
     """
 
 
@@ -96,8 +97,8 @@ class QueryParameterError(SNODASError, ValueError):
     """
 
 
-class AOIPruneDestinationRequiredError(SNODASError):
-    """Raised when ``aoi sync`` would remove stored AOIs but has no archive dir.
+class PourpointPruneDestinationRequiredError(SNODASError):
+    """Raised when ``pourpoint sync`` would remove stored records but has no archive.
 
     Carries the triplets that would be pruned so the caller can report the count.
     Removal is destructive, so it is gated behind an explicit ``--prune-to``
@@ -107,7 +108,7 @@ class AOIPruneDestinationRequiredError(SNODASError):
     def __init__(self, triplets: list[str]) -> None:
         self.triplets = list(triplets)
         super().__init__(
-            f'{len(self.triplets)} stored AOI(s) would be removed; pass '
+            f'{len(self.triplets)} stored pourpoint(s) would be removed; pass '
             '--prune-to ARCHIVE to archive them first, or --dry-run to preview.',
         )
 

@@ -1,15 +1,16 @@
-"""The derived AOI manifest: a GeoJSON ``FeatureCollection`` index of the records.
+"""The derived pourpoint manifest: a GeoJSON ``FeatureCollection`` index of records.
 
-The per-AOI geojson under ``aois/records/`` are the lossless source of truth, but
-parsing every one (each basin is thousands of coordinate pairs) just to list the
-AOIs is wasteful. :class:`AOIIndex` is a lightweight, rebuildable index of the
-list-relevant fields -- one ``Point`` ``Feature`` per AOI (``id`` = triplet,
-``geometry`` = the pourpoint, ``properties`` = name/source/active/basinarea + the
-basin :attr:`~snowtool.snowdb.aoi.AOI.geometry_hash`) -- persisted to
-``aois/index.geojson``. It is GeoJSON-native on purpose: the same file is a
-plottable point layer and the FastAPI listing payload. Being derived, it is always
-rebuildable from ``records/`` (``aoi reindex``), so it never has to be trusted as
-primary data.
+The per-pourpoint geojson under ``pourpoints/records/`` are the lossless source of
+truth, but parsing every one (each basin is thousands of coordinate pairs) just to
+list the pourpoints is wasteful. :class:`PourpointIndex` is a lightweight,
+rebuildable index of the list-relevant fields -- one ``Point`` ``Feature`` per
+pourpoint (``id`` = triplet, ``geometry`` = the pourpoint point, ``properties`` =
+name + geodesic ``area_meters`` + per-dataset coverage, plus the basin
+:attr:`~snowtool.snowdb.pourpoint.Pourpoint.geometry_hash` as an internal rebuild
+signal) -- persisted to ``pourpoints/index.geojson``. It is GeoJSON-native on
+purpose: the same file is a plottable point layer and the FastAPI listing payload.
+Being derived, it is always rebuildable from ``records/`` (``pourpoint reindex``),
+so it never has to be trusted as primary data.
 """
 
 from __future__ import annotations
@@ -21,8 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 from snowtool import types
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
+from snowtool.snowdb.pourpoint import Pourpoint
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -31,38 +32,38 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class AOIIndexEntry:
-    """One AOI's denormalized list-fields (a single manifest ``Feature``)."""
+class PourpointIndexEntry:
+    """One pourpoint's denormalized list-fields (a single manifest ``Feature``)."""
 
     triplet: types.StationTriplet
     name: str
-    source: str
     point: dict[str, Any]
+    # Internal rebuild signal (the basin polygon's WKB hash); not surfaced by the
+    # API, kept so a stale index can be detected/rebuilt.
     geometry_hash: str
-    active: bool | None = None
-    basinarea: float | None = None
-    # Per-dataset geometric coverage of this AOI's basin, keyed by dataset name.
-    # Derived (a grid change => `aoi reindex`), so it is recomputed by
-    # `AOIIndex.from_records`, never edited in place; absent for a point-only AOI
-    # (which is not indexed anyway).
+    # Geodesic basin area (m^2), computed from the polygon at reindex so the list
+    # can report it without parsing the (large) basin records.
+    area_meters: float | None = None
+    # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
+    # name. Derived (a grid change => `pourpoint reindex`), so it is recomputed by
+    # `PourpointIndex.from_records`, never edited in place.
     coverage: dict[str, Coverage] = field(default_factory=dict)
 
     @classmethod
-    def from_aoi(
+    def from_pourpoint(
         cls: type[Self],
-        aoi: AOI,
+        pourpoint: Pourpoint,
         domains: Mapping[str, CoverageDomain],
     ) -> Self:
         return cls(
-            triplet=aoi.station_triplet,
-            name=aoi.name,
-            source=aoi.source,
-            point=aoi.point,
-            geometry_hash=aoi.geometry_hash,
-            active=aoi.properties.get('active'),
-            basinarea=aoi.properties.get('basinarea'),
+            triplet=pourpoint.station_triplet,
+            name=pourpoint.name,
+            point=pourpoint.point,
+            geometry_hash=pourpoint.geometry_hash,
+            area_meters=pourpoint.area_meters,
             coverage={
-                name: dataset_coverage(aoi, domain) for name, domain in domains.items()
+                name: dataset_coverage(pourpoint, domain)
+                for name, domain in domains.items()
             },
         )
 
@@ -73,9 +74,7 @@ class AOIIndexEntry:
             'geometry': self.point,
             'properties': {
                 'name': self.name,
-                'source': self.source,
-                'active': self.active,
-                'basinarea': self.basinarea,
+                'area_meters': self.area_meters,
                 'geometry_hash': self.geometry_hash,
                 'coverage': {name: cov.value for name, cov in self.coverage.items()},
             },
@@ -87,11 +86,9 @@ class AOIIndexEntry:
         return cls(
             triplet=types.StationTriplet(feature['id']),
             name=properties['name'],
-            source=properties['source'],
             point=feature['geometry'],
             geometry_hash=properties['geometry_hash'],
-            active=properties.get('active'),
-            basinarea=properties.get('basinarea'),
+            area_meters=properties.get('area_meters'),
             coverage={
                 name: Coverage(value) for name, value in properties['coverage'].items()
             },
@@ -99,18 +96,18 @@ class AOIIndexEntry:
 
 
 @dataclass
-class AOIIndex:
-    """The set of :class:`AOIIndexEntry`, keyed by triplet.
+class PourpointIndex:
+    """The set of :class:`PourpointIndexEntry`, keyed by triplet.
 
     Serializes to / from a GeoJSON ``FeatureCollection`` (features sorted by
     triplet for stable, reviewable diffs). Build it from the ``records/`` dir
     (the rebuild path) or load it from a persisted ``index.geojson``.
     """
 
-    entries: dict[types.StationTriplet, AOIIndexEntry]
+    entries: dict[types.StationTriplet, PourpointIndexEntry]
 
     @classmethod
-    def from_entries(cls: type[Self], entries: Iterable[AOIIndexEntry]) -> Self:
+    def from_entries(cls: type[Self], entries: Iterable[PourpointIndexEntry]) -> Self:
         return cls({entry.triplet: entry for entry in entries})
 
     @classmethod
@@ -124,18 +121,17 @@ class AOIIndex:
         Per-dataset coverage is computed here against ``domains`` (dataset name ->
         :class:`~snowtool.snowdb.coverage.CoverageDomain`) so it stays derived:
         rebuilding the index re-derives it, and a grid/domain change is picked up
-        by a plain ``aoi reindex``. Point-only pourpoints are skipped: with no
-        basin they are not AOIs (the same rule import applies), and they have no
-        geometry hash to index.
+        by a plain ``pourpoint reindex``. Point-only pourpoints are skipped: with no
+        basin they have nothing to cover and no geometry hash to index.
         """
         if not records_dir.is_dir():
             return cls({})
         entries = []
         for path in sorted(records_dir.glob('*.geojson')):
-            aoi = AOI.from_geojson(path)
-            if aoi.polygon is None:
+            pourpoint = Pourpoint.from_geojson(path)
+            if pourpoint.polygon is None:
                 continue
-            entries.append(AOIIndexEntry.from_aoi(aoi, domains))
+            entries.append(PourpointIndexEntry.from_pourpoint(pourpoint, domains))
         return cls.from_entries(entries)
 
     @classmethod
@@ -145,7 +141,8 @@ class AOIIndex:
             return cls({})
         collection = json.loads(path.read_text())
         return cls.from_entries(
-            AOIIndexEntry.from_feature(feature) for feature in collection['features']
+            PourpointIndexEntry.from_feature(feature)
+            for feature in collection['features']
         )
 
     def to_feature_collection(self: Self) -> dict[str, Any]:
@@ -165,13 +162,13 @@ class AOIIndex:
     def triplets(self: Self) -> set[types.StationTriplet]:
         return set(self.entries)
 
-    def __getitem__(self: Self, triplet: types.StationTriplet) -> AOIIndexEntry:
+    def __getitem__(self: Self, triplet: types.StationTriplet) -> PourpointIndexEntry:
         return self.entries[triplet]
 
     def __contains__(self: Self, triplet: types.StationTriplet) -> bool:
         return triplet in self.entries
 
-    def __iter__(self: Self) -> Iterator[AOIIndexEntry]:
+    def __iter__(self: Self) -> Iterator[PourpointIndexEntry]:
         for triplet in sorted(self.entries):
             yield self.entries[triplet]
 

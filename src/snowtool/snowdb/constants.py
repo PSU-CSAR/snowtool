@@ -23,7 +23,7 @@ TILE_BBOX_TAG = 'SNOWTOOL_TILE_BBOX'
 AOI_MASK_NODATA = 0
 
 # AOI raster provenance tag: a ``versioned_hash`` of the AOI basin polygon's WKB
-# sha256 (see AOI.geometry_hash), carrying the AOI writer's
+# sha256 (see Pourpoint.geometry_hash), carrying the AOI writer's
 # AOI_RASTER_FORMAT_VERSION. An AOI raster is stale when this tag no longer matches
 # the AOI's current versioned hash -- a changed basin OR a format bump -- a cheap
 # tag-only read that drives `aoi rasterize`'s missing-or-stale rebuild without

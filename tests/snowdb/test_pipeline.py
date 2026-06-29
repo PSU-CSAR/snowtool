@@ -9,9 +9,9 @@ import pytest
 import rasterio
 
 from snowtool import types
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.terrain import ELEVATION
@@ -36,8 +36,8 @@ def test_terrain_elevation(dataset, grid):
     assert numpy.allclose(data, DEM_ELEVATION_M)
 
 
-def test_rasterize_aoi(dataset, aoi_geojson, grid):
-    aoi = AOI.from_geojson(aoi_geojson)
+def test_rasterize_aoi(dataset, pourpoint_geojson, grid):
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
 
     # polygon sits inside a single tile -> one-tile AOI window
@@ -65,8 +65,8 @@ def test_rasterize_aoi(dataset, aoi_geojson, grid):
     )
 
 
-def test_aoi_raster_reopen_roundtrips_tiles(dataset, aoi_geojson):
-    aoi = AOI.from_geojson(aoi_geojson)
+def test_aoi_raster_reopen_roundtrips_tiles(dataset, pourpoint_geojson):
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
     written = dataset.rasterize_aoi(aoi, force=True)
     reopened = AOIRaster.open(written.path, dataset.grid)
     assert {(t.row, t.col) for t in reopened.tiles} == {
@@ -75,8 +75,8 @@ def test_aoi_raster_reopen_roundtrips_tiles(dataset, aoi_geojson):
     assert reopened.origin == written.origin
 
 
-def test_zonal_stats(dataset, aoi_geojson, swe_cog):
-    aoi = AOI.from_geojson(aoi_geojson)
+def test_zonal_stats(dataset, pourpoint_geojson, swe_cog):
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
 
     swe = dataset.spec.variables['swe']
@@ -112,9 +112,9 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
     assert cell.area_m2 == float(aoi_raster.array.sum())
 
 
-def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
+def _crossed_stats(dataset, pourpoint_geojson, selections, *, max_zone_cells=10_000):
     """Run ZonalStats over the synthetic SWE COG crossed by ``selections``."""
-    aoi = AOI.from_geojson(aoi_geojson)
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
     aoi_raster = dataset.rasterize_aoi(aoi)
     swe = dataset.spec.variables['swe']
     collection = RasterCollection.from_variables_query(
@@ -149,23 +149,27 @@ def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
 )
 def test_calculate_rejects_bad_crossed_request(
     dataset,
-    aoi_geojson,
+    pourpoint_geojson,
     swe_cog,
     selections,
     kwargs,
     match,
 ):
     with pytest.raises(ValueError, match=match):
-        _crossed_stats(dataset, aoi_geojson, selections, **kwargs)
+        _crossed_stats(dataset, pourpoint_geojson, selections, **kwargs)
 
 
-def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, swe_cog):
+def test_zonal_stats_crosses_elevation_and_forest_cover(
+    dataset,
+    pourpoint_geojson,
+    swe_cog,
+):
     # The synthetic dataset is uniform: elevation 1000 m (-> 3000-4000 ft band) and
     # forest 100% (>= the 50% default threshold -> "forested"), so crossing the two
     # axes yields exactly one populated cell -- the SWE value over the in-AOI area.
     aoi_raster, stats = _crossed_stats(
         dataset,
-        aoi_geojson,
+        pourpoint_geojson,
         [
             ZoneSelection('terrain.elevation'),
             ZoneSelection('landcover.forest_cover'),
@@ -198,12 +202,16 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(dataset, aoi_geojson, sw
     assert cell.area_m2 == float(aoi_raster.array.sum())
 
 
-def test_zonal_stats_forest_threshold_is_overridable(dataset, aoi_geojson, swe_cog):
+def test_zonal_stats_forest_threshold_is_overridable(
+    dataset,
+    pourpoint_geojson,
+    swe_cog,
+):
     # The synthetic forest layer is 100%; a threshold above 100 flips the whole AOI
     # from "forested" to "unforested", proving the per-query threshold knob works.
     _, stats = _crossed_stats(
         dataset,
-        aoi_geojson,
+        pourpoint_geojson,
         [ZoneSelection('landcover.forest_cover', threshold=100.5)],
     )
     (cell,) = [c for c in stats.dump()[0].zones if c.area_m2 > 0]
@@ -215,14 +223,14 @@ def test_zonal_stats_forest_threshold_is_overridable(dataset, aoi_geojson, swe_c
 
 def test_zonal_stats_crosses_elevation_and_categorical_aspect(
     dataset,
-    aoi_geojson,
+    pourpoint_geojson,
     swe_cog,
 ):
     # The synthetic terrain is all-flat aspect, so crossing elevation x aspect puts
     # all data in the (3000-4000 ft) x (flat) cell, shown as a class-labelled ref.
     _, stats = _crossed_stats(
         dataset,
-        aoi_geojson,
+        pourpoint_geojson,
         [ZoneSelection('terrain.elevation'), ZoneSelection('terrain.aspect')],
     )
 

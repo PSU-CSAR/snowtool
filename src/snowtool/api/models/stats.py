@@ -1,6 +1,6 @@
 """The zonal-stats response envelope and the CSV streaming helper.
 
-The JSON response is a thin per-dataset envelope -- the AOI ref, the echoed query,
+The JSON response is a thin per-dataset envelope -- the pourpoint ref, the echoed query,
 HATEOAS links, and ``results``: a list of the dataset's *generated* per-date model
 (:attr:`DatasetSpec.zonal_stats_model`). Parametrizing the generic
 :class:`StatsResponse` with that model (``StatsResponse[spec.zonal_stats_model]``)
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 
 class StatsResponse[T](BaseModel):
-    """A per-dataset zonal-stats envelope: AOI/query echo + results + links."""
+    """A per-dataset zonal-stats envelope: pourpoint/query echo + results + links."""
 
-    aoi: types.StationTriplet
+    pourpoint: types.StationTriplet
     dataset: str
     query: types.PourPointQuery
     results: list[T]
@@ -51,7 +51,7 @@ class StatsResponse[T](BaseModel):
         alternates: Sequence[Link] = (),
     ) -> StatsResponse[T]:
         return cls(
-            aoi=triplet,
+            pourpoint=triplet,
             dataset=dataset,
             query=query,
             results=results,
@@ -59,7 +59,7 @@ class StatsResponse[T](BaseModel):
                 Link.self_link(),
                 Link.root_link(),
                 Link.to_route(
-                    'get_aoi',
+                    'get_pourpoint',
                     rel=Rel.UP,
                     type=MediaType.GEOJSON,
                     path={'triplet': triplet},

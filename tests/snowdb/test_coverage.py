@@ -4,8 +4,7 @@ import json
 
 import pytest
 
-from snowtool.exceptions import AOICoverageError
-from snowtool.snowdb.aoi import AOI
+from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb.coverage import (
     Coverage,
     CoverageDomain,
@@ -14,6 +13,7 @@ from snowtool.snowdb.coverage import (
 )
 from snowtool.snowdb.datasets.instarr import INSTARR_SPEC
 from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.pourpoint import Pourpoint
 
 
 def _aoi(tmp_path, polygon, triplet='12345:MT:USGS'):
@@ -29,7 +29,7 @@ def _aoi(tmp_path, polygon, triplet='12345:MT:USGS'):
     }
     path = tmp_path / f'{triplet.replace(":", "_")}.geojson'
     path.write_text(json.dumps(feature))
-    return AOI.from_geojson(path)
+    return Pourpoint.from_geojson(path)
 
 
 def _ring(x0, y0, x1, y1):
@@ -118,7 +118,7 @@ def test_guard_passes_when_full():
 
 
 def test_guard_raises_on_partial_by_default():
-    with pytest.raises(AOICoverageError, match='partially covered'):
+    with pytest.raises(PourpointCoverageError, match='partially covered'):
         require_full_coverage(Coverage.PARTIAL, triplet='1:MT:USGS', dataset='test')
 
 
@@ -133,7 +133,7 @@ def test_guard_allow_partial_bypasses_partial():
 
 def test_guard_raises_on_none_even_with_allow_partial():
     # NONE is never allowed: an off-grid basin has no pixels to clip to.
-    with pytest.raises(AOICoverageError, match='not covered'):
+    with pytest.raises(PourpointCoverageError, match='not covered'):
         require_full_coverage(
             Coverage.NONE,
             triplet='1:MT:USGS',
@@ -143,7 +143,7 @@ def test_guard_raises_on_none_even_with_allow_partial():
 
 
 def test_guard_error_carries_context():
-    with pytest.raises(AOICoverageError) as exc_info:
+    with pytest.raises(PourpointCoverageError) as exc_info:
         require_full_coverage(Coverage.NONE, triplet='42:CA:USGS', dataset='instarr')
     err = exc_info.value
     assert err.triplet == '42:CA:USGS'

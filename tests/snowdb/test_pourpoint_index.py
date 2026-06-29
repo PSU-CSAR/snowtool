@@ -1,13 +1,13 @@
-"""AOI.geometry_hash and the derived AOIIndex (FeatureCollection manifest)."""
+"""Pourpoint.geometry_hash and the derived PourpointIndex (FeatureCollection)."""
 
 import json
 
 import pytest
 
-from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.aoi_index import AOIIndex, AOIIndexEntry
 from snowtool.snowdb.coverage import Coverage, CoverageDomain
 from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 
 
 def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
@@ -80,19 +80,19 @@ def _write_pourpoint(
     return path
 
 
-# --- AOI.geometry_hash -------------------------------------------------------
+# --- Pourpoint.geometry_hash -------------------------------------------------------
 
 
-def test_geometry_hash_is_stable_and_hex(aoi_geojson):
-    aoi = AOI.from_geojson(aoi_geojson)
+def test_geometry_hash_is_stable_and_hex(pourpoint_geojson):
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
     digest = aoi.geometry_hash
-    assert digest == AOI.from_geojson(aoi_geojson).geometry_hash
+    assert digest == Pourpoint.from_geojson(pourpoint_geojson).geometry_hash
     assert len(digest) == 64
     int(digest, 16)  # hex
 
 
 def test_geometry_hash_differs_for_a_different_polygon(tmp_path):
-    a = AOI.from_geojson(_write_pourpoint(tmp_path / 'a.geojson'))
+    a = Pourpoint.from_geojson(_write_pourpoint(tmp_path / 'a.geojson'))
     shifted = _box(-118.9, 44.9, -118.0, 44.0)
     point = {'type': 'Point', 'coordinates': [-118.45, 44.45]}
     b_path = tmp_path / 'b.geojson'
@@ -106,30 +106,37 @@ def test_geometry_hash_differs_for_a_different_polygon(tmp_path):
             },
         ),
     )
-    assert a.geometry_hash != AOI.from_geojson(b_path).geometry_hash
+    assert a.geometry_hash != Pourpoint.from_geojson(b_path).geometry_hash
 
 
 def test_geometry_hash_raises_without_a_polygon(tmp_path):
     path = _write_pourpoint(tmp_path / 'p.geojson', with_polygon=False)
-    aoi = AOI.from_geojson(path)
-    with pytest.raises(ValueError, match='does not have a polygon'):
+    aoi = Pourpoint.from_geojson(path)
+    with pytest.raises(ValueError, match='does not have a basin polygon'):
         _ = aoi.geometry_hash
 
 
-# --- AOIIndexEntry -----------------------------------------------------------
+# --- PourpointIndexEntry -----------------------------------------------------------
 
 
-def test_entry_from_aoi_denormalizes_list_fields(aoi_geojson):
-    entry = AOIIndexEntry.from_aoi(AOI.from_geojson(aoi_geojson), _grids())
+def test_entry_from_aoi_denormalizes_list_fields(pourpoint_geojson):
+    entry = PourpointIndexEntry.from_pourpoint(
+        Pourpoint.from_geojson(pourpoint_geojson),
+        _grids(),
+    )
     assert entry.triplet == '12345:MT:USGS'
     assert entry.name == 'Test Basin'
-    assert entry.source == 'test'
     assert entry.point['type'] == 'Point'
+    # Exact geodesic area (WGS84) of the fixture's 0.9 deg x 0.9 deg basin box.
+    assert entry.area_meters == pytest.approx(7_164_269_879.72, rel=1e-9)
     assert len(entry.geometry_hash) == 64
 
 
-def test_entry_from_aoi_computes_per_dataset_coverage(aoi_geojson):
-    entry = AOIIndexEntry.from_aoi(AOI.from_geojson(aoi_geojson), _grids())
+def test_entry_from_aoi_computes_per_dataset_coverage(pourpoint_geojson):
+    entry = PourpointIndexEntry.from_pourpoint(
+        Pourpoint.from_geojson(pourpoint_geojson),
+        _grids(),
+    )
     assert entry.coverage == {
         'covers': Coverage.FULL,
         'disjoint': Coverage.NONE,
@@ -137,23 +144,23 @@ def test_entry_from_aoi_computes_per_dataset_coverage(aoi_geojson):
 
 
 def test_entry_feature_round_trips(tmp_path):
-    aoi = AOI.from_geojson(_write_pourpoint(tmp_path / 'p.geojson'))
-    entry = AOIIndexEntry.from_aoi(aoi, _grids())
+    aoi = Pourpoint.from_geojson(_write_pourpoint(tmp_path / 'p.geojson'))
+    entry = PourpointIndexEntry.from_pourpoint(aoi, _grids())
     feature = entry.to_feature()
     assert feature['type'] == 'Feature'
     assert feature['id'] == '12345:MT:USGS'
     assert feature['geometry']['type'] == 'Point'
-    assert feature['properties']['active'] is True
-    assert feature['properties']['basinarea'] == 5.2
+    assert feature['properties']['name'] == 'Test Basin'
+    assert feature['properties']['area_meters'] == entry.area_meters
     # Coverage serializes to plain strings and round-trips back to the enum.
     assert feature['properties']['coverage'] == {
         'covers': 'full',
         'disjoint': 'none',
     }
-    assert AOIIndexEntry.from_feature(feature) == entry
+    assert PourpointIndexEntry.from_feature(feature) == entry
 
 
-# --- AOIIndex ----------------------------------------------------------------
+# --- PourpointIndex ----------------------------------------------------------------
 
 
 def test_index_from_records_and_save_load_round_trip(tmp_path):
@@ -162,7 +169,7 @@ def test_index_from_records_and_save_load_round_trip(tmp_path):
     _write_pourpoint(records / 'b.geojson', triplet='20000:MT:USGS')
     _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
 
-    index = AOIIndex.from_records(records, _grids())
+    index = PourpointIndex.from_records(records, _grids())
     assert index.triplets() == {'10000:MT:USGS', '20000:MT:USGS'}
     # Coverage is derived per dataset during the rebuild.
     assert index['10000:MT:USGS'].coverage == {
@@ -181,7 +188,7 @@ def test_index_from_records_and_save_load_round_trip(tmp_path):
     ]
     assert out.read_text().endswith('\n')
 
-    reloaded = AOIIndex.load(out)
+    reloaded = PourpointIndex.load(out)
     assert reloaded.entries == index.entries
 
 
@@ -197,13 +204,13 @@ def test_index_from_records_skips_point_only_records(tmp_path):
         with_polygon=False,
     )
 
-    index = AOIIndex.from_records(records, _grids())
+    index = PourpointIndex.from_records(records, _grids())
     assert index.triplets() == {'10000:MT:USGS'}
 
 
 def test_index_from_records_empty_when_dir_absent(tmp_path):
-    assert AOIIndex.from_records(tmp_path / 'nope', _grids()).triplets() == set()
+    assert PourpointIndex.from_records(tmp_path / 'nope', _grids()).triplets() == set()
 
 
 def test_index_load_missing_file_is_empty(tmp_path):
-    assert len(AOIIndex.load(tmp_path / 'index.geojson')) == 0
+    assert len(PourpointIndex.load(tmp_path / 'index.geojson')) == 0

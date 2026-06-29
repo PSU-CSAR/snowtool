@@ -1,4 +1,4 @@
-"""The snow database read/query surface: the global ``aois/`` plus per-dataset
+"""The snow database read/query surface: the global ``pourpoints/`` plus per-dataset
 ``data/``.
 
 ``SnowDb`` is the lean, read-only view of a snowdb: it is built from a root
@@ -7,7 +7,7 @@ its directory, present on disk or not (a dataset is defined by its config, and a
 missing directory just means it has no data yet). The read path therefore
 tolerates an un-initialized root (it serves no data and logs a warning). Every
 operation that *mutates* the database -- creating the layout, registering
-datasets, importing/rasterizing AOIs, generating zone layers -- lives on
+datasets, importing/rasterizing pourpoints, generating zone layers -- lives on
 :class:`~snowtool.snowdb.manager.SnowDbManager`, which *has* a ``SnowDb``; the
 FastAPI app builds only this read side. It is constructed per entrypoint (the API
 builds one at app-lifespan scope, the CLI one per invocation).
@@ -27,9 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 from snowtool import types
-from snowtool.exceptions import AOINotFoundError, SnowDbConfigError
-from snowtool.snowdb.aoi import AOI
-from snowtool.snowdb.aoi_index import AOIIndex
+from snowtool.exceptions import PourpointNotFoundError, SnowDbConfigError
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DatasetConfig,
@@ -41,6 +39,8 @@ from snowtool.snowdb.coverage import (
     require_full_coverage,
 )
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.pourpoint_index import PourpointIndex
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -77,7 +77,7 @@ class SnowDb:
         :class:`DatasetSpec` and the dataset bound to its directory, which comes from
         the dataset config's ``data_dir`` (absolute, or relative to that config's own
         location) and defaults to the convention (beside a referenced config,
-        ``data/<name>/`` for an inline one). The AOI index/records locations come
+        ``data/<name>/`` for an inline one). The pourpoint index/records locations come
         from the config too, so the code follows the config rather than assuming
         paths.
         """
@@ -95,8 +95,8 @@ class SnowDb:
         self.path = self.root
         self.data_path = self.root / 'data' if self.root is not None else None
 
-        self.aoi_records_path = self._resolve_path(config.aoi_records)
-        self.aoi_index_path = self._resolve_path(config.aoi_index)
+        self.pourpoint_records_path = self._resolve_path(config.pourpoint_records)
+        self.pourpoint_index_path = self._resolve_path(config.pourpoint_index)
 
         # Resolve every registered dataset (inline or referenced) into a spec and
         # record where its data lives -- the `dataset_dir` rule reads and writes
@@ -263,72 +263,75 @@ class SnowDb:
             zones.update(available_zones(dataset.providers.values()))
         return zones
 
-    # --- global AOI query helpers (drive the aoi/report commands) -------------
+    # --- global pourpoint query helpers (drive the pourpoint/report commands) ---
 
-    def aoi_paths(self: Self) -> list[Path]:
-        """The per-AOI record geojson under ``aois/records/``, sorted by path."""
-        if not self.aoi_records_path.is_dir():
+    def pourpoint_paths(self: Self) -> list[Path]:
+        """The per-pourpoint record geojson under ``pourpoints/records/`` (sorted)."""
+        if not self.pourpoint_records_path.is_dir():
             return []
-        return sorted(self.aoi_records_path.glob('*.geojson'))
+        return sorted(self.pourpoint_records_path.glob('*.geojson'))
 
-    def aois(self: Self) -> Iterator[AOI]:
-        """Parse and yield every stored AOI record."""
-        for path in self.aoi_paths():
-            yield AOI.from_geojson(path)
+    def pourpoints(self: Self) -> Iterator[Pourpoint]:
+        """Parse and yield every stored pourpoint record."""
+        for path in self.pourpoint_paths():
+            yield Pourpoint.from_geojson(path)
 
-    def aoi_triplets(self: Self) -> set[types.StationTriplet]:
-        """The station triplets of every stored AOI record (parsed from the id)."""
-        return {aoi.station_triplet for aoi in self.aois()}
+    def pourpoint_triplets(self: Self) -> set[types.StationTriplet]:
+        """The station triplets of every stored pourpoint (parsed from the id)."""
+        return {pp.station_triplet for pp in self.pourpoints()}
 
-    def aoi_record_path(self: Self, triplet: types.StationTriplet) -> Path:
+    def pourpoint_record_path(self: Self, triplet: types.StationTriplet) -> Path:
         """The canonical ``records/<triplet>.geojson`` path (``:`` -> ``_``)."""
-        return self.aoi_records_path / f'{types.triplet_to_stem(triplet)}.geojson'
+        return self.pourpoint_records_path / f'{types.triplet_to_stem(triplet)}.geojson'
 
-    def load_aoi(self: Self, triplet: types.StationTriplet) -> AOI:
-        """Parse the stored AOI record for ``triplet`` (raises if it is absent)."""
-        path = self.aoi_record_path(triplet)
+    def load_pourpoint(self: Self, triplet: types.StationTriplet) -> Pourpoint:
+        """Parse the stored pourpoint record for ``triplet`` (raises if absent)."""
+        path = self.pourpoint_record_path(triplet)
         if not path.is_file():
-            raise AOINotFoundError(f'No stored AOI for triplet {triplet!r}.')
-        return AOI.from_geojson(path)
+            raise PourpointNotFoundError(
+                f'No stored pourpoint for triplet {triplet!r}.',
+            )
+        return Pourpoint.from_geojson(path)
 
-    def aoi_index(self: Self) -> AOIIndex:
+    def pourpoint_index(self: Self) -> PourpointIndex:
         """Load the persisted ``index.geojson`` manifest (empty if absent).
 
-        Serves ``aoi list`` without parsing the (large) basin records. The index
-        is maintained by import/sync/remove/reindex; run ``aoi reindex`` if the
-        ``records/`` dir was edited out of band.
+        Serves ``pourpoint list`` without parsing the (large) basin records. The
+        index is maintained by import/sync/remove/reindex; run ``pourpoint
+        reindex`` if the ``records/`` dir was edited out of band.
         """
-        return AOIIndex.load(self.aoi_index_path)
+        return PourpointIndex.load(self.pourpoint_index_path)
 
-    def aoi_dataset_coverage(
+    def pourpoint_dataset_coverage(
         self: Self,
         triplet: types.StationTriplet,
         dataset_name: str,
     ) -> Coverage:
-        """How fully ``dataset_name``'s grid covers AOI ``triplet``'s basin.
+        """How fully ``dataset_name``'s grid covers pourpoint ``triplet``'s basin.
 
         Computed live from the stored basin geometry (not the cached index), so it
-        is authoritative even if the index is stale. Raises if either the AOI or
-        the dataset is unknown.
+        is authoritative even if the index is stale. Raises if either the
+        pourpoint or the dataset is unknown.
         """
-        aoi = self.load_aoi(triplet)
-        return dataset_coverage(aoi, self.datasets[dataset_name].coverage_domain)
+        pp = self.load_pourpoint(triplet)
+        return dataset_coverage(pp, self.datasets[dataset_name].coverage_domain)
 
-    def require_aoi_coverage(
+    def require_pourpoint_coverage(
         self: Self,
         triplet: types.StationTriplet,
         dataset_name: str,
         *,
         allow_partial: bool = False,
     ) -> Coverage:
-        """Query guard: raise unless ``dataset_name`` fully covers AOI ``triplet``.
+        """Query guard: raise unless ``dataset_name`` fully covers ``triplet``.
 
         The seam a stats/query call uses before reading rasters, closing the
         silent-partial-stats gap. ``allow_partial`` permits a knowingly-clipped
-        query over a partially-covered AOI; a wholly off-grid AOI always raises.
-        Returns the computed :class:`Coverage` for callers that want to log it.
+        query over a partially-covered pourpoint; a wholly off-grid one always
+        raises. Returns the computed :class:`Coverage` for callers that want to
+        log it.
         """
-        coverage = self.aoi_dataset_coverage(triplet, dataset_name)
+        coverage = self.pourpoint_dataset_coverage(triplet, dataset_name)
         require_full_coverage(
             coverage,
             triplet=triplet,
@@ -337,16 +340,22 @@ class SnowDb:
         )
         return coverage
 
-    def dump_aoi(self: Self, triplet: types.StationTriplet, dest_dir: Path) -> Path:
-        """Copy a stored AOI record out to ``dest_dir`` (round-trip / archive).
+    def dump_pourpoint(
+        self: Self,
+        triplet: types.StationTriplet,
+        dest_dir: Path,
+    ) -> Path:
+        """Copy a stored pourpoint record out to ``dest_dir`` (round-trip / archive).
 
         A pure read/export -- it copies a record out without touching the database,
         so it lives on the read side even though the prune cascade
         (:class:`~snowtool.snowdb.manager.SnowDbManager`) also uses it.
         """
-        source = self.aoi_record_path(triplet)
+        source = self.pourpoint_record_path(triplet)
         if not source.is_file():
-            raise AOINotFoundError(f'No stored AOI for triplet {triplet!r}.')
+            raise PourpointNotFoundError(
+                f'No stored pourpoint for triplet {triplet!r}.',
+            )
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / source.name

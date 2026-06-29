@@ -15,7 +15,7 @@ from datetime import date
 import pytest
 
 from snowtool import types
-from snowtool.exceptions import AOICoverageError
+from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.tiff_cache import TiffCache
 
@@ -27,9 +27,9 @@ QUERY = types.DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4
 
 
 @pytest.fixture
-def catalog(tmp_path, spec, aoi_geojson):
+def catalog(tmp_path, spec, pourpoint_geojson):
     """A fully-populated catalog SnowDb (immutable; shareable across readers)."""
-    return populate_synthetic_root(tmp_path, spec, aoi_geojson)
+    return populate_synthetic_root(tmp_path, spec, pourpoint_geojson)
 
 
 @pytest.fixture
@@ -64,9 +64,14 @@ def test_reader_unknown_variable_is_clean_error(reader):
         )
 
 
-def test_reader_missing_aoi_raster_raises(tmp_path, spec, aoi_geojson):
+def test_reader_missing_aoi_raster_raises(tmp_path, spec, pourpoint_geojson):
     # AOI imported (so coverage passes) but never rasterized -> a clean prereq error.
-    catalog = populate_synthetic_root(tmp_path, spec, aoi_geojson, rasterize=False)
+    catalog = populate_synthetic_root(
+        tmp_path,
+        spec,
+        pourpoint_geojson,
+        rasterize=False,
+    )
     reader = SnowDbReader(catalog)
     with pytest.raises(FileNotFoundError, match='aoi rasterize'):
         asyncio.run(reader.zonal_stats(TRIPLET, 'test', QUERY, variable_keys=['swe']))
@@ -74,7 +79,7 @@ def test_reader_missing_aoi_raster_raises(tmp_path, spec, aoi_geojson):
 
 def test_reader_coverage_guard_rejects_unknown_aoi(reader):
     # The guard runs before any read: an AOI with no stored record cannot be covered.
-    with pytest.raises((FileNotFoundError, AOICoverageError)):
+    with pytest.raises((FileNotFoundError, PourpointCoverageError)):
         asyncio.run(
             reader.zonal_stats('00000:MT:USGS', 'test', QUERY),
         )

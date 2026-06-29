@@ -9,15 +9,15 @@ import numpy
 import pytest
 import rasterio
 
-from snowtool.exceptions import AOICoverageError
+from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb import diagnostics
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.terrain import ELEVATION
 
@@ -122,46 +122,50 @@ def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
     assert 'landcover' not in providers
 
 
-# --- aoi-coverage ------------------------------------------------------------
+# --- pourpoint-coverage ------------------------------------------------------------
 
 
-def test_aoi_coverage_unrasterized_then_covered(
+def test_pourpoint_coverage_unrasterized_then_covered(
     tmp_path,
     spec,
-    aoi_geojson,
+    pourpoint_geojson,
 ):
 
     SnowDbManager.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
-    shutil.copy(aoi_geojson, db.aoi_records_path / 'pp.geojson')
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pp.geojson')
 
-    before = diagnostics.aoi_coverage_report(db, ds)
+    before = diagnostics.pourpoint_coverage_report(db, ds)
     assert before.unrasterized == ('12345:MT:USGS',)
     assert before.orphan_rasters == ()
 
-    ds.rasterize_aoi(AOI.from_geojson(aoi_geojson))
-    after = diagnostics.aoi_coverage_report(db, ds)
+    ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
+    after = diagnostics.pourpoint_coverage_report(db, ds)
     assert after.unrasterized == ()
 
 
-def test_aoi_coverage_flags_orphan_raster(tmp_path, spec, aoi_geojson):
+def test_pourpoint_coverage_flags_orphan_raster(tmp_path, spec, pourpoint_geojson):
     SnowDbManager.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])  # no global AOIs
-    ds.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+    ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
-    result = diagnostics.aoi_coverage_report(db, ds)
+    result = diagnostics.pourpoint_coverage_report(db, ds)
 
     assert result.orphan_rasters == ('12345:MT:USGS',)
 
 
-def test_aoi_coverage_classifies_full_partial_none(tmp_path, spec, aoi_geojson):
+def test_pourpoint_coverage_classifies_full_partial_none(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
     # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
     SnowDbManager.initialize(tmp_path, [spec])
     Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
-    records = db.aoi_records_path
+    records = db.pourpoint_records_path
     # Fully inside.
     _write_basin(records, '100:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
     # Straddles the western edge -> partial.
@@ -169,13 +173,13 @@ def test_aoi_coverage_classifies_full_partial_none(tmp_path, spec, aoi_geojson):
     # Entirely east of the grid -> none.
     _write_basin(records, '300:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
 
-    result = diagnostics.aoi_coverage_report(db, db.datasets['test'])
+    result = diagnostics.pourpoint_coverage_report(db, db.datasets['test'])
 
     assert result.partial == ('200:MT:USGS',)
     assert result.uncovered == ('300:MT:USGS',)
 
 
-# --- query guard: SnowDb.require_aoi_coverage --------------------------------
+# --- query guard: SnowDb.require_pourpoint_coverage --------------------------------
 
 
 @pytest.fixture
@@ -184,7 +188,7 @@ def guard_db(tmp_path, spec):
     SnowDbManager.initialize(tmp_path, [spec])
     Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
-    records = db.aoi_records_path
+    records = db.pourpoint_records_path
     _write_basin(records, 'full:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
     _write_basin(records, 'part:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)
     _write_basin(records, 'none:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
@@ -192,17 +196,17 @@ def guard_db(tmp_path, spec):
 
 
 def test_guard_passes_full_coverage(guard_db):
-    assert guard_db.require_aoi_coverage('full:MT:USGS', 'test') is Coverage.FULL
+    assert guard_db.require_pourpoint_coverage('full:MT:USGS', 'test') is Coverage.FULL
 
 
 def test_guard_raises_on_partial(guard_db):
-    with pytest.raises(AOICoverageError, match='partially covered'):
-        guard_db.require_aoi_coverage('part:MT:USGS', 'test')
+    with pytest.raises(PourpointCoverageError, match='partially covered'):
+        guard_db.require_pourpoint_coverage('part:MT:USGS', 'test')
 
 
 def test_guard_allow_partial_bypasses(guard_db):
     assert (
-        guard_db.require_aoi_coverage(
+        guard_db.require_pourpoint_coverage(
             'part:MT:USGS',
             'test',
             allow_partial=True,
@@ -212,15 +216,15 @@ def test_guard_allow_partial_bypasses(guard_db):
 
 
 def test_guard_raises_on_uncovered_despite_allow_partial(guard_db):
-    with pytest.raises(AOICoverageError, match='not covered'):
-        guard_db.require_aoi_coverage('none:MT:USGS', 'test', allow_partial=True)
+    with pytest.raises(PourpointCoverageError, match='not covered'):
+        guard_db.require_pourpoint_coverage('none:MT:USGS', 'test', allow_partial=True)
 
 
 # --- aoi-health --------------------------------------------------------------
 
 
-def test_aoi_health_all_healthy(dataset, aoi_geojson):
-    dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+def test_aoi_health_all_healthy(dataset, pourpoint_geojson):
+    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     health = diagnostics.aoi_health_report(dataset)
 

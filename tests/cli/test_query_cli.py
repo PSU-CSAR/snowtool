@@ -14,9 +14,9 @@ import numpy
 import pytest
 
 from snowtool.cli import cli
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.pourpoint import Pourpoint
 
 from ..conftest import (
     SIZE,
@@ -48,14 +48,14 @@ def _ingest_swe_cog(dataset) -> None:
 
 
 @pytest.fixture
-def populated_root(initialized_root, aoi_geojson):
+def populated_root(initialized_root, pourpoint_geojson):
     """The synthetic root populated end-to-end for a stats query."""
     manager = SnowDbManager.open(initialized_root)
-    manager.import_aois(aoi_geojson)
+    manager.import_pourpoints(pourpoint_geojson)
     dataset = manager.db['test']
     write_terrain(dataset)
     write_landcover(dataset)
-    dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson), force=True)
+    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), force=True)
     _ingest_swe_cog(dataset)
     return initialized_root
 
@@ -218,10 +218,10 @@ def test_query_stats_missing_aoi_raster_is_clean_error(
     runner,
     cli_obj,
     initialized_root,
-    aoi_geojson,
+    pourpoint_geojson,
 ):
     # AOI imported (so coverage passes) but never rasterized -> a clean prereq error.
-    SnowDbManager.open(initialized_root).import_aois(aoi_geojson)
+    SnowDbManager.open(initialized_root).import_pourpoints(pourpoint_geojson)
     result = runner.invoke(
         cli,
         [

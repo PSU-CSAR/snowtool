@@ -69,7 +69,7 @@ def stamp(root: Path) -> None:
 def restructure(src: Path, dst: Path, dataset: str) -> None:
     """Move a legacy flat rasterdb dir SRC into snowdb root DST.
 
-    SRC's contents become DST/data/<dataset>/ and DST/aois/ is created.
+    SRC's contents become DST/data/<dataset>/ and DST/pourpoints/ is created.
     """
     from snowtool.migration.restructure import restructure_to_snowdb
 

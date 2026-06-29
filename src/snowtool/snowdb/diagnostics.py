@@ -186,44 +186,44 @@ def stale_format_zone_layers(dataset: Dataset) -> list[ZoneLayerFormat]:
 
 
 @dataclass(frozen=True)
-class AoiCoverage:
-    """How a dataset's grid + burned rasters line up with the global AOIs.
+class PourpointCoverage:
+    """How a dataset's grid + burned rasters line up with the stored pourpoints.
 
     ``unrasterized``/``orphan_rasters`` are about which AOI *rasters* exist;
-    ``partial``/``uncovered`` are the geometric coverage of each AOI's basin by
-    the dataset's grid (``partial`` = basin spills outside it, ``uncovered`` =
-    basin entirely off-grid). A fully-covered AOI appears in none of these.
+    ``partial``/``uncovered`` are the geometric coverage of each pourpoint's basin
+    by the dataset's grid (``partial`` = basin spills outside it, ``uncovered`` =
+    basin entirely off-grid). A fully-covered pourpoint appears in none of these.
     """
 
     name: str
-    unrasterized: tuple[str, ...]  # global AOIs with no raster in this dataset
-    orphan_rasters: tuple[str, ...]  # rasters with no matching global AOI
+    unrasterized: tuple[str, ...]  # pourpoints with no AOI raster in this dataset
+    orphan_rasters: tuple[str, ...]  # AOI rasters with no matching pourpoint
     partial: tuple[str, ...]  # basin only partially inside the grid
     uncovered: tuple[str, ...]  # basin entirely outside the grid
 
 
-def aoi_coverage_report(snowdb: SnowDb, dataset: Dataset) -> AoiCoverage:
+def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> PourpointCoverage:
     from snowtool.snowdb.coverage import Coverage, dataset_coverage
 
-    global_aois = snowdb.aoi_triplets()
+    triplets = snowdb.pourpoint_triplets()
     rasterized = dataset.aoi_raster_triplets()
     # Coverage is computed live from each stored basin (this is validation -- it
     # must not trust the derived index, which it exists to catch drift in).
     partial: list[str] = []
     uncovered: list[str] = []
     domain = dataset.coverage_domain
-    for aoi in snowdb.aois():
-        match dataset_coverage(aoi, domain):
+    for pourpoint in snowdb.pourpoints():
+        match dataset_coverage(pourpoint, domain):
             case Coverage.PARTIAL:
-                partial.append(aoi.station_triplet)
+                partial.append(pourpoint.station_triplet)
             case Coverage.NONE:
-                uncovered.append(aoi.station_triplet)
+                uncovered.append(pourpoint.station_triplet)
             case _:
                 pass
-    return AoiCoverage(
+    return PourpointCoverage(
         name=dataset.spec.name,
-        unrasterized=tuple(sorted(global_aois - rasterized)),
-        orphan_rasters=tuple(sorted(rasterized - global_aois)),
+        unrasterized=tuple(sorted(triplets - rasterized)),
+        orphan_rasters=tuple(sorted(rasterized - triplets)),
         partial=tuple(sorted(partial)),
         uncovered=tuple(sorted(uncovered)),
     )

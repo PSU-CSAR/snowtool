@@ -112,7 +112,14 @@ def init_with_builtins(root):
     return manager
 
 
-def populate_synthetic_root(root, spec, aoi_geojson, *, rasterize=True, ingest=True):
+def populate_synthetic_root(
+    root,
+    spec,
+    pourpoint_geojson,
+    *,
+    rasterize=True,
+    ingest=True,
+):
     """Populate ``root`` end-to-end with the synthetic ``spec`` dataset.
 
     The shared builder behind the reader and API stats tests: it initializes the
@@ -124,21 +131,21 @@ def populate_synthetic_root(root, spec, aoi_geojson, *, rasterize=True, ingest=T
 
     import numpy
 
-    from snowtool.snowdb.aoi import AOI
     from snowtool.snowdb.cog import write_cog
     from snowtool.snowdb.datasets import config_from_spec
     from snowtool.snowdb.manager import SnowDbManager
+    from snowtool.snowdb.pourpoint import Pourpoint
 
     manager = SnowDbManager.initialize(root)
     register_dataset_config(manager, spec.name, config_from_spec(spec))
     # Reopen so the freshly-registered dataset is bound.
     manager = SnowDbManager.open(root)
-    manager.import_aois(aoi_geojson)
+    manager.import_pourpoints(pourpoint_geojson)
     dataset = manager.db[spec.name]
     write_terrain(dataset)
     write_landcover(dataset)
     if rasterize:
-        dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson), force=True)
+        dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), force=True)
     if ingest:
         out_dir = dataset.date_dir(date(2018, 4, 27))
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -347,7 +354,7 @@ def dataset(tmp_path, spec):
 
 
 @pytest.fixture
-def aoi_geojson(tmp_path):
+def pourpoint_geojson(tmp_path):
     """A pourpoint with a polygon inside tile (0, 0)."""
     # lon -119.9..-119.0, lat 44.9..44.0 -> well inside the first tile.
     polygon = {

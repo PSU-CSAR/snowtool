@@ -1,4 +1,4 @@
-"""The `aoi` command group, against the synthetic snowdb."""
+"""The `pourpoint` command group, against the synthetic snowdb."""
 
 import json
 
@@ -51,13 +51,19 @@ def _create_dataset(runner, cli_obj, source_dem):
 # --- import / sync -----------------------------------------------------------
 
 
-def test_import_file(runner, cli_obj, initialized_root, aoi_geojson):
-    result = runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_import_file(runner, cli_obj, initialized_root, pourpoint_geojson):
+    result = runner.invoke(
+        cli,
+        ['pourpoint', 'import', str(pourpoint_geojson)],
+        obj=cli_obj,
+    )
 
     assert result.exit_code == 0
-    assert 'imported 1 AOI(s)' in result.output
-    assert (initialized_root / 'aois' / 'records' / '12345_MT_USGS.geojson').is_file()
-    assert (initialized_root / 'aois' / 'index.geojson').is_file()
+    assert 'imported 1 pourpoint(s)' in result.output
+    assert (
+        initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson'
+    ).is_file()
+    assert (initialized_root / 'pourpoints' / 'index.geojson').is_file()
 
 
 def test_import_dir_reports_and_exits_nonzero_on_invalid(
@@ -71,61 +77,61 @@ def test_import_dir_reports_and_exits_nonzero_on_invalid(
     _write_aoi(src, '22222:MT:USGS', with_polygon=False)
     (src / 'bad.geojson').write_text(json.dumps({'type': 'Nonsense'}))
 
-    result = runner.invoke(cli, ['aoi', 'import', str(src)], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'import', str(src)], obj=cli_obj)
 
     assert result.exit_code != 0
-    assert 'imported 1 AOI(s)' in result.output
+    assert 'imported 1 pourpoint(s)' in result.output
     assert 'skipped 1 point-only' in result.output
     assert 'invalid source file(s)' in result.output
 
 
-def test_sync_refuses_without_prune_to(runner, cli_obj, tmp_path, aoi_geojson):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_sync_refuses_without_prune_to(runner, cli_obj, tmp_path, pourpoint_geojson):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
 
-    result = runner.invoke(cli, ['aoi', 'sync', str(src)], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'sync', str(src)], obj=cli_obj)
 
     assert result.exit_code != 0
     assert 'would be removed' in result.output
 
 
-def test_sync_prunes_with_archive(runner, cli_obj, tmp_path, aoi_geojson):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_sync_prunes_with_archive(runner, cli_obj, tmp_path, pourpoint_geojson):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
     archive = tmp_path / 'archive'
 
     result = runner.invoke(
         cli,
-        ['aoi', 'sync', str(src), '--prune-to', str(archive)],
+        ['pourpoint', 'sync', str(src), '--prune-to', str(archive)],
         obj=cli_obj,
     )
 
     assert result.exit_code == 0
-    assert 'pruned 1 AOI(s)' in result.output
+    assert 'pruned 1 pourpoint(s)' in result.output
     assert (archive / '12345_MT_USGS.geojson').is_file()
 
 
 # --- list / show / dump / reindex / remove -----------------------------------
 
 
-def test_list_json(runner, cli_obj, aoi_geojson):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_list_json(runner, cli_obj, pourpoint_geojson):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 
-    result = runner.invoke(cli, ['aoi', 'list', '--format', 'json'], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'list', '--format', 'json'], obj=cli_obj)
 
     rows = json.loads(result.output)
     assert rows[0]['triplet'] == '12345:MT:USGS'
-    assert rows[0]['source'] == 'test'
+    assert rows[0]['area_meters'] > 0
 
 
-def test_show(runner, cli_obj, aoi_geojson):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_show(runner, cli_obj, pourpoint_geojson):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 
     result = runner.invoke(
         cli,
-        ['aoi', 'show', '12345:MT:USGS', '--format', 'json'],
+        ['pourpoint', 'show', '12345:MT:USGS', '--format', 'json'],
         obj=cli_obj,
     )
 
@@ -135,17 +141,17 @@ def test_show(runner, cli_obj, aoi_geojson):
 
 
 def test_show_missing_errors(runner, cli_obj):
-    result = runner.invoke(cli, ['aoi', 'show', '99999:MT:USGS'], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'show', '99999:MT:USGS'], obj=cli_obj)
     assert result.exit_code != 0
 
 
-def test_dump(runner, cli_obj, aoi_geojson, tmp_path):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+def test_dump(runner, cli_obj, pourpoint_geojson, tmp_path):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
     out = tmp_path / 'out'
 
     result = runner.invoke(
         cli,
-        ['aoi', 'dump', '12345:MT:USGS', '-o', str(out)],
+        ['pourpoint', 'dump', '12345:MT:USGS', '-o', str(out)],
         obj=cli_obj,
     )
 
@@ -153,50 +159,50 @@ def test_dump(runner, cli_obj, aoi_geojson, tmp_path):
     assert (out / '12345_MT_USGS.geojson').is_file()
 
 
-def test_remove_dry_run_then_real(runner, cli_obj, aoi_geojson, initialized_root):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
-    record = initialized_root / 'aois' / 'records' / '12345_MT_USGS.geojson'
+def test_remove_dry_run_then_real(runner, cli_obj, pourpoint_geojson, initialized_root):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
+    record = initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson'
 
     dry = runner.invoke(
         cli,
-        ['aoi', 'remove', '12345:MT:USGS', '--dry-run'],
+        ['pourpoint', 'remove', '12345:MT:USGS', '--dry-run'],
         obj=cli_obj,
     )
     assert 'would remove' in dry.output
     assert record.is_file()
 
-    real = runner.invoke(cli, ['aoi', 'remove', '12345:MT:USGS'], obj=cli_obj)
+    real = runner.invoke(cli, ['pourpoint', 'remove', '12345:MT:USGS'], obj=cli_obj)
     assert real.exit_code == 0
     assert not record.exists()
 
 
-def test_reindex(runner, cli_obj, aoi_geojson, initialized_root):
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
-    (initialized_root / 'aois' / 'index.geojson').unlink()
+def test_reindex(runner, cli_obj, pourpoint_geojson, initialized_root):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
+    (initialized_root / 'pourpoints' / 'index.geojson').unlink()
 
-    result = runner.invoke(cli, ['aoi', 'reindex'], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'reindex'], obj=cli_obj)
 
     assert result.exit_code == 0
-    assert 'reindexed 1 AOI(s)' in result.output
+    assert 'reindexed 1 pourpoint(s)' in result.output
 
 
 # --- rasterize ---------------------------------------------------------------
 
 
-def test_rasterize_all_then_skip(runner, cli_obj, source_dem, aoi_geojson):
+def test_rasterize_all_then_skip(runner, cli_obj, source_dem, pourpoint_geojson):
     _create_dataset(runner, cli_obj, source_dem)
-    runner.invoke(cli, ['aoi', 'import', str(aoi_geojson)], obj=cli_obj)
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 
-    first = runner.invoke(cli, ['aoi', 'rasterize', '--all'], obj=cli_obj)
+    first = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
     assert first.exit_code == 0
     assert 'built 1' in first.output
 
-    second = runner.invoke(cli, ['aoi', 'rasterize', '--all'], obj=cli_obj)
+    second = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
     assert 'built 0, skipped 1' in second.output
 
 
 def test_rasterize_requires_triplet_or_all(runner, cli_obj, source_dem):
     _create_dataset(runner, cli_obj, source_dem)
-    result = runner.invoke(cli, ['aoi', 'rasterize'], obj=cli_obj)
+    result = runner.invoke(cli, ['pourpoint', 'rasterize'], obj=cli_obj)
     assert result.exit_code != 0
     assert 'exactly one of' in result.output
