@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
 
-from snowtool.api.exceptions import NotFoundError
+from gazebo.ext.fastapi import GazeboRouter, Inject
+from gazebo.problems import ProblemException
+
 from snowtool.api.models.dataset import DatasetInfo, DatasetList
 from snowtool.api.tags import Tags
+from snowtool.snowdb.db import SnowDb
 
-router: APIRouter = APIRouter()
+# SnowDb is an app-scoped constant provider (no __provide__), so injection is
+# opt-in via the Inject marker.
+CatalogDb = Annotated[SnowDb, Inject]
 
-
-@router.get(
-    '/datasets',
-    tags=[Tags.DATASETS],
-)
-async def list_datasets(request: Request) -> DatasetList:
-    return DatasetList.from_snowdb(request.state.snowdb, request)
+router: GazeboRouter = GazeboRouter()
 
 
-@router.get(
-    '/datasets/{dataset}',
-    tags=[Tags.DATASETS],
-)
-async def get_dataset(request: Request, dataset: str) -> DatasetInfo:
-    snowdb = request.state.snowdb
+@router.get('/datasets', name='list_datasets', tags=[Tags.DATASETS])
+async def list_datasets(snowdb: CatalogDb) -> DatasetList:
+    return DatasetList.from_snowdb(snowdb)
+
+
+@router.get('/datasets/{dataset}', name='get_dataset', tags=[Tags.DATASETS])
+async def get_dataset(dataset: str, snowdb: CatalogDb) -> DatasetInfo:
     try:
         bound = snowdb[dataset]
     except KeyError as e:
-        raise NotFoundError(f'No such dataset: {dataset!r}') from e
-    return DatasetInfo.from_dataset(bound, request)
+        raise ProblemException(404, detail=f'No such dataset: {dataset!r}') from e
+    return DatasetInfo.from_dataset(bound)

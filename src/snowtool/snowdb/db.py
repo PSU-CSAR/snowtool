@@ -10,9 +10,13 @@ operation that *mutates* the database -- creating the layout, registering
 datasets, importing/rasterizing AOIs, generating zone layers -- lives on
 :class:`~snowtool.snowdb.manager.SnowDbManager`, which *has* a ``SnowDb``; the
 FastAPI app builds only this read side. It is constructed per entrypoint (the API
-builds one at app-lifespan scope, the CLI one per invocation). It also owns the
-:class:`~snowtool.snowdb.tiff_cache.TiffCache` shared by all of its datasets'
-reads.
+builds one at app-lifespan scope, the CLI one per invocation).
+
+``SnowDb`` is the immutable *catalog*: config, paths, specs, datasets, coverage,
+and the cache-free disk reads. The one piece of non-constant read-path state -- the
+:class:`~snowtool.snowdb.tiff_cache.TiffCache` shared across all of a database's COG
+reads -- lives on its sibling :class:`~snowtool.snowdb.reader.SnowDbReader`, which
+*has* a ``SnowDb`` and owns ``zonal_stats`` (the sole cache consumer).
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 from snowtool import types
-from snowtool.exceptions import SnowDbConfigError
+from snowtool.exceptions import AOINotFoundError, SnowDbConfigError
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.aoi_index import AOIIndex
 from snowtool.snowdb.config import (
@@ -37,15 +41,12 @@ from snowtool.snowdb.coverage import (
     require_full_coverage,
 )
 from snowtool.snowdb.dataset import Dataset
-from snowtool.snowdb.tiff_cache import TiffCache
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Iterable, Iterator
 
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.variables import DatasetVariable
-    from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
     from snowtool.snowdb.zone_layer import (
         AvailableZone,
         ZoneLayerProvider,
@@ -58,7 +59,6 @@ class SnowDb:
         self: Self,
         config: RootConfig,
         *,
-        tiff_cache: TiffCache | None = None,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
@@ -133,10 +133,6 @@ class SnowDb:
         # A dataset with no directory simply has no data yet, which keeps the read
         # path resilient to an un-initialized root.
         self.datasets = self._bind_datasets()
-        # One COG-handle cache shared across all datasets' reads (keyed by path).
-        # Injected so the entrypoint can size it from settings; defaulted so
-        # tests/CLI can build a SnowDb without wiring one up.
-        self.tiff_cache = tiff_cache if tiff_cache is not None else TiffCache()
         # The source each provider reads from during generation -- declared in the
         # config (provider name -> path, resolved like any other config path). A
         # source belongs to the whole database (one source bins into every grid in
@@ -227,7 +223,6 @@ class SnowDb:
         cls: type[Self],
         path: Path,
         *,
-        tiff_cache: TiffCache | None = None,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
@@ -249,7 +244,6 @@ class SnowDb:
         config = RootConfig.load(config_path)
         return cls(
             config,
-            tiff_cache=tiff_cache,
             zone_layer_providers=zone_layer_providers,
         )
 
@@ -294,7 +288,7 @@ class SnowDb:
         """Parse the stored AOI record for ``triplet`` (raises if it is absent)."""
         path = self.aoi_record_path(triplet)
         if not path.is_file():
-            raise FileNotFoundError(f'No stored AOI for triplet {triplet!r}.')
+            raise AOINotFoundError(f'No stored AOI for triplet {triplet!r}.')
         return AOI.from_geojson(path)
 
     def aoi_index(self: Self) -> AOIIndex:
@@ -343,75 +337,6 @@ class SnowDb:
         )
         return coverage
 
-    @staticmethod
-    def _resolve_variables(
-        dataset: Dataset,
-        variable_keys: Iterable[str] | None,
-    ) -> set[DatasetVariable]:
-        """The :class:`DatasetVariable`\\ s named by ``variable_keys``.
-
-        ``None`` (or an empty selection) means every variable the dataset defines;
-        an unknown key raises a clean ``ValueError`` listing the choices.
-        """
-        available = dataset.spec.variables
-        keys = None if variable_keys is None else list(variable_keys)
-        if not keys:
-            return set(available.values())
-        resolved: set[DatasetVariable] = set()
-        for key in keys:
-            try:
-                resolved.add(available[key])
-            except KeyError as e:
-                raise ValueError(
-                    f'Unknown variable {key!r} for dataset {dataset.spec.name!r}; '
-                    f'available: {", ".join(sorted(available))}.',
-                ) from e
-        return resolved
-
-    async def zonal_stats(
-        self: Self,
-        triplet: types.StationTriplet,
-        dataset_name: str,
-        query: types.DateQuery,
-        *,
-        variable_keys: Iterable[str] | None = None,
-        zone_selections: Sequence[ZoneSelection] = (),
-        allow_partial: bool = False,
-        max_zone_cells: int | None = None,
-    ) -> ZonalStats:
-        """Compute zonal statistics for one AOI over one dataset.
-
-        The shared read seam behind the ``query stats`` CLI command (and the future
-        HTTP route): it guards coverage, loads the burned AOI raster, resolves the
-        requested variables, builds the raster collection for ``query``, and runs
-        the crossed-zone reduction. ``variable_keys`` defaults to every variable the
-        dataset defines; ``zone_selections`` defaults to none (a whole-basin
-        reduction). Raises a clean error when the dataset/variable is unknown, the
-        AOI is not covered (:class:`~snowtool.exceptions.AOICoverageError`), or the
-        AOI raster has not been rasterized (:class:`FileNotFoundError`).
-        """
-        from snowtool.snowdb.raster_collection import RasterCollection
-        from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS, ZonalStats
-
-        dataset = self.datasets[dataset_name]
-        # Refuse a silently-clipped result: the AOI must be inside the dataset's
-        # served footprint (fully, unless allow_partial), checked before any read.
-        self.require_aoi_coverage(triplet, dataset_name, allow_partial=allow_partial)
-
-        variables = self._resolve_variables(dataset, variable_keys)
-        aoi_raster = dataset.load_aoi_raster(triplet)
-        collection = RasterCollection.from_variables_query(query, variables, dataset)
-        return await ZonalStats.calculate(
-            aoi_raster,
-            collection,
-            self.tiff_cache,
-            dataset,
-            zone_selections,
-            max_zone_cells=(
-                DEFAULT_MAX_ZONE_CELLS if max_zone_cells is None else max_zone_cells
-            ),
-        )
-
     def dump_aoi(self: Self, triplet: types.StationTriplet, dest_dir: Path) -> Path:
         """Copy a stored AOI record out to ``dest_dir`` (round-trip / archive).
 
@@ -421,7 +346,7 @@ class SnowDb:
         """
         source = self.aoi_record_path(triplet)
         if not source.is_file():
-            raise FileNotFoundError(f'No stored AOI for triplet {triplet!r}.')
+            raise AOINotFoundError(f'No stored AOI for triplet {triplet!r}.')
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / source.name

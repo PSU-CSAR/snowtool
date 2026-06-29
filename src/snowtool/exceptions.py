@@ -65,6 +65,37 @@ class AOICoverageError(SNODASError):
         super().__init__(f'AOI {triplet!r} {detail} (dataset {dataset!r}).')
 
 
+class AOINotFoundError(SNODASError, FileNotFoundError):
+    """Raised when no stored AOI record exists for a requested triplet.
+
+    A *client* error (the caller referenced an AOI that is not in the database),
+    distinct from a bare ``FileNotFoundError`` (a missing file the server expected
+    -- a 500). Subclasses ``FileNotFoundError`` so existing ``except
+    FileNotFoundError`` call sites (and the CLI) keep catching it, while the HTTP
+    API maps *only* this type to 404 and lets a generic ``FileNotFoundError`` 500.
+    """
+
+
+class AOIRasterNotFoundError(SNODASError, FileNotFoundError):
+    """Raised when an AOI's burned raster has not been built for a dataset.
+
+    A missing prerequisite the caller can fix (``aoi rasterize``), so the HTTP API
+    maps it to 404 rather than letting it 500. See :class:`AOINotFoundError` for the
+    ``FileNotFoundError`` subclassing rationale.
+    """
+
+
+class QueryParameterError(SNODASError, ValueError):
+    """Raised for an invalid query parameter (unknown variable/zone, runaway cross).
+
+    A *client* error in the stats/zonal query surface -- an unknown variable or zone
+    layer, an unparseable ``--zone`` override, or a crossed query exceeding
+    ``max_zone_cells``. Subclasses ``ValueError`` so existing ``except ValueError``
+    call sites (and the CLI) keep catching it, while the HTTP API maps *only* this
+    type to 422 and lets a generic ``ValueError`` (a real bug) 500.
+    """
+
+
 class AOIPruneDestinationRequiredError(SNODASError):
     """Raised when ``aoi sync`` would remove stored AOIs but has no archive dir.
 

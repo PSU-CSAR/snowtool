@@ -32,6 +32,10 @@ from snowtool.snowdb.terrain import (
     TERRAIN_FORMAT_VERSION,
 )
 
+# gazebo's pytest plugin (assert_problem / assert_has_link / drive_pagination +
+# fixtures) is opt-in, not auto-registered.
+pytest_plugins = ['gazebo.testing']
+
 # Small synthetic grid parameters.
 ORIGIN_X = -120.0
 ORIGIN_Y = 45.0
@@ -106,6 +110,46 @@ def init_with_builtins(root):
     for name, config in DATASET_TEMPLATES.items():
         register_dataset_config(manager, name, config)
     return manager
+
+
+def populate_synthetic_root(root, spec, aoi_geojson, *, rasterize=True, ingest=True):
+    """Populate ``root`` end-to-end with the synthetic ``spec`` dataset.
+
+    The shared builder behind the reader and API stats tests: it initializes the
+    root, registers + binds the dataset, imports the AOI, writes uniform terrain +
+    land cover, burns the AOI raster, and (optionally) ingests a uniform SWE COG
+    for 2018-04-27. Returns the catalog ``SnowDb`` (its ``root`` is ``root``).
+    """
+    from datetime import date
+
+    import numpy
+
+    from snowtool.snowdb.aoi import AOI
+    from snowtool.snowdb.cog import write_cog
+    from snowtool.snowdb.datasets import config_from_spec
+    from snowtool.snowdb.manager import SnowDbManager
+
+    manager = SnowDbManager.initialize(root)
+    register_dataset_config(manager, spec.name, config_from_spec(spec))
+    # Reopen so the freshly-registered dataset is bound.
+    manager = SnowDbManager.open(root)
+    manager.import_aois(aoi_geojson)
+    dataset = manager.db[spec.name]
+    write_terrain(dataset)
+    write_landcover(dataset)
+    if rasterize:
+        dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson), force=True)
+    if ingest:
+        out_dir = dataset.date_dir(date(2018, 4, 27))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        write_cog(
+            out_dir / f'{snodas_swe_name()}.tif',
+            numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
+            transform=dataset.grid.base_grid.transform,
+            tile_size=TILE,
+            predictor=2,
+        )
+    return manager.db
 
 
 @pytest.fixture

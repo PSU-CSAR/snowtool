@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from fastapi import Request
+from gazebo.link import Link
+from gazebo.rels import Rel
 from pydantic import BaseModel, Field
-
-from .link import Link
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
@@ -38,7 +37,7 @@ class DatasetInfo(BaseModel):
     links: list[Link] = Field(default_factory=list)
 
     @classmethod
-    def from_dataset(cls, dataset: Dataset, request: Request) -> Self:
+    def from_dataset(cls, dataset: Dataset) -> Self:
         spec = dataset.spec
         grid_params = spec.grid_params
         return cls(
@@ -59,10 +58,7 @@ class DatasetInfo(BaseModel):
                 )
                 for variable in spec.variables.values()
             ],
-            links=[
-                Link.root_link(request),
-                Link.self_link(request),
-            ],
+            links=[Link.self_link(), Link.root_link()],
         )
 
 
@@ -71,11 +67,20 @@ class DatasetList(BaseModel):
     links: list[Link] = Field(default_factory=list)
 
     @classmethod
-    def from_snowdb(cls, snowdb: SnowDb, request: Request) -> Self:
+    def from_snowdb(cls, snowdb: SnowDb) -> Self:
         return cls(
             datasets=sorted(snowdb),
             links=[
-                Link.root_link(request),
-                Link.self_link(request),
+                Link.self_link(),
+                Link.root_link(),
+                *(
+                    Link.to_route(
+                        'get_dataset',
+                        rel=Rel.ITEM,
+                        title=name,
+                        path={'dataset': name},
+                    )
+                    for name in sorted(snowdb)
+                ),
             ],
         )

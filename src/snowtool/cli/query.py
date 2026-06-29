@@ -1,6 +1,6 @@
 """The ``query`` command group: zonal statistics and date listings.
 
-``query stats`` is the analyst surface over :meth:`SnowDb.zonal_stats` -- the
+``query stats`` is the analyst surface over :meth:`SnowDbReader.zonal_stats` -- the
 shared read seam that guards coverage, loads the burned AOI raster, and runs the
 crossed-zone reduction. It operates on **one** dataset per invocation (each
 dataset has its own variables/grid and a differently-shaped output) and defaults
@@ -168,7 +168,12 @@ def stats(
         raise click.ClickException(str(e)) from e
 
     async def run() -> ZonalStats:
-        return await snowdb.zonal_stats(
+        # Build the reader inside the loop that will use it: the cache it owns is
+        # loop-affine (alru_cache binds to the loop that first awaits it).
+        from snowtool.snowdb.reader import SnowDbReader
+
+        reader = SnowDbReader(snowdb)
+        return await reader.zonal_stats(
             triplet,
             name,
             date_query,

@@ -2,9 +2,12 @@ def test_get_landing_page(test_client) -> None:
     response = test_client.get('/')
     assert response.status_code == 200
     rjson = response.json()
-    assert 'links' in rjson
-    assert rjson['links'][0]['rel'] == 'root'
-    assert rjson['links'][1]['rel'] == 'self'
+    rels = {link['rel'] for link in rjson['links']}
+    # self + root, plus a 'data' link to each of /datasets and /aois.
+    assert {'self', 'root', 'data'} <= rels
+    hrefs = {link['href'] for link in rjson['links'] if link['rel'] == 'data'}
+    assert any(href.endswith('/datasets') for href in hrefs)
+    assert any(href.endswith('/aois') for href in hrefs)
 
 
 def test_get_version(test_client) -> None:
@@ -12,3 +15,4 @@ def test_get_version(test_client) -> None:
     assert response.status_code == 200
     rjson = response.json()
     assert 'version' in rjson
+    assert {link['rel'] for link in rjson['links']} == {'self', 'root'}

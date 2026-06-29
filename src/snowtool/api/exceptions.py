@@ -1,33 +1,65 @@
+"""Domain-exception -> RFC 9457 problem+json handlers.
+
+gazebo wires the ``ProblemException``, ``RequestValidationError`` (->422), and
+``ParamError`` (->400) handlers for free. We register handlers only for the
+*specific* domain exceptions we deliberately convert from a 500 into a client
+error -- never a bare ``ValueError``/``FileNotFoundError``, so a genuine server bug
+still surfaces as a 500:
+
+* :class:`AOICoverageError` -> 409 (the AOI is not covered by the dataset grid)
+* :class:`AOINotFoundError` -> 404 (no stored AOI record for the triplet)
+* :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
+* :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)
+"""
+
 from __future__ import annotations
 
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
+from http import HTTPStatus
+from typing import TYPE_CHECKING
+
+from fastapi import Response
+from gazebo.problems import ProblemDetail
+from gazebo.rels import MediaType
+
+from snowtool.exceptions import (
+    AOICoverageError,
+    AOINotFoundError,
+    AOIRasterNotFoundError,
+    QueryParameterError,
+)
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI, Request
+
+    from snowtool.exceptions import SNODASError
 
 
-class APIError(Exception):
-    http_status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
-
-    def to_json(self) -> JSONResponse:
-        content = {
-            'error_type': self.__class__.__name__,
-            'status': self.http_status_code,
-            'detail': str(self),
-        }
-        return JSONResponse(
-            status_code=self.http_status_code,
-            content=content,
-        )
+def _problem_response(status: int, detail: str) -> Response:
+    problem = ProblemDetail(
+        title=HTTPStatus(status).phrase,
+        status=status,
+        detail=detail,
+    )
+    return Response(
+        content=problem.model_dump_json(),
+        status_code=status,
+        media_type=MediaType.PROBLEM,
+    )
 
 
-async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
-    if exc.http_status_code >= 500:
-        request.app.state.logger.exception('Server Error')
-    return exc.to_json()
+def _handler(status: HTTPStatus):
+    async def handle(request: Request, exc: SNODASError) -> Response:
+        return _problem_response(status, str(exc))
+
+    return handle
 
 
-class NotFoundError(APIError):
-    http_status_code: int = status.HTTP_404_NOT_FOUND
-
-
-class ValidationError(APIError):
-    http_status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT
+def install_exception_handlers(app: FastAPI) -> None:
+    """Register the domain-exception -> problem+json handlers on ``app``."""
+    app.add_exception_handler(AOICoverageError, _handler(HTTPStatus.CONFLICT))  # type: ignore[arg-type]
+    app.add_exception_handler(AOINotFoundError, _handler(HTTPStatus.NOT_FOUND))  # type: ignore[arg-type]
+    app.add_exception_handler(AOIRasterNotFoundError, _handler(HTTPStatus.NOT_FOUND))  # type: ignore[arg-type]
+    app.add_exception_handler(
+        QueryParameterError,
+        _handler(HTTPStatus.UNPROCESSABLE_ENTITY),
+    )  # type: ignore[arg-type]
