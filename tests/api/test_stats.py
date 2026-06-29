@@ -26,7 +26,7 @@ def test_date_range_whole_basin_json(synthetic_client) -> None:
     )
     assert response.status_code == 200
     body = response.json()
-    assert body['aoi'] == TRIPLET
+    assert body['pourpoint'] == TRIPLET
     assert body['dataset'] == 'test'
     (result,) = body['results']
     # No zone -> whole basin: no zone axes, one cell with an empty zone.
@@ -174,7 +174,7 @@ def test_unknown_zone_returns_422(synthetic_client) -> None:
 
 
 def test_unknown_aoi_returns_404(synthetic_client) -> None:
-    # No stored record for this triplet -> the coverage guard's load_aoi 404s.
+    # No stored record for this triplet -> the coverage guard's load_pourpoint 404s.
     response = synthetic_client.get(
         '/datasets/test/stats/00000:MT:USGS/date-range',
         params={'datetime': DAY, 'variable': 'swe'},
@@ -182,13 +182,18 @@ def test_unknown_aoi_returns_404(synthetic_client) -> None:
     assert_problem(response, status=404)
 
 
-def test_uncovered_aoi_returns_409(test_settings, spec, aoi_geojson, tmp_path) -> None:
+def test_uncovered_aoi_returns_409(
+    test_settings,
+    spec,
+    pourpoint_geojson,
+    tmp_path,
+) -> None:
     # An AOI whose basin sits entirely off the dataset grid -> coverage 409.
     import json
 
     from snowtool.snowdb.manager import SnowDbManager
 
-    populate_synthetic_root(test_settings.snowdb_config, spec, aoi_geojson)
+    populate_synthetic_root(test_settings.snowdb_config, spec, pourpoint_geojson)
 
     off_grid_triplet = '99999:MT:USGS'
     off_grid = {
@@ -213,7 +218,7 @@ def test_uncovered_aoi_returns_409(test_settings, spec, aoi_geojson, tmp_path) -
     }
     path = tmp_path / 'off_grid.geojson'
     path.write_text(json.dumps(off_grid))
-    SnowDbManager.open(test_settings.snowdb_config).import_aois(path)
+    SnowDbManager.open(test_settings.snowdb_config).import_pourpoints(path)
 
     with TestClient(get_app(settings=test_settings)) as client:
         response = client.get(

@@ -8,7 +8,7 @@ entity's version constrains another's, and there is no global snowdb version
 number. A ``TypeAdapter`` union routes a parsed file to its model.
 
 The root config is the system's single entry point: handed one path, the snowdb
-reaches everything else (datasets, the AOI index, the AOI records) from it. A
+reaches everything else (datasets, the pourpoint index and records) from it. A
 dataset may be *referenced* by a link to its own config file or defined *inline*
 in the root config; anywhere a config can reference another config file it can
 also embed it, so a whole snowdb can be built programmatically with no files at
@@ -159,10 +159,10 @@ DatasetLink = Annotated[
 
 
 class RootConfig(ResourceModel):
-    """The snowdb root config (``snowtool.snowdb/v1``): datasets + AOI locations.
+    """The snowdb root config (``snowtool.snowdb/v1``): datasets + pourpoint locations.
 
     Holds the registered datasets (a map of dataset name to its
-    :class:`DatasetLink` -- referenced or inline), the AOI index and records
+    :class:`DatasetLink` -- referenced or inline), the pourpoint index and records
     locations, and when the root was created. No datasets are registered by
     default: a dataset goes live by adding it here.
     """
@@ -170,8 +170,8 @@ class RootConfig(ResourceModel):
     resource: Literal['snowtool.snowdb/v1'] = 'snowtool.snowdb/v1'
     created_at: datetime
     datasets: dict[str, DatasetLink] = Field(default_factory=dict)
-    aoi_index: str = 'aois/index.geojson'
-    aoi_records: str = 'aois/records'
+    pourpoint_index: str = 'pourpoints/index.geojson'
+    pourpoint_records: str = 'pourpoints/records'
     # Per-provider generation source paths (provider name -> path; absolute, or
     # relative to this config). A provider absent here uses its default source
     # (3DEP for terrain, the MRLC bundle for land cover).

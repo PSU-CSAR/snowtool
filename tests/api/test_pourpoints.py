@@ -1,4 +1,4 @@
-"""API tests for the AOI listing + detail routes over a synthetic snowdb."""
+"""API tests for the pourpoint listing + detail routes over a synthetic snowdb."""
 
 import json
 
@@ -59,14 +59,14 @@ def many_aois_client(test_settings, spec, tmp_path):
         triplet = f'{1000 + i}:MT:USGS'
         feature = _aoi_feature(triplet, west=-119.0 + i * 0.5, south=44.0 - i * 0.5)
         (src / f'{1000 + i}_MT_USGS.geojson').write_text(json.dumps(feature))
-    manager.import_aois(src)
+    manager.import_pourpoints(src)
 
     with TestClient(get_app(settings=test_settings)) as client:
         yield client
 
 
 def test_list_aois_collection_shape(synthetic_client) -> None:
-    response = synthetic_client.get('/aois')
+    response = synthetic_client.get('/pourpoints')
     assert response.status_code == 200
     body = response.json()
     # OGC API Features collection envelope from gazebo's LinkedCollection.
@@ -81,32 +81,75 @@ def test_list_aois_collection_shape(synthetic_client) -> None:
     assert feature['properties']['coverage'] == {'test': 'full'}
     # Each feature self-links to its detail route.
     (self_link,) = [link for link in feature['links'] if link['rel'] == 'self']
-    assert self_link['href'].endswith(f'/aois/{TRIPLET}')
+    assert self_link['href'].endswith(f'/pourpoints/{TRIPLET}')
 
 
 def test_get_aoi_detail(synthetic_client) -> None:
-    response = synthetic_client.get(f'/aois/{TRIPLET}')
+    response = synthetic_client.get(f'/pourpoints/{TRIPLET}')
     assert response.status_code == 200
     body = response.json()
     assert body['id'] == TRIPLET
-    # The full stored record: point + basin polygon as a GeometryCollection.
-    assert body['geometry']['type'] == 'GeometryCollection'
-    kinds = {geom['type'] for geom in body['geometry']['geometries']}
-    assert kinds == {'Point', 'Polygon'}
-    assert body['properties']['name'] == 'Test Basin'
+    # Detail has no geometry param: it always returns the basin polygon.
+    assert body['geometry']['type'] == 'Polygon'
+    props = body['properties']
+    assert props['name'] == 'Test Basin'
+    # The outflow point rides along as a property even though the geometry is the
+    # basin, and the geodesic area is computed from the polygon (exact, WGS84).
+    assert len(props['pourpoint']) == 2
+    assert props['area_meters'] == pytest.approx(7_164_269_879.72, rel=1e-9)
+    # Coverage is pulled from the index by triplet.
+    assert props['coverage'] == {'test': 'full'}
+    # Curated ids are present (null here -- the synthetic record has none).
+    assert props['awdb_id'] is None
+    assert props['usgs_id'] is None
+
+
+def test_list_basin_geometry_returns_polygons(synthetic_client) -> None:
+    response = synthetic_client.get('/pourpoints', params={'geometry': 'basin'})
+    assert response.status_code == 200
+    (feature,) = response.json()['features']
+    # Basin mode swaps the geometry slot to the polygon...
+    assert feature['geometry']['type'] == 'Polygon'
+    # ...but the pourpoint coordinate is still carried as a property.
+    assert len(feature['properties']['pourpoint']) == 2
+
+
+def test_list_point_geometry_default_carries_pourpoint(synthetic_client) -> None:
+    (feature,) = synthetic_client.get('/pourpoints').json()['features']
+    assert feature['geometry']['type'] == 'Point'
+    # The point is both the geometry and the property in point mode.
+    assert tuple(feature['properties']['pourpoint']) == tuple(
+        feature['geometry']['coordinates'],
+    )
+
+
+def test_basin_geometry_survives_pagination(many_aois_client) -> None:
+    # Basin mode + paging: the `next` link must carry geometry=basin, or page 2
+    # silently falls back to point geometry. Assert the link *and* the followed
+    # page so a regression in either the link-building or the param can't pass.
+    page1 = many_aois_client.get(
+        '/pourpoints',
+        params={'geometry': 'basin', 'limit': 2},
+    ).json()
+    assert [f['geometry']['type'] for f in page1['features']] == ['Polygon', 'Polygon']
+    next_href = assert_has_link(page1, 'next')['href']
+    assert 'geometry=basin' in next_href
+
+    page2 = many_aois_client.get(next_href).json()
+    assert [f['geometry']['type'] for f in page2['features']] == ['Polygon']
 
 
 def test_get_unknown_aoi_returns_404_problem(synthetic_client) -> None:
-    assert_problem(synthetic_client.get('/aois/00000:MT:USGS'), status=404)
+    assert_problem(synthetic_client.get('/pourpoints/00000:MT:USGS'), status=404)
 
 
 def test_get_aoi_invalid_triplet_returns_422(synthetic_client) -> None:
     # 'badtriplet' fails the StationTriplet path pattern -> request validation 422.
-    assert_problem(synthetic_client.get('/aois/badtriplet'), status=422)
+    assert_problem(synthetic_client.get('/pourpoints/badtriplet'), status=422)
 
 
 def test_list_aois_first_page_has_next_not_prev(many_aois_client) -> None:
-    response = many_aois_client.get('/aois', params={'limit': 2})
+    response = many_aois_client.get('/pourpoints', params={'limit': 2})
     assert response.status_code == 200
     body = response.json()
     assert body['numberMatched'] == 3
@@ -120,7 +163,7 @@ def test_list_aois_first_page_has_next_not_prev(many_aois_client) -> None:
 
 
 def test_list_aois_last_page_has_prev_not_next(many_aois_client) -> None:
-    response = many_aois_client.get('/aois', params={'limit': 2, 'offset': 2})
+    response = many_aois_client.get('/pourpoints', params={'limit': 2, 'offset': 2})
     assert response.status_code == 200
     body = response.json()
     assert body['numberReturned'] == 1
@@ -135,7 +178,7 @@ def test_pagination_walks_every_aoi(many_aois_client) -> None:
     # item count, no page exceeds the limit, and the union is all three AOIs.
     features = drive_pagination(
         many_aois_client,
-        '/aois?limit=2',
+        '/pourpoints?limit=2',
         items_key='features',
         limit=2,
     )
@@ -148,7 +191,10 @@ def test_pagination_walks_every_aoi(many_aois_client) -> None:
 
 def test_list_aois_bbox_filters(many_aois_client) -> None:
     # The three AOIs span ~lon -119..-118; a bbox around only the first selects it.
-    response = many_aois_client.get('/aois', params={'bbox': '-119.1,43.9,-118.6,44.6'})
+    response = many_aois_client.get(
+        '/pourpoints',
+        params={'bbox': '-119.1,43.9,-118.6,44.6'},
+    )
     assert response.status_code == 200
     body = response.json()
     assert [f['id'] for f in body['features']] == ['1000:MT:USGS']
@@ -156,8 +202,14 @@ def test_list_aois_bbox_filters(many_aois_client) -> None:
 
 
 def test_list_aois_bad_bbox_returns_400(many_aois_client) -> None:
-    assert_problem(many_aois_client.get('/aois', params={'bbox': '1,2,3'}), status=400)
+    assert_problem(
+        many_aois_client.get('/pourpoints', params={'bbox': '1,2,3'}),
+        status=400,
+    )
 
 
 def test_list_aois_limit_over_max_returns_422(many_aois_client) -> None:
-    assert_problem(many_aois_client.get('/aois', params={'limit': 100000}), status=422)
+    assert_problem(
+        many_aois_client.get('/pourpoints', params={'limit': 100000}),
+        status=422,
+    )

@@ -104,9 +104,9 @@ class SnowDbReader:
         the crossed-zone reduction over the reader's cache. ``variable_keys``
         defaults to every variable the dataset defines; ``zone_selections`` defaults
         to none (a whole-basin reduction). Raises a clean error when the
-        dataset/variable is unknown, the AOI is not covered
-        (:class:`~snowtool.exceptions.AOICoverageError`), or the AOI raster has not
-        been rasterized (:class:`FileNotFoundError`).
+        dataset/variable is unknown, the pourpoint is not covered
+        (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
+        has not been rasterized (:class:`FileNotFoundError`).
         """
         from snowtool.snowdb.raster_collection import RasterCollection
         from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS, ZonalStats
@@ -114,7 +114,7 @@ class SnowDbReader:
         dataset = self.db.datasets[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
         # served footprint (fully, unless allow_partial), checked before any read.
-        self.db.require_aoi_coverage(
+        self.db.require_pourpoint_coverage(
             triplet,
             dataset_name,
             allow_partial=allow_partial,

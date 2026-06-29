@@ -13,9 +13,9 @@ from pathlib import Path
 import click
 
 from snowtool.cli._context import CliContext
-from snowtool.cli.aoi import aoi
 from snowtool.cli.dataset import dataset
 from snowtool.cli.migration import migration
+from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.query import query
 from snowtool.cli.report import report
 from snowtool.cli.snowdb import snowdb
@@ -42,7 +42,7 @@ def cli(ctx: click.Context, config: Path | None) -> None:
 cli.add_command(version)
 cli.add_command(snowdb)
 cli.add_command(dataset)
-cli.add_command(aoi)
+cli.add_command(pourpoint)
 cli.add_command(report)
 cli.add_command(query)
 cli.add_command(migration)

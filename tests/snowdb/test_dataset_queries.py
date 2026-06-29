@@ -2,8 +2,8 @@
 
 from datetime import date
 
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ELEVATION
 
@@ -53,8 +53,8 @@ def test_aoi_raster_triplets_empty_by_default(dataset):
     assert dataset.aoi_raster_triplets() == set()
 
 
-def test_aoi_raster_triplets_from_burned_rasters(dataset, aoi_geojson):
-    dataset.rasterize_aoi(AOI.from_geojson(aoi_geojson))
+def test_aoi_raster_triplets_from_burned_rasters(dataset, pourpoint_geojson):
+    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     assert dataset.aoi_raster_triplets() == {'12345:MT:USGS'}
 

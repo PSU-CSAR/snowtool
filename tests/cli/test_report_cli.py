@@ -7,9 +7,9 @@ import numpy
 import rasterio
 
 from snowtool.cli import cli
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.terrain import ELEVATION
 
 from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
@@ -114,20 +114,23 @@ def test_completeness_reports_missing_variables(runner, cli_obj, initialized_roo
     assert 'swe' in rows[0]['missing']
 
 
-def test_aoi_coverage_cli_flags_unrasterized(
+def test_pourpoint_coverage_cli_flags_unrasterized(
     runner,
     cli_obj,
     source_dem,
     initialized_root,
-    aoi_geojson,
+    pourpoint_geojson,
 ):
 
     _create(runner, cli_obj, source_dem)
-    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'records' / 'pp.geojson')
+    shutil.copy(
+        pourpoint_geojson,
+        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
+    )
 
     result = runner.invoke(
         cli,
-        ['report', 'aoi-coverage', '--format', 'json'],
+        ['report', 'pourpoint-coverage', '--format', 'json'],
         obj=cli_obj,
     )
 
@@ -136,10 +139,15 @@ def test_aoi_coverage_cli_flags_unrasterized(
     assert rows[0]['issue'] == 'no raster'
 
 
-def test_aoi_health_cli_clean_when_rasterized(runner, cli_obj, source_dem, aoi_geojson):
+def test_aoi_health_cli_clean_when_rasterized(
+    runner,
+    cli_obj,
+    source_dem,
+    pourpoint_geojson,
+):
 
     _create(runner, cli_obj, source_dem)
-    cli_obj.snowdb['test'].rasterize_aoi(AOI.from_geojson(aoi_geojson))
+    cli_obj.snowdb['test'].rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     result = runner.invoke(
         cli,
@@ -172,19 +180,22 @@ def test_validate_exits_nonzero_on_missing_files(runner, cli_obj):
     assert 'problem(s) found' in result.output
 
 
-def test_validate_rolls_up_completeness_and_aoi_coverage(
+def test_validate_rolls_up_completeness_and_coverage(
     runner,
     cli_obj,
     source_dem,
     initialized_root,
-    aoi_geojson,
+    pourpoint_geojson,
 ):
 
     _create(runner, cli_obj, source_dem)
     # A date dir with no variables (completeness finding).
     (initialized_root / 'data' / 'test' / 'cogs' / '20180101').mkdir(parents=True)
-    # A global AOI with no raster (aoi-coverage finding).
-    shutil.copy(aoi_geojson, initialized_root / 'aois' / 'records' / 'pp.geojson')
+    # A pourpoint with no AOI raster (aoi-no-raster finding).
+    shutil.copy(
+        pourpoint_geojson,
+        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
+    )
 
     result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
 

@@ -10,8 +10,9 @@ year span. No ``zone`` ⇒ the legacy whole-basin "basic stats".
 
 Output is content-negotiated (``?f=json|csv`` or ``Accept``): JSON is the
 per-dataset envelope, CSV streams :meth:`ZonalStats.dump_to_csv`. Coverage/lookup/
-parse failures propagate to the registered problem handlers (AOICoverageError->409,
-AOINotFound/AOIRasterNotFound->404, QueryParameterError->422, ParamError->400).
+parse failures propagate to the registered problem handlers
+(PourpointCoverageError->409, PourpointNotFound/AOIRasterNotFound->404,
+QueryParameterError->422, ParamError->400).
 """
 
 from __future__ import annotations

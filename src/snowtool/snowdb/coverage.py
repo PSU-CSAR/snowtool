@@ -1,9 +1,9 @@
-"""Per-AOI per-dataset coverage: does a dataset's grid contain a basin?
+"""Per-pourpoint per-dataset coverage: does a dataset's grid contain a basin?
 
 Coverage varies per dataset because each has its own grid/CRS/extent (instarr is
 a MODIS-sinusoidal western block; SNODAS/SWANN are geographic national grids), so
 a basin fully served by one dataset may be only partially -- or not at all -- inside
-another. :func:`dataset_coverage` is the pure kernel that classifies one AOI
+another. :func:`dataset_coverage` is the pure kernel that classifies one pourpoint
 against a :class:`CoverageDomain` (the region a dataset can serve, in its grid's
 CRS) into :class:`Coverage`; it is reprojection-correct (the basin is moved into
 the domain's CRS before the containment test) and reads no rasters.
@@ -25,16 +25,16 @@ from typing import TYPE_CHECKING, Any, Self
 
 import shapely
 
-from snowtool.exceptions import AOICoverageError
+from snowtool.exceptions import PourpointCoverageError
 
 if TYPE_CHECKING:
     from griffine.grid import TiledAffineGrid
 
-    from snowtool.snowdb.aoi import AOI
+    from snowtool.snowdb.pourpoint import Pourpoint
 
 
 class Coverage(enum.Enum):
-    """How fully a dataset's grid contains an AOI's basin geometry.
+    """How fully a dataset's grid contains a pourpoint's basin geometry.
 
     ``FULL`` -- the grid extent covers the whole basin (the only state a zonal
     query may run over without clipping); ``PARTIAL`` -- the basin overlaps the
@@ -96,14 +96,14 @@ class CoverageDomain:
         return cls(crs, polygon)
 
 
-def dataset_coverage(aoi: AOI, domain: CoverageDomain) -> Coverage:
-    """Classify how fully ``domain`` contains ``aoi``'s basin.
+def dataset_coverage(pourpoint: Pourpoint, domain: CoverageDomain) -> Coverage:
+    """Classify how fully ``domain`` contains ``pourpoint``'s basin.
 
     The basin (stored WGS84) is reprojected into ``domain``'s CRS and tested
     against its polygon. ``covers`` (not ``contains``) is used for ``FULL`` so a
     basin lying exactly on the domain boundary still counts as fully covered.
     """
-    geometry = aoi.geometry_in_crs(domain.crs)
+    geometry = pourpoint.geometry_in_crs(domain.crs)
     if domain.polygon.covers(geometry):
         return Coverage.FULL
     if domain.polygon.intersects(geometry):
@@ -118,15 +118,15 @@ def require_full_coverage(
     dataset: str,
     allow_partial: bool = False,
 ) -> None:
-    """Guard a query: raise unless the dataset fully covers the AOI.
+    """Guard a query: raise unless the dataset fully covers the pourpoint.
 
     ``FULL`` always passes. ``PARTIAL`` passes only when ``allow_partial`` is set
     (the caller knowingly wants the in-grid portion). ``NONE`` always raises --
     an off-grid basin has no pixels, so there is nothing to clip to. Raises
-    :class:`~snowtool.exceptions.AOICoverageError`.
+    :class:`~snowtool.exceptions.PourpointCoverageError`.
     """
     if coverage is Coverage.FULL:
         return
     if coverage is Coverage.PARTIAL and allow_partial:
         return
-    raise AOICoverageError(triplet, dataset, coverage)
+    raise PourpointCoverageError(triplet, dataset, coverage)

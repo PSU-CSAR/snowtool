@@ -15,8 +15,8 @@ import rasterio
 from pyproj import Transformer
 from rasterio.crs import CRS
 
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.terrain import ELEVATION
 
@@ -105,7 +105,7 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
     geojson = tmp_path / 'projected_pourpoint.geojson'
     geojson.write_text(json.dumps(feature))
 
-    aoi_raster = dataset.rasterize_aoi(AOI.from_geojson(geojson))
+    aoi_raster = dataset.rasterize_aoi(Pourpoint.from_geojson(geojson))
 
     inside = aoi_raster.array > 0
     assert 0 < inside.sum() < aoi_raster.array.size
