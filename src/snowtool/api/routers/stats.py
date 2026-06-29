@@ -24,9 +24,10 @@ from fastapi.responses import StreamingResponse
 from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Negotiate
 from gazebo.negotiation import JSON, Representation, alternate_links
 
-# DatetimeInterval is imported at runtime (not under TYPE_CHECKING) so
-# get_type_hints can resolve the route annotations -- if it fails, gazebo silently
-# skips reader injection.
+# DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
+# the resolved type of the interval param's annotation. (gazebo >=0.3.0 resolves
+# each handler param independently, so an unresolvable annotation no longer un-wires
+# the reader injection alongside it.)
 from gazebo.params import DatetimeInterval
 
 from snowtool import types

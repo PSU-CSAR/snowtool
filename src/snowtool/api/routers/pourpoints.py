@@ -15,8 +15,9 @@ from typing import Annotated, Literal
 
 from fastapi import Query
 
-# BBox is imported at runtime (not under TYPE_CHECKING) so get_type_hints can
-# resolve the route annotations -- if it fails, gazebo silently skips injection.
+# BBox is imported at runtime (not under TYPE_CHECKING) because it is the resolved
+# type of the bbox param's annotation. (gazebo >=0.3.0 resolves each handler param
+# independently, so an unresolvable annotation no longer un-wires the others.)
 from gazebo.ext.fastapi import BBoxParam, GazeboRouter, Inject
 from gazebo.params import BBox
 
