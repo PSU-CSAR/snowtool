@@ -7,10 +7,10 @@ import numpy
 import rasterio
 
 from snowtool.cli import cli
-from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.terrain import ELEVATION
+from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.terrain import ELEVATION
 
 from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
 

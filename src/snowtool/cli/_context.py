@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Concatenate
 
 import click
 
-from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.manager import SnowDbManager
-    from snowtool.snowdb.zone_layer import ZoneLayerProvider
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
 
 
 @dataclass

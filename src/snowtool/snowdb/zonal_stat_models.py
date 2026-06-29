@@ -1,21 +1,21 @@
-"""Per-dataset zonal-stats response models, generated from a :class:`DatasetSpec`.
+"""Per-dataset zonal-stats models, generated from a :class:`DatasetSpec`.
 
-A dataset's variables are not known until its spec is defined, so the API
-response model for its zonal statistics is built dynamically with
-:func:`pydantic.create_model` and cached on the spec
-(``spec.zonal_stat_model`` / ``spec.zonal_stats_model``). Each variable
-contributes one ``<reducer>_<key>_<unit>`` field (see
-:attr:`DatasetVariable.stat_name`); cells with no valid pixels carry a ``nan``
-value in memory, which the base model serializes to ``null`` so the payload is
-valid JSON.
+The shared contract behind a dataset's zonal statistics: a pydantic model family
+consumed both by :class:`~snowtool.snowdb.zonal_stats.ZonalStats` (the domain
+reducer that builds them) and by the HTTP API (which serializes them).
 
-The response shape is a **flat list of self-describing crossed-zone cells** (not a
-nested tree): each cell carries ``zone`` -- one :class:`ZoneRef` per crossed axis
-(a discriminated union of a band ref ``{layer, min, max, unit}`` or a class ref
-``{layer, code, label}``) -- plus ``area_m2`` and the spec-derived variable stat
-fields. A one-axis (elevation-only) query is just a cell whose ``zone`` has a
-single ref; crossing more layers lengthens each cell's ``zone`` array without
-changing the schema, and the list flattens 1:1 to CSV.
+A dataset's variables are not known until its spec is defined, so the per-cell model
+for its zonal statistics is built dynamically with :func:`pydantic.create_model` and
+cached on the spec (``spec.zonal_stat_model`` / ``spec.zonal_stats_model``). Each
+variable contributes one ``<reducer>_<key>_<unit>`` field (see
+:attr:`DatasetVariable.stat_name`); cells with no valid pixels carry ``nan`` in
+memory, which the base model serializes to ``null`` for valid JSON.
+
+The response shape is a flat list of self-describing crossed-zone cells (not a
+nested tree): each cell carries ``zone`` -- one :class:`ZoneRef` per crossed axis --
+plus ``area_m2`` and the spec-derived variable stat fields. A one-axis query is a
+cell whose ``zone`` has a single ref; crossing more layers lengthens each cell's
+``zone`` array without changing the schema, and the list flattens 1:1 to CSV.
 """
 
 from __future__ import annotations

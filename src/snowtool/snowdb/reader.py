@@ -2,7 +2,7 @@
 
 :class:`SnowDbReader` *has* a :class:`~snowtool.snowdb.db.SnowDb` (the immutable
 catalog, reachable as :attr:`db`) and owns the one piece of read-path state the
-catalog deliberately lacks: the :class:`~snowtool.snowdb.tiff_cache.TiffCache`
+catalog deliberately lacks: the :class:`~snowtool.snowdb.raster.tiff_cache.TiffCache`
 shared across all of a database's COG reads. :meth:`zonal_stats` -- the sole
 consumer of that cache -- lives here, so the cache lives in exactly one type and
 test isolation is a type-level fact (a fresh reader is a fresh cache).
@@ -24,13 +24,14 @@ from snowtool.exceptions import QueryParameterError
 # type hints resolve: gazebo reads them to wire the app-scoped provider.
 from snowtool.settings import Settings
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.tiff_cache import TiffCache
+from snowtool.snowdb.raster.tiff_cache import TiffCache
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from snowtool import types
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 
@@ -89,7 +90,7 @@ class SnowDbReader:
         self: Self,
         triplet: types.StationTriplet,
         dataset_name: str,
-        query: types.DateQuery,
+        query: DateQuery,
         *,
         variable_keys: Iterable[str] | None = None,
         zone_selections: Sequence[ZoneSelection] = (),
@@ -108,7 +109,7 @@ class SnowDbReader:
         (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
         has not been rasterized (:class:`FileNotFoundError`).
         """
-        from snowtool.snowdb.raster_collection import RasterCollection
+        from snowtool.snowdb.raster.collection import RasterCollection
         from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS, ZonalStats
 
         dataset = self.db.datasets[dataset_name]

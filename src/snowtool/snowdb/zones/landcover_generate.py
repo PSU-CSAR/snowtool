@@ -4,22 +4,18 @@ One streaming pass over a single NLCD land-cover source produces a co-registered
 percent-forest-cover layer for *every* target grid at once. Passing one target
 degenerates to per-dataset generation; passing several shares the source read.
 
-This parallels :mod:`snowtool.snowdb.terrain_generate` but is much simpler:
-land cover is categorical, so there is no slope/aspect, no Horn neighbourhood
-(hence no block halo), and no projected work grid -- aspect needs an undistorted
-metric grid, but a *fraction of pixels* does not. The one shared idea is the
-final stage: each fine source pixel's centre is transformed (pyproj) into the
-target grid's CRS and binned into the cell it lands in (point-in-cell), so a
-source in any CRS/resolution bins correctly onto any grid.
+Unlike :mod:`snowtool.snowdb.zones.terrain_generate`, land cover is categorical, so
+there is no slope/aspect, no Horn neighbourhood (hence no block halo), and no
+projected work grid -- aspect needs an undistorted metric grid, but a *fraction of
+pixels* does not. The shared idea is the final stage: each fine source pixel's centre
+is transformed (pyproj) into the target grid's CRS and binned into the cell it lands
+in (point-in-cell), so a source in any CRS/resolution bins correctly onto any grid.
 
-Per target cell the engine accumulates a count of valid NLCD pixels and a count
-of forest pixels (classes in :data:`~snowtool.snowdb.constants.FOREST_CLASSES`);
-the layer value is ``round(100 * forest / valid)`` as ``uint8``, nodata ``255``
-where a cell caught no valid pixels.
-
-The source is read only over the combined extent of the target grids (not the
-whole national raster), so a CONUS NLCD file is not streamed in its entirety to
-fill a handful of small grids.
+Per target cell the engine accumulates a count of valid NLCD pixels and of forest
+pixels (classes in :data:`~snowtool.snowdb.constants.FOREST_CLASSES`); the layer
+value is ``round(100 * forest / valid)`` as ``uint8``, nodata ``255`` where a cell
+caught no valid pixels. The source is read only over the combined extent of the
+target grids, not the whole national raster.
 """
 
 from __future__ import annotations
@@ -37,22 +33,22 @@ from pyproj import Transformer
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import (
     FOREST_CLASSES,
     FOREST_PCT_NODATA,
     NLCD_HASH_TAG,
 )
 from snowtool.snowdb.grid import grid_extent_4326
-from snowtool.snowdb.landcover import (
+from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.landcover import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
 )
-from snowtool.snowdb.provenance import versioned_hash
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.zone_layer import ZoneLayerTarget
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 BLOCK = 2048
 

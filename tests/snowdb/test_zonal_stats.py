@@ -25,7 +25,6 @@ import pytest
 
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.terrain import ELEVATION_NODATA
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 from snowtool.snowdb.zonal_stats import (
     Result,
@@ -34,9 +33,15 @@ from snowtool.snowdb.zonal_stats import (
     _ZoneIndex,
     parse_zone_selection,
 )
-from snowtool.snowdb.zone_layer import available_zones
-from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
-from snowtool.snowdb.zoning import BandedZoning, BandZone, ClassZone, ThresholdZone
+from snowtool.snowdb.zones.terrain import ELEVATION_NODATA
+from snowtool.snowdb.zones.zone_layer import available_zones
+from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+from snowtool.snowdb.zones.zoning import (
+    BandedZoning,
+    BandZone,
+    ClassZone,
+    ThresholdZone,
+)
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
 

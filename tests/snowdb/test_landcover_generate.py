@@ -16,15 +16,15 @@ from rasterio.crs import CRS
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.grid import make_grid
-from snowtool.snowdb.landcover import (
+from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.zones.landcover import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
     LandCoverProvider,
 )
-from snowtool.snowdb.landcover_generate import generate_landcover
-from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.zone_layer import ZoneLayerTarget
+from snowtool.snowdb.zones.landcover_generate import generate_landcover
+from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 
 def _landcover_set(directory):

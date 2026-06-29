@@ -16,8 +16,7 @@ from typing import Annotated, Literal
 from fastapi import Query
 
 # BBox is imported at runtime (not under TYPE_CHECKING) because it is the resolved
-# type of the bbox param's annotation. (gazebo >=0.3.0 resolves each handler param
-# independently, so an unresolvable annotation no longer un-wires the others.)
+# type of the bbox param's annotation.
 from gazebo.ext.fastapi import BBoxParam, GazeboRouter, Inject
 from gazebo.params import BBox
 
@@ -71,8 +70,8 @@ async def get_pourpoint(
     triplet: types.StationTriplet,
     snowdb: CatalogDb,
 ) -> PourpointDetail:
-    # Coverage is a derived, per-grid signal that lives on the index, not the
-    # record; look it up by triplet (a point-only pourpoint has no index entry).
+    # load_pourpoint gates on the index (404 for an unindexed/out-of-band
+    # triplet), so the entry is guaranteed present for its derived coverage.
     index = snowdb.pourpoint_index()
-    coverage = index[triplet].coverage if triplet in index else {}
-    return build_pourpoint_detail(snowdb.load_pourpoint(triplet), coverage=coverage)
+    pourpoint = snowdb.load_pourpoint(triplet, index=index)
+    return build_pourpoint_detail(pourpoint, index[triplet])

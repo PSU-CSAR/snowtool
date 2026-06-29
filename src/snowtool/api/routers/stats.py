@@ -25,17 +25,16 @@ from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Negotiate
 from gazebo.negotiation import JSON, Representation, alternate_links
 
 # DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
-# the resolved type of the interval param's annotation. (gazebo >=0.3.0 resolves
-# each handler param independently, so an unresolvable annotation no longer un-wires
-# the reader injection alongside it.)
+# the resolved type of the interval param's annotation.
 from gazebo.params import DatetimeInterval
 
 from snowtool import types
 from snowtool.api.models.stats import StatsResponse, stats_csv_response
 from snowtool.api.tags import Tags
+from snowtool.snowdb.query import DateRangeQuery, DOYQuery
 from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.zonal_stats import parse_zone_selection
-from snowtool.snowdb.zone_layer import available_zones
+from snowtool.snowdb.zones.zone_layer import available_zones
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
@@ -47,7 +46,7 @@ _ZONE = Query(description='Stratify by a zone layer (repeatable).')
 _VARIABLE = Query(description='Variable to report (repeatable; default all).')
 
 
-def _date_range(interval: DatetimeInterval | None) -> types.DateRangeQuery:
+def _date_range(interval: DatetimeInterval | None) -> DateRangeQuery:
     """Map the OGC ``datetime`` interval to a date-range query.
 
     Either (or both) bounds may be open: selection is a filter over the dates the
@@ -55,8 +54,8 @@ def _date_range(interval: DatetimeInterval | None) -> types.DateRangeQuery:
     parameter (``interval is None``) means no temporal filter -- every ingested date.
     """
     if interval is None:
-        return types.DateRangeQuery()
-    return types.DateRangeQuery(
+        return DateRangeQuery()
+    return DateRangeQuery(
         start_date=interval.start.date() if interval.start else None,
         end_date=interval.end.date() if interval.end else None,
     )
@@ -73,7 +72,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     async def run(
         reader: SnowDbReader,
         triplet: types.StationTriplet,
-        query: types.DateRangeQuery | types.DOYQuery,
+        query: DateRangeQuery | DOYQuery,
         zone: list[str],
         variable: list[str],
         allow_partial: bool,
@@ -135,7 +134,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
         variable: Annotated[list[str], _VARIABLE] = [],  # noqa: B006
         allow_partial: bool = False,
     ):
-        query = types.DOYQuery(
+        query = DOYQuery(
             month=month,
             day=day,
             start_year=start_year,

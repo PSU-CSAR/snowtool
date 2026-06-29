@@ -1,24 +1,24 @@
-class SNODASError(Exception):
+class SnowtoolError(Exception):
     pass
 
 
-class SNODASWarning(UserWarning):
+class SnowtoolWarning(UserWarning):
     """Base class for snowtool warnings (suspect-but-not-fatal conditions).
 
     A distinct category so callers can filter or escalate snowtool's warnings
-    specifically (e.g. ``warnings.simplefilter('error', SNODASWarning)``).
+    specifically (e.g. ``warnings.simplefilter('error', SnowtoolWarning)``).
 
-    Convention: ``warnings.warn(..., SNODASWarning)`` for suspect data/state
+    Convention: ``warnings.warn(..., SnowtoolWarning)`` for suspect data/state
     conditions the operation tolerates (escalatable, deduped per call site);
     ``logging`` for operational progress and errors.
     """
 
 
-class GeoJSONValidationError(SNODASError, TypeError):
+class GeoJSONValidationError(SnowtoolError, TypeError):
     pass
 
 
-class SnowDbConfigError(SNODASError):
+class SnowDbConfigError(SnowtoolError):
     """Raised when a snowdb root has no (or an invalid) root config file.
 
     The root config is the system's single entry point, so a root lacking one is
@@ -38,7 +38,7 @@ class SnowDbConfigError(SNODASError):
         super().__init__(message)
 
 
-class PourpointCoverageError(SNODASError):
+class PourpointCoverageError(SnowtoolError):
     """Raised when a pourpoint is queried against a dataset not fully covering it.
 
     Closes the silent-partial-stats gap: a basin that spills outside (or sits
@@ -65,7 +65,7 @@ class PourpointCoverageError(SNODASError):
         super().__init__(f'Pourpoint {triplet!r} {detail} (dataset {dataset!r}).')
 
 
-class PourpointNotFoundError(SNODASError, FileNotFoundError):
+class PourpointNotFoundError(SnowtoolError, FileNotFoundError):
     """Raised when no stored pourpoint record exists for a requested triplet.
 
     A *client* error (the caller referenced a pourpoint not in the database),
@@ -76,7 +76,7 @@ class PourpointNotFoundError(SNODASError, FileNotFoundError):
     """
 
 
-class AOIRasterNotFoundError(SNODASError, FileNotFoundError):
+class AOIRasterNotFoundError(SnowtoolError, FileNotFoundError):
     """Raised when an AOI's burned raster has not been built for a dataset.
 
     A missing prerequisite the caller can fix (``pourpoint rasterize``), so the API
@@ -86,7 +86,7 @@ class AOIRasterNotFoundError(SNODASError, FileNotFoundError):
     """
 
 
-class QueryParameterError(SNODASError, ValueError):
+class QueryParameterError(SnowtoolError, ValueError):
     """Raised for an invalid query parameter (unknown variable/zone, runaway cross).
 
     A *client* error in the stats/zonal query surface -- an unknown variable or zone
@@ -97,7 +97,7 @@ class QueryParameterError(SNODASError, ValueError):
     """
 
 
-class PourpointPruneDestinationRequiredError(SNODASError):
+class PourpointPruneDestinationRequiredError(SnowtoolError):
     """Raised when ``pourpoint sync`` would remove stored records but has no archive.
 
     Carries the triplets that would be pruned so the caller can report the count.

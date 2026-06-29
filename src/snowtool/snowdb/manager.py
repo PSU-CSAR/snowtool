@@ -23,6 +23,7 @@ from snowtool.exceptions import (
     PourpointPruneDestinationRequiredError,
     SnowDbConfigError,
 )
+from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     PathDatasetLink,
@@ -31,15 +32,15 @@ from snowtool.snowdb.config import (
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
-from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from snowtool.snowdb.aoi_raster import AOIRaster
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.zone_layer import (
+    from snowtool.snowdb.zones.zone_layer import (
         GenerationOptions,
         ZoneLayerProvider,
         ZoneLayerSource,
@@ -278,7 +279,10 @@ class SnowDbManager:
         Record files are written named for the pourpoint's own triplet, so the filename
         is authoritative -- cheaper than parsing every record for set diffs.
         """
-        return {types.stem_to_triplet(path.stem) for path in self.db.pourpoint_paths()}
+        return {
+            triplet_naming.stem_to_triplet(path.stem)
+            for path in self.db.pourpoint_paths()
+        }
 
     def _resolve_sources(self: Self, src: Path) -> list[Path]:
         """A file SRC -> ``[src]``; a directory SRC -> its sorted ``*.geojson``."""

@@ -230,13 +230,13 @@ class DatasetSpec:
     @cached_property
     def zonal_stat_model(self) -> type[BaseModel]:
         """The generated per-elevation-band response model for this dataset."""
-        from snowtool.snowdb.response_models import build_zonal_stat_model
+        from snowtool.snowdb.zonal_stat_models import build_zonal_stat_model
 
         return build_zonal_stat_model(self)
 
     @cached_property
     def zonal_stats_model(self) -> type[BaseModel]:
         """The generated per-date response model (a ``date`` plus its zones)."""
-        from snowtool.snowdb.response_models import build_zonal_stats_model
+        from snowtool.snowdb.zonal_stat_models import build_zonal_stats_model
 
         return build_zonal_stats_model(self, self.zonal_stat_model)

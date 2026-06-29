@@ -17,7 +17,7 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from snowtool import types
+from snowtool.snowdb import triplet_naming
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -136,12 +136,19 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
 
     Every configured zone layer (terrain, land cover, ...) is expected --
     ``snowdb init`` builds each from its default source -- so a missing one is a
-    finding, reported by provider name.
+    finding. An incomplete zone-layer set names the specific layer files that are
+    absent (``terrain (elevation.tif, aspect_majority.tif)``) so the finding is
+    actionable, not just the provider name.
     """
     artifacts = dataset.artifact_status()
-    missing: list[str] = [
-        name for name, present in artifacts.zone_layers.items() if not present
-    ]
+    missing: list[str] = []
+    for name, present in artifacts.zone_layers.items():
+        if present:
+            continue
+        absent = ', '.join(
+            layer.filename for layer in dataset.zones[name].missing_layers()
+        )
+        missing.append(f'{name} ({absent})' if absent else name)
     if not artifacts.cogs:
         missing.append('cogs')
     if not artifacts.aoi_rasters:
@@ -241,11 +248,11 @@ class AoiRasterHealth:
 
 def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
     """Open each AOI raster and classify any that won't read cleanly."""
-    from snowtool.snowdb.raster import AOIRaster
+    from snowtool.snowdb.aoi_raster import AOIRaster
 
     findings: list[AoiRasterHealth] = []
     for path in dataset.aoi_raster_paths():
-        triplet = types.stem_to_triplet(path.stem)
+        triplet = triplet_naming.stem_to_triplet(path.stem)
         issue: str | None = None
         try:
             aoi_raster = AOIRaster.open(path, dataset.grid)

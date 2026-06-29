@@ -16,15 +16,15 @@ import rasterio
 from rasterio.crs import CRS
 
 from snowtool.settings import Settings
-from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
 from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.terrain import (
+from snowtool.snowdb.zones.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
+from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
@@ -131,10 +131,10 @@ def populate_synthetic_root(
 
     import numpy
 
-    from snowtool.snowdb.cog import write_cog
     from snowtool.snowdb.datasets import config_from_spec
     from snowtool.snowdb.manager import SnowDbManager
     from snowtool.snowdb.pourpoint import Pourpoint
+    from snowtool.snowdb.raster.cog import write_cog
 
     manager = SnowDbManager.initialize(root)
     register_dataset_config(manager, spec.name, config_from_spec(spec))

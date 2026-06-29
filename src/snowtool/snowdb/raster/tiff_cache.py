@@ -5,15 +5,14 @@ The read path (zonal stats) fans tile reads across many COGs with
 would be wasteful, so handles are cached and reused. ``LocalStore`` holds no
 file descriptors, so the bound is purely about retained IFD metadata.
 
-The cache is an :func:`async_lru.alru_cache` built fresh in ``__init__`` rather
-than a module-level decorator, so each instance owns an independent cache. It is
-owned by the :class:`~snowtool.snowdb.db.SnowDb` (one cache shared across all of
-its datasets' COGs); the entrypoint builds the SnowDb once and the read path
-threads ``snowdb.tiff_cache`` through. ``alru_cache`` dedupes concurrent gets for
-a cold key (the first opens; the rest await the same in-flight task), bounds the
-cache to ``maxsize`` entries, and does not cache a failed open. Its in-flight
-tasks are bound to the event loop that first awaits a get, so a single instance
-must only be used from one event loop.
+The cache is an :func:`async_lru.alru_cache` built fresh in ``__init__`` (not a
+module-level decorator) so each instance owns an independent cache; one is held by
+the :class:`~snowtool.snowdb.reader.SnowDbReader` and shared across all of a
+database's COG reads. ``alru_cache`` dedupes concurrent gets for a cold key (the
+first opens; the rest await the same in-flight task), bounds the cache to ``maxsize``
+entries, and does not cache a failed open. Its in-flight tasks are bound to the event
+loop that first awaits a get, so a single instance must only be used from one event
+loop.
 """
 
 from __future__ import annotations

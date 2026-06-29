@@ -24,6 +24,7 @@ from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
 from snowtool import types
+from snowtool.snowdb.query import DateRangeQuery, DOYQuery, PourPointQuery
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -36,7 +37,7 @@ class StatsResponse[T](BaseModel):
 
     pourpoint: types.StationTriplet
     dataset: str
-    query: types.PourPointQuery
+    query: PourPointQuery
     results: list[T]
     links: list[Link] = Field(default_factory=list)
 
@@ -46,7 +47,7 @@ class StatsResponse[T](BaseModel):
         *,
         triplet: types.StationTriplet,
         dataset: str,
-        query: types.DateRangeQuery | types.DOYQuery,
+        query: DateRangeQuery | DOYQuery,
         results: list[T],
         alternates: Sequence[Link] = (),
     ) -> StatsResponse[T]:

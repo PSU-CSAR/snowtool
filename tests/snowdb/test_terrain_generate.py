@@ -17,12 +17,12 @@ from rasterio.crs import CRS
 from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
 
-from snowtool.exceptions import SNODASWarning
+from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.terrain import (
+from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_MAJORITY,
     ASPECT_MAJORITY_NODATA,
@@ -33,13 +33,13 @@ from snowtool.snowdb.terrain import (
     TERRAIN_LAYERS,
     TerrainProvider,
 )
-from snowtool.snowdb.terrain_generate import (
+from snowtool.snowdb.zones.terrain_generate import (
     MAX_AUTO_WORKERS,
     _clip_grid_to_bounds,
     _effective_workers,
     generate_terrain,
 )
-from snowtool.snowdb.zone_layer import ZoneLayerTarget
+from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 
 def _terrain_set(directory):
@@ -216,7 +216,7 @@ def test_generate_warns_when_source_declares_no_nodata(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif', nodata=None)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src, pytest.warns(SNODASWarning):
+    with rasterio.open(src_path) as src, pytest.warns(SnowtoolWarning):
         generate_terrain(src, [target], force=True)
 
 

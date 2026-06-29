@@ -8,7 +8,7 @@ is one provider plus one entry here.
 
 from __future__ import annotations
 
-from snowtool.snowdb.landcover import LandCoverProvider
-from snowtool.snowdb.terrain import TerrainProvider
+from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.terrain import TerrainProvider
 
 DEFAULT_ZONE_LAYER_PROVIDERS = (TerrainProvider(), LandCoverProvider())

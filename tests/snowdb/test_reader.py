@@ -14,16 +14,16 @@ from datetime import date
 
 import pytest
 
-from snowtool import types
 from snowtool.exceptions import PourpointCoverageError
+from snowtool.snowdb.query import DateRangeQuery
+from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.reader import SnowDbReader
-from snowtool.snowdb.tiff_cache import TiffCache
 
 from ..conftest import SWE_VALUE, populate_synthetic_root
 
 TRIPLET = '12345:MT:USGS'
 # The synthetic snowdb ingests a single date; a closed one-day range selects it.
-QUERY = types.DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))
+QUERY = DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))
 
 
 @pytest.fixture

@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Self
 
 import rasterio
 
-from snowtool.exceptions import SNODASError
-from snowtool.snowdb.cog import write_cog
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -106,26 +106,18 @@ class SwannRaster:
         self.tags = tags
 
     def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
-        output_path = output_dir / self.out_name
-
-        if not force and output_path.exists():
-            raise FileExistsError(
-                f'Unable to write COG: {output_path} already exists. '
-                'Remove file and try again or use `force=True`.',
-            )
-
         with rasterio.open(self.source_uri) as src:
             array = src.read(1)
 
-        write_cog(
-            output_path,
+        write_cog_guarded(
+            output_dir / self.out_name,
             array,
+            force=force,
             transform=self.transform,
             crs=self.crs,
             nodata=self.nodata,
             tile_size=self.tile_size,
             tags=self.tags,
-            predictor=2,
         )
 
 
@@ -160,12 +152,12 @@ class SwannIngester:
     ) -> list[date]:
         match = self.filename_re.search(source.name)
         if match is None:
-            raise SNODASError(
+            raise SnowtoolError(
                 f'Not a SWANN 800m file: {source.name!r} does not match '
                 f'{self.filename_re.pattern!r}.',
             )
         if match['stage'] != self.PINNED_STAGE:
-            raise SNODASError(
+            raise SnowtoolError(
                 f'Refusing to ingest {match["stage"]!r}-stage SWANN file '
                 f'{source.name!r}: this dataset pins to the {self.PINNED_STAGE!r} '
                 'revision so a date is never a mix of revisions. Remove the '
@@ -187,13 +179,13 @@ class SwannIngester:
                 crs=crs,
                 tile_size=tile_size,
                 nodata=variable.nodata,
-                tags={
-                    'SOURCE_DATASET': dataset.spec.name,
-                    'SOURCE_DATE': ingest_date.isoformat(),
-                    'SOURCE_VARIABLE': variable.key,
-                    'SOURCE_FILES': source.name,
-                    'SOURCE_STAGE': match['stage'],
-                },
+                tags=source_tags(
+                    dataset=dataset.spec.name,
+                    date=ingest_date,
+                    variable=variable.key,
+                    files=source.name,
+                    extra={'SOURCE_STAGE': match['stage']},
+                ),
             )
             for subdataset, key in _SUBDATASET_TO_VARIABLE.items()
             for variable in (dataset.spec.variables[key],)

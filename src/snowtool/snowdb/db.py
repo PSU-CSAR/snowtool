@@ -1,20 +1,19 @@
 """The snow database read/query surface: the global ``pourpoints/`` plus per-dataset
 ``data/``.
 
-``SnowDb`` is the lean, read-only view of a snowdb: it is built from a root
-:class:`~snowtool.snowdb.config.RootConfig` and binds every registered dataset to
-its directory, present on disk or not (a dataset is defined by its config, and a
-missing directory just means it has no data yet). The read path therefore
-tolerates an un-initialized root (it serves no data and logs a warning). Every
-operation that *mutates* the database -- creating the layout, registering
-datasets, importing/rasterizing pourpoints, generating zone layers -- lives on
-:class:`~snowtool.snowdb.manager.SnowDbManager`, which *has* a ``SnowDb``; the
-FastAPI app builds only this read side. It is constructed per entrypoint (the API
-builds one at app-lifespan scope, the CLI one per invocation).
+``SnowDb`` is the lean, read-only *catalog* of a snowdb: built from a root
+:class:`~snowtool.snowdb.config.RootConfig`, it binds every registered dataset to its
+directory whether or not that directory exists (a dataset is defined by its config; a
+missing directory just means no data yet), so the read path tolerates an
+un-initialized root (serving nothing and logging a warning). Every operation that
+*mutates* the database -- creating the layout, registering datasets, importing and
+rasterizing pourpoints, generating zone layers -- lives on
+:class:`~snowtool.snowdb.manager.SnowDbManager`, which *has* a ``SnowDb``. It is
+constructed per entrypoint (the API at app-lifespan scope, the CLI per invocation).
 
-``SnowDb`` is the immutable *catalog*: config, paths, specs, datasets, coverage,
-and the cache-free disk reads. The one piece of non-constant read-path state -- the
-:class:`~snowtool.snowdb.tiff_cache.TiffCache` shared across all of a database's COG
+``SnowDb`` itself holds only constants (config, paths, specs, datasets, coverage) and
+cache-free disk reads. The one piece of non-constant read-path state -- the
+:class:`~snowtool.snowdb.raster.tiff_cache.TiffCache` shared across a database's COG
 reads -- lives on its sibling :class:`~snowtool.snowdb.reader.SnowDbReader`, which
 *has* a ``SnowDb`` and owns ``zonal_stats`` (the sole cache consumer).
 """
@@ -28,6 +27,7 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool import types
 from snowtool.exceptions import PourpointNotFoundError, SnowDbConfigError
+from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DatasetConfig,
@@ -35,19 +35,18 @@ from snowtool.snowdb.config import (
 )
 from snowtool.snowdb.coverage import (
     Coverage,
-    dataset_coverage,
     require_full_coverage,
 )
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
-from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.zone_layer import (
+    from snowtool.snowdb.zones.zone_layer import (
         AvailableZone,
         ZoneLayerProvider,
         ZoneLayerSource,
@@ -67,19 +66,12 @@ class SnowDb:
 
         The single constructor: it takes a :class:`~snowtool.snowdb.config.RootConfig`
         -- loaded from a file (:meth:`open`) or built in code -- and resolves
-        everything the config defines. The config's own
-        :attr:`~snowtool.snowdb.config.RootConfig.path` gives the root (its parent),
-        the base relative links resolve against. A config built in code (no path)
-        has no root, so it works only if every link it uses is absolute -- a
-        relative link raises when resolved. Each registered dataset is either
+        everything the config defines (the root for relative links, the pourpoint
+        index/records locations, and each registered dataset). A dataset is either
         embedded *inline* (its config carried in the link) or *referenced* by a path
-        link to a ``dataset.json``; the linked config is deserialized into a
-        :class:`DatasetSpec` and the dataset bound to its directory, which comes from
-        the dataset config's ``data_dir`` (absolute, or relative to that config's own
-        location) and defaults to the convention (beside a referenced config,
-        ``data/<name>/`` for an inline one). The pourpoint index/records locations come
-        from the config too, so the code follows the config rather than assuming
-        paths.
+        link to a ``dataset.json``; either way it is deserialized into a
+        :class:`DatasetSpec` and bound to its data directory (see :meth:`dataset_dir`).
+        The code follows the config rather than assuming paths.
         """
         from snowtool.snowdb.config import InlineDatasetLink
         from snowtool.snowdb.spec import DatasetSpec
@@ -253,7 +245,7 @@ class SnowDb:
         aspect components, which have no scheme, are excluded). The representation
         of a zone's valid values is its scheme's ``zones()``.
         """
-        from snowtool.snowdb.zone_layer import available_zones
+        from snowtool.snowdb.zones.zone_layer import available_zones
 
         zones: dict[str, AvailableZone] = {}
         for dataset in self.datasets.values():
@@ -279,10 +271,32 @@ class SnowDb:
 
     def pourpoint_record_path(self: Self, triplet: types.StationTriplet) -> Path:
         """The canonical ``records/<triplet>.geojson`` path (``:`` -> ``_``)."""
-        return self.pourpoint_records_path / f'{types.triplet_to_stem(triplet)}.geojson'
+        return (
+            self.pourpoint_records_path
+            / f'{triplet_naming.triplet_to_stem(triplet)}.geojson'
+        )
 
-    def load_pourpoint(self: Self, triplet: types.StationTriplet) -> Pourpoint:
-        """Parse the stored pourpoint record for ``triplet`` (raises if absent)."""
+    def load_pourpoint(
+        self: Self,
+        triplet: types.StationTriplet,
+        *,
+        index: PourpointIndex | None = None,
+    ) -> Pourpoint:
+        """Parse the stored record for an *indexed* pourpoint ``triplet``.
+
+        The index is the availability gate: only basin-bearing pourpoints are
+        indexed (``PourpointIndex.from_records`` skips point-only ones), so a
+        triplet absent from the index -- a point-only record or anything dropped
+        into ``records/`` out of band without a ``pourpoint reindex`` -- is not
+        served and raises :class:`PourpointNotFoundError`. Callers already holding
+        the index (e.g. a listing loop) pass it in to avoid re-reading it.
+        """
+        if index is None:
+            index = self.pourpoint_index()
+        if triplet not in index:
+            raise PourpointNotFoundError(
+                f'No stored pourpoint for triplet {triplet!r}.',
+            )
         path = self.pourpoint_record_path(triplet)
         if not path.is_file():
             raise PourpointNotFoundError(
@@ -306,12 +320,20 @@ class SnowDb:
     ) -> Coverage:
         """How fully ``dataset_name``'s grid covers pourpoint ``triplet``'s basin.
 
-        Computed live from the stored basin geometry (not the cached index), so it
-        is authoritative even if the index is stale. Raises if either the
-        pourpoint or the dataset is unknown.
+        Read straight from the index's cached per-dataset coverage (computed at
+        reindex against each dataset's grid). A grid change is by definition a new
+        dataset, so the cached value never goes stale -- and reading it avoids
+        re-parsing the (large) basin record on every query. Raises if the
+        pourpoint is not indexed or the dataset is unknown.
         """
-        pp = self.load_pourpoint(triplet)
-        return dataset_coverage(pp, self.datasets[dataset_name].coverage_domain)
+        if dataset_name not in self.datasets:
+            raise KeyError(dataset_name)
+        index = self.pourpoint_index()
+        if triplet not in index:
+            raise PourpointNotFoundError(
+                f'No stored pourpoint for triplet {triplet!r}.',
+            )
+        return index[triplet].coverage[dataset_name]
 
     def require_pourpoint_coverage(
         self: Self,
