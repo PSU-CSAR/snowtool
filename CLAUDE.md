@@ -14,7 +14,7 @@ pytest -m network                  # opt-in: real S3 reads (3DEP, NLCD)
 ruff check --fix && ruff format    # lint + format (also run by pre-commit)
 env MYPYPATH=src mypy --explicit-package-bases src   # type check
 pre-commit run --all-files         # ruff + mypy + file hygiene
-uvicorn snowtool.api.main:app --reload   # dev API server (CONTRIBUTING.md's path is stale)
+uvicorn snowtool.api.app:get_app --factory --reload   # dev API server (no module-level app; CONTRIBUTING.md is stale)
 snowtool --root <db> ...           # the CLI (entrypoint: snowtool.__main__:cli)
 ```
 

@@ -1,19 +1,12 @@
-from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Iterable
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal, Protocol, Self
 
-# These back the API-response link helpers (build_links) that are commented out
-# below pending the FastAPI rewrite. Restore/replace them as those are ported.
-# from django.http import HttpRequest
-# from django.urls import reverse
-# from ninja import NinjaAPI
 from pydantic import (
-    AnyUrl,
     BaseModel,
     Field,
     PlainValidator,
     WithJsonSchema,
-    field_serializer,
 )
 
 YYYY = r'\d{4}'
@@ -97,225 +90,44 @@ Year = Annotated[
     Field(..., ge=1, le=9999),
 ]
 
-Zoom = Annotated[
-    int,
-    Field(..., ge=0, le=15),
-]
-
-
-class Link(BaseModel):
-    href: AnyUrl
-    title: str | None = None
-    rel: str | None = None
-    type: str | None = None
-
-    def __init__(self, href: AnyUrl | str, **kwargs) -> None:
-        super().__init__(href=href, **kwargs)
-
-    @field_serializer('href')
-    def serialize_href(self, href: AnyUrl) -> str:
-        return str(href)
-
-
-class PourPointProperties(BaseModel):
-    name: str = Field(..., examples=['Clark Fork R at St. Regis'])
-    station_triplet: StationTriplet
-    area_meters: float | None = Field(..., examples=[27740389176.977703])
-
-
-class Point(BaseModel):
-    type: Literal['Point'] = 'Point'
-    coordinates: tuple[float, float] = Field(
-        ...,
-        examples=[(-115.087346, 47.301864)],
-    )
-
-
-class PourPoint(BaseModel):
-    type: Literal['Feature'] = 'Feature'
-    id: int = Field(..., gt=0, examples=[1])
-    geometry: Point
-    properties: PourPointProperties
-    links: list[Link] = []
-
-    # TODO(fastapi): port to FastAPI URL building.
-    # def build_links(
-    #     self: Self,
-    #     request: HttpRequest,
-    #     api: NinjaAPI,
-    #     full: bool = False,
-    #     from_triplet: bool = False,
-    # ) -> Self:
-    #     self.links = [
-    #         Link(
-    #             rel=('canonical' if from_triplet else 'self'),
-    #             type='application/geo+json',
-    #             href=request.build_absolute_uri(
-    #                 reverse(
-    #                     f'{api.urls_namespace}:get_pourpoint_by_id',
-    #                     args=(self.id,),
-    #                 ),
-    #             ),
-    #         ),
-    #     ]
-    #
-    #     if from_triplet:
-    #         self.links.append(
-    #             Link(
-    #                 rel='self',
-    #                 type='application/geo+json',
-    #                 href=request.build_absolute_uri(
-    #                     reverse(
-    #                         f'{api.urls_namespace}:get_pourpoint_by_triplet',
-    #                         args=(self.properties.station_triplet,),
-    #                     ),
-    #                 ),
-    #             ),
-    #         )
-    #
-    #     if full and self.properties.area_meters:
-    #         self.links.extend(
-    #             [
-    #                 Link(
-    #                     rel='related',
-    #                     type='application/json',
-    #                     href=request.build_absolute_uri(
-    #                         reverse(
-    #                             f'{api.urls_namespace}:id_stat_range_query',
-    #                             args=(self.id,),
-    #                         ),
-    #                     ),
-    #                     title='Query AOI statistics by date range',
-    #                 ),
-    #                 Link(
-    #                     rel='related',
-    #                     type='application/json',
-    #                     href=request.build_absolute_uri(
-    #                         reverse(
-    #                             f'{api.urls_namespace}:id_stat_doy_query',
-    #                             args=(self.id,),
-    #                         ),
-    #                     ),
-    #                     title='Query AOI statistics by day of year',
-    #                 ),
-    #                 Link(
-    #                     rel='related',
-    #                     type='application/json',
-    #                     href=request.build_absolute_uri(
-    #                         reverse(
-    #                             f'{api.urls_namespace}:zonal_stat_range_query',
-    #                             args=(self.id,),
-    #                         ),
-    #                     ),
-    #                     title=(
-    #                         'Query AOI statistics by date range '
-    #                         'grouped into elevation zones'
-    #                     ),
-    #                 ),
-    #                 Link(
-    #                     rel='related',
-    #                     type='application/json',
-    #                     href=request.build_absolute_uri(
-    #                         reverse(
-    #                             f'{api.urls_namespace}:zonal_stat_doy_query',
-    #                             args=(self.id,),
-    #                         ),
-    #                     ),
-    #                     title=(
-    #                         'Query AOI statistics by day of year '
-    #                         'grouped into elevation zones'
-    #                     ),
-    #                 ),
-    #             ],
-    #         )
-    #
-    #     if full:
-    #         self.links.extend(
-    #             [
-    #                 Link(
-    #                     rel='root',
-    #                     type='application/json',
-    #                     href=request.build_absolute_uri(
-    #                         reverse(
-    #                             f'{api.urls_namespace}:api_root',
-    #                         ),
-    #                     ),
-    #                 ),
-    #             ],
-    #         )
-    #
-    #     return self
-
-
-class PourPoints(BaseModel):
-    type: Literal['FeatureCollection'] = 'FeatureCollection'
-    features: list[PourPoint]
-    links: list[Link] = []
-
-    # TODO(fastapi): port to FastAPI URL building.
-    # def build_links(self: Self, request: HttpRequest, api: NinjaAPI) -> Self:
-    #     self.links = [
-    #         Link(
-    #             rel='self',
-    #             type='application/geo+json',
-    #             href=request.build_absolute_uri(),
-    #         ),
-    #         Link(
-    #             rel='root',
-    #             type='application/json',
-    #             href=request.build_absolute_uri(
-    #                 reverse(
-    #                     f'{api.urls_namespace}:api_root',
-    #                 ),
-    #             ),
-    #         ),
-    #     ]
-    #
-    #     for feature in self.features:
-    #         feature.build_links(request, api)
-    #
-    #     return self
-
-
-class SnodasStats(BaseModel):
-    date: date
-    swe: float
-    depth: float
-    runoff: float
-    precip_solid: float
-    precip_liquid: float
-    sublimation: float
-    sublimation_blowing: float
-    average_temp: float
-
 
 class DateQuery(Protocol):  # pragma: no cover
     def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str: ...
-    def generate_sequence(self: Self) -> Iterator[date]: ...
+    def select(self: Self, available: Iterable[date]) -> list[date]: ...
+
+
+def _bound(d: date | None) -> str:
+    """An ISO date, or ``'open'`` for an unbounded interval end (filename use)."""
+    return d.isoformat() if d is not None else 'open'
 
 
 class DateRangeQuery(BaseModel):
     type: Literal['DateRange'] = 'DateRange'
-    start_date: date
-    end_date: date
+    # Either bound may be open (``None``): the query is a *filter* over the dates a
+    # dataset actually has, so an open end simply drops that side's constraint (the
+    # OGC ``datetime`` interval semantics). The CLI always supplies both.
+    start_date: date | None = None
+    end_date: date | None = None
 
     def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
         return '{}_{}-{}{}.csv'.format(
             '-'.join(pourpoint_name.split()),
-            self.start_date,
-            self.end_date,
+            _bound(self.start_date),
+            _bound(self.end_date),
             f'_zonal_{zone_size}' if zone_size else '',
         )
 
-    def generate_sequence(self: Self) -> Iterator[date]:
-        delta = timedelta(days=1)
-        d = self.start_date
-        while d <= self.end_date:
-            yield d
-            d += delta
+    def select(self: Self, available: Iterable[date]) -> list[date]:
+        """The ``available`` dates within ``[start, end]`` (either bound optional)."""
+        return sorted(
+            d
+            for d in available
+            if (self.start_date is None or d >= self.start_date)
+            and (self.end_date is None or d <= self.end_date)
+        )
 
     def __str__(self: Self) -> str:
-        return f'{self.start_date}/{self.end_date}'
+        return f'{_bound(self.start_date)}/{_bound(self.end_date)}'
 
 
 class DOYQuery(BaseModel):
@@ -335,11 +147,15 @@ class DOYQuery(BaseModel):
             f'_zonal_{zone_size}' if zone_size else '',
         )
 
-    def generate_sequence(self: Self) -> Iterator[date]:
-        year = self.start_year
-        while year <= self.end_year:
-            yield date(year=year, month=self.month, day=self.day)
-            year += 1
+    def select(self: Self, available: Iterable[date]) -> list[date]:
+        """The ``available`` dates on this month/day across the year span."""
+        return sorted(
+            d
+            for d in available
+            if d.month == self.month
+            and d.day == self.day
+            and self.start_year <= d.year <= self.end_year
+        )
 
     def __str__(self: Self) -> str:
         return f'{self.month}{self.day}/{self.start_year}/{self.end_year}'
@@ -349,54 +165,3 @@ PourPointQuery = Annotated[
     DateRangeQuery | DOYQuery,
     Field(..., discriminator='type'),
 ]
-
-
-class PourPointStats(BaseModel):
-    pourpoint: PourPoint
-    query: PourPointQuery
-    results: list[SnodasStats] = Field(
-        ...,
-        examples=[
-            [
-                {
-                    'date': '2008-12-14',
-                    'swe': 0.018373034138853925,
-                    'depth': 0.12781884243276667,
-                    'runoff': 0.0000057251843327792756,
-                    'sublimation': -0.00012737501598261594,
-                    'average_temp': 266.3164421865995,
-                    'precip_solid': 6.18786387077508,
-                    'precip_liquid': 0.03673017090738538,
-                    'sublimation_blowing': -6.307803776158206e-8,
-                },
-            ],
-        ],
-    )
-    links: list[Link] = []
-
-    # TODO(fastapi): port to FastAPI URL building.
-    # def build_links(self: Self, request: HttpRequest, api: NinjaAPI) -> Self:
-    #     self.links = [
-    #         Link(
-    #             rel='self',
-    #             type='application/json',
-    #             href=request.build_absolute_uri(),
-    #         ),
-    #         Link(
-    #             rel='root',
-    #             type='application/json',
-    #             href=request.build_absolute_uri(
-    #                 reverse(
-    #                     f'{api.urls_namespace}:api_root',
-    #                 ),
-    #             ),
-    #         ),
-    #     ]
-    #     self.pourpoint.build_links(request, api)
-    #     return self
-
-
-class LandingPage(BaseModel):
-    title: str
-    description: str
-    links: list[Link]
