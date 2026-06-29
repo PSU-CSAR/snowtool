@@ -1,12 +1,12 @@
 """The land-cover ZoneLayerSet: presence, missing layers, and provenance hash."""
 
-from snowtool.snowdb.landcover import (
+from snowtool.snowdb.raster import TiledRaster
+from snowtool.snowdb.zones.landcover import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LandCoverProvider,
 )
-from snowtool.snowdb.raster import TiledRaster
-from snowtool.snowdb.zone_layer import ZoneLayerSet
+from snowtool.snowdb.zones.zone_layer import ZoneLayerSet
 
 
 def test_present_and_provenance_hash_on_a_built_dataset(dataset):

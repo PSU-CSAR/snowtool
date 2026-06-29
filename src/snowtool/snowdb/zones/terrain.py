@@ -1,10 +1,9 @@
 """The *terrain* zone-layer provider: elevation + aspect layers from a DEM.
 
-Replaces the single ``dem.tif``. Because aspect cannot be resampled after the
-fact (it must be computed from elevation at the source resolution), terrain is
-generated once from a fine-resolution DEM (see
-:mod:`snowtool.snowdb.terrain_generate`) into a small family of co-registered
-layers on the dataset grid, stored under ``data/<name>/terrain/``:
+Because aspect cannot be resampled after the fact (it must be computed from
+elevation at the source resolution), terrain is generated once from a fine-resolution
+DEM (see :mod:`snowtool.snowdb.zones.terrain_generate`) into a small family of
+co-registered layers on the dataset grid, stored under ``data/<name>/terrain/``:
 
 * ``elevation.tif`` -- ``float32`` mean elevation (m).
 * ``aspect_majority.tif`` -- ``uint8`` majority aspect class per cell
@@ -18,9 +17,10 @@ Every layer carries a :data:`~snowtool.snowdb.constants.DEM_HASH_TAG` tag -- the
 sha256 of the generated elevation array -- so the whole set's provenance can be
 read back cheaply.
 
-:class:`TerrainProvider` is the :class:`~snowtool.snowdb.zone_layer.ZoneLayerProvider`
-for this kind: it names the layers, the ``terrain/`` subdirectory, and the DEM
-source/engine, so a dataset builds and reads terrain like any other zone layer.
+:class:`TerrainProvider` is the
+:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayerProvider` for this kind: it names
+the layers, the ``terrain/`` subdirectory, and the DEM source/engine, so a dataset
+builds and reads terrain like any other zone layer.
 """
 
 from __future__ import annotations
@@ -33,14 +33,22 @@ from snowtool.snowdb.constants import (
     MAX_ELEVATION_M,
     MIN_ELEVATION_M,
 )
-from snowtool.snowdb.zone_layer import GenerationOptions, ZoneLayer, ZoneLayerProvider
-from snowtool.snowdb.zoning import ClassZone, banded, categorical
+from snowtool.snowdb.zones.zone_layer import (
+    GenerationOptions,
+    ZoneLayer,
+    ZoneLayerProvider,
+)
+from snowtool.snowdb.zones.zoning import ClassZone, banded, categorical
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource, ZoneLayerTarget
+    from snowtool.snowdb.zones.zone_layer import (
+        Bounds,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
 
     # The terrain generation engine (terrain_generate.generate_terrain); injectable
     # so a test can supply a fast stand-in. Returns the per-target provenance hash.
@@ -131,13 +139,13 @@ class TerrainProvider(ZoneLayerProvider):
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default DEM source -- USGS 3DEP streamed from the public bucket."""
-        from snowtool.snowdb.dem_source import ThreeDEP
+        from snowtool.snowdb.zones.terrain_source import ThreeDEP
 
         return ThreeDEP()
 
     def local_source(self: Self, path: Path) -> ZoneLayerSource:
         """A local on-disk DEM file source (the ``--source terrain PATH`` path)."""
-        from snowtool.snowdb.dem_source import LocalFile
+        from snowtool.snowdb.zones.terrain_source import LocalFile
 
         return LocalFile(path)
 
@@ -156,11 +164,11 @@ class TerrainProvider(ZoneLayerProvider):
         (``workers``, ``block_size``); the DEM source supplies the projected work
         grid (``work_crs``/``work_resolution``).
         """
-        from snowtool.snowdb.dem_source import DemSource
+        from snowtool.snowdb.zones.terrain_source import DemSource
 
         engine = self._engine
         if engine is None:
-            from snowtool.snowdb.terrain_generate import generate_terrain
+            from snowtool.snowdb.zones.terrain_generate import generate_terrain
 
             engine = generate_terrain
 

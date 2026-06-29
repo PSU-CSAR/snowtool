@@ -11,8 +11,12 @@ from async_tiff.enums import SampleFormat
 from async_tiff.store import LocalStore
 from rasterio.crs import CRS
 
-from snowtool.snowdb import dem_source
-from snowtool.snowdb.dem_source import (
+from snowtool.snowdb.zones import terrain_source
+from snowtool.snowdb.zones.terrain_generate import (
+    DEFAULT_WORK_CRS,
+    DEFAULT_WORK_RESOLUTION,
+)
+from snowtool.snowdb.zones.terrain_source import (
     TIFF,
     LocalFile,
     MosaicTile,
@@ -22,7 +26,6 @@ from snowtool.snowdb.dem_source import (
     candidate_tiles,
     discover_tiles,
 )
-from snowtool.snowdb.terrain_generate import DEFAULT_WORK_CRS, DEFAULT_WORK_RESOLUTION
 
 
 def _tile(path, x0, y0, value, n=4, px=1.0):
@@ -145,7 +148,7 @@ def test_threedep_open_builds_a_vrt_over_discovered_tiles(tmp_path, monkeypatch)
     left = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0))
     right = _parse_local(_tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0))
     monkeypatch.setattr(
-        dem_source,
+        terrain_source,
         'discover_tiles',
         lambda bounds: [left, right],
     )
@@ -190,7 +193,7 @@ def test_discover_tiles_keeps_only_present_tiles(monkeypatch):
             return types.SimpleNamespace(ifd=lambda i: _fake_ifd())
         raise FileNotFoundError(key)
 
-    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+    monkeypatch.setattr(terrain_source, 'TIFF', _fake_tiff(_open))
 
     tiles = discover_tiles((-106.5, 39.2, -105.1, 40.3))
 
@@ -204,7 +207,7 @@ def test_discover_tiles_surfaces_non_not_found_errors(monkeypatch):
     async def _open(key, store):
         raise _TransientError('503')
 
-    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+    monkeypatch.setattr(terrain_source, 'TIFF', _fake_tiff(_open))
 
     with pytest.raises(_TransientError):
         discover_tiles((-106.5, 39.2, -105.1, 40.3))
@@ -222,7 +225,7 @@ def test_discover_tiles_probes_concurrently_and_sorts(monkeypatch):
         state['in_flight'] -= 1
         return types.SimpleNamespace(ifd=lambda i: _fake_ifd())
 
-    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+    monkeypatch.setattr(terrain_source, 'TIFF', _fake_tiff(_open))
 
     # Four candidate tiles for this extent.
     tiles = discover_tiles((-106.5, 39.2, -105.1, 40.3))
@@ -237,7 +240,7 @@ def test_threedep_open_errors_when_no_tiles(monkeypatch):
     async def _open(key, store):
         raise FileNotFoundError(key)
 
-    monkeypatch.setattr(dem_source, 'TIFF', _fake_tiff(_open))
+    monkeypatch.setattr(terrain_source, 'TIFF', _fake_tiff(_open))
 
     with (
         pytest.raises(RuntimeError, match='No 3DEP tiles'),

@@ -4,18 +4,18 @@ from collections.abc import Iterator
 from datetime import date
 from typing import TYPE_CHECKING, Self
 
-from snowtool.snowdb.raster import DataRaster
+from snowtool.snowdb.raster.tiled import DataRaster
 
 if TYPE_CHECKING:
-    from snowtool import types
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.variables import DatasetVariable
 
 
 class RasterCollection:
     def __init__(
         self: Self,
-        query: types.DateQuery,
+        query: DateQuery,
         rasters: dict[DatasetVariable, list[DataRaster]],
     ) -> None:
         self.query = query
@@ -51,7 +51,7 @@ class RasterCollection:
     @classmethod
     def from_variables_query(
         cls: type[Self],
-        query: types.DateQuery,
+        query: DateQuery,
         variables: set[DatasetVariable],
         dataset: Dataset,
     ) -> Self:

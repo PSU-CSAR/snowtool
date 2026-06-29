@@ -14,12 +14,13 @@ import numpy.typing
 from pydantic import TypeAdapter
 
 from snowtool.exceptions import QueryParameterError
-from snowtool.snowdb.raster import AOIRaster, DataRaster
-from snowtool.snowdb.raster_collection import RasterCollection
-from snowtool.snowdb.response_models import ZoneRef
+from snowtool.snowdb.aoi_raster import AOIRaster
+from snowtool.snowdb.raster import DataRaster
+from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
-from snowtool.snowdb.zone_layer import available_zones
-from snowtool.snowdb.zoning import Zone
+from snowtool.snowdb.zonal_stat_models import ZoneRef
+from snowtool.snowdb.zones.zone_layer import available_zones
+from snowtool.snowdb.zones.zoning import Zone
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -27,9 +28,9 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.raster.tiff_cache import TiffCache
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.tiff_cache import TiffCache
-    from snowtool.snowdb.zone_layer import AvailableZone
+    from snowtool.snowdb.zones.zone_layer import AvailableZone
 
 # Validates a zone's self-described ``ref_fields`` into the matching ZoneRef union
 # member (routed by the ``kind`` tag each Zone carries), so the per-axis JSON refs
@@ -198,13 +199,18 @@ class ZonalStats:
         self.validate()
         stat_model = self.spec.zonal_stat_model
         stats_model = self.spec.zonal_stats_model
+        # Zone refs depend only on the cell, not the date; build them once (one
+        # pydantic validation per cell) and reuse across every date.
+        cell_refs = [
+            self._zone_refs(self.zone_layers, cell) for cell in self._cells_index
+        ]
         stats: list[BaseModel] = []
         for date_, date_idx in self._dates_index.items():
             cells: list[BaseModel] = []
-            for cell, cell_idx in self._cells_index.items():
+            for cell_idx in range(len(self._cells_index)):
                 cells.append(
                     stat_model(
-                        zone=self._zone_refs(self.zone_layers, cell),
+                        zone=cell_refs[cell_idx],
                         **self._zone_stats(date_idx, cell_idx),
                     ),
                 )
@@ -243,11 +249,20 @@ class ZonalStats:
         headers.extend(variable.stat_name for variable in self._variables_index)
         writer.writerow(headers)
 
+        # The zone columns depend only on the cell, not the date; format them once
+        # per cell and reuse across every date's row.
+        cell_columns = [
+            [
+                value
+                for layer, zone in zip(self.zone_layers, cell, strict=True)
+                for _, value in zone.csv_columns(layer)
+            ]
+            for cell in self._cells_index
+        ]
+
         for date_, date_idx in self._dates_index.items():
-            for cell, cell_idx in self._cells_index.items():
-                row: list[str] = [date_.isoformat()]
-                for layer, zone in zip(self.zone_layers, cell, strict=True):
-                    row.extend(value for _, value in zone.csv_columns(layer))
+            for cell_idx in range(len(self._cells_index)):
+                row: list[str] = [date_.isoformat(), *cell_columns[cell_idx]]
                 # Empty cell for a no-data reduction (nan), matching dump()'s JSON
                 # null -- never the literal 'nan'.
                 row.extend(

@@ -21,13 +21,13 @@ import click
 
 from pydantic import ValidationError
 
-from snowtool import types
 from snowtool.cli._context import pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._render import DATE, _emit
-from snowtool.exceptions import SNODASError
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.query import DateRangeQuery, DOYQuery
 from snowtool.snowdb.zonal_stats import parse_zone_selection
-from snowtool.snowdb.zone_layer import available_zones
+from snowtool.snowdb.zones.zone_layer import available_zones
 
 if TYPE_CHECKING:
     from datetime import date
@@ -47,7 +47,7 @@ def _build_query(
     doy: tuple[int, int] | None,
     start_year: int | None,
     end_year: int | None,
-) -> types.DateRangeQuery | types.DOYQuery:
+) -> DateRangeQuery | DOYQuery:
     """Build a date-range or day-of-year query from the mutually-exclusive flags.
 
     Exactly one mode must be fully specified: a ``--start``/``--end`` range, or a
@@ -67,7 +67,7 @@ def _build_query(
             raise click.ClickException('A date range needs both --start and --end.')
         if end < start:
             raise click.ClickException('--end must be on or after --start.')
-        return types.DateRangeQuery(start_date=start, end_date=end)
+        return DateRangeQuery(start_date=start, end_date=end)
 
     if doy_given:
         if doy is None or start_year is None or end_year is None:
@@ -79,7 +79,7 @@ def _build_query(
             raise click.ClickException('--end-year must be on or after --start-year.')
         month, day = doy
         try:
-            return types.DOYQuery(
+            return DOYQuery(
                 month=month,
                 day=day,
                 start_year=start_year,
@@ -184,7 +184,7 @@ def stats(
 
     try:
         result = asyncio.run(run())
-    except (FileNotFoundError, ValueError, SNODASError) as e:
+    except (FileNotFoundError, ValueError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
     if fmt == 'json':

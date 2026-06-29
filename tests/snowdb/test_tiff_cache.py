@@ -6,8 +6,8 @@ import numpy
 import rasterio
 
 from snowtool.snowdb.grid import make_grid
-from snowtool.snowdb.raster import TiledRaster, load_tile
-from snowtool.snowdb.tiff_cache import TiffCache
+from snowtool.snowdb.raster import TiledRaster
+from snowtool.snowdb.raster.tiff_cache import TiffCache
 
 TILE = 256
 
@@ -50,36 +50,10 @@ def _grid():
     )
 
 
-def test_load_tile_reads_correct_block(tmp_path):
+def test_load_tiles_batched_preserves_order(tmp_path):
     grid = _grid()
     path = tmp_path / 'blocks.tif'
     full = _write_block_indexed_cog(path, grid)
-
-    async def run():
-        cache = TiffCache(maxsize=8)
-        out = {}
-        for trow in range(2):
-            for tcol in range(2):
-                tile = grid[trow, tcol]
-                out[(trow, tcol)] = await load_tile(path, tile, cache)
-        return out
-
-    blocks = asyncio.run(run())
-    for (trow, tcol), block in blocks.items():
-        assert block.shape == (TILE, TILE)
-        expected = full[
-            trow * TILE : (trow + 1) * TILE,
-            tcol * TILE : (tcol + 1) * TILE,
-        ]
-        assert numpy.array_equal(block, expected)
-        assert (block == trow * 10 + tcol).all()
-
-
-def test_load_tiles_batched_preserves_order(tmp_path):
-
-    grid = _grid()
-    path = tmp_path / 'blocks.tif'
-    _write_block_indexed_cog(path, grid)
     tiles = [grid[r, c] for r in range(2) for c in range(2)]
 
     async def run():
@@ -88,9 +62,15 @@ def test_load_tiles_batched_preserves_order(tmp_path):
 
     blocks = asyncio.run(run())
     assert len(blocks) == len(tiles)
-    # one batched fetch_tiles call returns blocks in the requested order
+    # one batched fetch_tiles call returns blocks in the requested order, each
+    # decoded to its own tile's extent and values
     for tile, block in zip(tiles, blocks, strict=True):
         assert block.shape == (TILE, TILE)
+        expected = full[
+            tile.row * TILE : (tile.row + 1) * TILE,
+            tile.col * TILE : (tile.col + 1) * TILE,
+        ]
+        assert numpy.array_equal(block, expected)
         assert (block == tile.row * 10 + tile.col).all()
 
 

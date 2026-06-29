@@ -6,17 +6,17 @@ import numpy
 
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb.constants import M_TO_FT
-from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.terrain import ASPECT_MAJORITY, ELEVATION, ELEVATION_NODATA
-from snowtool.snowdb.zone_layer import (
+from snowtool.snowdb.zones.landcover import FOREST_COVER
+from snowtool.snowdb.zones.terrain import ASPECT_MAJORITY, ELEVATION, ELEVATION_NODATA
+from snowtool.snowdb.zones.zone_layer import (
     ZoneLayer,
     ZoneLayerProvider,
     ZoneLayerSource,
     available_zones,
 )
-from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
-from snowtool.snowdb.zoning import (
+from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
+from snowtool.snowdb.zones.zoning import (
     BandedZoning,
     BandZone,
     CategoricalZoning,
@@ -275,4 +275,4 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     assert 'tiny' in ds.artifact_status().zone_layers
     assert 'tiny.tier' in db.available_zones()
     # ...and (since it isn't built on disk) surfaced as a missing artifact.
-    assert 'tiny' in diagnostics.missing_artifacts(ds)
+    assert any(m.startswith('tiny') for m in diagnostics.missing_artifacts(ds))

@@ -32,11 +32,11 @@ if TYPE_CHECKING:
     from fastapi import FastAPI, Request
     from gazebo.problems import ProblemType
 
-    from snowtool.exceptions import SNODASError
+    from snowtool.exceptions import SnowtoolError
 
 
 def _handler(problem_type: ProblemType):
-    async def handle(request: Request, exc: SNODASError) -> Response:
+    async def handle(request: Request, exc: SnowtoolError) -> Response:
         problem = problem_type.problem(detail=str(exc))
         return Response(
             content=problem.model_dump_json(),
@@ -49,7 +49,7 @@ def _handler(problem_type: ProblemType):
 
 def install_exception_handlers(app: FastAPI) -> None:
     """Register the domain-exception -> problem+json handlers on ``app``."""
-    handlers: dict[type[SNODASError], ProblemType] = {
+    handlers: dict[type[SnowtoolError], ProblemType] = {
         PourpointCoverageError: problems.POURPOINT_NOT_COVERED,
         PourpointNotFoundError: problems.POURPOINT_NOT_FOUND,
         AOIRasterNotFoundError: problems.AOI_RASTER_NOT_FOUND,

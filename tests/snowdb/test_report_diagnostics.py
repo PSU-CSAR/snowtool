@@ -11,15 +11,15 @@ import rasterio
 
 from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb import diagnostics
-from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
-from snowtool.snowdb.landcover import FOREST_COVER
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.spec import DatasetSpec
-from snowtool.snowdb.terrain import ELEVATION
+from snowtool.snowdb.zones.landcover import FOREST_COVER
+from snowtool.snowdb.zones.terrain import ELEVATION
 
 from ..conftest import make_snowdb, snodas_swe_name
 from .conftest import TILE
@@ -84,14 +84,21 @@ def test_missing_artifacts_reports_deleted_terrain(dataset):
 
     dataset.zones['terrain'].layer_path(ELEVATION).unlink()
 
-    assert 'terrain' in diagnostics.missing_artifacts(dataset)
+    # The finding names the provider and the specific absent layer file.
+    finding = next(
+        m for m in diagnostics.missing_artifacts(dataset) if m.startswith('terrain')
+    )
+    assert ELEVATION.filename in finding
 
 
 def test_missing_artifacts_reports_deleted_landcover(dataset):
 
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
-    assert 'landcover' in diagnostics.missing_artifacts(dataset)
+    finding = next(
+        m for m in diagnostics.missing_artifacts(dataset) if m.startswith('landcover')
+    )
+    assert FOREST_COVER.filename in finding
 
 
 def test_stale_format_zone_layers_empty_for_current_dataset(dataset):
@@ -192,6 +199,9 @@ def guard_db(tmp_path, spec):
     _write_basin(records, 'full:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
     _write_basin(records, 'part:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)
     _write_basin(records, 'none:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
+    # The coverage guard loads pourpoints through the index (availability gate),
+    # so the records have to be indexed to be queryable.
+    SnowDbManager(db).reindex_pourpoints()
     return db
 
 

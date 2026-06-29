@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from griffine.grid import TiledAffineGrid
 
-    from snowtool.snowdb.zoning import ZoneScheme
+    from snowtool.snowdb.zones.zoning import ZoneScheme
 
 # (west, south, east, north) in EPSG:4326.
 Bounds = tuple[float, float, float, float]
@@ -60,7 +60,7 @@ class ZoneLayer:
     Shared by the generator (which writes it) and :class:`ZoneLayerSet` (which
     locates/reads it) so the two can never disagree on layout. ``key`` is the
     stable id a query references (e.g. ``'elevation'``); ``zoning`` is the
-    :class:`~snowtool.snowdb.zoning.ZoneScheme` that makes the layer a query-able
+    :class:`~snowtool.snowdb.zones.zoning.ZoneScheme` that makes the layer a query-able
     zone (``None`` for a layer that is generated but not itself zone-able, e.g.
     the aspect components).
     """
@@ -97,7 +97,6 @@ class ZoneLayerSet:
 
     Filesystem-only: it locates the layer files, reports which exist, reads the
     shared provenance hash, and hands back a tiled reader for any layer.
-    Generalises the old per-kind ``TerrainSet``/``LandCoverSet``.
     """
 
     def __init__(
@@ -146,7 +145,7 @@ class ZoneLayerSet:
 
     def stored_format_version(self: Self) -> int | None:
         """The format version stamped on the built set, or ``None`` if unbuilt or
-        the provenance tag is missing/untagged (legacy)."""
+        the provenance tag is missing/untagged."""
         from snowtool.snowdb.provenance import parse_format_version
 
         return parse_format_version(self.provenance_hash())

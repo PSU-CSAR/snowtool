@@ -22,7 +22,7 @@ import rasterio
 
 from rasterio.transform import from_origin
 
-from snowtool.exceptions import SNODASError
+from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.datasets.swann import (
@@ -64,7 +64,7 @@ def test_registered_in_default_specs():
 
 def test_ingest_rejects_unrecognized_filename(tmp_path):
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
-    with pytest.raises(SNODASError, match='Not a SWANN 800m file'):
+    with pytest.raises(SnowtoolError, match='Not a SWANN 800m file'):
         ds.ingest(tmp_path / 'some_other_file.nc')
 
 
@@ -84,7 +84,7 @@ def test_ingest_refuses_non_early_stages(tmp_path, monkeypatch, variant):
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
     monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: None)
     source = tmp_path / f'UA_SWE_Depth_800m_v1_20260613_{variant}.nc'
-    with pytest.raises(SNODASError, match=f"Refusing to ingest '{variant}'-stage"):
+    with pytest.raises(SnowtoolError, match=f"Refusing to ingest '{variant}'-stage"):
         ds.ingest(source)
 
 

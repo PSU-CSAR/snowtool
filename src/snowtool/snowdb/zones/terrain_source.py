@@ -2,7 +2,7 @@
 
 A :class:`DemSource` knows how to present a single opened DEM mosaic covering a
 requested geographic extent; the terrain engine
-(:func:`~snowtool.snowdb.terrain_generate.generate_terrain`) reprojects and
+(:func:`~snowtool.snowdb.zones.terrain_generate.generate_terrain`) reprojects and
 streams whatever it is handed. The source is a property of the *snow database*,
 not of any one dataset: ``init`` reads one source and bins it into every grid.
 
@@ -10,13 +10,11 @@ not of any one dataset: ``init`` reads one source and bins it into every grid.
   is the "import from a file" path).
 * :class:`ThreeDEP` -- streams USGS 3DEP 1/3 arc-second tiles from the public
   ``prd-tnm`` S3 bucket. The tiles for the extent are discovered in a single
-  concurrent pass on the ``async-tiff`` store layer the COG read path already
-  uses (:func:`discover_tiles`): each candidate is opened anonymously, which both
-  proves it exists *and* yields its geo-header, so the existing tiles are then
-  stitched into a **VRT mosaic built as XML** -- the project is deliberately off
-  the ``osgeo`` Python bindings, so ``gdal.BuildVRT`` is not used; rasterio's
-  bundled GDAL reads the ``.vrt`` we write. The actual pixel streaming is GDAL
-  over ``/vsis3/``, independent of the discovery store.
+  concurrent pass on the ``async-tiff`` store layer the COG read path already uses
+  (:func:`discover_tiles`): each candidate is opened anonymously, which both proves
+  it exists *and* yields its geo-header, so the existing tiles are stitched into a
+  VRT mosaic written as XML (no ``osgeo``/``gdal.BuildVRT``) that rasterio's bundled
+  GDAL reads. The actual pixel streaming is GDAL over ``/vsis3/``.
 """
 
 from __future__ import annotations
@@ -39,11 +37,11 @@ from async_tiff.enums import SampleFormat
 from async_tiff.store import S3Store
 from rasterio.crs import CRS
 
-from snowtool.snowdb.terrain_generate import (
+from snowtool.snowdb.zones.terrain_generate import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
 )
-from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource
+from snowtool.snowdb.zones.zone_layer import Bounds, ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -97,7 +95,7 @@ class DemSource(ZoneLayerSource):
     are undistorted) and ``work_resolution`` (metres; should track the source's
     native resolution, ``None`` lets GDAL derive it). These belong to the source,
     not the engine, because the right values depend on the data -- see
-    :mod:`snowtool.snowdb.terrain_generate`.
+    :mod:`snowtool.snowdb.zones.terrain_generate`.
     """
 
     def __init__(

@@ -17,11 +17,15 @@ import rasterio
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from snowtool.snowdb.dem_source import ThreeDEP, candidate_tiles, discover_tiles
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
-from snowtool.snowdb.terrain import TerrainProvider
-from snowtool.snowdb.terrain_generate import generate_terrain
-from snowtool.snowdb.zone_layer import ZoneLayerTarget
+from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain_generate import generate_terrain
+from snowtool.snowdb.zones.terrain_source import (
+    ThreeDEP,
+    candidate_tiles,
+    discover_tiles,
+)
+from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 pytestmark = pytest.mark.network
 

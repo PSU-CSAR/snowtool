@@ -11,11 +11,11 @@ from snowtool.migration.aoi_tags import (
     migrate_aoi_raster_tags,
     quadkey_to_tile_coords,
 )
-from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.datasets import SNODAS_SPEC
 from snowtool.snowdb.grid import tile_base_origin
-from snowtool.snowdb.raster import AOIRaster
+from snowtool.snowdb.raster.cog import write_cog
 
 SNODAS_GRID = SNODAS_SPEC.grid
 TILE = 256

@@ -56,9 +56,7 @@ def get_app(
     providers.app(SnowDb, lambda: catalog)
     providers.app(SnowDbReader)  # built from SnowDb + Settings via __provide__
 
-    # CORS is off by default (GazeboApp accepts cors= when a policy is wanted);
-    # the previous permissive-but-contradictory config was dropped rather than
-    # carried forward.
+    # CORS is off by default (GazeboApp accepts cors= when a policy is wanted).
     app = GazeboApp(
         providers,
         title=API_TITLE,
