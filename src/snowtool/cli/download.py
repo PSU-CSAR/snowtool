@@ -36,6 +36,7 @@ Dependencies: requests, netCDF4
 
 from __future__ import annotations
 
+import calendar
 import shutil
 import sqlite3
 import urllib.error
@@ -331,8 +332,31 @@ def download_dates(
         download_url = BASE_URLS[source]
         match source:
             case 'snodas':
-                download_url.format()
+                month_name = calendar.month_abbr[date.month]
+                download_url.format(
+                    str(date.year),
+                    str(date.month),
+                    month_name,
+                    str(date.year),
+                    str(date.month),
+                    str(date.day),
+                )
             case 'swann':
-                download_url.format()
+                qualifier = 'early'
+                download_url.format(
+                    str(date.year),
+                    str(date.year),
+                    str(date.month),
+                    str(date.day),
+                    qualifier,
+                )
             case 'instarr':
-                download_url.format()
+                for tile in INSTARR_TILES:
+                    download_url.format(
+                        tile,
+                        str(date.year),
+                        tile,
+                        str(date.year),
+                        str(date.month),
+                        str(date.day),
+                    )
