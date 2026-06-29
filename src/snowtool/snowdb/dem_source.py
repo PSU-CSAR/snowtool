@@ -34,7 +34,7 @@ from xml.sax.saxutils import escape
 
 import rasterio
 
-from async_tiff import TIFF
+from async_tiff import TIFF, ImageFileDirectory
 from async_tiff.enums import SampleFormat
 from async_tiff.store import S3Store
 from rasterio.crs import CRS
@@ -215,33 +215,49 @@ def _anonymous_store() -> S3Store:
     )
 
 
-def _parse_geo_header(ifd: object, uri: str) -> MosaicTile:
+def _parse_geo_header(ifd: ImageFileDirectory, uri: str) -> MosaicTile:
     """Build a :class:`MosaicTile` from an opened tile's first IFD.
 
     3DEP tiles are north-up GeoTIFFs, so the model pixel-scale + tiepoint give
     the transform directly and the GeoKey EPSG gives the CRS -- no pixel reads.
+    The georeferencing tags are all optional on the IFD, so a tile missing the
+    pixel scale, tiepoint, GeoKey directory, or a CRS code is rejected with a
+    clear error (it is not a usable north-up mosaic input) rather than crashing on
+    a ``None``.
     """
-    scale = ifd.model_pixel_scale  # type: ignore[attr-defined]
-    tiepoint = ifd.model_tiepoint  # type: ignore[attr-defined]
-    fmt = ifd.sample_format[0]  # type: ignore[attr-defined]
-    bits = ifd.bits_per_sample[0]  # type: ignore[attr-defined]
+    scale = ifd.model_pixel_scale
+    tiepoint = ifd.model_tiepoint
+    gk = ifd.geo_key_directory
+    if scale is None or tiepoint is None or gk is None:
+        raise ValueError(
+            f'{uri}: not a georeferenced north-up GeoTIFF (missing model pixel '
+            'scale, tiepoint, or GeoKey directory).',
+        )
+
+    fmt = ifd.sample_format[0]
+    bits = ifd.bits_per_sample[0]
     try:
         dtype = _SAMPLE_DTYPES[(fmt, bits)]
     except KeyError as e:
         raise ValueError(
             f'Unsupported sample format/bits for VRT mosaic: {fmt}/{bits}',
         ) from e
-    raw_nodata = ifd.gdal_nodata  # type: ignore[attr-defined]
-    gk = ifd.geo_key_directory  # type: ignore[attr-defined]
+
     epsg = gk.projected_type or gk.geographic_type
+    if epsg is None:
+        raise ValueError(
+            f'{uri}: GeoKey directory declares no projected or geographic CRS.',
+        )
+
+    raw_nodata = ifd.gdal_nodata
     return MosaicTile(
         uri=uri,
         origin_x=tiepoint[3],
         origin_y=tiepoint[4],
         px=scale[0],
         py=-scale[1],
-        width=ifd.image_width,  # type: ignore[attr-defined]
-        height=ifd.image_height,  # type: ignore[attr-defined]
+        width=ifd.image_width,
+        height=ifd.image_height,
         dtype=dtype,
         nodata=None if raw_nodata is None else float(raw_nodata),
         crs_wkt=CRS.from_epsg(epsg).to_wkt(),

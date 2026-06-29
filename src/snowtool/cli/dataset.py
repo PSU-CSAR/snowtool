@@ -16,6 +16,7 @@ from snowtool.cli._context import pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._render import DATE, _emit, _emit_record
 from snowtool.exceptions import SNODASError
+from snowtool.snowdb.zone_layer import GenerationOptions
 
 if TYPE_CHECKING:
     from datetime import date
@@ -198,8 +199,7 @@ def create_dataset(
                 provider,
                 source,
                 force=True,
-                workers=workers,
-                block_size=block_size,
+                options=GenerationOptions(workers=workers, block_size=block_size),
             )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e
@@ -386,8 +386,7 @@ def generate_zones(
                 provider,
                 source,
                 force=True,
-                workers=workers,
-                block_size=block_size,
+                options=GenerationOptions(workers=workers, block_size=block_size),
             )
         except (FileExistsError, SNODASError) as e:
             raise click.ClickException(str(e)) from e

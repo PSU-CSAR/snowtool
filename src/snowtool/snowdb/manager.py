@@ -39,7 +39,11 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
+    from snowtool.snowdb.zone_layer import (
+        GenerationOptions,
+        ZoneLayerProvider,
+        ZoneLayerSource,
+    )
 
 
 def _combined_extent(
@@ -160,7 +164,7 @@ class SnowDbManager:
         """Load this root's on-disk config (raises if it is absent)."""
         config_path = self.db.config_path
         if config_path is None or not config_path.is_file():
-            raise SnowDbConfigError(self.db.path)
+            raise SnowDbConfigError(self.db.root)
         return RootConfig.load(config_path)
 
     def register_dataset(
@@ -183,7 +187,7 @@ class SnowDbManager:
         config = self._read_root_config()
         config_path = self.db.config_path
         if config_path is None:  # pragma: no cover - _read_root_config guarantees it
-            raise SnowDbConfigError(self.db.path)
+            raise SnowDbConfigError(self.db.root)
         dataset_config_path = Path(dataset_config_path).resolve()
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
@@ -220,7 +224,7 @@ class SnowDbManager:
         *,
         source: ZoneLayerSource | None = None,
         force: bool = False,
-        **options: object,
+        options: GenerationOptions | None = None,
     ) -> dict[str, str]:
         """Generate a provider's zone layers for several datasets in one pass.
 
@@ -230,9 +234,9 @@ class SnowDbManager:
         at the source resolution, so sharing the read is the whole point. ``names``
         selects datasets (default: all); either way only the datasets that *enable*
         ``provider_name`` are targeted (the rest have no such zone layer).
-        ``**options`` carries engine-specific knobs (e.g. terrain's
-        ``workers``/``block_size``). Returns each generated dataset's provenance
-        hash, keyed by name.
+        ``options`` carries engine knobs (e.g. terrain's ``workers``/
+        ``block_size``). Returns each generated dataset's provenance hash, keyed by
+        name.
         """
         from snowtool.snowdb.grid import grid_extent_4326
 
@@ -252,7 +256,7 @@ class SnowDbManager:
         targets = [ds.zone_target(provider) for ds in selected]
         bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
 
-        return provider.generate(source, targets, bounds, force=force, **options)
+        return provider.generate(source, targets, bounds, force=force, options=options)
 
     # --- pourpoint import / sync / lifecycle ----------------------------------------
 

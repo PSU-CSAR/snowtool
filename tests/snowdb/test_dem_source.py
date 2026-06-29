@@ -97,6 +97,34 @@ def test_parse_geo_header_reads_the_tile_box(tmp_path):
     assert CRS.from_wkt(tile.crs_wkt) == CRS.from_epsg(4326)
 
 
+@pytest.mark.parametrize(
+    ('mutate', 'message'),
+    [
+        ({'model_pixel_scale': None}, 'north-up GeoTIFF'),
+        ({'model_tiepoint': None}, 'north-up GeoTIFF'),
+        ({'geo_key_directory': None}, 'north-up GeoTIFF'),
+        (
+            {
+                'geo_key_directory': types.SimpleNamespace(
+                    projected_type=None,
+                    geographic_type=None,
+                ),
+            },
+            'no projected or geographic CRS',
+        ),
+    ],
+)
+def test_parse_geo_header_rejects_missing_georeferencing(mutate, message):
+    # The IFD georeferencing tags are all optional; a tile missing one is a clean
+    # ValueError, not an opaque None deref while building the transform/CRS.
+    ifd = _fake_ifd()
+    for key, value in mutate.items():
+        setattr(ifd, key, value)
+
+    with pytest.raises(ValueError, match=message):
+        _parse_geo_header(ifd, '/vsis3/bucket/broken.tif')
+
+
 def test_build_mosaic_vrt_stitches_adjacent_tiles(tmp_path):
     # Real tiles parsed through discovery's header path, then assembled with no
     # further reads -- the VRT places each by its derived geometry.

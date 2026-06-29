@@ -33,7 +33,7 @@ from snowtool.snowdb.constants import (
     MAX_ELEVATION_M,
     MIN_ELEVATION_M,
 )
-from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
+from snowtool.snowdb.zone_layer import GenerationOptions, ZoneLayer, ZoneLayerProvider
 from snowtool.snowdb.zoning import ClassZone, banded, categorical
 
 if TYPE_CHECKING:
@@ -148,11 +148,11 @@ class TerrainProvider(ZoneLayerProvider):
         bounds: Bounds,
         *,
         force: bool = False,
-        **options: object,
+        options: GenerationOptions | None = None,
     ) -> dict[str, str]:
         """Stream the DEM ``source`` once, binning terrain into every target.
 
-        ``**options`` accepts the engine's block-level parallelism knobs
+        ``options`` carries the engine's block-level parallelism knobs
         (``workers``, ``block_size``); the DEM source supplies the projected work
         grid (``work_crs``/``work_resolution``).
         """
@@ -166,13 +166,14 @@ class TerrainProvider(ZoneLayerProvider):
 
         if not isinstance(source, DemSource):  # pragma: no cover - defensive
             raise TypeError(f'terrain generation needs a DemSource, got {source!r}')
+        options = options or GenerationOptions()
         with source.open(bounds) as src:
             return engine(
                 src,
                 targets,
                 work_crs=source.work_crs,
                 work_resolution=source.work_resolution,
-                workers=options.get('workers'),  # type: ignore[arg-type]
-                block_size=options.get('block_size'),  # type: ignore[arg-type]
+                workers=options.workers,
+                block_size=options.block_size,
                 force=force,
             )

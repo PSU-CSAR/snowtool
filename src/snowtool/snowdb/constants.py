@@ -26,7 +26,7 @@ AOI_MASK_NODATA = 0
 # sha256 (see Pourpoint.geometry_hash), carrying the AOI writer's
 # AOI_RASTER_FORMAT_VERSION. An AOI raster is stale when this tag no longer matches
 # the AOI's current versioned hash -- a changed basin OR a format bump -- a cheap
-# tag-only read that drives `aoi rasterize`'s missing-or-stale rebuild without
+# tag-only read that drives `pourpoint rasterize`'s missing-or-stale rebuild without
 # opening the full raster.
 AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
 

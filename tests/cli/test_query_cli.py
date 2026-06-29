@@ -240,7 +240,7 @@ def test_query_stats_missing_aoi_raster_is_clean_error(
         obj=cli_obj,
     )
     assert result.exit_code != 0
-    assert 'aoi rasterize' in result.output
+    assert 'pourpoint rasterize' in result.output
 
 
 def test_query_stats_unknown_zone_is_clean_error(runner, cli_obj, populated_root):

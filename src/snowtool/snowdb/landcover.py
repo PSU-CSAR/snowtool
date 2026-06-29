@@ -37,7 +37,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource, ZoneLayerTarget
+    from snowtool.snowdb.zone_layer import (
+        Bounds,
+        GenerationOptions,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
 
     # The land-cover generation engine (landcover_generate.generate_landcover);
     # injectable so a test can supply a fast stand-in. Returns per-target hashes.
@@ -106,9 +111,13 @@ class LandCoverProvider(ZoneLayerProvider):
         bounds: Bounds,
         *,
         force: bool = False,
-        **options: object,
+        options: GenerationOptions | None = None,
     ) -> dict[str, str]:
-        """Stream the NLCD ``source`` once, binning forest cover into every target."""
+        """Stream the NLCD ``source`` once, binning forest cover into every target.
+
+        ``options`` is accepted for the uniform provider contract but unused: land
+        cover has no block-level parallelism knobs.
+        """
         engine = self._engine
         if engine is None:
             from snowtool.snowdb.landcover_generate import generate_landcover

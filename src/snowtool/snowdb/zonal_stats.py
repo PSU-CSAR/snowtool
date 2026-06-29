@@ -11,19 +11,15 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
+from pydantic import TypeAdapter
+
 from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.raster import AOIRaster, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
+from snowtool.snowdb.response_models import ZoneRef
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 from snowtool.snowdb.zone_layer import available_zones
-from snowtool.snowdb.zoning import (
-    BandedZoning,
-    BandZone,
-    ClassZone,
-    ThresholdZone,
-    ThresholdZoning,
-    Zone,
-)
+from snowtool.snowdb.zoning import Zone
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -35,6 +31,11 @@ if TYPE_CHECKING:
     from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.zone_layer import AvailableZone
 
+# Validates a zone's self-described ``ref_fields`` into the matching ZoneRef union
+# member (routed by the ``kind`` tag each Zone carries), so the per-axis JSON refs
+# are built from the Zone hierarchy without switching on zone type here.
+_ZONE_REF_ADAPTER: TypeAdapter[BaseModel] = TypeAdapter(ZoneRef)
+
 # Cap on the crossed product size (number of cells = rows in the CSV / objects in
 # the JSON, and the cell axis of the in-memory array). Crossing several
 # fine-grained axes multiplies their zone counts, so a query is rejected before any
@@ -45,18 +46,29 @@ DEFAULT_MAX_ZONE_CELLS = 10_000
 
 @dataclass(frozen=True)
 class ZoneSelection:
-    """One axis of a crossed-zone query: a zone layer + optional scheme overrides.
+    """One axis of a crossed-zone query: a zone layer + an optional scheme override.
 
     ``layer_key`` is a registry key (``'<provider>.<layer.key>'``, e.g.
-    ``'terrain.elevation'``). ``step`` overrides a banded scheme's band width
-    (elevation defaults to the dataset's ``band_step_ft``); ``threshold`` overrides
-    a threshold scheme's split point (e.g. forest cover's forested/unforested %).
-    Each is ignored by schemes that do not use it; ``None`` uses the scheme default.
+    ``'terrain.elevation'``). ``override`` is the axis' single scheme param -- a
+    band step (banded layers) or a split threshold (threshold layers); ``None``
+    uses the scheme default. The scheme owns what the value means and how it is
+    parsed (see :meth:`ZoneScheme.parse_override`/``override_kwargs``), so a
+    categorical axis simply takes no override.
     """
 
     layer_key: str
-    step: int | None = None
-    threshold: float | None = None
+    override: int | float | None = None
+
+
+def _unknown_layer(
+    layer_key: str,
+    registry: Mapping[str, AvailableZone],
+) -> QueryParameterError:
+    """A uniform 'unknown zone layer' error listing the available registry keys."""
+    return QueryParameterError(
+        f'Unknown zone layer {layer_key!r}; available: '
+        f'{", ".join(sorted(registry)) or "(none)"}.',
+    )
 
 
 def parse_zone_selection(
@@ -66,41 +78,19 @@ def parse_zone_selection(
     """Parse a ``LAYER[:override]`` token into a :class:`ZoneSelection`.
 
     ``LAYER`` is a registry key (``'<provider>.<layer.key>'``); an optional
-    ``:override`` sets the axis' scheme param -- a band step (banded layers, an
-    int) or a split threshold (threshold layers, a number). The override is
-    rejected for a categorical axis (which takes none). Backs the CLI ``--zone``
-    flag, so it resolves against the registry to type the override correctly and
-    raises a clean ``ValueError`` (listing the choices) on an unknown layer.
+    ``:override`` sets the axis' scheme param. The token is delegated to the
+    layer's scheme (:meth:`ZoneScheme.parse_override`), which types it (a band
+    step, a split threshold) or rejects it (a categorical axis takes none).
+    Backs the CLI ``--zone`` flag; raises a clean error (listing the choices) on
+    an unknown layer.
     """
     layer_key, sep, raw = token.partition(':')
     available = registry.get(layer_key)
     if available is None:
-        raise QueryParameterError(
-            f'Unknown zone layer {layer_key!r}; available: '
-            f'{", ".join(sorted(registry)) or "(none)"}.',
-        )
+        raise _unknown_layer(layer_key, registry)
     if not sep:
         return ZoneSelection(layer_key)
-
-    scheme = available.scheme
-    if isinstance(scheme, BandedZoning):
-        try:
-            return ZoneSelection(layer_key, step=int(raw))
-        except ValueError as e:
-            raise QueryParameterError(
-                f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
-            ) from e
-    if isinstance(scheme, ThresholdZoning):
-        try:
-            return ZoneSelection(layer_key, threshold=float(raw))
-        except ValueError as e:
-            raise QueryParameterError(
-                f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
-            ) from e
-    raise QueryParameterError(
-        f'zone {layer_key!r} takes no override (it is a categorical axis); '
-        f'drop the ":{raw}".',
-    )
+    return ZoneSelection(layer_key, available.scheme.parse_override(layer_key, raw))
 
 
 @dataclass
@@ -195,43 +185,14 @@ class ZonalStats:
     ) -> list[BaseModel]:
         """Self-describing per-axis zone refs for one crossed-zone cell.
 
-        Each ref carries the axis' registry layer key plus the band bounds
-        (banded) or the class code+label (categorical).
+        Each :class:`Zone` describes itself (:meth:`Zone.ref_fields`, incl. its
+        ``kind`` tag); the adapter routes that to the matching ``ZoneRef`` union
+        member, so a new zone kind needs no change here.
         """
-        from snowtool.snowdb.response_models import (
-            BandZoneRef,
-            ClassZoneRef,
-            ThresholdZoneRef,
-        )
-
-        refs: list[BaseModel] = []
-        for layer, zone in zip(layers, cell, strict=True):
-            if isinstance(zone, BandZone):
-                refs.append(
-                    BandZoneRef(
-                        layer=layer,
-                        min=zone.min,
-                        max=zone.max,
-                        unit=zone.unit,
-                    ),
-                )
-            elif isinstance(zone, ThresholdZone):
-                refs.append(
-                    ThresholdZoneRef(
-                        layer=layer,
-                        threshold=zone.threshold,
-                        unit=zone.unit,
-                        side=zone.side,  # type: ignore[arg-type]
-                        label=zone.label,
-                    ),
-                )
-            elif isinstance(zone, ClassZone):
-                refs.append(
-                    ClassZoneRef(layer=layer, code=zone.code, label=zone.label),
-                )
-            else:  # pragma: no cover - Zone is a closed hierarchy
-                raise TypeError(f'unknown zone type: {zone!r}')
-        return refs
+        return [
+            _ZONE_REF_ADAPTER.validate_python({'layer': layer, **zone.ref_fields()})
+            for layer, zone in zip(layers, cell, strict=True)
+        ]
 
     def dump(self: Self) -> list[BaseModel]:
         self.validate()
@@ -269,23 +230,15 @@ class ZonalStats:
         self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
-        # One row per (date, crossed-zone cell). Structured axes expand to multiple
-        # columns so every value is typed and the unit is explicit:
-        #   * banded     -> ``<layer>_min_<unit>`` / ``<layer>_max_<unit>``
-        #   * threshold  -> ``<layer>_side`` (label) / ``<layer>_threshold_<unit>``
-        #   * categorical-> ``<layer>`` (the class label)
+        # One row per (date, crossed-zone cell). Each axis describes its own
+        # columns (:meth:`Zone.csv_columns`): a structured axis (banded/threshold)
+        # expands to two typed, unit-bearing columns, a categorical axis to one.
+        # The header comes from a sample cell's columns, every row from its own.
         # Then area + each variable.
         sample = self._axis_kinds()
         headers: list[str] = ['date']
         for layer, zone in zip(self.zone_layers, sample, strict=True):
-            if isinstance(zone, BandZone):
-                headers.append(f'{layer}_min_{zone.unit}')
-                headers.append(f'{layer}_max_{zone.unit}')
-            elif isinstance(zone, ThresholdZone):
-                headers.append(f'{layer}_side')
-                headers.append(f'{layer}_threshold_{zone.unit}')
-            else:
-                headers.append(layer)
+            headers.extend(header for header, _ in zone.csv_columns(layer))
         headers.append('area_m2')
         headers.extend(variable.stat_name for variable in self._variables_index)
         writer.writerow(headers)
@@ -293,15 +246,8 @@ class ZonalStats:
         for date_, date_idx in self._dates_index.items():
             for cell, cell_idx in self._cells_index.items():
                 row: list[str] = [date_.isoformat()]
-                for zone in cell:
-                    if isinstance(zone, BandZone):
-                        row.append(str(zone.min))
-                        row.append(str(zone.max))
-                    elif isinstance(zone, ThresholdZone):
-                        row.append(zone.label)
-                        row.append(f'{zone.threshold:g}')
-                    else:
-                        row.append(zone.label)
+                for layer, zone in zip(self.zone_layers, cell, strict=True):
+                    row.extend(value for _, value in zone.csv_columns(layer))
                 # Empty cell for a no-data reduction (nan), matching dump()'s JSON
                 # null -- never the literal 'nan'.
                 row.extend(
@@ -321,15 +267,13 @@ class ZonalStats:
         The dataset's configured zone params for this layer (its ``zones`` block --
         e.g. ``band_step_ft`` for elevation, ``threshold_pct`` for forest cover)
         become the default, translated to scheme kwargs by the scheme itself; an
-        explicit ``step``/``threshold`` on the selection always wins. Schemes
-        ignore any kwarg they don't use.
+        explicit ``override`` on the selection always wins. Both translations are
+        the scheme's own, so schemes ignore any kwarg they don't use.
         """
         params = spec.zone_params(available.provider.name, available.layer.key)
         overrides = available.scheme.default_overrides(params)
-        if selection.step is not None:
-            overrides['step'] = selection.step
-        if selection.threshold is not None:
-            overrides['threshold'] = selection.threshold
+        if selection.override is not None:
+            overrides.update(available.scheme.override_kwargs(selection.override))
         return overrides
 
     @classmethod
@@ -367,10 +311,7 @@ class ZonalStats:
         for selection in selections:
             available = registry.get(selection.layer_key)
             if available is None:
-                raise QueryParameterError(
-                    f'Unknown zone layer {selection.layer_key!r}; available: '
-                    f'{", ".join(sorted(registry))}.',
-                )
+                raise _unknown_layer(selection.layer_key, registry)
             resolved.append(
                 (available, cls._selection_overrides(selection, available, spec)),
             )

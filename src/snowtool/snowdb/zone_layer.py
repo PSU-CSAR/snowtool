@@ -40,6 +40,20 @@ Bounds = tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)
+class GenerationOptions:
+    """Optional knobs for a zone-layer generation pass.
+
+    A single typed value object threaded from the caller through the provider to
+    its engine, in place of an untyped option bag. Only terrain consumes these
+    today (block-level parallelism); a provider ignores any field it does not use,
+    and ``None`` defers to the engine's own default.
+    """
+
+    workers: int | None = None
+    block_size: int | None = None
+
+
+@dataclass(frozen=True)
 class ZoneLayer:
     """A single on-disk zone layer: its file, dtype, nodata, bands, and zoning.
 
@@ -211,7 +225,7 @@ class ZoneLayerProvider(ABC):
         bounds: Bounds,
         *,
         force: bool = False,
-        **options: object,
+        options: GenerationOptions | None = None,
     ) -> dict[str, str]:
         """Open ``source`` over ``bounds`` and bin its layers into every target.
 
@@ -219,9 +233,9 @@ class ZoneLayerProvider(ABC):
         injectable per provider (a test passes a fast stand-in via the constructor);
         an un-injected provider resolves the real engine lazily, since the engine
         module imports its provider and a module-level import would cycle. Returns
-        the per-target provenance hash. ``**options`` carries engine-specific knobs
-        (e.g. terrain's ``workers``/``block_size``); a provider ignores any it does
-        not use.
+        the per-target provenance hash. ``options`` carries engine knobs (e.g.
+        terrain's ``workers``/``block_size``); a provider ignores any it does not
+        use, and ``None`` defers to the engine defaults.
         """
         raise NotImplementedError
 

@@ -49,7 +49,7 @@ def test_banded_zones_are_contiguous_and_aligned_to_zero():
     zones = scheme.zones()
 
     assert all(isinstance(z, BandZone) for z in zones)
-    bounds = [(z.min, z.max) for z in zones]  # type: ignore[attr-defined]
+    bounds = [(z.min, z.max) for z in zones]
     assert bounds == [(0, 1000), (1000, 2000), (2000, 3000)]
     # Contiguous: each band's max is the next band's min.
     assert all(a[1] == b[0] for a, b in pairwise(bounds))
@@ -60,7 +60,7 @@ def test_banded_step_override_changes_band_width():
     default_bands = scheme.zones()
     coarser = scheme.zones(step=2000)
     assert len(coarser) < len(default_bands)
-    assert (coarser[0].min, coarser[0].max) == (-2000, 0)  # type: ignore[attr-defined]
+    assert (coarser[0].min, coarser[0].max) == (-2000, 0)
 
 
 def test_banded_assign_scales_meters_to_feet():
