@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.raster import AOIRaster
     from snowtool.snowdb.spec import DatasetSpec
-    from snowtool.snowdb.tiff_cache import TiffCache
     from snowtool.snowdb.zone_layer import ZoneLayerProvider, ZoneLayerSource
 
 
@@ -103,7 +102,6 @@ class SnowDbManager:
         cls: type[Self],
         path: Path,
         *,
-        tiff_cache: TiffCache | None = None,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
@@ -112,7 +110,6 @@ class SnowDbManager:
         return cls(
             SnowDb.open(
                 path,
-                tiff_cache=tiff_cache,
                 zone_layer_providers=zone_layer_providers,
             ),
         )
@@ -123,7 +120,6 @@ class SnowDbManager:
         path: Path,
         specs: Iterable[DatasetSpec] = (),
         *,
-        tiff_cache: TiffCache | None = None,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
         ),
@@ -155,7 +151,6 @@ class SnowDbManager:
         return cls(
             SnowDb(
                 config,
-                tiff_cache=tiff_cache,
                 zone_layer_providers=zone_layer_providers,
             ),
         )

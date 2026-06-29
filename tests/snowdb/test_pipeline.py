@@ -8,6 +8,7 @@ import numpy
 import pytest
 import rasterio
 
+from snowtool import types
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import TILE_BBOX_TAG
@@ -18,6 +19,9 @@ from snowtool.snowdb.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
+
+# The synthetic SWE COG is ingested for this date; a closed one-day range selects it.
+QUERY = types.DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))
 
 
 def test_terrain_elevation(dataset, grid):
@@ -77,7 +81,7 @@ def test_zonal_stats(dataset, aoi_geojson, swe_cog):
 
     swe = dataset.spec.variables['swe']
     collection = RasterCollection.from_variables_query(
-        query=_SingleDateQuery(),
+        query=QUERY,
         variables={swe},
         dataset=dataset,
     )
@@ -114,7 +118,7 @@ def _crossed_stats(dataset, aoi_geojson, selections, *, max_zone_cells=10_000):
     aoi_raster = dataset.rasterize_aoi(aoi)
     swe = dataset.spec.variables['swe']
     collection = RasterCollection.from_variables_query(
-        query=_SingleDateQuery(),
+        query=QUERY,
         variables={swe},
         dataset=dataset,
     )
@@ -254,14 +258,3 @@ def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):
     assert aoi_raster.array.shape == (TILE, TILE)
     assert aoi_raster.array.dtype == numpy.float32
     assert (aoi_raster.array > 0).sum() == 100
-
-
-class _SingleDateQuery:
-    """Minimal DateQuery for 2018-04-27 only."""
-
-    def generate_sequence(self):
-
-        yield date(2018, 4, 27)
-
-    def csv_name(self, pourpoint_name, zone_size=0):  # pragma: no cover
-        return 'test.csv'

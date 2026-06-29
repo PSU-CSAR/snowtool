@@ -11,6 +11,7 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
+from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.raster import AOIRaster, DataRaster
 from snowtool.snowdb.raster_collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
@@ -74,7 +75,7 @@ def parse_zone_selection(
     layer_key, sep, raw = token.partition(':')
     available = registry.get(layer_key)
     if available is None:
-        raise ValueError(
+        raise QueryParameterError(
             f'Unknown zone layer {layer_key!r}; available: '
             f'{", ".join(sorted(registry)) or "(none)"}.',
         )
@@ -86,17 +87,17 @@ def parse_zone_selection(
         try:
             return ZoneSelection(layer_key, step=int(raw))
         except ValueError as e:
-            raise ValueError(
+            raise QueryParameterError(
                 f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
             ) from e
     if isinstance(scheme, ThresholdZoning):
         try:
             return ZoneSelection(layer_key, threshold=float(raw))
         except ValueError as e:
-            raise ValueError(
+            raise QueryParameterError(
                 f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
             ) from e
-    raise ValueError(
+    raise QueryParameterError(
         f'zone {layer_key!r} takes no override (it is a categorical axis); '
         f'drop the ":{raw}".',
     )
@@ -366,7 +367,7 @@ class ZonalStats:
         for selection in selections:
             available = registry.get(selection.layer_key)
             if available is None:
-                raise ValueError(
+                raise QueryParameterError(
                     f'Unknown zone layer {selection.layer_key!r}; available: '
                     f'{", ".join(sorted(registry))}.',
                 )
@@ -382,7 +383,7 @@ class ZonalStats:
         ]
         n_cells = math.prod(len(axis) for axis in axes)
         if n_cells > max_zone_cells:
-            raise ValueError(
+            raise QueryParameterError(
                 f'crossed zone query would produce {n_cells} cells '
                 f'(> max_zone_cells={max_zone_cells}); use fewer axes, coarser '
                 'steps, or raise the limit.',

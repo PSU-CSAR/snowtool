@@ -12,6 +12,7 @@ dependencies = [
     "async-tiff>=0.7.2",
     "click>=8.2.1",
     "fastapi>=0.116.1",
+    "gazebo[fastapi,geojson]>=0.2.0",
     "griffine[crs]>=0.1.0",
     "numpy>=2.4.6",
     "pydantic>=2.11.7",
@@ -77,9 +78,6 @@ exclude = ['docs/**/*']
 [tool.ruff.lint.per-file-ignores]
 '__init__.py' = ['E402']
 'tests/**/*' = ['T201', 'S101']
-# types.py intentionally keeps the Django/ninja API-response helpers commented
-# out pending the FastAPI rewrite; allow that commented code.
-'src/snowtool/types.py' = ['ERA001']
 
 [tool.ruff.lint.isort]
 lines-between-types = 1
@@ -95,8 +93,14 @@ scripts_are_modules = true
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = 'function'
-# Warnings are failures: a new deprecation should break the build, not scroll by.
-filterwarnings = ['error']
+filterwarnings = [
+    'error',
+    # rasterio 1.5.0's Cython read path sets ``arr.shape`` directly, which NumPy
+    # 2.5 deprecated; it fires on every raster read and is not ours to fix. Narrowly
+    # ignored (message + category) so our own warnings stay failures. Drop this once
+    # rasterio ships a NumPy-2.5-clean release (or pin numpy<2.5).
+    'ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning',
+]
 addopts = [
     "--cov=snowtool",
     "--import-mode=importlib",
@@ -116,8 +120,7 @@ sort = "Cover"
 
 [dependency-groups]
 dev = [
-    # starlette.testclient (FastAPI's TestClient) prefers httpx2 and deprecates
-    # plain httpx; track the migration so the test suite stays warning-clean.
+    "gazebo[test]>=0.2.0",
     "httpx2>=2.5.0",
     "mypy>=1.18.1",
     "pre-commit>=4.3.0",

@@ -14,7 +14,7 @@ import rasterio
 from rasterio.features import rasterize
 
 from snowtool import types
-from snowtool.exceptions import SNODASError
+from snowtool.exceptions import AOIRasterNotFoundError, SNODASError
 from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
@@ -331,7 +331,10 @@ class Dataset:
         query: types.DateQuery,
         variable: DatasetVariable,
     ) -> Iterator[tuple[date, Path]]:
-        for date_ in query.generate_sequence():
+        # Filter the dates that actually exist (one directory listing) rather than
+        # probing every calendar day in the range; this also lets a query carry an
+        # open-ended interval, since selection is over a finite set.
+        for date_ in query.select(self.available_dates()):
             matching_files = list(
                 (self._cogs / self._format_date(date_)).glob(variable.glob),
             )
@@ -499,7 +502,7 @@ class Dataset:
         """
         path = self.aoi_raster_path_from_triplet(station_triplet)
         if not path.is_file():
-            raise FileNotFoundError(
+            raise AOIRasterNotFoundError(
                 f'No AOI raster for {station_triplet!r} in dataset '
                 f'{self.spec.name!r}; run `aoi rasterize` first.',
             )
