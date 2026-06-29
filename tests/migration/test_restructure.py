@@ -24,7 +24,7 @@ def test_restructure_moves_flat_dir_into_layout(tmp_path):
     assert (dst / 'data' / 'snodas' / 'areas.tif').read_text() == 'areas'
     assert (dst / 'data' / 'snodas' / 'aoi-rasters').is_dir()
     assert (dst / 'data' / 'snodas' / 'cogs').is_dir()
-    assert (dst / 'aois').is_dir()
+    assert (dst / 'pourpoints').is_dir()
     assert not src.exists()  # moved, not copied
 
 

@@ -1,0 +1,77 @@
+"""Pourpoint listing + detail routes (catalog-only; inject the read :class:`SnowDb`).
+
+Both reads come off the catalog. ``GET /pourpoints`` pages over the persisted index
+(optionally ``bbox``-filtered on the point); its ``geometry`` param picks the
+feature geometry -- ``point`` (default) straight from the index, or ``basin``, which
+loads each page record's polygon and so defaults to a smaller page. ``GET
+/pourpoints/{triplet}`` reads the stored record and always returns the basin (point
+fallback), with coverage pulled from the index. A missing record raises
+:class:`PourpointNotFoundError` -> 404 via the registered domain handler.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal
+
+from fastapi import Query
+
+# BBox is imported at runtime (not under TYPE_CHECKING) so get_type_hints can
+# resolve the route annotations -- if it fails, gazebo silently skips injection.
+from gazebo.ext.fastapi import BBoxParam, GazeboRouter, Inject
+from gazebo.params import BBox
+
+from snowtool import types
+from snowtool.api.models.pourpoint import (
+    PourpointDetail,
+    PourpointFeatureCollection,
+    build_pourpoint_collection,
+    build_pourpoint_detail,
+)
+from snowtool.api.tags import Tags
+from snowtool.snowdb.db import SnowDb
+
+# SnowDb is registered as an app-scoped constant provider (no __provide__ recipe),
+# so injection is opt-in via the Inject marker rather than auto-detected.
+CatalogDb = Annotated[SnowDb, Inject]
+
+GeometryView = Literal['point', 'basin']
+# Point mode serves geometry from the index (cheap); basin mode parses each record's
+# polygon (thousands of coords each), so it pages far smaller. The hard cap is the
+# same -- one big request is cheaper than many parallel ones.
+POINT_DEFAULT_LIMIT = 100
+BASIN_DEFAULT_LIMIT = 25
+MAX_LIMIT = 1000
+
+router: GazeboRouter = GazeboRouter()
+
+
+@router.get('/pourpoints', name='list_pourpoints', tags=[Tags.POURPOINTS])
+async def list_pourpoints(
+    snowdb: CatalogDb,
+    geometry: Annotated[GeometryView, Query()] = 'point',
+    bbox: Annotated[BBox | None, BBoxParam] = None,
+    limit: Annotated[int | None, Query(ge=1, le=MAX_LIMIT)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PourpointFeatureCollection:
+    basin = geometry == 'basin'
+    if limit is None:
+        limit = BASIN_DEFAULT_LIMIT if basin else POINT_DEFAULT_LIMIT
+    return build_pourpoint_collection(
+        snowdb,
+        offset=offset,
+        limit=limit,
+        basin_geometry=basin,
+        bbox=bbox,
+    )
+
+
+@router.get('/pourpoints/{triplet}', name='get_pourpoint', tags=[Tags.POURPOINTS])
+async def get_pourpoint(
+    triplet: types.StationTriplet,
+    snowdb: CatalogDb,
+) -> PourpointDetail:
+    # Coverage is a derived, per-grid signal that lives on the index, not the
+    # record; look it up by triplet (a point-only pourpoint has no index entry).
+    index = snowdb.pourpoint_index()
+    coverage = index[triplet].coverage if triplet in index else {}
+    return build_pourpoint_detail(snowdb.load_pourpoint(triplet), coverage=coverage)

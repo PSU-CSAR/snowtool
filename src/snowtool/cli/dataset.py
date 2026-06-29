@@ -116,7 +116,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     '--activate',
     is_flag=True,
     help='Register the dataset in the root config after staging it (writes its '
-    'link). Going live still needs `aoi reindex` + a service restart.',
+    'link). Going live still needs `pourpoint reindex` + a service restart.',
 )
 @click.option(
     '--quick',
@@ -157,7 +157,7 @@ def create_dataset(
     ``--template`` (a built-in) for a brand-new dataset, or from an
     already-registered dataset of this NAME otherwise. Staging does *not* register
     the dataset unless ``--activate`` is passed (or use ``dataset add`` later);
-    going live also needs an ``aoi reindex`` + restart. Idempotent -- existing
+    going live also needs a ``pourpoint reindex`` + restart. Idempotent -- existing
     artifacts are left untouched.
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
@@ -179,7 +179,7 @@ def create_dataset(
     if activate:
         manager.register_dataset(name, config_path)
         click.echo(
-            f'registered {name} (run `aoi reindex` + restart to go live)',
+            f'registered {name} (run `pourpoint reindex` + restart to go live)',
         )
 
     if quick:
@@ -265,7 +265,7 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     goes live by linking its config into the root config. The config is validated
     (it must parse and its ingester must resolve) before the link is written.
     Idempotent -- re-adding a name overwrites its link. Going live also needs an
-    ``aoi reindex`` + a service restart.
+    ``pourpoint reindex`` + a service restart.
     """
     from pydantic import ValidationError
 
@@ -282,7 +282,8 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
 
     manager.register_dataset(name, config_path)
     click.echo(
-        f'registered {name} -> {config_path} (run `aoi reindex` + restart to go live)',
+        f'registered {name} -> {config_path} '
+        '(run `pourpoint reindex` + restart to go live)',
     )
 
 

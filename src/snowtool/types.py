@@ -59,9 +59,9 @@ def triplet_to_stem(triplet: StationTriplet) -> str:
     """The filename stem for a station triplet (``:`` is not path-safe -> ``_``).
 
     Inverse of :func:`stem_to_triplet`. The single encoding rule shared by the
-    AOI record files (``aois/records/<stem>.geojson``) and the per-dataset burned
-    AOI rasters (``<stem>.tif``); both must agree on it for the ``aoi sync`` prune
-    diff and the raster cascade to line up.
+    pourpoint record files (``pourpoints/records/<stem>.geojson``) and the
+    per-dataset burned AOI rasters (``<stem>.tif``); both must agree on it for the
+    ``pourpoint sync`` prune diff and the raster cascade to line up.
     """
     return triplet.replace(':', '_')
 

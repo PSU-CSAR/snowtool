@@ -15,10 +15,10 @@ from rasterio.features import rasterize
 
 from snowtool import types
 from snowtool.exceptions import AOIRasterNotFoundError, SNODASError
-from snowtool.snowdb.aoi import AOI
 from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326, tile_base_origin
+from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster import AOIRaster
 from snowtool.snowdb.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
@@ -355,7 +355,7 @@ class Dataset:
     ) -> Path:
         return self._aoi_rasters / f'{types.triplet_to_stem(station_triplet)}.tif'
 
-    def rasterize_aoi(self, aoi: AOI, force: bool = False) -> AOIRaster:
+    def rasterize_aoi(self, aoi: Pourpoint, force: bool = False) -> AOIRaster:
         # A management (write) op may run against a dataset that has no data yet,
         # so create the aoi-rasters dir if it is missing (but never the base
         # snowdb dirs -- those are SnowDbManager.initialize's job).
@@ -406,7 +406,7 @@ class Dataset:
         with rasterio.open(path) as ds:
             return ds.tags().get(AOI_HASH_TAG)
 
-    def aoi_raster_is_current(self: Self, aoi: AOI) -> bool:
+    def aoi_raster_is_current(self: Self, aoi: Pourpoint) -> bool:
         """Whether a burned AOI raster exists AND matches ``aoi``'s geometry AND
         the current burned-raster format version.
 
@@ -419,7 +419,7 @@ class Dataset:
 
     def rasterize_aoi_if_needed(
         self: Self,
-        aoi: AOI,
+        aoi: Pourpoint,
         *,
         rebuild: bool = False,
     ) -> bool:
@@ -427,7 +427,7 @@ class Dataset:
 
         ``rebuild=True`` forces a rebuild regardless of current state. The
         converge-by-default path (``rebuild=False``) skips a raster only when it
-        is already current (a matching :attr:`AOI.geometry_hash` tag).
+        is already current (a matching :attr:`Pourpoint.geometry_hash` tag).
         """
         if not rebuild and self.aoi_raster_is_current(aoi):
             return False

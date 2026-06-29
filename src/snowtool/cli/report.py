@@ -3,8 +3,8 @@
 Every command resolves datasets, calls a builder in
 :mod:`snowtool.snowdb.diagnostics` (where the scan logic lives and is unit
 tested), and renders. Findings-style reports (completeness, missing-files,
-aoi-coverage, aoi-health) print only problems -- empty output means clean, which
-is what :command:`snowdb validate` rolls up.
+pourpoint-coverage, aoi-health) print only problems -- empty output means clean,
+which is what :command:`snowdb validate` rolls up.
 """
 
 from __future__ import annotations
@@ -100,15 +100,19 @@ def missing_files(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> N
     _emit(rows, fmt)
 
 
-@report.command('aoi-coverage')
+@report.command('pourpoint-coverage')
 @dataset_option
 @format_option
 @pass_snowdb
-def aoi_coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
-    """AOI/raster mismatches and AOIs a dataset's grid only partially covers."""
+def pourpoint_coverage(
+    snowdb: SnowDb,
+    dataset_names: tuple[str, ...],
+    fmt: str,
+) -> None:
+    """Raster mismatches and pourpoints a dataset's grid only partially covers."""
     rows: list[dict[str, str]] = []
     for ds in resolve_datasets(snowdb, dataset_names):
-        result = diagnostics.aoi_coverage_report(snowdb, ds)
+        result = diagnostics.pourpoint_coverage_report(snowdb, ds)
         rows.extend(
             {'dataset': result.name, 'triplet': triplet, 'issue': 'no raster'}
             for triplet in result.unrasterized

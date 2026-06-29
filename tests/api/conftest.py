@@ -26,14 +26,14 @@ def test_client(test_app) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def synthetic_settings(test_settings, spec, aoi_geojson):
+def synthetic_settings(test_settings, spec, pourpoint_geojson):
     """Settings over a synthetic root populated end-to-end for the 'test' dataset.
 
     The Settings ``snowdb_config`` seam *is* the injection point: ``get_app`` opens
     its catalog from there and builds the (fresh-per-app) ``SnowDbReader`` over it,
     so a per-test app reads exactly this synthetic snowdb with no monkeypatching.
     """
-    populate_synthetic_root(test_settings.snowdb_config, spec, aoi_geojson)
+    populate_synthetic_root(test_settings.snowdb_config, spec, pourpoint_geojson)
     return test_settings
 
 

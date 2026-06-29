@@ -58,7 +58,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
 def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     """Roll up the read-only health checks; exit non-zero if any problem is found.
 
-    Aggregates completeness, missing-files, aoi-coverage, and aoi-health across
+    Aggregates completeness, missing-files, pourpoint-coverage, and aoi-health across
     the selected datasets (default: all). Prints one line per problem and exits 1
     when there are any, so it can gate cron/CI.
     """
@@ -83,11 +83,11 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
                 f'zone-layer-format: {name} {fmt.provider} '
                 f'stored {fmt.stored} != current {fmt.expected}',
             )
-        coverage = diagnostics.aoi_coverage_report(snowdb, ds)
+        coverage = diagnostics.pourpoint_coverage_report(snowdb, ds)
         findings.extend(f'aoi-no-raster: {name} {t}' for t in coverage.unrasterized)
         findings.extend(f'aoi-orphan: {name} {t}' for t in coverage.orphan_rasters)
-        findings.extend(f'aoi-partial: {name} {t}' for t in coverage.partial)
-        findings.extend(f'aoi-uncovered: {name} {t}' for t in coverage.uncovered)
+        findings.extend(f'pourpoint-partial: {name} {t}' for t in coverage.partial)
+        findings.extend(f'pourpoint-uncovered: {name} {t}' for t in coverage.uncovered)
         for health in diagnostics.aoi_health_report(ds):
             if not health.ok:
                 findings.append(f'aoi-health: {name} {health.triplet}: {health.issue}')
@@ -110,7 +110,7 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
 def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     """Create an empty snowdb at PATH (defaults to the snowdb_config setting).
 
-    Lays out the root config (``snowdb_conf.json``), ``aois/``, and ``data/``. No
+    Lays out the root config (``snowdb_conf.json``), ``pourpoints/``, and ``data/``. No
     datasets are registered: a dataset goes live by staging it (``dataset
     create``) and registering it (``dataset create --activate`` or ``dataset
     add``), which is also where area + zone-layer generation happens. Idempotent --

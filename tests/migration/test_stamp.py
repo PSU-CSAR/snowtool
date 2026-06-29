@@ -12,7 +12,7 @@ from snowtool.snowdb.db import SnowDb
 
 def _legacy_root(tmp_path):
     """A pre-config snowdb root: the base tree, but no snowdb_conf.json."""
-    (tmp_path / 'aois' / 'records').mkdir(parents=True)
+    (tmp_path / 'pourpoints' / 'records').mkdir(parents=True)
     (tmp_path / 'data' / 'snodas').mkdir(parents=True)
     return tmp_path
 
@@ -60,7 +60,7 @@ def test_stamp_rejects_a_non_directory(tmp_path):
 
 
 def test_stamp_rejects_a_non_snowdb_dir(tmp_path):
-    (tmp_path / 'aois').mkdir()  # has aois/ but no data/
+    (tmp_path / 'pourpoints').mkdir()  # has pourpoints/ but no data/
 
     with pytest.raises(ValueError, match='missing data'):
         stamp_root(tmp_path)

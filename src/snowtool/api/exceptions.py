@@ -6,8 +6,8 @@ gazebo wires the ``ProblemException``, ``RequestValidationError`` (->422), and
 error -- never a bare ``ValueError``/``FileNotFoundError``, so a genuine server bug
 still surfaces as a 500:
 
-* :class:`AOICoverageError` -> 409 (the AOI is not covered by the dataset grid)
-* :class:`AOINotFoundError` -> 404 (no stored AOI record for the triplet)
+* :class:`PourpointCoverageError` -> 409 (the AOI is not covered by the dataset grid)
+* :class:`PourpointNotFoundError` -> 404 (no stored AOI record for the triplet)
 * :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
 * :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)
 """
@@ -22,9 +22,9 @@ from gazebo.problems import ProblemDetail
 from gazebo.rels import MediaType
 
 from snowtool.exceptions import (
-    AOICoverageError,
-    AOINotFoundError,
     AOIRasterNotFoundError,
+    PourpointCoverageError,
+    PourpointNotFoundError,
     QueryParameterError,
 )
 
@@ -56,8 +56,8 @@ def _handler(status: HTTPStatus):
 
 def install_exception_handlers(app: FastAPI) -> None:
     """Register the domain-exception -> problem+json handlers on ``app``."""
-    app.add_exception_handler(AOICoverageError, _handler(HTTPStatus.CONFLICT))  # type: ignore[arg-type]
-    app.add_exception_handler(AOINotFoundError, _handler(HTTPStatus.NOT_FOUND))  # type: ignore[arg-type]
+    app.add_exception_handler(PourpointCoverageError, _handler(HTTPStatus.CONFLICT))  # type: ignore[arg-type]
+    app.add_exception_handler(PourpointNotFoundError, _handler(HTTPStatus.NOT_FOUND))  # type: ignore[arg-type]
     app.add_exception_handler(AOIRasterNotFoundError, _handler(HTTPStatus.NOT_FOUND))  # type: ignore[arg-type]
     app.add_exception_handler(
         QueryParameterError,
