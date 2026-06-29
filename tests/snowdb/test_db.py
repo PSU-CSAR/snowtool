@@ -147,7 +147,7 @@ def test_open_accepts_the_config_file_directly(tmp_path):
 
     opened = SnowDb.open(tmp_path / CONFIG_FILENAME)
 
-    assert opened.path == tmp_path
+    assert opened.root == tmp_path
     assert list(opened) == ['snodas']
 
 

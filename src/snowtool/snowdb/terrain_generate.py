@@ -586,7 +586,7 @@ def generate_terrain(
             dtype='float64',
             nodata=numpy.nan,
         ) as wvrt:
-            _stream_blocks(
+            _TerrainStreamer(
                 wvrt,
                 dst_transform,
                 dst_w,
@@ -595,9 +595,8 @@ def generate_terrain(
                 py,
                 accumulators,
                 work_crs,
-                n_workers,
                 bs,
-            )
+            ).run(n_workers)
     # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
     # One generation id for the whole pass: a digest over every target's
@@ -879,28 +878,3 @@ class _TerrainStreamer:
                 next_block = next(pending, None)
                 if next_block is not None:
                     window.append(pool.submit(self._compute, next_block))
-
-
-def _stream_blocks(
-    wvrt: WarpedVRT,
-    dst_transform: Any,
-    dst_w: int,
-    dst_h: int,
-    px: float,
-    py: float,
-    accumulators: list[_GridAccumulator],
-    work_crs: str,
-    workers: int,
-    block_size: int,
-) -> None:
-    _TerrainStreamer(
-        wvrt,
-        dst_transform,
-        dst_w,
-        dst_h,
-        px,
-        py,
-        accumulators,
-        work_crs,
-        block_size,
-    ).run(workers)

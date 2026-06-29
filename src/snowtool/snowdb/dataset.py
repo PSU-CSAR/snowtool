@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zone_layer import (
+        GenerationOptions,
         ZoneLayerProvider,
         ZoneLayerSet,
         ZoneLayerSource,
@@ -303,14 +304,14 @@ class Dataset:
         source: ZoneLayerSource,
         *,
         force: bool = False,
-        **options: object,
+        options: GenerationOptions | None = None,
     ) -> str:
         """Generate this dataset's zone-layer set for ``provider`` from ``source``.
 
         A single-grid pass over the source (binning only into this grid); for the
         multi-grid shared-source pass, see :meth:`SnowDb.generate_zone_layers`.
-        ``**options`` carries engine-specific knobs (e.g. terrain's
-        ``workers``/``block_size``). Returns the set's provenance hash.
+        ``options`` carries engine knobs (e.g. terrain's ``workers``/
+        ``block_size``). Returns the set's provenance hash.
         """
         bounds = grid_extent_4326(self.grid)
         hashes = provider.generate(
@@ -318,7 +319,7 @@ class Dataset:
             [self.zone_target(provider)],
             bounds,
             force=force,
-            **options,
+            options=options,
         )
         return hashes[self.spec.name]
 
@@ -333,21 +334,12 @@ class Dataset:
     ) -> Iterator[tuple[date, Path]]:
         # Filter the dates that actually exist (one directory listing) rather than
         # probing every calendar day in the range; this also lets a query carry an
-        # open-ended interval, since selection is over a finite set.
+        # open-ended interval, since selection is over a finite set. Each date's
+        # single COG (and the multiple-match guard) comes from variable_path.
         for date_ in query.select(self.available_dates()):
-            matching_files = list(
-                (self._cogs / self._format_date(date_)).glob(variable.glob),
-            )
-
-            if len(matching_files) < 1:
-                continue
-            if len(matching_files) > 1:
-                raise RuntimeError(
-                    'Found multiple files matching date / variable '
-                    f"'{date_}' / '{variable.key}': {matching_files}",
-                )
-
-            yield date_, matching_files[0]
+            path = self.variable_path(date_, variable)
+            if path is not None:
+                yield date_, path
 
     def aoi_raster_path_from_triplet(
         self: Self,
@@ -496,7 +488,7 @@ class Dataset:
     ) -> AOIRaster:
         """Open the burned AOI raster for ``triplet`` (the stats read input).
 
-        Raises :class:`FileNotFoundError` (pointing at ``aoi rasterize``) when the
+        Raises :class:`FileNotFoundError` (pointing at ``pourpoint rasterize``) when the
         raster has not been built for this dataset, so a stats query surfaces a
         clean missing-prerequisite error rather than a bare open failure.
         """
@@ -504,7 +496,7 @@ class Dataset:
         if not path.is_file():
             raise AOIRasterNotFoundError(
                 f'No AOI raster for {station_triplet!r} in dataset '
-                f'{self.spec.name!r}; run `aoi rasterize` first.',
+                f'{self.spec.name!r}; run `pourpoint rasterize` first.',
             )
         return AOIRaster.open(path, self.grid)
 

@@ -73,7 +73,7 @@ def test_reader_missing_aoi_raster_raises(tmp_path, spec, pourpoint_geojson):
         rasterize=False,
     )
     reader = SnowDbReader(catalog)
-    with pytest.raises(FileNotFoundError, match='aoi rasterize'):
+    with pytest.raises(FileNotFoundError, match='pourpoint rasterize'):
         asyncio.run(reader.zonal_stats(TRIPLET, 'test', QUERY, variable_keys=['swe']))
 
 

@@ -22,7 +22,7 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
     second = ctx.snowdb
 
     assert first is second
-    assert first.path == tmp_path
+    assert first.root == tmp_path
 
 
 def test_context_falls_back_to_settings(tmp_path, monkeypatch):
@@ -31,7 +31,7 @@ def test_context_falls_back_to_settings(tmp_path, monkeypatch):
     monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(tmp_path))
     ctx = CliContext(config=None)
 
-    assert ctx.snowdb.path == tmp_path
+    assert ctx.snowdb.root == tmp_path
 
 
 @pytest.mark.parametrize(
@@ -66,12 +66,12 @@ def _app() -> click.Group:
     @app.command()
     @pass_snowdb
     def show(snowdb) -> None:
-        click.echo(str(snowdb.path))
+        click.echo(str(snowdb.root))
 
     @app.command('show-mgr')
     @pass_manager
     def show_mgr(manager) -> None:
-        click.echo(str(manager.db.path))
+        click.echo(str(manager.db.root))
 
     return app
 

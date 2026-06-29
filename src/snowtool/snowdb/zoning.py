@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
+from snowtool.exceptions import QueryParameterError
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -44,6 +46,24 @@ class Zone:
 
     key: str
     label: str
+
+    def ref_fields(self: Self) -> dict[str, object]:
+        """The response-model fields for this zone (incl. its ``kind`` tag).
+
+        Merged with the axis ``layer`` key and validated into the matching
+        :class:`~snowtool.snowdb.response_models.ZoneRef` member, so each kind
+        owns its own self-description rather than being switched on externally.
+        """
+        raise NotImplementedError
+
+    def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
+        """This axis' ``(header, value)`` CSV column pairs for one crossed cell.
+
+        The header names the column (qualified by ``layer`` and the zone unit);
+        the value is this zone's entry. A structured axis (banded/threshold)
+        expands to two columns, a categorical axis to one.
+        """
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -61,6 +81,15 @@ class BandZone(Zone):
     def __str__(self: Self) -> str:
         return f'{self.min}_{self.max}'
 
+    def ref_fields(self: Self) -> dict[str, object]:
+        return {'kind': 'band', 'min': self.min, 'max': self.max, 'unit': self.unit}
+
+    def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
+        return [
+            (f'{layer}_min_{self.unit}', str(self.min)),
+            (f'{layer}_max_{self.unit}', str(self.max)),
+        ]
+
 
 @dataclass(frozen=True)
 class ClassZone(Zone):
@@ -70,6 +99,12 @@ class ClassZone(Zone):
 
     def __str__(self: Self) -> str:
         return self.label
+
+    def ref_fields(self: Self) -> dict[str, object]:
+        return {'kind': 'class', 'code': self.code, 'label': self.label}
+
+    def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
+        return [(layer, self.label)]
 
 
 @dataclass(frozen=True)
@@ -87,6 +122,21 @@ class ThresholdZone(Zone):
 
     def __str__(self: Self) -> str:
         return self.label
+
+    def ref_fields(self: Self) -> dict[str, object]:
+        return {
+            'kind': 'threshold',
+            'threshold': self.threshold,
+            'unit': self.unit,
+            'side': self.side,
+            'label': self.label,
+        }
+
+    def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
+        return [
+            (f'{layer}_side', self.label),
+            (f'{layer}_threshold_{self.unit}', f'{self.threshold:g}'),
+        ]
 
 
 class ZoneScheme(ABC):
@@ -125,6 +175,24 @@ class ZoneScheme(ABC):
         """
         return {}
 
+    def parse_override(self: Self, layer_key: str, raw: str) -> int | float:
+        """Parse a query's ``:override`` token (the CLI ``--zone`` flag) for this
+        scheme. The base scheme takes none, so any token is an error -- a
+        categorical axis has nothing to override."""
+        raise QueryParameterError(
+            f'zone {layer_key!r} takes no override (it is a categorical axis); '
+            f'drop the ":{raw}".',
+        )
+
+    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
+        """The scheme kwargs an explicit query override resolves to.
+
+        The counterpart of :meth:`default_overrides` for the *explicit* override a
+        selection carries (vs. the dataset's configured default). The base scheme
+        consumes no override, so it returns nothing.
+        """
+        return {}
+
 
 @dataclass(frozen=True)
 class BandedZoning(ZoneScheme):
@@ -157,13 +225,24 @@ class BandedZoning(ZoneScheme):
             return {'step': params[self.param_key]}
         return {}
 
+    def parse_override(self: Self, layer_key: str, raw: str) -> int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
+            ) from e
+
+    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
+        return {'step': override}
+
     def _step(self: Self, override: object) -> int:
         step = override if override is not None else self.default_step
         if not isinstance(step, int) or step <= 0:
             raise ValueError(f'band step must be a positive int, got {step!r}')
         return step
 
-    def zones(self: Self, **override: object) -> tuple[Zone, ...]:
+    def zones(self: Self, **override: object) -> tuple[BandZone, ...]:
         """The bands spanning the domain at ``step`` (default ``default_step``).
 
         Aligned to 0: band ``i`` is ``[i*step, (i+1)*step)``. Reproduces the old
@@ -195,7 +274,7 @@ class BandedZoning(ZoneScheme):
         """
         bands = self.zones(**override)
         edges = numpy.array(
-            [band.min for band in bands] + [bands[-1].max],  # type: ignore[attr-defined]
+            [band.min for band in bands] + [bands[-1].max],
             dtype=numpy.float64,
         )
         scaled = numpy.asarray(values, dtype=numpy.float64) * self.value_scale
@@ -236,10 +315,25 @@ class ThresholdZoning(ZoneScheme):
             return {'threshold': params[self.param_key]}
         return {}
 
-    def _threshold(self: Self, override: object) -> float:
-        return float(override if override is not None else self.default_threshold)  # type: ignore[arg-type]
+    def parse_override(self: Self, layer_key: str, raw: str) -> float:
+        try:
+            return float(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
+            ) from e
 
-    def zones(self: Self, **override: object) -> tuple[Zone, ...]:
+    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
+        return {'threshold': override}
+
+    def _threshold(self: Self, override: object) -> float:
+        if override is None:
+            return float(self.default_threshold)
+        if not isinstance(override, int | float):
+            raise ValueError(f'threshold must be a number, got {override!r}')
+        return float(override)
+
+    def zones(self: Self, **override: object) -> tuple[ThresholdZone, ...]:
         """The two sides of the split (below, at-or-above), with clean labels.
 
         The active threshold rides on each :class:`ThresholdZone` as a structured
@@ -283,7 +377,7 @@ class CategoricalZoning(ZoneScheme):
     classes: tuple[ClassZone, ...]
     layer_nodata: int
 
-    def zones(self: Self, **override: object) -> tuple[Zone, ...]:
+    def zones(self: Self, **override: object) -> tuple[ClassZone, ...]:
         """The class list (its order *is* the ordinal order)."""
         return self.classes
 

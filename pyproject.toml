@@ -90,6 +90,7 @@ extend-immutable-calls = [
 [tool.mypy]
 ignore_missing_imports = true
 scripts_are_modules = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = 'function'

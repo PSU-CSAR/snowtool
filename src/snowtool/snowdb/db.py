@@ -90,9 +90,6 @@ class SnowDb:
         # against. A config built in code (no path) has no root -- fine as long as
         # every link it uses is absolute; a relative one raises when resolved.
         self.root = config.path.parent if config.path is not None else None
-        # `path` is kept as an alias for `root` (the many read helpers below, and
-        # callers, refer to `self.path`).
-        self.path = self.root
         self.data_path = self.root / 'data' if self.root is not None else None
 
         self.pourpoint_records_path = self._resolve_path(config.pourpoint_records)

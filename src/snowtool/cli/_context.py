@@ -81,32 +81,42 @@ class CliContext:
         return SnowDbManager(self.snowdb)
 
 
+def _inject[T, **P, R](
+    f: Callable[Concatenate[T, P], R],
+    build: Callable[[CliContext], T],
+) -> Callable[P, R]:
+    """Wrap ``f`` so it receives ``build(ctx_obj)`` as its first argument.
+
+    The shared scaffold behind :func:`pass_snowdb`/:func:`pass_manager`: it wraps
+    :func:`click.pass_obj`, builds the target from the :class:`CliContext` on
+    ``ctx.obj`` (lazily opening the database), and maps the
+    :class:`~snowtool.exceptions.SnowDbConfigError` that an un-initialized root
+    raises into a clean ``ClickException`` rather than a traceback.
+    """
+    from snowtool.exceptions import SnowDbConfigError
+
+    @click.pass_obj
+    @functools.wraps(f)
+    def wrapper(ctx_obj: CliContext, /, *args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            target = build(ctx_obj)
+        except SnowDbConfigError as e:
+            raise click.ClickException(str(e)) from e
+        return f(target, *args, **kwargs)
+
+    return wrapper
+
+
 def pass_snowdb[**P, R](
     f: Callable[Concatenate[SnowDb, P], R],
 ) -> Callable[P, R]:
     """Inject the invocation's :class:`SnowDb` as a command's first argument.
 
-    Wraps :func:`click.pass_obj`: the wrapped callback receives the lazily-built
-    SnowDb (from the :class:`CliContext` on ``ctx.obj``) instead of the context
-    object, so command bodies talk to the domain API and never to click context.
-    Opening can fail if the root has no config (never ``snowdb init``-ed); that is
-    surfaced as a clean CLI error rather than a traceback.
+    The wrapped callback receives the lazily-built SnowDb (from the
+    :class:`CliContext` on ``ctx.obj``) instead of the context object, so command
+    bodies talk to the domain API and never to click context.
     """
-
-    @click.pass_obj
-    @functools.wraps(f)
-    def wrapper(ctx_obj: CliContext, /, *args: P.args, **kwargs: P.kwargs) -> R:
-        import click as _click
-
-        from snowtool.exceptions import SnowDbConfigError
-
-        try:
-            snowdb = ctx_obj.snowdb
-        except SnowDbConfigError as e:
-            raise _click.ClickException(str(e)) from e
-        return f(snowdb, *args, **kwargs)
-
-    return wrapper
+    return _inject(f, lambda ctx_obj: ctx_obj.snowdb)
 
 
 def pass_manager[**P, R](
@@ -116,21 +126,6 @@ def pass_manager[**P, R](
 
     The write-command counterpart to :func:`pass_snowdb`: management commands that
     mutate the database take this, then write through the manager and read through
-    ``manager.db``. Opening can fail if the root has no config (never ``snowdb
-    init``-ed); that is surfaced as a clean CLI error rather than a traceback.
+    ``manager.db``.
     """
-
-    @click.pass_obj
-    @functools.wraps(f)
-    def wrapper(ctx_obj: CliContext, /, *args: P.args, **kwargs: P.kwargs) -> R:
-        import click as _click
-
-        from snowtool.exceptions import SnowDbConfigError
-
-        try:
-            manager = ctx_obj.manager
-        except SnowDbConfigError as e:
-            raise _click.ClickException(str(e)) from e
-        return f(manager, *args, **kwargs)
-
-    return wrapper
+    return _inject(f, lambda ctx_obj: ctx_obj.manager)
