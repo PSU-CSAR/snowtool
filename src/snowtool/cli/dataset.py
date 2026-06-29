@@ -15,8 +15,8 @@ import click
 from snowtool.cli._context import pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._render import DATE, _emit, _emit_record
-from snowtool.exceptions import SNODASError
-from snowtool.snowdb.zone_layer import GenerationOptions
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
 if TYPE_CHECKING:
     from datetime import date
@@ -201,7 +201,7 @@ def create_dataset(
                 force=True,
                 options=GenerationOptions(workers=workers, block_size=block_size),
             )
-        except (FileExistsError, SNODASError) as e:
+        except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
         click.echo(f'generated {provider_name} for {name}')
 
@@ -310,7 +310,7 @@ def ingest_dataset(
     for archive in archives:
         try:
             dates = ds.ingest(archive, force=True)
-        except (FileExistsError, SNODASError) as e:
+        except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
         for ingested in dates:
             click.echo(f'ingested {name} {ingested.isoformat()} from {archive}')
@@ -388,7 +388,7 @@ def generate_zones(
                 force=True,
                 options=GenerationOptions(workers=workers, block_size=block_size),
             )
-        except (FileExistsError, SNODASError) as e:
+        except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
         click.echo(f'generated {provider_name} for {name}')
 

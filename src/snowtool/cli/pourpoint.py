@@ -22,7 +22,7 @@ from snowtool.cli._datasets import (
     resolve_datasets,
 )
 from snowtool.cli._render import _emit, _emit_record
-from snowtool.exceptions import PourpointPruneDestinationRequiredError, SNODASError
+from snowtool.exceptions import PourpointPruneDestinationRequiredError, SnowtoolError
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -128,21 +128,25 @@ def list_pourpoints(snowdb: SnowDb, fmt: str) -> None:
 @pass_snowdb
 def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
     """Show a stored pourpoint's details (from its record geojson)."""
+    index = snowdb.pourpoint_index()
     try:
-        pp = snowdb.load_pourpoint(triplet)
+        pp = snowdb.load_pourpoint(triplet, index=index)
     except FileNotFoundError as e:
         raise click.ClickException(str(e)) from e
 
+    # area_meters and geometry_hash are cached on the index entry (computed at
+    # reindex); read them rather than recomputing from the basin polygon.
+    entry = index[triplet]
     lon, lat = pp.point['coordinates'][:2]
     record = {
         'triplet': pp.station_triplet,
         'name': pp.name,
         'awdb_id': pp.awdb_id,
         'usgs_id': pp.usgs_id,
-        'area_meters': pp.area_meters if pp.polygon is not None else None,
+        'area_meters': entry.area_meters,
         'point_lon': lon,
         'point_lat': lat,
-        'geometry_hash': pp.geometry_hash if pp.polygon is not None else None,
+        'geometry_hash': entry.geometry_hash,
     }
     _emit_record(record, fmt)
 
@@ -232,7 +236,7 @@ def rasterize_aois(
     datasets = resolve_datasets(manager.db, dataset_names)
     try:
         result = manager.rasterize_aois(pourpoints, datasets, rebuild=rebuild)
-    except (FileNotFoundError, SNODASError) as e:
+    except (FileNotFoundError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
     for triplet_, dataset_name in result.built:

@@ -1,12 +1,13 @@
 """The zone model: how a layer's pixels map to zones.
 
 A :class:`ZoneScheme` declares the zones a
-:class:`~snowtool.snowdb.zone_layer.ZoneLayer` stratifies the grid into and how
-each pixel is assigned to one. Two kinds are supported:
+:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayer` stratifies the grid into and how
+each pixel is assigned to one. Three kinds are supported:
 
 * :class:`BandedZoning` -- contiguous numeric bands aligned to 0 over a fixed
-  domain (elevation in feet, forest cover in percent). Generalises the old
-  ``ElevationBand`` banding.
+  domain (elevation in feet, forest cover in percent).
+* :class:`ThresholdZoning` -- a binary below/at-or-above split (forest cover
+  forested vs unforested).
 * :class:`CategoricalZoning` -- a fixed set of discrete classes (aspect
   N/E/S/W/flat).
 
@@ -51,7 +52,7 @@ class Zone:
         """The response-model fields for this zone (incl. its ``kind`` tag).
 
         Merged with the axis ``layer`` key and validated into the matching
-        :class:`~snowtool.snowdb.response_models.ZoneRef` member, so each kind
+        :class:`~snowtool.snowdb.zonal_stat_models.ZoneRef` member, so each kind
         owns its own self-description rather than being switched on externally.
         """
         raise NotImplementedError
@@ -70,8 +71,8 @@ class Zone:
 class BandZone(Zone):
     """A contiguous numeric band ``[min, max)`` in the scheme's zone ``unit``.
 
-    Subsumes the old ``ElevationBand`` -- ``min``/``max`` are whole zone-unit
-    bounds (feet for elevation, percent for forest cover).
+    ``min``/``max`` are whole zone-unit bounds (feet for elevation, percent for
+    forest cover).
     """
 
     min: int
@@ -327,11 +328,9 @@ class ThresholdZoning(ZoneScheme):
         return {'threshold': override}
 
     def _threshold(self: Self, override: object) -> float:
-        if override is None:
-            return float(self.default_threshold)
-        if not isinstance(override, int | float):
+        if override is not None and not isinstance(override, int | float):
             raise ValueError(f'threshold must be a number, got {override!r}')
-        return float(override)
+        return float(self.default_threshold if override is None else override)
 
     def zones(self: Self, **override: object) -> tuple[ThresholdZone, ...]:
         """The two sides of the split (below, at-or-above), with clean labels.

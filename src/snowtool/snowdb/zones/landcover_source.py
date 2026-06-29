@@ -2,15 +2,14 @@
 
 A :class:`LandCoverSource` presents a single opened NLCD land-cover raster
 covering a requested geographic extent; the generator
-(:func:`~snowtool.snowdb.landcover_generate.generate_landcover`) bins whatever it
+(:func:`~snowtool.snowdb.zones.landcover_generate.generate_landcover`) bins whatever it
 is handed onto each target grid. Like the DEM source, this belongs to the *snow
 database*, not any one dataset: one source bins into every grid in a single pass.
 
 * :class:`AnnualNLCD` -- the default. Downloads the MRLC Annual NLCD land-cover
-  bundle once (a single national GeoTIFF), caches the extracted raster, and reads
-  it locally. This is the land-cover analogue of the DEM's default
-  :class:`~snowtool.snowdb.dem_source.ThreeDEP`, so ``snowdb init`` and the
-  ``dataset`` commands build land cover out of the box just like terrain.
+  bundle once (a single national GeoTIFF), caches the extracted raster, and reads it
+  locally, so ``snowdb init`` and the ``dataset`` commands build land cover out of
+  the box.
 * :class:`LocalFile` -- an NLCD raster the operator already has on disk.
 
 Why download-and-cache rather than stream like 3DEP: the Annual NLCD raster
@@ -35,7 +34,7 @@ from typing import TYPE_CHECKING, Self
 
 import rasterio
 
-from snowtool.snowdb.zone_layer import Bounds, ZoneLayerSource
+from snowtool.snowdb.zones.zone_layer import Bounds, ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

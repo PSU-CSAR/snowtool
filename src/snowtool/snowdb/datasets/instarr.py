@@ -29,8 +29,8 @@ import numpy
 import rasterio
 import shapely
 
-from snowtool.exceptions import SNODASError
-from snowtool.snowdb.cog import write_cog
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -180,14 +180,6 @@ class InstarrMosaicRaster:
         self.tags = tags
 
     def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
-        output_path = output_dir / self.out_name
-
-        if not force and output_path.exists():
-            raise FileExistsError(
-                f'Unable to write COG: {output_path} already exists. '
-                'Remove file and try again or use `force=True`.',
-            )
-
         gp = self.grid_params
         array = numpy.full(
             (gp.rows, gp.cols),
@@ -206,15 +198,15 @@ class InstarrMosaicRaster:
             rows, cols = data.shape
             array[row_off : row_off + rows, col_off : col_off + cols] = data
 
-        write_cog(
-            output_path,
+        write_cog_guarded(
+            output_dir / self.out_name,
             array,
+            force=force,
             transform=self.transform,
             crs=self.crs,
             nodata=self.variable.nodata,
             tile_size=gp.tile_size,
             tags=self.tags,
-            predictor=2,
         )
 
 
@@ -254,7 +246,7 @@ class InstarrIngester:
             tiles_by_date[tile_date].append(path)
 
         if not tiles_by_date:
-            raise SNODASError(
+            raise SnowtoolError(
                 f'No SPIRES NRT tiles found under {source} (expected files like '
                 "'SPIRES_NRT_h09v04_MOD09GA061_<YYYYMMDD>_V1.0.nc').",
             )
@@ -276,14 +268,16 @@ class InstarrIngester:
                     out_name=f'{stem}__{variable.key}.tif',
                     transform=transform,
                     crs=crs,
-                    tags={
-                        'SOURCE_DATASET': dataset.spec.name,
-                        'SOURCE_DATE': ingest_date.isoformat(),
-                        'SOURCE_VARIABLE': variable.key,
-                        'SOURCE_COLLECTION': collection,
-                        'SOURCE_VERSION': version,
-                        'SOURCE_FILES': source_files,
-                    },
+                    tags=source_tags(
+                        dataset=dataset.spec.name,
+                        date=ingest_date,
+                        variable=variable.key,
+                        files=source_files,
+                        extra={
+                            'SOURCE_COLLECTION': collection,
+                            'SOURCE_VERSION': version,
+                        },
+                    ),
                 )
                 for variable in dataset.spec.variables.values()
             ]
@@ -307,7 +301,7 @@ class InstarrIngester:
                 )
 
         if len(identities) > 1:
-            raise SNODASError(
+            raise SnowtoolError(
                 'INSTARR tiles for one date disagree on collection/version: '
                 f'{sorted(identities)}',
             )

@@ -4,10 +4,14 @@ import json
 
 import pytest
 
-import snowtool.snowdb.dataset as dataset_mod
+import snowtool.snowdb.aoi_raster as aoi_raster_mod
 
-from snowtool.exceptions import PourpointPruneDestinationRequiredError
-from snowtool.snowdb.dataset import Dataset, aoi_provenance
+from snowtool.exceptions import (
+    PourpointNotFoundError,
+    PourpointPruneDestinationRequiredError,
+)
+from snowtool.snowdb.aoi_raster import aoi_provenance
+from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 
@@ -191,6 +195,19 @@ def test_reindex_rebuilds_from_records(manager, db, pourpoint_geojson):
     assert db.pourpoint_index_path.is_file()
 
 
+def test_load_pourpoint_gates_on_index(manager, db):
+    """A record dropped into ``records/`` out of band (never reindexed) is not
+    served: the index is the availability gate. A reindex makes it loadable."""
+    _write_aoi(db.pourpoint_records_path, '77777:MT:USGS')
+    assert db.pourpoint_record_path('77777:MT:USGS').is_file()
+
+    with pytest.raises(PourpointNotFoundError):
+        db.load_pourpoint('77777:MT:USGS')
+
+    manager.reindex_pourpoints()
+    assert db.load_pourpoint('77777:MT:USGS').station_triplet == '77777:MT:USGS'
+
+
 # --- Dataset staleness + cascade primitives ----------------------------------
 
 
@@ -221,9 +238,9 @@ def test_format_version_bump_makes_aoi_raster_stale(db, pourpoint_geojson, monke
     assert ds.aoi_raster_is_current(aoi) is True
 
     monkeypatch.setattr(
-        dataset_mod,
+        aoi_raster_mod,
         'AOI_RASTER_FORMAT_VERSION',
-        dataset_mod.AOI_RASTER_FORMAT_VERSION + 1,
+        aoi_raster_mod.AOI_RASTER_FORMAT_VERSION + 1,
     )
     assert ds.aoi_raster_is_current(aoi) is False
     assert ds.rasterize_aoi_if_needed(aoi) is True

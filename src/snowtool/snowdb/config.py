@@ -220,5 +220,14 @@ ENTITY_ADAPTER: TypeAdapter[RootConfig | DatasetConfig] = TypeAdapter(Entity)
 
 
 def load_entity(path: Path) -> RootConfig | DatasetConfig:
-    """Parse any persisted snowtool entity, routing by its ``resource`` tag."""
+    """Parse any persisted snowtool entity, routing by its ``resource`` tag.
+
+    The type-agnostic loader: use it when the entity kind is *not* known up front
+    (a file off disk that could be either a root or a dataset config) and let the
+    discriminated union resolve it. Product code that already knows the kind it
+    wants calls the concrete ``RootConfig.load`` / ``DatasetConfig.load`` instead;
+    this is the public entry point for the general "load whatever this file is"
+    case (and the round-trip guarantee the persisted ``resource`` tags exist to
+    provide).
+    """
     return ENTITY_ADAPTER.validate_json(Path(path).read_text())

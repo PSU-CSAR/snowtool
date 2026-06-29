@@ -1,114 +1,62 @@
 """Generate a dataset's terrain set from a fine-resolution DEM.
 
-Overview
---------
 One streaming pass over a single DEM source produces co-registered terrain for
 *every* target grid at once: elevation, majority aspect class, and the mean
 orientation components (northness/eastness = mean cos/sin of aspect) -- the layers
-of a :class:`~snowtool.snowdb.terrain.TerrainSet`. Passing one target degenerates
-to per-dataset generation; passing several shares the (expensive) source read.
-
-This is a rework of the project's original 3DEP sample onto rasterio only (no
-``osgeo``): the lazy reprojection is a :class:`rasterio.vrt.WarpedVRT`, and the
-source mosaic is built by :mod:`~snowtool.snowdb.dem_source`, not ``gdal.BuildVRT``.
+of a :class:`~snowtool.snowdb.zones.terrain.TerrainSet`. Passing one target
+degenerates to per-dataset generation; passing several shares the expensive source
+read.
 
 The three stages
 ----------------
 1. **Resample to a fine, projected work grid (once).** The source is lazily
-   reprojected (bilinear) into a single common lattice: a projected CRS at a fine
-   resolution (``work_crs`` / ``work_resolution``; defaults
-   :data:`DEFAULT_WORK_CRS` = CONUS Albers, :data:`DEFAULT_WORK_RESOLUTION` = 10 m,
-   which matches 3DEP). This is *not* any dataset's target grid -- it is a shared
-   intermediate. It is the only true resample, and it is of elevation.
+   reprojected (bilinear, via :class:`rasterio.vrt.WarpedVRT`) into one common
+   lattice: a projected CRS at a fine resolution (``work_crs`` / ``work_resolution``;
+   defaults :data:`DEFAULT_WORK_CRS` = CONUS Albers, :data:`DEFAULT_WORK_RESOLUTION`
+   = 10 m, matching 3DEP). This shared intermediate is the only true resample, and
+   it is of elevation.
 2. **Derive everything at the work resolution.** Streaming in blocks (with a
    one-pixel halo so the 3x3 Horn window is exact across block edges), each fine
    pixel gets a slope, an aspect, an aspect class (N/E/S/W or flat), and
    cos/sin(aspect).
 3. **Aggregate fine pixels into target cells.** Each fine pixel's centre is
-   transformed (pyproj) into the target grid's CRS and assigned to the cell it
-   lands in (point-in-cell, not fractional-area). Per cell the engine accumulates
-   class counts (-> majority), an elevation sum (-> mean elevation), and cos/sin
-   sums over non-flat pixels (-> mean northness/eastness).
+   transformed (pyproj) into the target grid's CRS and assigned to the cell it lands
+   in (point-in-cell, not fractional-area). Per cell the engine accumulates class
+   counts (-> majority), an elevation sum (-> mean elevation), and cos/sin sums over
+   non-flat pixels (-> mean northness/eastness).
 
-Why reproject to a projected CRS at all
----------------------------------------
-The source (e.g. 3DEP 1/3") is geographic (EPSG:4326): pixels are measured in
-*degrees*, and a degree of longitude shrinks with latitude while a degree of
-latitude is ~constant -- so pixels are non-square on the ground and the x-scale
-drifts north/south. Slope and aspect are gradients (dz/dx, dz/dy); computed in
-degree space they are anisotropically distorted and aspect is rotated/biased.
-A projected, metric, near-square CRS (CONUS Albers) makes dx == dy in real metres
-so the gradient -- hence aspect -- is geometrically valid. **This reprojection is
-required for aspect, not for elevation.**
+Why a projected CRS
+-------------------
+Slope and aspect are gradients (dz/dx, dz/dy). A geographic source (e.g. 3DEP 1/3",
+EPSG:4326) has pixels measured in degrees that are non-square on the ground and
+drift with latitude, so gradients -- hence aspect -- come out distorted. A
+projected, metric, near-square CRS (CONUS Albers) makes dx == dy in real metres so
+aspect is geometrically valid. This reprojection is required for aspect, not for
+elevation.
 
-Elevation: tradeoff vs. a direct resample
------------------------------------------
-Elevation does *not* need the projected intermediate; it could be averaged
-directly from the source onto each target grid (what the old elevation-only tool
-did). Here it instead rides the shared work surface: source -> (bilinear) work
-grid -> (mean of the fine pixels per cell) target cell. That adds a small,
-nonzero error vs. a single ``average`` warp -- the bilinear step is a mild
-low-pass filter and is not exactly mean-preserving, and point-in-cell binning
-isn't fractional-area weighted (negligible at ~10 m pixels in ~1 km cells). The
-magnitude is typically sub-metre, far below the elevation-band width it feeds, so
-it is immaterial here. We accept it for **co-registration**: every terrain layer
-comes from the one surface and the same binning, so elevation and aspect line up
-by construction. (If metre-level elevation fidelity ever matters more than that
-guarantee, compute elevation by a direct ``average`` warp and use the work surface
-only for aspect.)
+Elevation rides the same shared work surface (source -> bilinear work grid -> mean
+of the fine pixels per cell) rather than a direct ``average`` warp. That costs a
+small, sub-metre error (bilinear is a mild low-pass; point-in-cell binning isn't
+area-weighted) accepted in exchange for co-registration: every layer comes from the
+one surface and the same binning, so elevation and aspect line up by construction.
+Because each fine pixel has equal area in the projected CRS, the per-cell mean is an
+area-mean, so ``average`` semantics survive for elevation.
 
-Note: because each fine pixel has equal area in the projected CRS, the plain
-per-cell mean of elevation *is* an area-mean, so the ``average`` semantics survive
-for elevation.
+``work_resolution`` should match the source's native ground resolution (too fine
+invents detail, too coarse discards it), so it is a property of the ``DemSource``
+(3DEP pins 10 m); the constants here are only fallbacks.
 
-Resolution is source-dependent
-------------------------------
-``work_resolution`` should match the source's native ground resolution: too fine
-upsamples and invents detail (aspect on interpolated values), too coarse throws
-detail away. It is therefore a property of the ``DemSource`` (3DEP pins 10 m; a
-local file defaults to its own native resolution), not a global constant -- the
-values here are only the fallbacks.
-
-Parallelism, memory, and the scatter vs. gather tradeoff
---------------------------------------------------------
-This is an **input-driven scatter**: the work grid is streamed in blocks, and each
-fine pixel is reprojected and dropped (``+=``) into whatever cell it lands in, in
-*every* target at once. The expensive, target-independent work -- read, warp, Horn
-slope/aspect, reprojection -- is therefore done once and shared across all targets;
-that single shared read is the whole point of binning many grids in one pass.
-
+Parallelism and memory
+----------------------
+This is an input-driven scatter: the work grid is streamed in blocks and each fine
+pixel is dropped (``+=``) into whatever target cell it lands in, sharing the
+expensive target-independent work (read, warp, Horn, reproject) across all targets.
 Blocks run on a thread pool (the pyproj transform dominates and releases the GIL);
 binning stays serial and in block order, so the output -- including the generation
-hash -- is identical regardless of worker count. Two memory terms result:
-
-* the **target accumulators** -- one shared set per target, ``~72 bytes/cell`` --
-  a *fixed* cost (independent of worker count), sized by the target grids; and
-* the **transient per-worker block buffers** -- each worker holds ~a dozen
-  block-sized float64 arrays mid-block, so this scales with
-  ``workers * block_size**2``.
-
-The two knobs that bound this are ``workers`` and ``block_size`` (the latter is the
-per-worker lever, since block size costs nothing on throughput). Neither bounds the
-*accumulator* term: this design assumes the targets fit in RAM.
-
-Scaling past RAM -- the materialize-then-gather refinement (future)
--------------------------------------------------------------------
-When the targets stop fitting in RAM, the principled fix is **not** to throttle
-workers but to switch the binning stage to **output-driven gather**, in two phases:
-
-1. *Materialize* the shared work surface (elevation, slope, aspect, cos/sin) to a
-   temporary tiled raster, once, streaming -- bounded memory, sequential write
-   (this cold, write-once/read-windowed intermediate is the one place spilling to
-   SSD genuinely helps, unlike the hot random-access accumulators).
-2. *Gather* per target by output tile: each tile reads its footprint from the
-   materialized surface, reprojects + bins independently and in parallel, and is
-   written out -- memory bounded by tile size, no whole-grid accumulators.
-
-This keeps the single shared read (phase 1) while making each output tile an
-independent, bounded, parallel unit (phase 2). Naive output-tiling *without* the
-materialize step would instead re-read/re-warp/re-Horn the overlapping work-grid
-region once per target per tile, losing the shared-read efficiency -- which is why
-the current single-pass scatter is the right call while the targets still fit.
+hash -- is identical regardless of worker count. Memory is the fixed target
+accumulators (~72 bytes/cell, sized by the target grids) plus transient per-worker
+block buffers (~``workers * block_size**2``); ``workers`` and ``block_size`` bound
+the latter. The design assumes the targets fit in RAM.
 """
 
 from __future__ import annotations
@@ -134,11 +82,11 @@ from rasterio.warp import Resampling, calculate_default_transform, transform_bou
 from rasterio.windows import Window
 from rasterio.windows import transform as window_transform
 
-from snowtool.exceptions import SNODASWarning
-from snowtool.snowdb.cog import write_cog
+from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.terrain import (
+from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_E,
     ASPECT_FLAT,
@@ -154,7 +102,7 @@ from snowtool.snowdb.terrain import (
 )
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.zone_layer import ZoneLayerTarget
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 # Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
 # (metres, near-square) keeps slope/aspect undistorted; 10 m matches 3DEP. These
@@ -397,25 +345,18 @@ def _target_bounds_in_work_crs(
 ) -> tuple[float, float, float, float]:
     """Union of the target grids' extents, expressed in the work CRS.
 
-    The streaming pass only needs to cover where the targets are; this bbox (a
-    conservative outer bound, since :func:`transform_bounds` densifies the reprojected
-    edge) is what the work grid is clipped to.
+    The streaming pass only needs to cover where the targets are; this bbox is what
+    the work grid is clipped to. It is an axis-aligned bbox of the reprojected target
+    edges, densified by :func:`transform_bounds`.
 
-    Known bound -- bbox under-coverage for small, heavily-curved target CRSs. The
-    footprint is an axis-aligned bbox of the reprojected target edges, densified by
-    ``transform_bounds`` (default 21 pts/edge). For a target whose CRS curves
-    strongly against the work CRS (e.g. MODIS Sinusoidal far from its central
-    meridian), a long edge can bulge outward *between* densify points, so the bbox
-    can under-cover at the grid edge by up to that densification error (~tens to
-    low-hundreds of metres); the ``+ HALO`` slack in :func:`_clip_grid_to_bounds`
-    only partly absorbs it, so the outermost ring of target cells could be fed by
-    slightly fewer source pixels. This is harmless whenever the clip is a no-op --
-    i.e. when a target is as large as or larger than the source, which is the case
-    for the continental instarr/MODIS-sinusoidal grid (the source is always the
-    smaller extent, so the full source is processed). It only bites a target that is
-    *both* comparable-to-or-smaller-than the source *and* strongly curved. If that
-    ever matters, harden by raising ``transform_bounds(..., densify_pts=...)`` and
-    widening the clip margin; left as-is since no current dataset hits it.
+    Known bound: for a target whose CRS curves strongly against the work CRS (e.g.
+    MODIS Sinusoidal far from its central meridian), an edge can bulge between densify
+    points, under-covering the grid edge by up to the densification error (tens to
+    low-hundreds of metres) so the outermost ring of target cells is fed by slightly
+    fewer source pixels. Harmless when the clip is a no-op (target >= source, as for
+    the continental instarr grid); it only bites a target both
+    smaller-than-or-comparable-to the source and strongly curved. Harden via
+    ``densify_pts`` and a wider clip margin if needed.
     """
     wests: list[float] = []
     souths: list[float] = []
@@ -489,25 +430,15 @@ def generate_terrain(
 ) -> dict[str, str]:
     """Stream ``source`` once, binning terrain into every target grid.
 
-    ``source`` is an opened DEM mosaic (any CRS/resolution); it is lazily
-    reprojected to the fine projected work grid (``work_crs`` at
-    ``work_resolution`` metres) by a :class:`WarpedVRT`. ``work_resolution`` should
-    track the source's native resolution -- ``None`` lets GDAL pick it from the
-    source (the right default for an unknown local DEM); 3DEP pins 10 m. Returns
-    the single generation hash keyed by each target name (every value is equal --
-    it is one identifier for the whole pass). Refuses to overwrite an existing
-    terrain set unless ``force``.
-
-    The per-block reprojection dominates runtime and releases the GIL, so blocks
-    are processed on a thread pool: ``workers`` of ``None`` (the default) uses one
-    thread per CPU (capped at :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial
-    path; an explicit value is honoured as-is. Binning stays serial and in block
-    order, so the result -- including the generation hash -- is identical regardless
-    of ``workers``. ``block_size`` (``None`` -> :data:`DEFAULT_BLOCK_SIZE`) is the
-    per-worker memory lever: transient RAM scales with ``workers * block_size**2``
-    at no throughput cost, so shrink it to run more workers on less RAM. Neither
-    knob bounds the (fixed) target accumulators -- see the module docstring's memory
-    and scatter-vs-gather notes.
+    ``source`` is an opened DEM mosaic (any CRS/resolution), lazily reprojected to
+    the work grid (``work_crs`` at ``work_resolution`` metres). ``work_resolution``
+    of ``None`` lets GDAL pick it from the source (right for an unknown local DEM);
+    3DEP pins 10 m. ``workers`` of ``None`` uses one thread per CPU (capped at
+    :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial path; ``block_size`` (``None``
+    -> :data:`DEFAULT_BLOCK_SIZE`) is the per-worker memory lever (see the module
+    docstring). The result -- including the generation hash -- is independent of
+    ``workers``. Returns the one generation hash keyed by each target name (all
+    values equal). Refuses to overwrite an existing terrain set unless ``force``.
     """
     if not targets:
         return {}
@@ -541,7 +472,7 @@ def generate_terrain(
             f'Source DEM {source.name!r} declares no nodata value; treating all '
             'pixels as valid data. Declare a nodata value on the source if it '
             'has fill pixels, or they will be aggregated as real elevations.',
-            SNODASWarning,
+            SnowtoolWarning,
             stacklevel=2,
         )
     full_transform, full_w, full_h = calculate_default_transform(
@@ -701,27 +632,15 @@ class _TerrainStreamer:
 
     The expensive per-block work -- the Horn slope/aspect and the per-target pyproj
     reprojection -- is pure and runs on a worker pool. The only shared mutable state
-    is the accumulators, so binning is done serially on the main thread, consuming
-    block results in streaming order. That keeps the float accumulation order
-    independent of the worker count, so the generation hash is reproducible
-    (parallel == serial bit for bit). Each worker thread gets its own Transformers;
-    a Transformer is not safe to share across threads concurrently.
+    is the accumulators, so binning is done serially on the main thread in streaming
+    block order; that keeps float accumulation order independent of worker count, so
+    the generation hash is reproducible (parallel == serial bit for bit). Each worker
+    thread gets its own Transformers (a Transformer is not safe to share concurrently).
 
     The haloed reads run under a lock: a GDAL dataset (and the shared
-    :class:`WarpedVRT` over it) is not safe for concurrent reads -- unsynchronised
-    reads corrupt blocks nondeterministically. The read is a small fraction of the
-    per-block cost (the reprojection dominates and still runs fully in parallel), so
-    serialising just the read costs little while guaranteeing correctness.
-
-    Future improvement: if the read lock ever becomes the bottleneck (it is not at
-    the ~10-worker scale measured -- the transform dominates), parallelise the reads
-    by giving each worker thread its OWN dataset handle instead of sharing one
-    WarpedVRT. That means reopening the source per thread (``rasterio.open`` of the
-    mosaic) and wrapping each in its own WarpedVRT, since the unsafety is in the
-    underlying GDAL dataset -- per-thread VRTs over one shared source would still
-    race. Hold these in the existing thread-local (alongside the Transformers) and
-    drop the lock. The cost is N source handles + N GDAL block caches resident at
-    once, which is why it is deferred until the read actually dominates.
+    :class:`WarpedVRT` over it) is not safe for concurrent reads. The read is a small
+    fraction of the per-block cost (the reprojection dominates and still runs fully in
+    parallel), so serialising it costs little.
     """
 
     def __init__(

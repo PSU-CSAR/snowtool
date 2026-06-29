@@ -1,10 +1,10 @@
 """The *land-cover* zone-layer provider: the NLCD percent-forest-cover layer.
 
-Parallels :mod:`snowtool.snowdb.terrain` but comes from a different source (NLCD
+Parallels :mod:`snowtool.snowdb.zones.terrain` but comes from a different source (NLCD
 land cover, not a DEM) and so carries its own provenance
 (:data:`~snowtool.snowdb.constants.NLCD_HASH_TAG`, not the DEM hash). It is
 generated once from a fine-resolution NLCD raster (see
-:mod:`snowtool.snowdb.landcover_generate`) onto the dataset grid, stored under
+:mod:`snowtool.snowdb.zones.landcover_generate`) onto the dataset grid, stored under
 ``data/<name>/landcover/``:
 
 * ``forest_cover_pct.tif`` -- ``uint8`` percent forest cover (0..100), the share
@@ -12,7 +12,7 @@ generated once from a fine-resolution NLCD raster (see
   :data:`~snowtool.snowdb.constants.FOREST_CLASSES`); nodata ``255``.
 
 :class:`LandCoverProvider` is the
-:class:`~snowtool.snowdb.zone_layer.ZoneLayerProvider` for this kind, so a dataset
+:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayerProvider` for this kind, so a dataset
 builds and reads land cover like any other zone layer.
 """
 
@@ -21,8 +21,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
-from snowtool.snowdb.zone_layer import ZoneLayer, ZoneLayerProvider
-from snowtool.snowdb.zoning import threshold
+from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerProvider
+from snowtool.snowdb.zones.zoning import threshold
 
 # On-disk format version of a land-cover layer set, owned by LandCoverProvider and
 # stamped (via provenance.versioned_hash) onto NLCD_HASH_TAG by the generator. Bump
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from snowtool.snowdb.zone_layer import (
+    from snowtool.snowdb.zones.zone_layer import (
         Bounds,
         GenerationOptions,
         ZoneLayerSource,
@@ -94,13 +94,13 @@ class LandCoverProvider(ZoneLayerProvider):
         Cached under the snowdb ``root`` so a repeated init reuses the (large)
         download.
         """
-        from snowtool.snowdb.landcover_source import AnnualNLCD
+        from snowtool.snowdb.zones.landcover_source import AnnualNLCD
 
         return AnnualNLCD(cache_dir=root / '.cache' / 'landcover')
 
     def local_source(self: Self, path: Path) -> ZoneLayerSource:
         """A local on-disk NLCD file source (the ``--source landcover PATH`` path)."""
-        from snowtool.snowdb.landcover_source import LocalFile
+        from snowtool.snowdb.zones.landcover_source import LocalFile
 
         return LocalFile(path)
 
@@ -120,7 +120,7 @@ class LandCoverProvider(ZoneLayerProvider):
         """
         engine = self._engine
         if engine is None:
-            from snowtool.snowdb.landcover_generate import generate_landcover
+            from snowtool.snowdb.zones.landcover_generate import generate_landcover
 
             engine = generate_landcover
 

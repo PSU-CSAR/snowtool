@@ -15,6 +15,9 @@ import rasterio
 from rasterio.crs import CRS
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import date
+
     from affine import Affine
 
 WGS84 = CRS.from_epsg(4326)
@@ -67,9 +70,8 @@ def write_cog(
         ),
         # rasterio's bundled GDAL caps DEFLATE at 9 (no libdeflate).
         'level': 9,
-        # No overviews: the read path only ever reads full resolution (z=0), and
-        # the legacy pipeline built none either. Skipping them keeps the output
-        # smaller and deterministic.
+        # No overviews: the read path only ever reads full resolution (z=0).
+        # Skipping them keeps the output smaller and deterministic.
         'overviews': 'NONE',
     }
 
@@ -82,6 +84,66 @@ def write_cog(
                 dst.set_band_description(idx + 1, description)
         if compute_stats:
             _embed_stats(dst, array, nodata)
+
+
+def write_cog_guarded(
+    path,
+    array: numpy.ndarray,
+    *,
+    force: bool,
+    transform: Affine,
+    tile_size: int,
+    crs: CRS = WGS84,
+    nodata: float | int | None = None,
+    tags: dict[str, str] | None = None,
+    predictor: int | None = 2,
+) -> None:
+    """:func:`write_cog` with the shared ingest existence-guard.
+
+    Every ingester writes its COGs the same way: refuse to clobber an existing
+    file unless ``force``, then write with the integer ``predictor=2`` ingest
+    default. This keeps the guard message and that default in one place.
+    """
+    if not force and path.exists():
+        raise FileExistsError(
+            f'Unable to write COG: {path} already exists. '
+            'Remove file and try again or use `force=True`.',
+        )
+    write_cog(
+        path,
+        array,
+        transform=transform,
+        tile_size=tile_size,
+        crs=crs,
+        nodata=nodata,
+        predictor=predictor,
+        tags=tags,
+    )
+
+
+def source_tags(
+    *,
+    dataset: str,
+    date: date,
+    variable: str,
+    files: str,
+    extra: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """The standard ``SOURCE_*`` provenance tags every ingester embeds in a COG.
+
+    The four shared keys (dataset/date/variable/files) are spelled once here;
+    ``extra`` carries each dataset's kind-specific tags (e.g. ``SOURCE_STAGE``,
+    ``SOURCE_COLLECTION``, the SNODAS time-step fields).
+    """
+    tags = {
+        'SOURCE_DATASET': dataset,
+        'SOURCE_DATE': date.isoformat(),
+        'SOURCE_VARIABLE': variable,
+        'SOURCE_FILES': files,
+    }
+    if extra:
+        tags.update(extra)
+    return tags
 
 
 def _embed_stats(dst, array: numpy.ndarray, nodata: float | int | None) -> None:

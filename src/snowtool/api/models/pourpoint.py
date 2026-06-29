@@ -122,7 +122,11 @@ def build_pourpoint_collection(
     for entry in page:
         if basin_geometry:
             # The index has no polygon by design; load the record for the basin.
-            geometry = snowdb.load_pourpoint(entry.triplet).polygon or entry.point
+            # The entry is indexed (so basin-bearing), but `.polygon` stays
+            # Optional on the model -- fall back to the point to keep this total.
+            geometry = snowdb.load_pourpoint(entry.triplet, index=index).polygon or (
+                entry.point
+            )
         else:
             geometry = entry.point
         items.append(_pourpoint_feature(entry, geometry))
@@ -144,15 +148,13 @@ def build_pourpoint_collection(
 
 def build_pourpoint_detail(
     pourpoint: Pourpoint,
-    *,
-    coverage: dict[str, Coverage],
+    entry: PourpointIndexEntry,
 ) -> PourpointDetail:
     """The single-record feature: basin polygon geometry + full properties.
 
-    Only basin-bearing pourpoints are stored (point-only ones are not imported), so
-    ``load_pourpoint`` always yields a polygon here: the geometry is the basin and
-    ``area_meters`` is always set. ``coverage`` is supplied by the route from the
-    index.
+    The basin polygon and the curated record fields come from the loaded
+    ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
+    values from ``entry`` (computed at reindex), not recomputed here.
     """
     geometry: Any = pourpoint.polygon
     return PourpointDetail(
@@ -160,9 +162,9 @@ def build_pourpoint_detail(
         geometry=geometry,
         properties=PourpointDetailProperties(
             name=pourpoint.name,
-            area_meters=pourpoint.area_meters,
+            area_meters=entry.area_meters,
             pourpoint=_point_coords(pourpoint.point),
-            coverage=coverage,
+            coverage=entry.coverage,
             awdb_id=pourpoint.awdb_id,
             usgs_id=pourpoint.usgs_id,
         ),

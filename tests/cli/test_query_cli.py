@@ -14,9 +14,9 @@ import numpy
 import pytest
 
 from snowtool.cli import cli
-from snowtool.snowdb.cog import write_cog
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.raster.cog import write_cog
 
 from ..conftest import (
     SIZE,

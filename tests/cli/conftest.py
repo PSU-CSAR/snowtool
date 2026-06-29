@@ -20,9 +20,9 @@ from click.testing import CliRunner
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
-from snowtool.snowdb.landcover import LandCoverProvider
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.terrain import TerrainProvider
+from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.terrain import TerrainProvider
 
 from ..conftest import (
     register_dataset_config,

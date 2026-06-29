@@ -4,10 +4,10 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from snowtool.exceptions import SNODASError
+from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_SPEC, SnodasIngester
-from snowtool.snowdb.input_rasters import SNODASInputRasterSet
+from snowtool.snowdb.datasets.snodas import SNODASInputRasterSet
 from snowtool.snowdb.spec import DatasetSpec
 
 
@@ -60,7 +60,7 @@ def test_ingest_without_ingester_raises(dataset, tmp_path):
     # The synthetic spec configures no ingester.
     assert dataset.spec.ingester is None
 
-    with pytest.raises(SNODASError, match='no configured ingester'):
+    with pytest.raises(SnowtoolError, match='no configured ingester'):
         dataset.ingest(tmp_path / 'archive.tar')
 
 
@@ -108,7 +108,7 @@ def test_snodas_set_accepts_pinned_05_timestep():
 
 def test_snodas_set_refuses_other_timestep_hours():
     # Any other time-step hour is refused so a date never mixes revisions.
-    with pytest.raises(SNODASError, match='pins to the 05 time-step'):
+    with pytest.raises(SnowtoolError, match='pins to the 05 time-step'):
         SNODASInputRasterSet.validate_revision(
             [_RevisionRaster(5), _RevisionRaster(18)],
         )
@@ -132,7 +132,7 @@ def test_snodas_ingester_writes_date_cogs(dataset, tmp_path, monkeypatch):
         return _FakeSet()
 
     monkeypatch.setattr(
-        'snowtool.snowdb.input_rasters.SNODASInputRasterSet.from_archive',
+        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_archive',
         staticmethod(fake_from_archive),
     )
 

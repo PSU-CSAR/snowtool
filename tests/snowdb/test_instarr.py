@@ -15,7 +15,7 @@ import rasterio
 
 from rasterio.transform import from_origin
 
-from snowtool.exceptions import SNODASError
+from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.datasets.instarr import (
@@ -74,7 +74,7 @@ def test_registered_in_default_specs():
 
 def test_ingest_empty_source_raises(tmp_path):
     ds = Dataset(INSTARR_SPEC, tmp_path)
-    with pytest.raises(SNODASError, match='No SPIRES NRT tiles'):
+    with pytest.raises(SnowtoolError, match='No SPIRES NRT tiles'):
         ds.ingest(tmp_path)
 
 

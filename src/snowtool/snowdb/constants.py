@@ -4,7 +4,7 @@ Dataset-specific values (grid geometry, DEM range, nodata) live on the dataset's
 ``DatasetSpec`` — see :mod:`snowtool.snowdb.datasets`. The on-disk *format
 version* each provenance tag carries is owned by that artifact's producer (a
 zone-layer provider's ``format_version``; the AOI writer's
-``AOI_RASTER_FORMAT_VERSION`` in :mod:`snowtool.snowdb.dataset`), and the
+``AOI_RASTER_FORMAT_VERSION`` in :mod:`snowtool.snowdb.aoi_raster`), and the
 ``versioned_hash``/``parse_format_version`` helpers live in
 :mod:`snowtool.snowdb.provenance`.
 """
@@ -57,9 +57,8 @@ FOREST_PCT_NODATA = 255
 # forested wetlands as forest.
 FOREST_CLASSES = (41, 42, 43)
 
-# Feet <-> meters, for elevation-band math.
+# Meters -> feet, for elevation-band math.
 M_TO_FT = 3.28084
-FT_TO_M = 0.3048
 
 # The elevation range (metres) that elevation bands are generated across, shared
 # by every dataset. Bands must be comparable across AOIs *and* across datasets,

@@ -8,20 +8,20 @@ import numpy
 import pytest
 import rasterio
 
-from snowtool import types
-from snowtool.snowdb.cog import write_cog
+from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.raster import AOIRaster
-from snowtool.snowdb.raster_collection import RasterCollection
-from snowtool.snowdb.terrain import ELEVATION
-from snowtool.snowdb.tiff_cache import TiffCache
+from snowtool.snowdb.query import DateRangeQuery
+from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.raster.collection import RasterCollection
+from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
+from snowtool.snowdb.zones.terrain import ELEVATION
 
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 # The synthetic SWE COG is ingested for this date; a closed one-day range selects it.
-QUERY = types.DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))
+QUERY = DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))
 
 
 def test_terrain_elevation(dataset, grid):

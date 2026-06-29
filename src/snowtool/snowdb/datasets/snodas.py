@@ -1,29 +1,40 @@
 """The SNODAS dataset definition: variables, grid spec, and ingest.
 
 ``Product`` is the SNODAS variable enum, including its filename-code mapping
-(``to_glob`` / ``from_product_codes``); the *filename parser* that consumes it
-lives with the rest of the SNODAS input handling in
-:mod:`snowtool.snowdb.input_rasters` — the only place that parses filenames (the
-read path is dataset-agnostic). ``SNODAS_SPEC`` is the source of truth for the
+(``to_glob`` / ``from_product_codes``). The SNODAS *filename parser* and the
+per-date raster set (``SNODASInputRaster`` / ``SNODASInputRasterSet``) live here
+too -- ingest is the only place that parses SNODAS filenames; the read path is
+dataset-agnostic (it finds a variable's file by its glob and gets the date from
+the ``cogs/<date>/`` directory). ``SNODAS_SPEC`` is the source of truth for the
 SNODAS grid/variables; it is collected into the registry in this package's
 ``__init__``.
 """
 
 from __future__ import annotations
 
+import gzip
+import re
+import shutil
+import tarfile
 import tempfile
 
+from collections.abc import Iterable, Iterator, Mapping
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
+import rasterio
+
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
-    from datetime import date
-
     from snowtool.snowdb.dataset import Dataset
+
+HDR_EXTS = ('.Hdr', '.txt')
 
 # --- SNODAS products: the variables + their filename-code mapping --------------
 
@@ -114,6 +125,237 @@ class Product(StrEnum):
         return _units[self.value]
 
 
+# --- SNODAS filename parser ---------------------------------------------------
+
+
+class Region(StrEnum):
+    US = 'us'
+    MASKED = 'zz'
+
+
+class Model(StrEnum):
+    SSM = 'ssm'
+
+
+class Datatype(StrEnum):
+    V0 = 'v0'  # driving input
+    V1 = 'v1'  # model output
+
+
+class Timecode(StrEnum):
+    T0024 = '0024'  # 24 hr integration
+    T0001 = '0001'  # 1 hr snapshot
+
+
+class Interval(StrEnum):
+    HOUR = 'H'
+    DAY = 'D'
+
+
+class Offset(StrEnum):
+    P001 = 'P001'  # value is delta over interval or value at interval end
+    P000 = 'P000'  # value from interval start
+
+
+class BaseFileInfo:
+    regex: ClassVar[re.Pattern[str]] = re.compile(
+        r'^'
+        r'(?P<region>[a-z]{2})_'
+        r'(?P<model>[a-z]{3})'
+        r'(?P<datatype>v\d)'
+        r'(?P<product_code>\d{4})'
+        r'(?P<scaled>S?)'
+        r'(?P<vcode>[a-zA-Z]{2}[\d_]{2})'
+        r'[AT](?P<timecode>00(01|24))'
+        r'TTNATS'
+        r'(?P<year>\d{4})'
+        r'(?P<month>\d{2})'
+        r'(?P<day>\d{2})'
+        r'(?P<hour>\d{2})'
+        r'(?P<interval>H|D)'
+        r'(?P<offset>P00[01])'
+        r'$',
+    )
+
+    def __init__(self: Self, path: Path) -> None:
+        self.path = path
+        self.name = self.path.stem
+        info = self._match(self.name).groupdict()
+
+        try:
+            self.region = Region(info['region'])
+            self.model = Model(info['model'])
+            self.datatype = Datatype(info['datatype'])
+            self.scaled = bool(info['scaled'])
+            self.vcode: str = info['vcode']
+            self.timecode = Timecode(info['timecode'])
+            self.datetime = datetime(
+                year=int(info['year']),
+                month=int(info['month']),
+                day=int(info['day']),
+                hour=int(info['hour']),
+                tzinfo=UTC,
+            )
+            self.interval = Interval(info['interval'])
+            self.offset = Offset(info['offset'])
+            self.product = Product.from_product_codes(
+                int(info['product_code']),
+                self.vcode,
+            )
+        except Exception as e:
+            raise ValueError('invalid value in SNODAS file name') from e
+
+    @classmethod
+    def _match(cls: type[Self], string: str):
+        match = cls.regex.match(string)
+        if not match:
+            raise ValueError('unable to parse SNODAS file path')
+        return match
+
+
+class SNODASInputRaster(BaseFileInfo):
+    def __init__(self: Self, path: Path) -> None:
+        super().__init__(path)
+        if path.suffix not in HDR_EXTS:
+            raise ValueError(
+                'SNODAS raster path must be to header file. '
+                f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
+            )
+
+    @staticmethod
+    def trim_header(hdr: Path) -> None:
+        """gdal has a header line length limit of
+        256 chars for <2.3.0, or 1024 chars for >=2.3.0,
+        but we trim to the smaller size to be safe."""
+        line_limit = 255
+        lines: list[bytes] = []
+        with hdr.open('rb') as f:
+            for line in f:
+                lines.append(line[: min(len(line), line_limit)] + b'\n')
+
+        with hdr.open('wb') as f:
+            f.writelines(lines)
+
+    def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
+        # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
+        self.trim_header(self.path)
+
+        with rasterio.open(self.path) as src:
+            array = src.read(1)
+            transform = src.transform
+            crs = src.crs or WGS84
+            nodata = src.nodata
+
+        write_cog_guarded(
+            output_dir / f'{self.name}.tif',
+            array,
+            force=force,
+            transform=transform,
+            crs=crs,
+            nodata=nodata,
+            tile_size=SNODAS_SPEC.grid_params.tile_size,
+            tags=self._provenance_tags(),
+        )
+
+    def _provenance_tags(self: Self) -> dict[str, str]:
+        # SNODAS already keeps its full source stem as the COG name; these tags
+        # add the parsed fields as a structured, queryable record in the file.
+        return source_tags(
+            dataset=SNODAS_SPEC.name,
+            date=self.datetime.date(),
+            variable=self.product.value,
+            files=self.path.name,
+            extra={
+                'SOURCE_REGION': self.region.value,
+                'SOURCE_MODEL': self.model.value,
+                'SOURCE_DATATYPE': self.datatype.value,
+                'SOURCE_SCALED': str(self.scaled),
+                'SOURCE_VCODE': self.vcode,
+                'SOURCE_TIMECODE': self.timecode.value,
+                'SOURCE_INTERVAL': self.interval.value,
+                'SOURCE_OFFSET': self.offset.value,
+                'SOURCE_TIMESTEP': self.datetime.isoformat(),
+            },
+        )
+
+
+class SNODASInputRasterSet:
+    def __init__(
+        self: Self,
+        rasters: Mapping[Product, SNODASInputRaster],
+    ) -> None:
+        missing = sorted(product.value for product in Product if product not in rasters)
+        if missing:
+            raise SnowtoolError(
+                f'SNODAS archive missing product(s): {missing}',
+            )
+        self.rasters = dict(rasters)
+        self.date = self.validate_dates(self)
+        self.validate_revision(self)
+
+    def __iter__(self: Self) -> Iterator[SNODASInputRaster]:
+        return iter(self.rasters.values())
+
+    @staticmethod
+    def validate_dates(rasters: Iterable[SNODASInputRaster]) -> date:
+        dates = {raster.datetime.date() for raster in rasters}
+        if len(dates) > 1:
+            raise SnowtoolError(
+                'SNODAS rasters not all from same date per filenames',
+            )
+        return dates.pop()
+
+    # Temporary policy gate: pin ingest to the 05 time-step hour. The hour in a
+    # SNODAS filename is the `hh` of the time-step code (TSyyyymmddhh) -- the
+    # standard daily product uses 05 for every variable (both the T0001
+    # snapshots and the T0024 24-hr integrations). The parser above stays
+    # general (any hour), but a dataset must hold a single consistent revision,
+    # so we refuse anything but the 05 daily product here (SWANN pins to
+    # `_early` for the same latency-over-finality reason). Remove this method
+    # (and its call in __init__) to allow other hours.
+    PINNED_TIMESTEP_HOUR: ClassVar[int] = 5
+
+    @classmethod
+    def validate_revision(
+        cls: type[Self],
+        rasters: Iterable[SNODASInputRaster],
+    ) -> None:
+        pinned = cls.PINNED_TIMESTEP_HOUR
+        off = sorted({r.datetime.hour for r in rasters if r.datetime.hour != pinned})
+        if off:
+            raise SnowtoolError(
+                f'Refusing SNODAS time-step hour(s) {off}: ingest pins to the '
+                f'{cls.PINNED_TIMESTEP_HOUR:02d} time-step (the standard daily '
+                'product) so a date never mixes revisions. Remove the revision '
+                'pin to allow other hours.',
+            )
+
+    @classmethod
+    def from_archive(
+        cls: type[Self],
+        snodas_tar: Path,
+        extract_dir: Path,
+    ) -> Self:
+        rasters: dict[Product, SNODASInputRaster] = {}
+
+        with tempfile.TemporaryDirectory() as _temp:
+            temp = Path(_temp)
+            with tarfile.open(snodas_tar) as tar:
+                tar.extractall(temp, filter='data')
+
+            for f in temp.glob('*.gz'):
+                outpath = extract_dir / f.stem
+                with gzip.open(f, 'rb') as f_in, outpath.open('wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+            for ext in HDR_EXTS:
+                for hdr in extract_dir.glob(f'*{ext}'):
+                    file_info = SNODASInputRaster(hdr)
+                    rasters[file_info.product] = file_info
+
+        return cls(rasters)
+
+
 # --- SNODAS ingest ------------------------------------------------------------
 
 
@@ -122,9 +364,7 @@ class SnodasIngester:
 
     The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: it
     parses the archive into a per-date raster set and hands them to the dataset's
-    generic :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`. The
-    ``SNODASInputRasterSet`` import is local to keep this module free of a
-    load-time dependency on ``input_rasters`` (which imports this one).
+    generic :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`.
     """
 
     def ingest(
@@ -134,8 +374,6 @@ class SnodasIngester:
         *,
         force: bool = False,
     ) -> list[date]:
-        from snowtool.snowdb.input_rasters import SNODASInputRasterSet
-
         with tempfile.TemporaryDirectory() as extract_dir:
             rasters = SNODASInputRasterSet.from_archive(source, Path(extract_dir))
             dataset.write_date_cogs(rasters.date, rasters, force=force)
