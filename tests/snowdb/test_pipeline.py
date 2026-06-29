@@ -212,7 +212,7 @@ def test_zonal_stats_forest_threshold_is_overridable(
     _, stats = _crossed_stats(
         dataset,
         pourpoint_geojson,
-        [ZoneSelection('landcover.forest_cover', threshold=100.5)],
+        [ZoneSelection('landcover.forest_cover', override=100.5)],
     )
     (cell,) = [c for c in stats.dump()[0].zones if c.area_m2 > 0]
     (forest_ref,) = cell.zone

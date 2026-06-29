@@ -363,7 +363,7 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
     ) == {'step': 2000}
     # ...but an explicit step always wins.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('terrain.elevation', step=500),
+        ZoneSelection('terrain.elevation', override=500),
         elevation,
         spec,
     ) == {'step': 500}
@@ -375,7 +375,7 @@ def test_selection_overrides_resolve_per_layer_dataset_defaults():
     ) == {'threshold': 50}
     # A threshold override passes straight through.
     assert ZonalStats._selection_overrides(
-        ZoneSelection('landcover.forest_cover', threshold=30),
+        ZoneSelection('landcover.forest_cover', override=30),
         forest,
         spec,
     ) == {'threshold': 30}
@@ -393,10 +393,10 @@ def _registry():
     ('token', 'expected'),
     [
         ('terrain.elevation', ZoneSelection('terrain.elevation')),
-        ('terrain.elevation:500', ZoneSelection('terrain.elevation', step=500)),
+        ('terrain.elevation:500', ZoneSelection('terrain.elevation', override=500)),
         (
             'landcover.forest_cover:40',
-            ZoneSelection('landcover.forest_cover', threshold=40.0),
+            ZoneSelection('landcover.forest_cover', override=40.0),
         ),
     ],
 )
