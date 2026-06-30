@@ -26,6 +26,7 @@ from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
+    ASPECT_ENTROPY,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
     ELEVATION,
@@ -252,6 +253,14 @@ def write_uniform_terrain(
         nodata=ASPECT_COMPONENTS.nodata,
         compute_stats=False,
         band_descriptions=ASPECT_COMPONENTS.band_descriptions,
+        **common,
+    )
+    # All-flat terrain -> all aspect mass in the flat class -> zero entropy.
+    write_cog(
+        directory / ASPECT_ENTROPY.filename,
+        numpy.zeros(shape, dtype='float32'),
+        nodata=ASPECT_ENTROPY.nodata,
+        band_descriptions=ASPECT_ENTROPY.band_descriptions,
         **common,
     )
     return dem_hash

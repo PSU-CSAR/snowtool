@@ -242,4 +242,4 @@ def test_validate_flags_stale_zone_layer_format(
     result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
 
     assert result.exit_code == 1
-    assert 'zone-layer-format: test terrain stored 999 != current 1' in result.output
+    assert 'zone-layer-format: test terrain stored 999 != current 2' in result.output
