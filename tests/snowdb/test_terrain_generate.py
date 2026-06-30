@@ -24,6 +24,7 @@ from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
+    ASPECT_ENTROPY,
     ASPECT_MAJORITY,
     ASPECT_MAJORITY_NODATA,
     ASPECT_W,
@@ -143,6 +144,8 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
     with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
         northness = ds.read(1)
         eastness = ds.read(2)
+    with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
+        entropy = ds.read(1)
 
     # Interior cells avoid the Horn/edge border that has no defined aspect.
     interior = (slice(20, 108), slice(20, 108))
@@ -156,6 +159,10 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
     # West is aspect 270 deg: cos == 0 (no northness), sin == -1 (full eastness).
     assert numpy.abs(northness[interior]).max() < 0.05
     assert eastness[interior].max() < -0.95
+
+    # Every interior cell's pixels are unanimously west-facing -> zero directional
+    # entropy (all aspect mass in one of the five classes).
+    assert numpy.abs(entropy[interior]).max() < 1e-6
 
 
 def test_generate_hash_is_one_stable_generation_id(tmp_path):
@@ -288,7 +295,9 @@ def _read_layers(directory):
         majority = ds.read(1)
     with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
         components = ds.read()
-    return elevation, majority, components
+    with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
+        entropy = ds.read(1)
+    return elevation, majority, components, entropy
 
 
 @pytest.mark.parametrize('workers', [2, 4, 8])

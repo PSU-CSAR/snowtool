@@ -175,6 +175,7 @@ def test_available_zones_lists_zoneable_layers_and_excludes_components():
     assert set(zones) == {
         'terrain.elevation',
         'terrain.aspect',
+        'terrain.aspect_entropy',
         'landcover.forest_cover',
     }
     # aspect_components has zoning=None, so it never appears.
@@ -191,6 +192,7 @@ def test_snowdb_available_zones_delegates(tmp_path, spec):
     assert set(db.available_zones()) == {
         'terrain.elevation',
         'terrain.aspect',
+        'terrain.aspect_entropy',
         'landcover.forest_cover',
     }
 
