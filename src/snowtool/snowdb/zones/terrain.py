@@ -12,6 +12,11 @@ co-registered layers on the dataset grid, stored under ``data/<name>/terrain/``:
   mean ``cos(aspect)`` and ``eastness`` = mean ``sin(aspect)`` over the cell's
   non-flat pixels (the first circular moment; ``hypot(northness, eastness)`` is
   the orientation purity in ``[0, 1]``).
+* ``aspect_entropy.tif`` -- ``float32`` normalised Shannon entropy of the cell's
+  aspect-class distribution (the same five N/E/S/W/flat counts that feed the
+  majority vote), in ``[0, 1]``: ``0`` = every pixel one class (coherent),
+  ``1`` = evenly mixed; nodata ``-1``. Thresholded into a high-/low-signal zone
+  so a query can keep only cells whose majority aspect is well-supported.
 
 Every layer carries a :data:`~snowtool.snowdb.constants.DEM_HASH_TAG` tag -- the
 sha256 of the generated elevation array -- so the whole set's provenance can be
@@ -38,7 +43,7 @@ from snowtool.snowdb.zones.zone_layer import (
     ZoneLayer,
     ZoneLayerProvider,
 )
-from snowtool.snowdb.zones.zoning import ClassZone, banded, categorical
+from snowtool.snowdb.zones.zoning import ClassZone, banded, categorical, threshold
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,7 +62,8 @@ if TYPE_CHECKING:
 # On-disk format version of a terrain layer set, owned by TerrainProvider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
 # on a material change to the terrain layer encoding so existing sets read as stale.
-TERRAIN_FORMAT_VERSION = 1
+# v2 added aspect_entropy.tif.
+TERRAIN_FORMAT_VERSION = 2
 
 # Aspect majority classes (cell's modal cardinal quadrant, or flat).
 ASPECT_N = 0
@@ -72,6 +78,15 @@ ASPECT_FLAT = 4
 ELEVATION_NODATA = -9999.0
 ASPECT_MAJORITY_NODATA = 255
 ASPECT_COMPONENTS_NODATA = float('nan')
+# Entropy is normalised into [0, 1], so a far-out sentinel doubles as nodata and
+# digitises cleanly out of the threshold split (unlike NaN, which == nothing and so
+# could not be excluded by ThresholdZoning.assign).
+ASPECT_ENTROPY_NODATA = -1.0
+
+# Default split for the aspect-direction entropy zone: a cell below this reads as a
+# coherent, high-signal aspect, at/above it as a mixed, low-signal one. Overridable
+# per query (the dataset zones param ``entropy_threshold``, or a ``:override`` token).
+DEFAULT_ASPECT_ENTROPY_THRESHOLD = 0.5
 
 
 ELEVATION = ZoneLayer(
@@ -117,9 +132,31 @@ ASPECT_COMPONENTS = ZoneLayer(
     band_descriptions=('northness_mean_cos_aspect', 'eastness_mean_sin_aspect'),
     key='aspect_components',
 )
+ASPECT_ENTROPY = ZoneLayer(
+    filename='aspect_entropy.tif',
+    dtype='float32',
+    nodata=ASPECT_ENTROPY_NODATA,
+    band_descriptions=('aspect_dir_entropy_norm_5class',),
+    key='aspect_entropy',
+    # Normalised Shannon entropy over the five aspect classes (the counts that pick
+    # the majority): low = coherent (high signal), high = mixed (low signal). A
+    # below/at-or-above split, so a query keeps only well-supported aspect cells.
+    # Meant to be crossed with the majority axis (terrain.aspect): a flat-dominated
+    # cell is low-entropy *and* majority flat, so it never poses as a high-signal
+    # direction -- the flat case is owned by the majority class, not the entropy.
+    zoning=threshold(
+        default_threshold=DEFAULT_ASPECT_ENTROPY_THRESHOLD,
+        unit='frac',
+        value_scale=1,
+        layer_nodata=ASPECT_ENTROPY_NODATA,
+        below_label='high_signal',
+        above_label='low_signal',
+        param_key='entropy_threshold',
+    ),
+)
 
 # Every layer of a complete terrain set, in write order.
-TERRAIN_LAYERS = (ELEVATION, ASPECT_MAJORITY, ASPECT_COMPONENTS)
+TERRAIN_LAYERS = (ELEVATION, ASPECT_MAJORITY, ASPECT_COMPONENTS, ASPECT_ENTROPY)
 
 
 class TerrainProvider(ZoneLayerProvider):

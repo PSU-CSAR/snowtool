@@ -1,11 +1,11 @@
 """Generate a dataset's terrain set from a fine-resolution DEM.
 
 One streaming pass over a single DEM source produces co-registered terrain for
-*every* target grid at once: elevation, majority aspect class, and the mean
-orientation components (northness/eastness = mean cos/sin of aspect) -- the layers
-of a :class:`~snowtool.snowdb.zones.terrain.TerrainSet`. Passing one target
-degenerates to per-dataset generation; passing several shares the expensive source
-read.
+*every* target grid at once: elevation, majority aspect class, the mean orientation
+components (northness/eastness = mean cos/sin of aspect), and the normalised
+aspect-direction entropy -- the layers of a
+:class:`~snowtool.snowdb.zones.terrain.TerrainSet`. Passing one target degenerates to
+per-dataset generation; passing several shares the expensive source read.
 
 The three stages
 ----------------
@@ -89,6 +89,8 @@ from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENTS,
     ASPECT_E,
+    ASPECT_ENTROPY,
+    ASPECT_ENTROPY_NODATA,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
     ASPECT_MAJORITY_NODATA,
@@ -270,8 +272,9 @@ class _GridAccumulator:
         numpy.typing.NDArray[numpy.uint8],
         numpy.typing.NDArray[numpy.float32],
         numpy.typing.NDArray[numpy.float32],
+        numpy.typing.NDArray[numpy.float32],
     ]:
-        """Reduce the accumulators to the (majority, components, elevation) arrays."""
+        """Reduce the accumulators to (majority, components, elevation, entropy)."""
         h, w = self.height, self.width
         counts = self.counts.reshape(_N_CLASSES, h, w)
         total = counts.sum(axis=0)
@@ -289,20 +292,37 @@ class _GridAccumulator:
                 self.sum_z.reshape(h, w) / total,
                 ELEVATION_NODATA,
             )
+            # Shannon entropy of the 5-class aspect distribution (incl. flat),
+            # normalised by ln(5) to [0, 1]; 0*ln(0)=0. Read crossed with the
+            # majority, so a flat-dominated cell scores low entropy *and* majority
+            # flat -- the flat case stays owned by the majority class.
+            p = counts / total
+            plogp = numpy.where(p > 0, p * numpy.log(p), 0.0)
+            entropy = numpy.where(
+                total > 0,
+                -plogp.sum(axis=0) / numpy.log(_N_CLASSES),
+                ASPECT_ENTROPY_NODATA,
+            )
 
         components = numpy.stack(
             [northness.astype(numpy.float32), eastness.astype(numpy.float32)],
         )
-        return majority, components, elevation.astype(numpy.float32)
+        return (
+            majority,
+            components,
+            elevation.astype(numpy.float32),
+            entropy.astype(numpy.float32),
+        )
 
     def write_layers(
         self: Self,
         majority: numpy.typing.NDArray[numpy.uint8],
         components: numpy.typing.NDArray[numpy.float32],
         elevation: numpy.typing.NDArray[numpy.float32],
+        entropy: numpy.typing.NDArray[numpy.float32],
         dem_hash: str,
     ) -> None:
-        """Write the three layer COGs, all stamped with the generation ``dem_hash``."""
+        """Write the four layer COGs, all stamped with the generation ``dem_hash``."""
         tags = {DEM_HASH_TAG: dem_hash}
 
         self.target.directory.mkdir(parents=True, exist_ok=True)
@@ -335,6 +355,13 @@ class _GridAccumulator:
             band_descriptions=ASPECT_COMPONENTS.band_descriptions,
             # NaN nodata: the stats filter can't exclude it, so skip stats.
             compute_stats=False,
+            **common,
+        )
+        write_cog(
+            self.target.directory / ASPECT_ENTROPY.filename,
+            entropy,
+            nodata=ASPECT_ENTROPY.nodata,
+            band_descriptions=ASPECT_ENTROPY.band_descriptions,
             **common,
         )
 
@@ -537,14 +564,14 @@ def generate_terrain(
     finalized = []
     digest = hashlib.sha256()
     for acc in sorted(accumulators, key=lambda a: a.target.name):
-        majority, components, elevation = acc.finalize()
-        finalized.append((acc, majority, components, elevation))
+        majority, components, elevation, entropy = acc.finalize()
+        finalized.append((acc, majority, components, elevation, entropy))
         digest.update(acc.target.name.encode('utf-8'))
         digest.update(elevation.tobytes())
     dem_hash = versioned_hash(TERRAIN_FORMAT_VERSION, digest.hexdigest())
 
-    for acc, majority, components, elevation in finalized:
-        acc.write_layers(majority, components, elevation, dem_hash)
+    for acc, majority, components, elevation, entropy in finalized:
+        acc.write_layers(majority, components, elevation, entropy, dem_hash)
     return dict.fromkeys((acc.target.name for acc in accumulators), dem_hash)
 
 

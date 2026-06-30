@@ -432,6 +432,7 @@ def threshold(
     layer_nodata: float,
     below_label: str,
     above_label: str,
+    param_key: str = 'threshold_pct',
 ) -> ThresholdZoning:
     """Convenience constructor for :class:`ThresholdZoning` (keyword-only)."""
     return ThresholdZoning(
@@ -441,4 +442,5 @@ def threshold(
         layer_nodata=layer_nodata,
         below_label=below_label,
         above_label=above_label,
+        param_key=param_key,
     )
