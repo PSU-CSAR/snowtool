@@ -147,56 +147,58 @@ def create_dataset(
 ) -> None:
     """Create dataset NAME's directory + area raster, then its zone layers.
 
-    Stages the dataset: it writes the directory skeleton, the area raster, the
-    dataset config (``data/NAME/dataset.json``), and -- unless ``--quick`` -- every
+    Stages the dataset -- all *invisible* to readers -- then, with ``--activate``,
+    commits it. Staging writes the directory skeleton, the area raster, the dataset
+    config (``data/NAME/dataset.json``), and -- unless ``--quick`` -- every
     configured zone layer (terrain, land cover, ...) from its provider's default
-    source (or ``--source PROVIDER PATH``). The dataset's definition comes from
-    ``--template`` (a built-in) for a brand-new dataset, or from an
-    already-registered dataset of this NAME otherwise. Staging does *not* register
-    the dataset unless ``--activate`` is passed (or use ``dataset add`` later);
-    going live also needs a ``pourpoint reindex`` + restart. Idempotent -- existing
-    artifacts are left untouched.
+    source (or ``--source PROVIDER PATH``), plus an AOI raster of every indexed
+    pourpoint's basin on the new grid. Nothing is written to the root config until
+    ``--activate`` registers the dataset (that write is the commit point), so a
+    reader sees the new dataset only afterward -- and a running API server needs a
+    restart, since its ``SnowDb`` is built once at startup. The dataset's
+    definition comes from ``--template`` (a built-in) for a brand-new dataset, or
+    from an already-registered dataset of this NAME otherwise. Register a
+    staged-but-not-activated dataset later with ``dataset add``. Idempotent --
+    existing artifacts are left untouched.
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
-    from snowtool.snowdb.dataset import Dataset
 
     ds, config = _resolve_create_target(manager.db, name, template)
     overrides = _resolve_source_overrides(manager.db, sources)
-    try:
-        Dataset.create(ds.spec, ds.path)
-    except FileExistsError:
-        click.echo(f'dataset {name} already created')
-    else:
-        click.echo(f'created dataset {name} at {ds.path}')
 
-    # Stage the dataset config beside its data so it can be registered (now via
-    # --activate, or later via `dataset add`). Idempotent overwrite.
+    # Stage the dataset config beside its data so `stage_dataset` (and later
+    # `dataset add`) can build/register from it. Idempotent overwrite.
+    ds.path.mkdir(parents=True, exist_ok=True)
     config_path = ds.path / DATASET_CONFIG_FILENAME
     config.save(config_path)
-    if activate:
-        manager.register_dataset(name, config_path)
-        click.echo(
-            f'registered {name} (run `pourpoint reindex` + restart to go live)',
-        )
-
-    if quick:
-        return
 
     try:
-        generated = manager.generate_dataset_zone_layers(
-            ds,
+        staged = manager.stage_dataset(
+            name,
+            config_path,
             source_overrides=overrides,
-            skip_present=True,
+            quick=quick,
             force=True,
             options=GenerationOptions(workers=workers, block_size=block_size),
-            progress_factory=lambda provider_name: ClickProgress(
+            zone_progress_factory=lambda provider_name: ClickProgress(
                 prefix=f'{name} {provider_name}: ',
             ),
         )
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
-    for provider_name in generated:
+
+    if staged.created:
+        click.echo(f'created dataset {name} at {staged.dataset.path}')
+    else:
+        click.echo(f'dataset {name} already created')
+    for provider_name in staged.generated:
         click.echo(f'generated {provider_name} for {name}')
+
+    if activate:
+        # The commit point: write the coverage the stage computed into the index,
+        # then the link into the root config.
+        manager.register_dataset(name, config_path, coverage=staged.coverage)
+        click.echo(f'registered {name} (restart the API to go live)')
 
 
 def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
