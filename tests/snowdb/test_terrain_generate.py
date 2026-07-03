@@ -23,13 +23,14 @@ from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.zones.terrain import (
-    ASPECT_COMPONENTS,
     ASPECT_ENTROPY,
     ASPECT_MAJORITY,
     ASPECT_MAJORITY_NODATA,
     ASPECT_W,
+    EASTNESS,
     ELEVATION,
     ELEVATION_NODATA,
+    NORTHNESS,
     TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
     TerrainProvider,
@@ -161,9 +162,10 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
         elevation = ds.read(1)
     with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
+    with rasterio.open(terrain.layer_path(NORTHNESS)) as ds:
         northness = ds.read(1)
-        eastness = ds.read(2)
+    with rasterio.open(terrain.layer_path(EASTNESS)) as ds:
+        eastness = ds.read(1)
     with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
         entropy = ds.read(1)
 
@@ -313,11 +315,13 @@ def _read_layers(directory):
         elevation = ds.read(1)
     with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
         majority = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_COMPONENTS)) as ds:
-        components = ds.read()
+    with rasterio.open(terrain.layer_path(NORTHNESS)) as ds:
+        northness = ds.read(1)
+    with rasterio.open(terrain.layer_path(EASTNESS)) as ds:
+        eastness = ds.read(1)
     with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
         entropy = ds.read(1)
-    return elevation, majority, components, entropy
+    return elevation, majority, northness, eastness, entropy
 
 
 @pytest.mark.parametrize('workers', [2, 4, 8])
@@ -355,7 +359,6 @@ def test_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
     serial = _read_layers(serial_t.directory)
     parallel = _read_layers(parallel_t.directory)
     for s, p in zip(serial, parallel, strict=True):
-        # assert_array_equal treats matching NaNs (the components nodata) as equal.
         numpy.testing.assert_array_equal(s, p)
 
 

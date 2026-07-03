@@ -3,12 +3,20 @@
 from itertools import pairwise
 
 import numpy
+import pytest
 
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.landcover import FOREST_COVER
-from snowtool.snowdb.zones.terrain import ASPECT_MAJORITY, ELEVATION, ELEVATION_NODATA
+from snowtool.snowdb.zones.terrain import (
+    ASPECT_COMPONENT_NODATA,
+    ASPECT_MAJORITY,
+    EASTNESS,
+    ELEVATION,
+    ELEVATION_NODATA,
+    NORTHNESS,
+)
 from snowtool.snowdb.zones.zone_layer import (
     ZoneLayer,
     ZoneLayerProvider,
@@ -93,6 +101,54 @@ def test_banded_assign_marks_nodata_and_out_of_domain_as_minus_one():
     numpy.testing.assert_array_equal(ordinals, [[-1, -1]])
 
 
+# --- aspect-component banding (northness / eastness) -------------------------
+
+
+def test_aspect_component_bands_span_minus_one_to_one_in_pct():
+    scheme = NORTHNESS.zoning
+    assert isinstance(scheme, BandedZoning)
+    bands = scheme.zones()
+    # value_scale 100, default step 50 pct == 0.5 native, aligned to 0: four bands
+    # spanning [-1, 1] plus the closed-top boundary band for exactly +1.0.
+    assert [(b.min, b.max) for b in bands] == [
+        (-100, -50),
+        (-50, 0),
+        (0, 50),
+        (50, 100),
+        (100, 150),
+    ]
+    assert all(b.unit == 'pct' for b in bands)
+
+
+@pytest.mark.parametrize(
+    ('component', 'ordinal'),
+    [
+        (-0.7, 0),  # -70 pct -> [-100, -50)
+        (-0.2, 1),  # -20 pct -> [-50, 0)
+        (0.0, 2),  # 0 pct -> [0, 50)
+        (0.6, 3),  # 60 pct -> [50, 100)
+        (ASPECT_COMPONENT_NODATA, -1),  # finite nodata -> out of zone
+    ],
+)
+def test_aspect_component_assign_bands_native_values(component, ordinal):
+    # northness/eastness share the scheme; native cos/sin values in [-1, 1] scale
+    # by 100 into percent bands, and the finite nodata sentinel digitises out.
+    for scheme in (NORTHNESS.zoning, EASTNESS.zoning):
+        assert isinstance(scheme, BandedZoning)
+        values = numpy.array([[component]], dtype=numpy.float32)
+        numpy.testing.assert_array_equal(scheme.assign(values), [[ordinal]])
+
+
+def test_aspect_component_band_step_is_overridable():
+    scheme = NORTHNESS.zoning
+    assert isinstance(scheme, BandedZoning)
+    # A 100 pct (== 1.0 native) step collapses each half to a single band.
+    coarse = scheme.zones(step=100)
+    assert [(b.min, b.max) for b in coarse] == [(-100, 0), (0, 100), (100, 200)]
+    # The dataset param key that carries this override.
+    assert scheme.param_key == 'band_step_pct'
+
+
 # --- CategoricalZoning -------------------------------------------------------
 
 
@@ -169,17 +225,20 @@ def test_threshold_override_moves_the_split_and_relabels():
 # --- the registry ------------------------------------------------------------
 
 
-def test_available_zones_lists_zoneable_layers_and_excludes_components():
+def test_available_zones_lists_zoneable_layers_including_components():
     zones = available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)
 
     assert set(zones) == {
         'terrain.elevation',
         'terrain.aspect',
+        'terrain.northness',
+        'terrain.eastness',
         'terrain.aspect_entropy',
         'landcover.forest_cover',
     }
-    # aspect_components has zoning=None, so it never appears.
-    assert 'terrain.aspect_components' not in zones
+    # The aspect-orientation components are now each their own banded axis.
+    assert isinstance(zones['terrain.northness'].scheme, BandedZoning)
+    assert isinstance(zones['terrain.eastness'].scheme, BandedZoning)
     # Each entry carries the provider, layer, and its scheme.
     elevation = zones['terrain.elevation']
     assert elevation.layer is ELEVATION
@@ -192,6 +251,8 @@ def test_snowdb_available_zones_delegates(tmp_path, spec):
     assert set(db.available_zones()) == {
         'terrain.elevation',
         'terrain.aspect',
+        'terrain.northness',
+        'terrain.eastness',
         'terrain.aspect_entropy',
         'landcover.forest_cover',
     }

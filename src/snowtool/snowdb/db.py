@@ -252,9 +252,10 @@ class SnowDb:
 
         Keyed ``'<provider>.<layer.key>'`` (e.g. ``'terrain.elevation'``); the union
         over every dataset's enabled providers, so a zone appears only if some
-        dataset serves it. Only layers that declare a zoning scheme appear (the
-        aspect components, which have no scheme, are excluded). The representation
-        of a zone's valid values is its scheme's ``zones()``.
+        dataset serves it. Only layers that declare a zoning scheme appear. The
+        terrain aspect-orientation components are each their own banded axis
+        (``terrain.northness`` / ``terrain.eastness``), so they *are* listed. The
+        representation of a zone's valid values is its scheme's ``zones()``.
         """
         from snowtool.snowdb.zones.zone_layer import available_zones
 

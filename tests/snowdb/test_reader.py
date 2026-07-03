@@ -48,7 +48,7 @@ def test_reader_whole_basin_zonal_stats(reader):
     assert dumped[0].zone_layers == []
     (cell,) = dumped[0].zones
     assert cell.zone == []
-    assert cell.mean_swe_mm == SWE_VALUE
+    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
     assert cell.area_m2 > 0
 
 

@@ -7,12 +7,30 @@ selection uses the OGC ``datetime`` interval; json vs csv is content-negotiated
 (``?f=`` / ``Accept``).
 """
 
+import pytest
+
 from fastapi.testclient import TestClient
 from gazebo.testing import assert_has_link, assert_problem
 
 from snowtool.api.app import get_app
 
 from ..conftest import SWE_VALUE, populate_synthetic_root
+
+
+def _populated_csv_rows(rows: list[str]) -> list[str]:
+    """CSV rows whose trailing mean-SWE cell approximates the uniform SWE value.
+
+    The reduction runs in float64 now, so a uniform field's area-weighted mean is
+    the geodesic-weighting rounding of the value (~1e-8), not the exact integer;
+    match the last (mean_swe_mm) cell with a tolerance rather than an exact string.
+    """
+    out = []
+    for row in rows:
+        cell = row.rsplit(',', 1)[-1]
+        if cell and float(cell) == pytest.approx(SWE_VALUE):
+            out.append(row)
+    return out
+
 
 TRIPLET = '12345:MT:USGS'
 BASE = f'/datasets/test/stats/{TRIPLET}'
@@ -33,7 +51,7 @@ def test_date_range_whole_basin_json(synthetic_client) -> None:
     assert result['zone_layers'] == []
     (cell,) = result['zones']
     assert cell['zone'] == []
-    assert cell['mean_swe_mm'] == SWE_VALUE
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
     assert cell['area_m2'] > 0
     # The JSON view advertises the CSV alternate.
     assert_has_link(body, 'alternate', type='text/csv')
@@ -54,7 +72,7 @@ def test_date_range_elevation_zone(synthetic_client) -> None:
     (cell,) = populated
     (ref,) = cell['zone']
     assert (ref['layer'], ref['min'], ref['max']) == ('terrain.elevation', 3000, 4000)
-    assert cell['mean_swe_mm'] == SWE_VALUE
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_day_of_year_json(synthetic_client) -> None:
@@ -71,7 +89,7 @@ def test_day_of_year_json(synthetic_client) -> None:
     assert response.status_code == 200
     (result,) = response.json()['results']
     (cell,) = result['zones']
-    assert cell['mean_swe_mm'] == SWE_VALUE
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_csv_via_format_key(synthetic_client) -> None:
@@ -94,8 +112,7 @@ def test_csv_via_format_key(synthetic_client) -> None:
     # 16 bands -> 16 rows; one carries the SWE in the 3000-4000 ft band.
     rows = lines[1:]
     assert len(rows) == 16
-    populated = [r for r in rows if r.endswith(f',{float(SWE_VALUE)}')]
-    (row,) = populated
+    (row,) = _populated_csv_rows(rows)
     assert row.startswith('2018-04-27,3000,4000,')
 
 
@@ -115,7 +132,7 @@ def test_absent_datetime_returns_all_dates(synthetic_client) -> None:
     assert response.status_code == 200
     results = response.json()['results']
     assert len(results) == 1
-    assert results[0]['zones'][0]['mean_swe_mm'] == SWE_VALUE
+    assert results[0]['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_open_ended_interval_selects_available(synthetic_client) -> None:
@@ -126,7 +143,7 @@ def test_open_ended_interval_selects_available(synthetic_client) -> None:
     )
     assert response.status_code == 200
     (result,) = response.json()['results']
-    assert result['zones'][0]['mean_swe_mm'] == SWE_VALUE
+    assert result['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_interval_outside_data_returns_empty(synthetic_client) -> None:
@@ -180,6 +197,26 @@ def test_unknown_aoi_returns_404(synthetic_client) -> None:
         params={'datetime': DAY, 'variable': 'swe'},
     )
     assert_problem(response, status=404)
+
+
+def test_doy_impossible_day_returns_422(synthetic_client) -> None:
+    # Feb 30 can occur in no year: DOYQuery's validator raises, and the route must
+    # translate that into a 422 problem rather than let it 500.
+    response = synthetic_client.get(
+        f'{BASE}/doy',
+        params={'month': 2, 'day': 30, 'start_year': 2018, 'end_year': 2018},
+    )
+    body = assert_problem(response, status=422)
+    assert 'Invalid day of year' in body['detail']
+
+
+def test_doy_inverted_year_span_returns_422(synthetic_client) -> None:
+    response = synthetic_client.get(
+        f'{BASE}/doy',
+        params={'month': 4, 'day': 27, 'start_year': 2019, 'end_year': 2018},
+    )
+    body = assert_problem(response, status=422)
+    assert 'Invalid day of year' in body['detail']
 
 
 def test_uncovered_aoi_returns_409(

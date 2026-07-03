@@ -8,6 +8,8 @@ band (``reducer``), and how to report its value (``unit``).
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Self
@@ -49,6 +51,20 @@ class DatasetVariable:
             raise ValueError(
                 f'DatasetVariable key {self.key!r} must not contain "__": it is '
                 'the COG filename delimiter separating provenance from variable.',
+            )
+        # ``nodata`` must be a finite sentinel. The stats reader excludes fill
+        # pixels with ``values != variable.nodata`` (zonal_stats.py), and IEEE
+        # ``x != NaN`` is ``True`` for every ``x`` -- so a NaN sentinel would let
+        # every fill pixel through and NaN-poison the reduction rather than being
+        # masked out. This is the same finite-sentinel requirement the terrain
+        # elevation/entropy layers rely on (zones/terrain.py) so that fill values
+        # digitise cleanly out of a zoning scheme.
+        if math.isnan(self.nodata):
+            raise ValueError(
+                f'DatasetVariable {self.key!r} nodata must be a finite sentinel, '
+                'not NaN: the stats reader masks fill pixels with a `!=` compare, '
+                'which can never exclude NaN (`x != NaN` is always True), so a NaN '
+                'fill would poison every reduction. Use a finite out-of-range value.',
             )
 
     @property

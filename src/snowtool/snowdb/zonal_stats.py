@@ -133,6 +133,11 @@ class ZonalStats:
         # preserves that order rather than re-sorting.
         self._cells_index = {cell: idx for idx, cell in enumerate(zone_cells)}
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
+        # float64, not float32: the per-cell reduction runs in float64
+        # (_ZoneIndex.reduce), and area/total stats reach ~1e9-scale values that
+        # float32 truncates to ~7 significant digits. The array is tiny
+        # (cells x dates x stats) and JSON output is float64 anyway, so store the
+        # full precision rather than round-tripping through float32.
         self._array = numpy.full(
             (
                 len(self._dates_index),
@@ -140,7 +145,7 @@ class ZonalStats:
                 len(self._variables_index) + 1,
             ),
             -numpy.inf,
-            dtype=numpy.float32,
+            dtype=numpy.float64,
         )
 
         self.add_results(*results)
