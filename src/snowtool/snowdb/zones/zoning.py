@@ -291,7 +291,7 @@ class BandedZoning(ZoneScheme):
 class ThresholdZoning(ZoneScheme):
     """A binary split at a threshold: *below* vs *at-or-above* it.
 
-    The query unit (e.g. forest cover: "below 40% is unforested, 40%+ is
+    The query unit (e.g. forest cover: "below 50% is unforested, 50%+ is
     forested"). ``value_scale`` maps native pixel units to the threshold's unit;
     ``default_threshold`` is used when a query does not override it. The two zones
     are :class:`ClassZone`\\ s (ordinal 0 below, 1 at-or-above) whose labels embed
@@ -403,6 +403,7 @@ def banded(
     unit: str,
     value_scale: float,
     layer_nodata: float,
+    param_key: str = 'band_step_ft',
 ) -> BandedZoning:
     """Convenience constructor for :class:`BandedZoning` (keyword-only)."""
     return BandedZoning(
@@ -412,6 +413,7 @@ def banded(
         unit=unit,
         value_scale=value_scale,
         layer_nodata=layer_nodata,
+        param_key=param_key,
     )
 
 

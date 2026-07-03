@@ -87,7 +87,7 @@ def test_query_stats_whole_basin_json(runner, cli_obj, populated_root):
     assert payload[0]['zone_layers'] == []
     (cell,) = payload[0]['zones']
     assert cell['zone'] == []
-    assert cell['mean_swe_mm'] == SWE_VALUE
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
     assert cell['area_m2'] > 0
 
 
@@ -119,7 +119,14 @@ def test_query_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     # 16 elevation bands -> 16 rows; exactly one (3000-4000 ft) carries the SWE.
     rows = lines[1:]
     assert len(rows) == 16
-    populated = [r for r in rows if r.endswith(f',{float(SWE_VALUE)}')]
+    # float64 reduction: the uniform field's area-weighted mean is the geodesic
+    # rounding of SWE_VALUE (~1e-8), so match the trailing mean cell with tolerance.
+    populated = [
+        r
+        for r in rows
+        if r.rsplit(',', 1)[-1]
+        and float(r.rsplit(',', 1)[-1]) == pytest.approx(SWE_VALUE)
+    ]
     assert len(populated) == 1
     assert populated[0].startswith('2018-04-27,3000,4000,')
 
@@ -186,7 +193,7 @@ def test_query_stats_day_of_year_mode(runner, cli_obj, populated_root):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     (cell,) = payload[0]['zones']
-    assert cell['mean_swe_mm'] == SWE_VALUE
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_query_stats_rejects_mixing_date_modes(runner, cli_obj, populated_root):

@@ -112,6 +112,28 @@ def _bounds(result: Result) -> tuple[int, int]:
     return band.min, band.max
 
 
+@pytest.mark.parametrize('nan', [float('nan'), numpy.nan])
+def test_dataset_variable_rejects_nan_nodata(nan):
+    # The stats reader masks fill pixels with `values != variable.nodata`, and
+    # `x != NaN` is always True -- a NaN sentinel would never be excluded and would
+    # poison the reduction. Construction must reject it up front.
+    with pytest.raises(ValueError, match='finite sentinel'):
+        DatasetVariable(
+            key='swe',
+            unit=Unit(name='mm', scale_factor=1),
+            reducer=Reducer.MEAN,
+            dtype='float32',
+            nodata=nan,
+            glob='*',
+        )
+
+
+def test_dataset_variable_accepts_finite_nodata():
+    # A finite out-of-range sentinel is the required form; it must construct fine.
+    variable = _variable()
+    assert variable.nodata == float(NODATA)
+
+
 @pytest.mark.parametrize(
     ('reducer', 'expected_value'),
     [

@@ -8,10 +8,15 @@ co-registered layers on the dataset grid, stored under ``data/<name>/terrain/``:
 * ``elevation.tif`` -- ``float32`` mean elevation (m).
 * ``aspect_majority.tif`` -- ``uint8`` majority aspect class per cell
   (``0`` N, ``1`` E, ``2`` S, ``3`` W, ``4`` flat); nodata ``255``.
-* ``aspect_components.tif`` -- two ``float32`` bands, ``northness`` =
-  mean ``cos(aspect)`` and ``eastness`` = mean ``sin(aspect)`` over the cell's
-  non-flat pixels (the first circular moment; ``hypot(northness, eastness)`` is
-  the orientation purity in ``[0, 1]``).
+* ``northness.tif`` / ``eastness.tif`` -- two ``float32`` single-band layers,
+  ``northness`` = mean ``cos(aspect)`` and ``eastness`` = mean ``sin(aspect)``
+  over the cell's non-flat pixels (the first circular moment; ``hypot(northness,
+  eastness)`` is the orientation purity in ``[0, 1]``). Each is its own query-able
+  zone axis, banded over ``[-1, 1]`` (see :data:`NORTHNESS`/:data:`EASTNESS`); a
+  cell with no non-flat pixels carries the finite :data:`ASPECT_COMPONENT_NODATA`
+  sentinel. Two single-band files rather than one two-band file because the
+  :class:`~snowtool.snowdb.zones.zone_layer.ZoneLayer` model is one file + one
+  band + one zoning scheme per query key, and the tiled reader reads band 0 only.
 * ``aspect_entropy.tif`` -- ``float32`` normalised Shannon entropy of the cell's
   aspect-class distribution (the same five N/E/S/W/flat counts that feed the
   majority vote), in ``[0, 1]``: ``0`` = every pixel one class (coherent),
@@ -63,8 +68,9 @@ if TYPE_CHECKING:
 # On-disk format version of a terrain layer set, owned by TerrainProvider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
 # on a material change to the terrain layer encoding so existing sets read as stale.
-# v2 added aspect_entropy.tif.
-TERRAIN_FORMAT_VERSION = 2
+# v2 added aspect_entropy.tif. v3 split the single two-band aspect_components.tif
+# into the single-band northness.tif + eastness.tif query axes (finite nodata).
+TERRAIN_FORMAT_VERSION = 3
 
 # Aspect majority classes (cell's modal cardinal quadrant, or flat).
 ASPECT_N = 0
@@ -78,7 +84,12 @@ ASPECT_FLAT = 4
 # compare out), which is exactly how query-time banding excludes uncovered cells.
 ELEVATION_NODATA = -9999.0
 ASPECT_MAJORITY_NODATA = 255
-ASPECT_COMPONENTS_NODATA = float('nan')
+# Northness/eastness are means of cos/sin(aspect) in [-1, 1]. A far-below-domain
+# finite sentinel (NOT NaN) marks a cell with no non-flat pixels, so it digitises
+# cleanly out of the banded scheme (a NaN would compare out of nothing, so the
+# BandedZoning.assign nodata mask could not exclude it -- the same reason elevation
+# uses a finite sentinel).
+ASPECT_COMPONENT_NODATA = -9999.0
 # Entropy is normalised into [0, 1], so a far-out sentinel doubles as nodata and
 # digitises cleanly out of the threshold split (unlike NaN, which == nothing and so
 # could not be excluded by ThresholdZoning.assign).
@@ -88,6 +99,18 @@ ASPECT_ENTROPY_NODATA = -1.0
 # coherent, high-signal aspect, at/above it as a mixed, low-signal one. Overridable
 # per query (the dataset zones param ``entropy_threshold``, or a ``:override`` token).
 DEFAULT_ASPECT_ENTROPY_THRESHOLD = 0.5
+
+# Northness/eastness are banded over [-1, 1]. The scheme works in *percent* zone
+# units (value_scale 100: a native cos/sin of 1.0 is 100), aligned to 0, so a
+# default band width of 50 pct == 0.5 native gives 4 primary bands per axis
+# ([-100,-50), [-50,0), [0,50), [50,100)) -- a user-adjustable default (the dataset
+# zones param ``band_step_pct``, or a query ``:override``). Percent lets BandedZoning
+# keep its integer steps (0.5 native is not an integer) without special-casing.
+ASPECT_COMPONENT_VALUE_SCALE = 100
+ASPECT_COMPONENT_DOMAIN_MIN = -100
+ASPECT_COMPONENT_DOMAIN_MAX = 100
+DEFAULT_ASPECT_COMPONENT_BAND_PCT = 50
+ASPECT_COMPONENT_BAND_PARAM = 'band_step_pct'
 
 
 ELEVATION = ZoneLayer(
@@ -126,12 +149,42 @@ ASPECT_MAJORITY = ZoneLayer(
         layer_nodata=ASPECT_MAJORITY_NODATA,
     ),
 )
-ASPECT_COMPONENTS = ZoneLayer(
-    filename='aspect_components.tif',
+
+
+def _component_zoning():
+    """The shared banded scheme for a northness/eastness axis over ``[-1, 1]``.
+
+    Both components have the identical domain and units, so they share one scheme
+    factory (each axis gets its own instance, keyed by its own layer key/param).
+    """
+    return banded(
+        domain_min=ASPECT_COMPONENT_DOMAIN_MIN,
+        domain_max=ASPECT_COMPONENT_DOMAIN_MAX,
+        default_step=DEFAULT_ASPECT_COMPONENT_BAND_PCT,
+        unit='pct',
+        value_scale=ASPECT_COMPONENT_VALUE_SCALE,
+        layer_nodata=ASPECT_COMPONENT_NODATA,
+        param_key=ASPECT_COMPONENT_BAND_PARAM,
+    )
+
+
+NORTHNESS = ZoneLayer(
+    filename='northness.tif',
     dtype='float32',
-    nodata=ASPECT_COMPONENTS_NODATA,
-    band_descriptions=('northness_mean_cos_aspect', 'eastness_mean_sin_aspect'),
-    key='aspect_components',
+    nodata=ASPECT_COMPONENT_NODATA,
+    band_descriptions=('northness_mean_cos_aspect',),
+    key='northness',
+    # Banded mean cos(aspect): +100 pct due north, -100 pct due south.
+    zoning=_component_zoning(),
+)
+EASTNESS = ZoneLayer(
+    filename='eastness.tif',
+    dtype='float32',
+    nodata=ASPECT_COMPONENT_NODATA,
+    band_descriptions=('eastness_mean_sin_aspect',),
+    key='eastness',
+    # Banded mean sin(aspect): +100 pct due east, -100 pct due west.
+    zoning=_component_zoning(),
 )
 ASPECT_ENTROPY = ZoneLayer(
     filename='aspect_entropy.tif',
@@ -157,7 +210,7 @@ ASPECT_ENTROPY = ZoneLayer(
 )
 
 # Every layer of a complete terrain set, in write order.
-TERRAIN_LAYERS = (ELEVATION, ASPECT_MAJORITY, ASPECT_COMPONENTS, ASPECT_ENTROPY)
+TERRAIN_LAYERS = (ELEVATION, ASPECT_MAJORITY, NORTHNESS, EASTNESS, ASPECT_ENTROPY)
 
 
 class TerrainProvider(ZoneLayerProvider):
@@ -200,7 +253,8 @@ class TerrainProvider(ZoneLayerProvider):
         """Stream the DEM ``source`` once, binning terrain into every target.
 
         ``options`` carries the engine's block-level parallelism knobs
-        (``workers``, ``block_size``); the DEM source supplies the projected work
+        (``workers``, ``block_size``) and the orientation-mean slope weighting
+        (``cossin_slope_weighted``); the DEM source supplies the projected work
         grid (``work_crs``/``work_resolution``). ``progress`` reports the engine's
         per-block reprojection.
         """
@@ -223,6 +277,7 @@ class TerrainProvider(ZoneLayerProvider):
                 work_resolution=source.work_resolution,
                 workers=options.workers,
                 block_size=options.block_size,
+                cossin_slope_weighted=options.cossin_slope_weighted,
                 force=force,
                 progress=progress,
             )
