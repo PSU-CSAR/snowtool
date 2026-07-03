@@ -78,11 +78,12 @@ def test_ingest_accepts_the_early_stage(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('variant', ['provisional', 'stable'])
-def test_ingest_refuses_non_early_stages(tmp_path, monkeypatch, variant):
+def test_ingest_refuses_non_early_stages(tmp_path, variant):
     # The regex still recognizes provisional/stable (so the error is precise),
-    # but the stage pin refuses them to keep a single consistent revision.
+    # but the stage pin refuses them to keep a single consistent revision. The
+    # refusal happens before any rasters are built or write_date_cogs is
+    # reached, so this needs no seam at all -- fully real code.
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
-    monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: None)
     source = tmp_path / f'UA_SWE_Depth_800m_v1_20260613_{variant}.nc'
     with pytest.raises(SnowtoolError, match=f"Refusing to ingest '{variant}'-stage"):
         ds.ingest(source)
