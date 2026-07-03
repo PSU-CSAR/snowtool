@@ -18,6 +18,7 @@ from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 from snowtool.snowdb.zones.terrain import ELEVATION
 
+from ..conftest import write_terrain
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 # The synthetic SWE COG is ingested for this date; a closed one-day range selects it.
@@ -105,11 +106,14 @@ def test_zonal_stats(dataset, pourpoint_geojson, swe_cog):
     assert dumped[0].zone_layers == []
     (cell,) = dumped[0].zones
     assert cell.zone == []
-    assert cell.mean_swe_mm == SWE_VALUE
+    # The reduction runs in float64 now (results stored float64, not float32), so a
+    # uniform field's area-weighted mean carries the ~1e-8 rounding of the geodesic
+    # per-row weighting rather than the float32-truncated exact value.
+    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
 
     # area equals the summed geodesic area of the in-AOI pixels -- which the AOI
     # raster now carries directly (cell area inside, 0 outside), so its full sum.
-    assert cell.area_m2 == float(aoi_raster.array.sum())
+    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def _crossed_stats(dataset, pourpoint_geojson, selections, *, max_zone_cells=10_000):
@@ -197,9 +201,9 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(
     assert forest_ref.unit == '%'
     assert forest_ref.side == 'above'
     assert forest_ref.label == 'forested'
-    assert cell.mean_swe_mm == SWE_VALUE
+    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
 
-    assert cell.area_m2 == float(aoi_raster.array.sum())
+    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def test_zonal_stats_forest_threshold_is_overridable(
@@ -244,6 +248,37 @@ def test_zonal_stats_crosses_elevation_and_categorical_aspect(
     assert aspect_ref.layer == 'terrain.aspect'
     assert aspect_ref.code == 4
     assert aspect_ref.label == 'flat'
+
+
+def test_zonal_stats_crosses_northness_band(dataset, pourpoint_geojson, swe_cog):
+    # Overwrite the flat-aspect terrain with a uniform northness of 0.6 (60 pct):
+    # it lands in the [50, 100) pct band, so a northness-crossed query puts all the
+    # SWE in exactly that one band. 0.6 = cos(~53 deg) is an interior value, well
+    # clear of the band edges, so the assignment is unambiguous.
+    write_terrain(dataset, northness_value=0.6)
+
+    aoi_raster, stats = _crossed_stats(
+        dataset,
+        pourpoint_geojson,
+        [ZoneSelection('terrain.northness')],
+    )
+
+    dumped = stats.dump()
+    assert dumped[0].zone_layers == ['terrain.northness']
+    # Five northness bands ([-100,-50),[-50,0),[0,50),[50,100),[100,150) pct).
+    cells = dumped[0].zones
+    assert len(cells) == 5
+    with_data = [c for c in cells if c.area_m2 > 0]
+    assert len(with_data) == 1
+    (north_ref,) = with_data[0].zone
+    assert (north_ref.layer, north_ref.min, north_ref.max, north_ref.unit) == (
+        'terrain.northness',
+        50,
+        100,
+        'pct',
+    )
+    assert with_data[0].mean_swe_mm == pytest.approx(SWE_VALUE)
+    assert with_data[0].area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):

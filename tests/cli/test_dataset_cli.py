@@ -97,7 +97,8 @@ def test_create_builds_terrain_and_landcover(
     data = initialized_root / 'data' / 'test'
     assert (data / 'terrain' / 'elevation.tif').is_file()
     assert (data / 'terrain' / 'aspect_majority.tif').is_file()
-    assert (data / 'terrain' / 'aspect_components.tif').is_file()
+    assert (data / 'terrain' / 'northness.tif').is_file()
+    assert (data / 'terrain' / 'eastness.tif').is_file()
     assert (data / 'landcover' / 'forest_cover_pct.tif').is_file()
 
 

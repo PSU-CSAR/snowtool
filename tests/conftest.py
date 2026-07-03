@@ -27,11 +27,13 @@ from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
 from snowtool.snowdb.zones.terrain import (
-    ASPECT_COMPONENTS,
+    ASPECT_COMPONENT_NODATA,
     ASPECT_ENTROPY,
     ASPECT_FLAT,
     ASPECT_MAJORITY,
+    EASTNESS,
     ELEVATION,
+    NORTHNESS,
     TERRAIN_FORMAT_VERSION,
 )
 
@@ -243,6 +245,8 @@ def write_uniform_terrain(
     crs,
     tile_size: int,
     elevation_value: float = DEM_ELEVATION_M,
+    northness_value: float = ASPECT_COMPONENT_NODATA,
+    eastness_value: float = ASPECT_COMPONENT_NODATA,
 ) -> str:
     """Write a uniform terrain set (elevation + flat aspect) into ``directory``.
 
@@ -250,6 +254,11 @@ def write_uniform_terrain(
     and the CLI suite's fake terrain engine: given the raw grid pieces, it writes
     what :func:`generate_terrain` produces -- uniform elevation, all-flat aspect --
     and stamps the DEM provenance hash on every layer. Returns that hash.
+
+    All-flat terrain has no non-flat pixels, so the northness/eastness orientation
+    layers default to the finite :data:`ASPECT_COMPONENT_NODATA` sentinel; a test
+    that needs a real orientation zone passes uniform ``northness_value`` /
+    ``eastness_value`` in ``[-1, 1]``.
     """
     directory.mkdir(parents=True, exist_ok=True)
     shape = (base_grid.rows, base_grid.cols)
@@ -281,11 +290,17 @@ def write_uniform_terrain(
         **common,
     )
     write_cog(
-        directory / ASPECT_COMPONENTS.filename,
-        numpy.full((2, *shape), numpy.nan, dtype='float32'),
-        nodata=ASPECT_COMPONENTS.nodata,
-        compute_stats=False,
-        band_descriptions=ASPECT_COMPONENTS.band_descriptions,
+        directory / NORTHNESS.filename,
+        numpy.full(shape, northness_value, dtype='float32'),
+        nodata=NORTHNESS.nodata,
+        band_descriptions=NORTHNESS.band_descriptions,
+        **common,
+    )
+    write_cog(
+        directory / EASTNESS.filename,
+        numpy.full(shape, eastness_value, dtype='float32'),
+        nodata=EASTNESS.nodata,
+        band_descriptions=EASTNESS.band_descriptions,
         **common,
     )
     # All-flat terrain -> all aspect mass in the flat class -> zero entropy.
@@ -334,11 +349,17 @@ def write_uniform_landcover(
     return nlcd_hash
 
 
-def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
+def write_terrain(
+    dataset,
+    elevation_value: float = DEM_ELEVATION_M,
+    northness_value: float = ASPECT_COMPONENT_NODATA,
+    eastness_value: float = ASPECT_COMPONENT_NODATA,
+) -> str:
     """Write a uniform terrain set onto a dataset's grid (no engine run).
 
     Convenience wrapper over :func:`write_uniform_terrain` for tests that hold a
-    ``dataset`` and just need terrain present (e.g. elevation banding).
+    ``dataset`` and just need terrain present (e.g. elevation banding, or a uniform
+    northness/eastness orientation zone).
     """
     return write_uniform_terrain(
         dataset.zones['terrain'].directory,
@@ -346,6 +367,8 @@ def write_terrain(dataset, elevation_value: float = DEM_ELEVATION_M) -> str:
         crs=dataset.grid_crs,
         tile_size=dataset.spec.grid_params.tile_size,
         elevation_value=elevation_value,
+        northness_value=northness_value,
+        eastness_value=eastness_value,
     )
 
 
