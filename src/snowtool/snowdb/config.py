@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, Field, PrivateAttr, TypeAdapter
 
+from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.variables import Reducer
 
 # The conventional filename ``snowdb init`` writes the root config to, and the
@@ -207,7 +208,7 @@ class RootConfig(ResourceModel):
 
     def save(self: Self, path: Path) -> None:
         """Write the config as indented JSON, remembering where it was written."""
-        Path(path).write_text(self.model_dump_json(indent=2) + '\n')
+        atomic_write_text(Path(path), self.model_dump_json(indent=2) + '\n')
         self.path = Path(path)
 
 

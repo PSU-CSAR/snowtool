@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 from snowtool import types
+from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.pourpoint import Pourpoint
 
@@ -157,7 +158,7 @@ class PourpointIndex:
         """Write the index as a sorted, indented ``FeatureCollection``."""
         path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(self.to_feature_collection(), indent=2)
-        path.write_text(f'{text}\n')
+        atomic_write_text(path, f'{text}\n')
 
     def triplets(self: Self) -> set[types.StationTriplet]:
         return set(self.entries)
