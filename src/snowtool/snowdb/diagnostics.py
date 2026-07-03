@@ -17,6 +17,7 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from snowtool.exceptions import IncompleteDatasetDataError
 from snowtool.snowdb import triplet_naming
 
 if TYPE_CHECKING:
@@ -256,7 +257,7 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
         issue: str | None = None
         try:
             aoi_raster = AOIRaster.open(path, dataset.grid)
-        except ValueError:
+        except IncompleteDatasetDataError:
             issue = (
                 'missing SNOWTOOL_TILE_BBOX tag '
                 '(rebuild with `pourpoint rasterize --rebuild`)'

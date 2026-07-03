@@ -1,3 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
 class SnowtoolError(Exception):
     pass
 
@@ -93,6 +101,62 @@ class QueryParameterError(SnowtoolError, ValueError):
     call sites (and the CLI) keep catching it, while the HTTP API maps *only* this
     type to 422 and lets a generic ``ValueError`` (a real bug) 500.
     """
+
+
+class IncompleteDatasetDataError(SnowtoolError):
+    """Raised when a dataset's on-disk data for a date is incomplete or unresolvable.
+
+    A server-side *data-integrity* failure, not a client error: a date directory is
+    missing one or more of the dataset's required variable COGs, or a variable
+    resolves to more than one file -- a partial/crashed ingest, a deleted COG, or a
+    stale duplicate left behind by a differently-named source (an INSTARR version
+    bump, a SWANN stage change). Distinct from a bare ``ValueError``/``RuntimeError``
+    so the read path can surface it as a clean, typed condition while a genuine bug
+    still 500s generically. The message names the dataset, date, and affected
+    variable keys but never on-disk paths, so it is safe to relay in an RFC 9457
+    problem body. It stays **500-class** on the API (the fix is re-ingesting the
+    date, not issuing a different request); the CLI renders it as a clean
+    ``ClickException`` via its ``SnowtoolError`` base.
+
+    ``dataset``/``date``/``missing_keys`` locate the affected data; all three are
+    optional so the same type can also cover a corrupt burned-AOI raster (missing
+    tile metadata), which has no variable set. Prefer :meth:`for_variables` for the
+    common date-is-missing/duplicated-variables case.
+    """
+
+    def __init__(
+        self: Self,
+        detail: str,
+        *,
+        dataset: str | None = None,
+        date: object | None = None,
+        missing_keys: Iterable[str] | None = None,
+    ) -> None:
+        self.dataset = dataset
+        self.date = date
+        self.missing_keys = sorted(missing_keys) if missing_keys is not None else None
+        super().__init__(detail)
+
+    @classmethod
+    def for_variables(
+        cls: type[Self],
+        dataset: str,
+        date: object,
+        missing_keys: Iterable[str],
+    ) -> Self:
+        """Build the common 'date cannot resolve some variables' error.
+
+        ``missing_keys`` are the variable keys that matched no COG (missing) or
+        more than one (duplicated) -- both leave a date's data incomplete.
+        """
+        keys = sorted(missing_keys)
+        return cls(
+            f'Incomplete data for {date} in dataset {dataset!r}: cannot resolve '
+            f'variable(s) {keys} (missing or duplicated COGs).',
+            dataset=dataset,
+            date=date,
+            missing_keys=keys,
+        )
 
 
 class PourpointPruneDestinationRequiredError(SnowtoolError):
