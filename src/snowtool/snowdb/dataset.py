@@ -4,15 +4,21 @@ import shutil
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 import rasterio
 
 from snowtool import types
-from snowtool.exceptions import AOIRasterNotFoundError, SnowtoolError
+from snowtool.exceptions import (
+    AOIRasterNotFoundError,
+    IncompleteDatasetDataError,
+    SnowtoolError,
+)
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.aoi_raster import AOIRaster, aoi_provenance, write_aoi_raster
+from snowtool.snowdb.atomic import staged_dir
 from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
@@ -315,6 +321,21 @@ class Dataset:
             )
         return ingester.ingest(source, self, force=force)
 
+    def _unresolved_variables(self: Self, names: Iterable[str]) -> set[str]:
+        """Spec variable keys whose glob does not match exactly one of ``names``.
+
+        A key is *unresolved* when no filename matches its glob (missing) or more
+        than one does (duplicated) -- both leave a date's data incomplete or
+        ambiguous. Drives the pre-/post-write completeness checks in
+        :meth:`write_date_cogs`.
+        """
+        names = list(names)
+        return {
+            variable.key
+            for variable in self.spec.variables.values()
+            if sum(fnmatch(name, variable.glob) for name in names) != 1
+        }
+
     def write_date_cogs(
         self: Self,
         date: date,
@@ -322,24 +343,78 @@ class Dataset:
         *,
         force: bool = False,
     ) -> None:
-        """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/``.
+        """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/`` atomically.
 
-        The dataset-agnostic write side of ingest: it owns the date directory;
-        the rasters (produced by an :class:`~snowtool.snowdb.ingest.Ingester`)
-        know how to write themselves as COGs into it.
+        The dataset-agnostic write side of ingest: it owns the date directory; the
+        rasters (produced by an :class:`~snowtool.snowdb.ingest.Ingester`) know how
+        to write themselves as COGs into it.
+
+        The whole per-date directory is the unit of commit. Writes stage into a
+        temp dir beside the target (:func:`~snowtool.snowdb.atomic.staged_dir`) and
+        are swapped in wholesale, so (a) a crash mid-ingest never leaves a *partial*
+        date on disk -- a reader sees the wholly-old dir or the wholly-new one --
+        and (b) stale COGs from a prior, differently-named source vanish by
+        construction rather than lingering beside the new ones and making a variable
+        unresolvable (the finding-5 duplicate-``__swe.tif`` bug).
+
+        Completeness is enforced at date granularity. Before any filesystem work the
+        supplied rasters must cover every spec variable, so a source that is short a
+        required input variable raises :class:`IncompleteDatasetDataError` up front;
+        after writing, every spec variable must resolve to exactly one COG in the
+        staged dir or the swap is abandoned and the existing date dir left untouched.
+
+        Idempotent-skip granularity is likewise **per-date, not per-file**: without
+        ``force`` a date is skipped only when its dir already holds *exactly* the
+        COGs this call would write (complete and free of stale members); any missing
+        or stale member rebuilds the whole date dir. ``force`` always rebuilds.
         """
+        rasters = list(rasters)
+        expected_names = {raster.out_name for raster in rasters}
+
+        # Pre-validate the inputs before touching the filesystem: the produced
+        # rasters must cover every spec variable, so a source short an input
+        # variable fails fast rather than committing a partial date.
+        missing = self._unresolved_variables(expected_names)
+        if missing:
+            raise IncompleteDatasetDataError.for_variables(
+                self.spec.name,
+                date,
+                missing,
+            )
+
         output_dir = self.date_dir(date)
 
-        try:
-            output_dir.mkdir(parents=True, exist_ok=force)
-        except FileExistsError as e:
-            raise FileExistsError(
-                f'Could not create raster dir: {output_dir} already exists. '
-                'Remove directory and try again, or use `force=True`.',
-            ) from e
+        # Skip-if-current (per-date): an existing dir already holding exactly the
+        # COGs this call would write is complete and up to date -- nothing to do.
+        # Any divergence (a missing member, or a stale COG from an old source)
+        # falls through to a full, atomic rebuild below.
+        if not force and output_dir.is_dir():
+            on_disk = {p.name for p in output_dir.iterdir() if p.is_file()}
+            if on_disk == expected_names:
+                return
 
-        for raster in rasters:
-            raster.write_cog(output_dir=output_dir, force=force)
+        # staged_dir stages beside the target, so the cogs/ parent must exist (a
+        # management write may run before any date has been ingested).
+        self._cogs.mkdir(parents=True, exist_ok=True)
+        with staged_dir(output_dir) as staging:
+            for raster in rasters:
+                # The staging dir is fresh and empty, so nothing can be clobbered;
+                # ``force`` just keeps a raster's own existence guard from tripping.
+                raster.write_cog(output_dir=staging, force=True)
+
+            # Post-validate in the staged dir before the swap: every spec variable
+            # must resolve to exactly one written COG. On failure this raises inside
+            # the context, which discards the staged dir and leaves the existing
+            # date dir untouched.
+            missing = self._unresolved_variables(
+                p.name for p in staging.iterdir() if p.is_file()
+            )
+            if missing:
+                raise IncompleteDatasetDataError.for_variables(
+                    self.spec.name,
+                    date,
+                    missing,
+                )
 
     def aoi_rasters(self: Self) -> Iterator[AOIRaster]:
         yield from (
@@ -402,9 +477,14 @@ class Dataset:
         """The single COG for ``variable`` on date ``d``, or ``None`` if absent."""
         matching = list(self.date_dir(d).glob(variable.glob))
         if len(matching) > 1:
-            raise RuntimeError(
-                'Found multiple files matching date / variable '
-                f"'{d}' / '{variable.key}': {matching}",
+            # Two COGs match one variable's glob -- a stale duplicate from a
+            # differently-named source that write_date_cogs' wholesale swap now
+            # prevents on write, but an old date on disk may still carry. Surface
+            # it as the typed integrity error rather than a bare RuntimeError.
+            raise IncompleteDatasetDataError.for_variables(
+                self.spec.name,
+                d,
+                [variable.key],
             )
         return matching[0] if matching else None
 

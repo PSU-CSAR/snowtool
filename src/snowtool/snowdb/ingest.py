@@ -26,8 +26,16 @@ class WritableRaster(Protocol):
 
     The minimal contract :meth:`Dataset.write_date_cogs` needs from each raster
     an ingester produces, so the generic write path is decoupled from any one
-    dataset's input-raster type.
+    dataset's input-raster type. ``out_name`` is the COG filename it writes into
+    the date dir (``<source-stem>__<key>.tif``); the write path reads it up front
+    to check the produced set covers every spec variable before any staging.
     """
+
+    @property
+    def out_name(self) -> str:
+        # Read-only so both a plain instance attribute (SwannRaster,
+        # InstarrMosaicRaster) and a property (SNODASInputRaster) satisfy it.
+        ...
 
     def write_cog(self, output_dir: Path, force: bool = False) -> None: ...
 

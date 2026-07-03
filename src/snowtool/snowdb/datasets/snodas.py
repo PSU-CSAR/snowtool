@@ -236,6 +236,12 @@ class SNODASInputRaster(BaseFileInfo):
         with hdr.open('wb') as f:
             f.writelines(lines)
 
+    @property
+    def out_name(self: Self) -> str:
+        # SNODAS keeps its full parsed source stem as the COG name (its provenance
+        # is the filename); satisfies the WritableRaster.out_name contract.
+        return f'{self.name}.tif'
+
     def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
         # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
         self.trim_header(self.path)
@@ -247,7 +253,7 @@ class SNODASInputRaster(BaseFileInfo):
             nodata = src.nodata
 
         write_cog_guarded(
-            output_dir / f'{self.name}.tif',
+            output_dir / self.out_name,
             array,
             force=force,
             transform=transform,

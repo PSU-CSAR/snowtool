@@ -11,6 +11,10 @@ still surfaces as a 500. Each maps onto a registered :class:`ProblemType` (see
 * :class:`PourpointNotFoundError` -> 404 (no stored AOI record for the triplet)
 * :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
 * :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)
+* :class:`IncompleteDatasetDataError` -> 500 (server data integrity: a missing or
+  duplicated variable COG for the requested date). Kept 500-class deliberately --
+  it is not a client error -- but mapped so the problem body carries an informative
+  type/detail instead of a bare "Internal Server Error".
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from gazebo.rels import MediaType
 from snowtool.api import problems
 from snowtool.exceptions import (
     AOIRasterNotFoundError,
+    IncompleteDatasetDataError,
     PourpointCoverageError,
     PourpointNotFoundError,
     QueryParameterError,
@@ -54,6 +59,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         PourpointNotFoundError: problems.POURPOINT_NOT_FOUND,
         AOIRasterNotFoundError: problems.AOI_RASTER_NOT_FOUND,
         QueryParameterError: problems.INVALID_QUERY_PARAMETER,
+        IncompleteDatasetDataError: problems.INCOMPLETE_DATASET_DATA,
     }
     for exc_type, problem_type in handlers.items():
         app.add_exception_handler(exc_type, _handler(problem_type))
