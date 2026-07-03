@@ -14,6 +14,7 @@ from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
     InlineDatasetLink,
+    PathDatasetLink,
     RootConfig,
 )
 from snowtool.snowdb.coverage import Coverage
@@ -143,11 +144,43 @@ def test_open_requires_a_root_config(tmp_path):
         SnowDb.open(tmp_path)
 
 
-def test_open_malformed_root_config_is_a_config_error(tmp_path):
-    # A file exists but doesn't parse/validate as a root config: still a clean
-    # SnowDbConfigError (which the CLI renders), not a raw pydantic ValidationError.
-    (tmp_path / CONFIG_FILENAME).write_text('{ not valid json')
+@pytest.mark.parametrize(
+    'content',
+    [
+        b'{ "resource": "snowtool.snowdb/v1", "created_at": "2024-01',
+        b'\xff\xfe not even utf-8 text',
+        b'{"resource": "snowtool.snowdb/v1"}',  # valid JSON, missing created_at
+    ],
+    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
+)
+def test_open_malformed_root_config_is_a_config_error(tmp_path, content):
+    # A file exists but doesn't parse/validate as a root config -- truncated JSON,
+    # bytes that aren't even text, or valid JSON missing a required field -- is
+    # always a clean SnowDbConfigError (which the CLI renders), never a raw
+    # pydantic ValidationError or UnicodeDecodeError.
+    (tmp_path / CONFIG_FILENAME).write_bytes(content)
     with pytest.raises(SnowDbConfigError, match='not a readable snowdb root config'):
+        SnowDb.open(tmp_path)
+
+
+@pytest.mark.parametrize(
+    'content',
+    [
+        b'{ "resource": "snowtool.dataset/v1", "grid": {',
+        b'\xff\xfe not even utf-8 text',
+        b'{"resource": "snowtool.dataset/v1"}',  # valid JSON, missing grid/variables
+    ],
+    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
+)
+def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path, content):
+    # The same class of malformed content, but in a *linked* dataset config rather
+    # than the root: still a clean SnowDbConfigError naming the offending dataset,
+    # not a raw pydantic ValidationError or UnicodeDecodeError.
+    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    _register(manager, _spec('snodas'))
+    (manager.db.data_path / 'snodas' / 'dataset.json').write_bytes(content)
+
+    with pytest.raises(SnowDbConfigError, match=r"dataset 'snodas'.*unreadable config"):
         SnowDb.open(tmp_path)
 
 
@@ -416,3 +449,66 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     )
     (cell,) = stats.dump()[0].zones
     assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
+
+
+# --- register_dataset error paths (WS6) ---------------------------------------
+
+
+def test_register_dataset_rejects_unknown_link_type(tmp_path, spec):
+    manager = SnowDbManager.initialize(tmp_path, [spec])
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir(spec.name, config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+
+    with pytest.raises(ValueError, match="unknown dataset link type: 'inline'"):
+        manager.register_dataset(spec.name, config_path, link_type='inline')
+
+    # The rejected call wrote nothing -- the config still has no datasets.
+    assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets == {}
+
+
+def test_register_dataset_nonexistent_config_path_defers_to_open(tmp_path):
+    # register_dataset is the commit point for the *link*, not a read of the
+    # config it points at -- so a path that was never created is accepted here
+    # and only surfaces (as the existing "dangling link" SnowDbConfigError) when
+    # a reader actually opens the database.
+    manager = SnowDbManager.initialize(tmp_path)
+    bogus = tmp_path / 'data' / 'test' / DATASET_CONFIG_FILENAME
+    assert not bogus.is_file()
+
+    manager.register_dataset('test', bogus)
+
+    loaded = RootConfig.load(tmp_path / CONFIG_FILENAME)
+    assert 'test' in loaded.datasets
+    with pytest.raises(SnowDbConfigError, match='missing config'):
+        SnowDb.open(tmp_path)
+
+
+def test_register_dataset_overwrites_an_existing_link(tmp_path, spec):
+    # Per the docstring: re-registering a name overwrites its link outright
+    # (no merge, no error) -- the last registration wins.
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+
+    first_dir = tmp_path / 'first'
+    first_dir.mkdir()
+    first_path = first_dir / DATASET_CONFIG_FILENAME
+    config.save(first_path)
+    manager.register_dataset(spec.name, first_path)
+
+    second_dir = tmp_path / 'second'
+    second_dir.mkdir()
+    second_path = second_dir / DATASET_CONFIG_FILENAME
+    config.save(second_path)
+    manager.register_dataset(spec.name, second_path)
+
+    link = RootConfig.load(tmp_path / CONFIG_FILENAME).datasets[spec.name]
+    assert isinstance(link, PathDatasetLink)
+    # Both stage dirs live under the root, so the link is stored relative.
+    assert link.path == 'second/dataset.json'
+
+    # A fresh open resolves the dataset beside its *second* config, not the first.
+    opened = SnowDb.open(tmp_path)
+    assert opened[spec.name].path == second_dir
