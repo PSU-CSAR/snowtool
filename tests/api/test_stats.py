@@ -263,3 +263,37 @@ def test_uncovered_aoi_returns_409(
             params={'datetime': DAY, 'variable': 'swe'},
         )
     assert_problem(response, status=409)
+
+
+def test_incomplete_data_returns_500(test_settings, spec, pourpoint_geojson) -> None:
+    # A stale duplicate swe COG (a leftover from a differently-named old source)
+    # makes the swe variable unresolvable for the date -> a server data-integrity
+    # failure surfaced as an informative 500 problem, not a bare 500.
+    from datetime import date
+
+    import numpy
+
+    from snowtool.snowdb.raster.cog import write_cog
+
+    from ..conftest import SIZE, TILE
+
+    db = populate_synthetic_root(test_settings.snowdb_config, spec, pourpoint_geojson)
+    dataset = db.datasets['test']
+    date_dir = dataset.date_dir(date(2018, 4, 27))
+    write_cog(
+        date_dir / 'us_ssmv01034XdupTTNATS20180427.tif',
+        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
+        transform=dataset.grid.base_grid.transform,
+        tile_size=TILE,
+        predictor=2,
+    )
+
+    with TestClient(get_app(settings=test_settings)) as client:
+        response = client.get(
+            f'{BASE}/date-range',
+            params={'datetime': DAY, 'variable': 'swe'},
+        )
+
+    body = assert_problem(response, status=500)
+    assert body['type'].endswith('/problems/incomplete-dataset-data')
+    assert 'swe' in body['detail']

@@ -108,6 +108,21 @@ class DOYQuery(BaseModel):
             )
         return self
 
+    @model_validator(mode='after')
+    def _check_year_order(self: Self) -> Self:
+        """Reject an inverted year span.
+
+        ``select`` filters ``start_year <= d.year <= end_year``, so a reversed
+        span would silently match nothing rather than surface the typo -- both
+        the CLI and the API inherit this from the model instead of checking it
+        ad hoc.
+        """
+        if self.end_year < self.start_year:
+            raise ValueError(
+                f'end_year {self.end_year} is before start_year {self.start_year}',
+            )
+        return self
+
     def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
         return '{}_{}-{}_{}-{}{}.csv'.format(
             '-'.join(pourpoint_name.split()),

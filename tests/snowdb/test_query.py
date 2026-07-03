@@ -51,3 +51,23 @@ def test_doy_rejects_impossible_day_of_month(month, day, valid):
     else:
         with pytest.raises(ValidationError):
             DOYQuery(month=month, day=day, start_year=2000, end_year=2001)
+
+
+# An inverted year span would otherwise silently `select` nothing (the filter is
+# `start_year <= d.year <= end_year`), masking a typo as 'no data'; the CLI and API
+# both inherit this check from the model instead of duplicating it.
+@pytest.mark.parametrize(
+    ('start_year', 'end_year', 'valid'),
+    [
+        (2000, 2000, True),
+        (2000, 2001, True),
+        (2001, 2000, False),
+        (1, 1, True),
+    ],
+)
+def test_doy_rejects_inverted_year_span(start_year, end_year, valid):
+    if valid:
+        assert DOYQuery(month=4, day=1, start_year=start_year, end_year=end_year)
+    else:
+        with pytest.raises(ValidationError):
+            DOYQuery(month=4, day=1, start_year=start_year, end_year=end_year)
