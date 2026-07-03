@@ -12,6 +12,7 @@ import csv
 import io
 import json
 
+from collections.abc import Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,7 @@ import click
 from snowtool import types
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable
 
 # The shared --format choices; commands reuse this for their option.
 FORMATS = ('table', 'json', 'csv')
@@ -74,12 +75,14 @@ def _emit(rows: Iterable[Mapping[str, Any]], fmt: str = 'table') -> None:
         buffer = io.StringIO()
         writer = csv.DictWriter(buffer, fieldnames=headers)
         writer.writeheader()
-        writer.writerows(materialized)
+        writer.writerows(
+            {key: _scalar(value) for key, value in row.items()} for row in materialized
+        )
         click.echo(buffer.getvalue(), nl=False)
         return
 
     def cells(row: Mapping[str, Any]) -> list[str]:
-        return [str(row.get(header, '')) for header in headers]
+        return [_scalar(row.get(header, '')) for header in headers]
 
     rendered = [headers, *(cells(row) for row in materialized)]
     widths = [max(len(row[col]) for row in rendered) for col in range(len(headers))]
@@ -88,7 +91,14 @@ def _emit(rows: Iterable[Mapping[str, Any]], fmt: str = 'table') -> None:
 
 
 def _scalar(value: Any) -> str:
-    """Flatten a value for table/csv cells (lists become comma-joined)."""
+    """Flatten a value for table/csv cells.
+
+    Lists/tuples become comma-joined; mappings (e.g. a pourpoint's per-dataset
+    coverage) become comma-joined ``key=value`` pairs -- either way avoiding a raw
+    Python repr in a table/csv cell.
+    """
+    if isinstance(value, Mapping):
+        return ', '.join(f'{key}={item}' for key, item in value.items())
     if isinstance(value, (list, tuple)):
         return ', '.join(str(item) for item in value)
     return str(value)

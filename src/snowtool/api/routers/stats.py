@@ -27,10 +27,12 @@ from gazebo.negotiation import JSON, Representation, alternate_links
 # DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
 # the resolved type of the interval param's annotation.
 from gazebo.params import DatetimeInterval
+from pydantic import ValidationError
 
 from snowtool import types
 from snowtool.api.models.stats import StatsResponse, stats_csv_response
 from snowtool.api.tags import Tags
+from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery
 from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.zonal_stats import parse_zone_selection
@@ -140,12 +142,17 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
         variable: Annotated[list[str], _VARIABLE] = [],  # noqa: B006
         allow_partial: bool = False,
     ):
-        query = DOYQuery(
-            month=month,
-            day=day,
-            start_year=start_year,
-            end_year=end_year,
-        )
+        try:
+            query = DOYQuery(
+                month=month,
+                day=day,
+                start_year=start_year,
+                end_year=end_year,
+            )
+        except ValidationError as e:
+            # An impossible month/day (Feb 30) or inverted year span is a client
+            # error, not a 500 -- mirrors the CLI's _build_query handling.
+            raise QueryParameterError(f'Invalid day of year: {e}') from e
         return await run(reader, triplet, query, zone, variable, allow_partial, rep)
 
     return router

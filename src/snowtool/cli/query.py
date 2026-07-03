@@ -75,8 +75,8 @@ def _build_query(
                 'A day-of-year query needs --doy MONTH DAY, --start-year, and '
                 '--end-year.',
             )
-        if end_year < start_year:
-            raise click.ClickException('--end-year must be on or after --start-year.')
+        # Year-order and day-of-month validity are enforced on DOYQuery itself
+        # (a ValidationError below), so the CLI and API share one check.
         month, day = doy
         try:
             return DOYQuery(
