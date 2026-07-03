@@ -106,7 +106,18 @@ class SnowDb:
                         self.root,
                         f'dataset {name!r} link points at a missing config: {resolved}',
                     )
-                dataset_config = DatasetConfig.load(resolved)
+                try:
+                    dataset_config = DatasetConfig.load(resolved)
+                except (ValidationError, UnicodeDecodeError) as e:
+                    # Mirrors `open`'s root-config wrap: a linked dataset config that
+                    # exists but doesn't parse/validate (malformed JSON, wrong shape,
+                    # or bytes that aren't even text) is still a config problem the
+                    # CLI should render cleanly, not a raw pydantic/decode error.
+                    raise SnowDbConfigError(
+                        self.root,
+                        f'dataset {name!r} link points at an unreadable config '
+                        f'{resolved}: {e}',
+                    ) from e
                 self._dataset_paths[name] = self.dataset_dir(
                     name,
                     dataset_config,
@@ -244,10 +255,11 @@ class SnowDb:
             raise SnowDbConfigError(path)
         try:
             config = RootConfig.load(config_path)
-        except ValidationError as e:
-            # A file exists but isn't a valid root config (malformed JSON or a schema
-            # mismatch): still "not a snowdb this version understands", so raise the
-            # same clean error the CLI already renders rather than leaking a traceback.
+        except (ValidationError, UnicodeDecodeError) as e:
+            # A file exists but isn't a valid root config (malformed/truncated JSON,
+            # a schema mismatch, or bytes that aren't even text): still "not a
+            # snowdb this version understands", so raise the same clean error the
+            # CLI already renders rather than leaking a raw parse/decode traceback.
             raise SnowDbConfigError(
                 path,
                 detail=f'{config_path} is not a readable snowdb root config: {e}',
