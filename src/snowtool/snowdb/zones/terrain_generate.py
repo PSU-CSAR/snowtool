@@ -84,6 +84,7 @@ from rasterio.windows import transform as window_transform
 
 from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.terrain import (
@@ -454,6 +455,7 @@ def generate_terrain(
     workers: int | None = None,
     block_size: int | None = None,
     force: bool = False,
+    progress: ProgressReporter = NULL_PROGRESS,
 ) -> dict[str, str]:
     """Stream ``source`` once, binning terrain into every target grid.
 
@@ -464,8 +466,9 @@ def generate_terrain(
     :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial path; ``block_size`` (``None``
     -> :data:`DEFAULT_BLOCK_SIZE`) is the per-worker memory lever (see the module
     docstring). The result -- including the generation hash -- is independent of
-    ``workers``. Returns the one generation hash keyed by each target name (all
-    values equal). Refuses to overwrite an existing terrain set unless ``force``.
+    ``workers``. ``progress`` reports the per-block reprojection. Returns the one
+    generation hash keyed by each target name (all values equal). Refuses to
+    overwrite an existing terrain set unless ``force``.
     """
     if not targets:
         return {}
@@ -554,7 +557,7 @@ def generate_terrain(
                 accumulators,
                 work_crs,
                 bs,
-            ).run(n_workers)
+            ).run(n_workers, progress)
     # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
     # One generation id for the whole pass: a digest over every target's
@@ -797,30 +800,39 @@ class _TerrainStreamer:
                 result.z,
             )
 
-    def run(self: Self, workers: int) -> None:
+    def run(
+        self: Self,
+        workers: int,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> None:
         blocks = self._blocks()
-        if workers <= 1:
-            for block in blocks:
-                result = self._compute(block)
-                if result is not None:
-                    self._reduce(result)
-            return
+        # One bar over the whole pass; the serial, block-ordered reduce is the unit
+        # of visible progress (advance once per block, computed serial or parallel).
+        with progress.track('reprojecting DEM', total=len(blocks)) as task:
+            if workers <= 1:
+                for block in blocks:
+                    result = self._compute(block)
+                    if result is not None:
+                        self._reduce(result)
+                    task.advance()
+                return
 
-        # Parallel map, serial ordered reduce. A sliding window of at most
-        # ``workers`` in-flight futures keeps every worker fed while bounding the
-        # transient memory of buffered block results; popping left to right reduces
-        # in block order, so the accumulation stays deterministic.
-        pending = iter(blocks)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            window: deque[Future[_BlockResult | None]] = deque()
-            for block in pending:
-                window.append(pool.submit(self._compute, block))
-                if len(window) >= workers:
-                    break
-            while window:
-                result = window.popleft().result()
-                if result is not None:
-                    self._reduce(result)
-                next_block = next(pending, None)
-                if next_block is not None:
-                    window.append(pool.submit(self._compute, next_block))
+            # Parallel map, serial ordered reduce. A sliding window of at most
+            # ``workers`` in-flight futures keeps every worker fed while bounding the
+            # transient memory of buffered block results; popping left to right
+            # reduces in block order, so the accumulation stays deterministic.
+            pending = iter(blocks)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                window: deque[Future[_BlockResult | None]] = deque()
+                for block in pending:
+                    window.append(pool.submit(self._compute, block))
+                    if len(window) >= workers:
+                        break
+                while window:
+                    result = window.popleft().result()
+                    if result is not None:
+                        self._reduce(result)
+                    task.advance()
+                    next_block = next(pending, None)
+                    if next_block is not None:
+                        window.append(pool.submit(self._compute, next_block))

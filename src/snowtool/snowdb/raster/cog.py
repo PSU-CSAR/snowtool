@@ -44,7 +44,7 @@ def write_cog(
     """Write ``array`` to ``path`` as a tiled, DEFLATE-compressed COG.
 
     ``array`` may be 2D (single band) or 3D ``(bands, rows, cols)``. ``tags`` are
-    written as dataset-level metadata (e.g. AOI tile quadkeys).
+    written as dataset-level metadata (e.g. the AOI tile bbox / provenance hashes).
     ``band_descriptions``, when given, names each band (one per band, in order).
     """
     if array.ndim == 2:

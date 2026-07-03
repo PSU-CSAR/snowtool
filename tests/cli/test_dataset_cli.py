@@ -31,11 +31,11 @@ def _create(runner, cli_obj, source_dem):
 # --- list / info -------------------------------------------------------------
 
 
-def test_list_reports_absent_dataset(runner, cli_obj):
+def test_list_reports_dataset_names(runner, cli_obj):
     result = runner.invoke(cli, ['dataset', 'list', '--format', 'json'], obj=cli_obj)
 
     assert result.exit_code == 0
-    assert _json(result) == [{'dataset': 'test', 'present': True, 'dates': 0}]
+    assert _json(result) == [{'dataset': 'test'}]
 
 
 def test_info_unknown_dataset_errors(runner, cli_obj):

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Self
 
 import rasterio
 
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.raster import TiledRaster
 
 if TYPE_CHECKING:
@@ -225,6 +226,7 @@ class ZoneLayerProvider(ABC):
         *,
         force: bool = False,
         options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> dict[str, str]:
         """Open ``source`` over ``bounds`` and bin its layers into every target.
 
@@ -234,7 +236,8 @@ class ZoneLayerProvider(ABC):
         module imports its provider and a module-level import would cycle. Returns
         the per-target provenance hash. ``options`` carries engine knobs (e.g.
         terrain's ``workers``/``block_size``); a provider ignores any it does not
-        use, and ``None`` defers to the engine defaults.
+        use, and ``None`` defers to the engine defaults. ``progress`` reports the
+        long step (terrain's per-block reprojection, the NLCD download).
         """
         raise NotImplementedError
 

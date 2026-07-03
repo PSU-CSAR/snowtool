@@ -16,6 +16,7 @@ from snowtool.snowdb.aoi_raster import AOIRaster, aoi_provenance, write_aoi_rast
 from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import WritableRaster
+    from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.variables import DatasetVariable
@@ -162,13 +164,15 @@ class Dataset:
         *,
         force: bool = False,
         options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> str:
         """Generate this dataset's zone-layer set for ``provider`` from ``source``.
 
         A single-grid pass over the source (binning only into this grid); for the
         multi-grid shared-source pass, see :meth:`SnowDb.generate_zone_layers`.
         ``options`` carries engine knobs (e.g. terrain's ``workers``/
-        ``block_size``). Returns the set's provenance hash.
+        ``block_size``); ``progress`` reports the long step. Returns the set's
+        provenance hash.
         """
         bounds = grid_extent_4326(self.grid)
         hashes = provider.generate(
@@ -177,6 +181,7 @@ class Dataset:
             bounds,
             force=force,
             options=options,
+            progress=progress,
         )
         return hashes[self.spec.name]
 

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Query
 from fastapi.responses import StreamingResponse
-from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Negotiate
+from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Inject, Negotiate
 from gazebo.negotiation import JSON, Representation, alternate_links
 
 # DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
@@ -41,6 +41,12 @@ if TYPE_CHECKING:
 
 CSV = Representation('csv', 'text/csv')
 _REPRESENTATIONS = [JSON, CSV]
+
+# SnowDbReader is an app-scoped provider without a __provide__ recipe (its recipe is
+# supplied in app.py), so injection is opt-in via the Inject marker. It already
+# carries its max_zone_cells cap (sized from settings there), so the routes need no
+# Settings.
+ReaderDep = Annotated[SnowDbReader, Inject]
 
 _ZONE = Query(description='Stratify by a zone layer (repeatable).')
 _VARIABLE = Query(description='Variable to report (repeatable; default all).')
@@ -107,7 +113,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     )
     async def date_range_stats(
         triplet: types.StationTriplet,
-        reader: SnowDbReader,
+        reader: ReaderDep,
         rep: Annotated[Representation, Negotiate(_REPRESENTATIONS)],
         interval: Annotated[DatetimeInterval | None, DatetimeParam] = None,
         zone: Annotated[list[str], _ZONE] = [],  # noqa: B006 (FastAPI Query default)
@@ -124,7 +130,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     )
     async def doy_stats(
         triplet: types.StationTriplet,
-        reader: SnowDbReader,
+        reader: ReaderDep,
         rep: Annotated[Representation, Negotiate(_REPRESENTATIONS)],
         month: Annotated[int, Query(ge=1, le=12)],
         day: Annotated[int, Query(ge=1, le=31)],
