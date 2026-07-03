@@ -8,7 +8,7 @@ the triplet <-> filename-stem codec in :mod:`snowtool.snowdb.triplet_naming` --
 neither is a type.
 """
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import Field, WithJsonSchema
@@ -17,14 +17,10 @@ STATION_TRIPLET = r'[a-zA-Z0-9\-]+:[a-zA-Z]{2}:[a-zA-Z]+'
 
 
 def to_date(value: str) -> date:
-    return (
-        datetime.strptime(
-            value.replace('-', ''),
-            '%Y%m%d',
-        )
-        .astimezone(UTC)
-        .date()
-    )
+    return datetime.strptime(  # noqa: DTZ007
+        value.replace('-', ''),
+        '%Y%m%d',
+    ).date()
 
 
 StationTriplet = Annotated[
