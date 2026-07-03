@@ -57,11 +57,25 @@ class Pourpoint:
 
     @classmethod
     def from_geojson(cls: type[Self], path: Path | str) -> Self:
+        """Parse a pourpoint record, classifying *any* unreadable source as invalid.
+
+        The read + JSON parse live inside the conversion ``try`` so that garbage
+        bytes or malformed JSON surface as :class:`GeoJSONValidationError` -- the
+        same error a schema mismatch raises -- rather than a raw
+        ``JSONDecodeError``/``UnicodeDecodeError``. That keeps a single bad file in
+        a ``pourpoint import``/``sync`` batch landing in the ``invalid`` list
+        instead of aborting the whole run (``_classify_sources`` catches only
+        :class:`GeoJSONValidationError`).
+        """
         path = Path(path)
-        geojson = json.loads(path.read_text())
 
         kwargs: dict[str, Any] = {}
         try:
+            geojson = json.loads(path.read_text())
+            if not isinstance(geojson, dict):
+                raise GeoJSONValidationError(
+                    'Pourpoint source is not a GeoJSON object.',
+                )
             if geojson['type'] == FEATURE:
                 if geojson['geometry']['type'] != POINT:
                     raise GeoJSONValidationError(
@@ -69,32 +83,7 @@ class Pourpoint:
                     )
                 kwargs['point'] = geojson['geometry']
             elif geojson['type'] == GEOM_COLLECTION:
-                geoms: Any = geojson['geometries']
-
-                if len(geoms) != 2:
-                    raise GeoJSONValidationError(
-                        'Multi-geometry pourpoints cannot have '
-                        'more than two geometries',
-                    )
-
-                if geoms[0]['type'] == POINT:
-                    kwargs['point'] = geoms[0]
-                elif geoms[1]['type'] == POINT:
-                    kwargs['point'] = geoms[1]
-                else:
-                    raise GeoJSONValidationError(
-                        'All pourpoints must have a point geometry.',
-                    )
-
-                if geoms[0]['type'] in POLYGON_TYPES:
-                    kwargs['polygon'] = geoms[0]
-                elif geoms[1]['type'] in POLYGON_TYPES:
-                    kwargs['polygon'] = geoms[1]
-                else:
-                    raise GeoJSONValidationError(
-                        'Multi-geometry pourpoints must have one '
-                        '(Mutli)Polygon geometry',
-                    )
+                kwargs.update(cls._parse_geometry_collection(geojson['geometries']))
             else:
                 raise GeoJSONValidationError(
                     f"Incompatible type '{geojson['type']}'",
@@ -110,8 +99,40 @@ class Pourpoint:
             raise GeoJSONValidationError(
                 'Pourpoint missing required property',
             ) from e
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise GeoJSONValidationError(
+                f'Pourpoint source is not readable geojson: {e}',
+            ) from e
 
         return cls(path=path, **kwargs)
+
+    @staticmethod
+    def _parse_geometry_collection(geoms: Any) -> dict[str, Any]:
+        """Pull the point (required) + basin polygon (required) out of the two-geom
+        ``GeometryCollection`` pourpoint form. Raises :class:`GeoJSONValidationError`
+        on the wrong count or a missing point/polygon geometry."""
+        if len(geoms) != 2:
+            raise GeoJSONValidationError(
+                'Multi-geometry pourpoints cannot have more than two geometries',
+            )
+        kwargs: dict[str, Any] = {}
+        if geoms[0]['type'] == POINT:
+            kwargs['point'] = geoms[0]
+        elif geoms[1]['type'] == POINT:
+            kwargs['point'] = geoms[1]
+        else:
+            raise GeoJSONValidationError(
+                'All pourpoints must have a point geometry.',
+            )
+        if geoms[0]['type'] in POLYGON_TYPES:
+            kwargs['polygon'] = geoms[0]
+        elif geoms[1]['type'] in POLYGON_TYPES:
+            kwargs['polygon'] = geoms[1]
+        else:
+            raise GeoJSONValidationError(
+                'Multi-geometry pourpoints must have one (Mutli)Polygon geometry',
+            )
+        return kwargs
 
     @property
     def geometry(self: Self) -> Geometry:

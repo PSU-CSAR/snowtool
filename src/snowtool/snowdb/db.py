@@ -140,6 +140,16 @@ class SnowDb:
             elif self.root is not None:
                 self.zone_layer_sources[name] = provider.default_source(self.root)
 
+        # The pourpoint index is read on every listing/coverage call (every API
+        # request), so it is cached on the instance rather than re-parsed each
+        # time. The cache is *mtime-revalidated* (see `pourpoint_index`): primed
+        # here alongside the config reads, then re-read only when `index.geojson`'s
+        # mtime changes, so a long-running API server picks up an out-of-band
+        # `pourpoint import`/`reindex` without a restart at the cost of one stat.
+        self._index: PourpointIndex | None = None
+        self._index_mtime: int | None = None
+        self._load_index()
+
     def _resolve_path(self: Self, link: str | Path, base: Path | None = None) -> Path:
         """Resolve a config path: absolute -> as-is; relative -> against ``base``
         (the root by default). A relative path with no root has nothing to resolve
@@ -316,14 +326,35 @@ class SnowDb:
             )
         return Pourpoint.from_geojson(path)
 
+    def _load_index(self: Self) -> PourpointIndex:
+        """Return the cached index, re-reading it only if ``index.geojson`` changed.
+
+        The revalidation primitive behind :meth:`pourpoint_index`: it ``stat``s the
+        index file and reloads only when the mtime differs from the cached one (a
+        missing file is cached as an empty index, mtime ``None``). One stat per
+        access keeps a single ``SnowDb`` -- e.g. an app-lifespan API instance --
+        correct after an out-of-band reindex without re-parsing on every request.
+        """
+        try:
+            mtime: int | None = self.pourpoint_index_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime = None
+        if self._index is None or mtime != self._index_mtime:
+            self._index = PourpointIndex.load(self.pourpoint_index_path)
+            self._index_mtime = mtime
+        return self._index
+
     def pourpoint_index(self: Self) -> PourpointIndex:
-        """Load the persisted ``index.geojson`` manifest (empty if absent).
+        """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
 
         Serves ``pourpoint list`` without parsing the (large) basin records. The
         index is maintained by import/sync/remove/reindex; run ``pourpoint
-        reindex`` if the ``records/`` dir was edited out of band.
+        reindex`` if the ``records/`` dir was edited out of band. The result is
+        cached and revalidated against the file's mtime (see :meth:`_load_index`),
+        so repeated reads within one process are cheap yet still reflect an
+        out-of-band rewrite.
         """
-        return PourpointIndex.load(self.pourpoint_index_path)
+        return self._load_index()
 
     def pourpoint_dataset_coverage(
         self: Self,
@@ -333,10 +364,16 @@ class SnowDb:
         """How fully ``dataset_name``'s grid covers pourpoint ``triplet``'s basin.
 
         Read straight from the index's cached per-dataset coverage (computed at
-        reindex against each dataset's grid). A grid change is by definition a new
-        dataset, so the cached value never goes stale -- and reading it avoids
-        re-parsing the (large) basin record on every query. Raises if the
-        pourpoint is not indexed or the dataset is unknown.
+        reindex/registration against each dataset's grid). A grid change is by
+        definition a new dataset, so the cached value never goes stale -- and
+        reading it avoids re-parsing the (large) basin record on every query.
+
+        A dataset registered *after* the index entry was written (a legacy
+        out-of-order registration, or before a ``pourpoint reindex``) has no key
+        in the entry's ``coverage`` dict; that reads as
+        :attr:`~snowtool.snowdb.coverage.Coverage.NONE` (no coverage) rather than
+        an error, so a not-yet-recomputed dataset degrades to "off grid" instead
+        of a 500. Raises only if the dataset is unknown or the pourpoint unindexed.
         """
         if dataset_name not in self.datasets:
             raise KeyError(dataset_name)
@@ -345,7 +382,7 @@ class SnowDb:
             raise PourpointNotFoundError(
                 f'No stored pourpoint for triplet {triplet!r}.',
             )
-        return index[triplet].coverage[dataset_name]
+        return index[triplet].coverage.get(dataset_name, Coverage.NONE)
 
     def require_pourpoint_coverage(
         self: Self,

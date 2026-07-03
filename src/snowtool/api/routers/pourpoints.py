@@ -19,6 +19,7 @@ from fastapi import Query
 # type of the bbox param's annotation.
 from gazebo.ext.fastapi import BBoxParam, GazeboRouter, Inject
 from gazebo.params import BBox
+from starlette.concurrency import run_in_threadpool
 
 from snowtool import types
 from snowtool.api.models.pourpoint import (
@@ -56,6 +57,19 @@ async def list_pourpoints(
     basin = geometry == 'basin'
     if limit is None:
         limit = BASIN_DEFAULT_LIMIT if basin else POINT_DEFAULT_LIMIT
+    # Basin mode parses up to `limit` (<= 1000) basin records, each thousands of
+    # coordinate pairs -- synchronous disk + shapely work that would block the
+    # event loop. Offload it to a worker thread so other requests keep flowing.
+    # (Point mode is a cheap in-memory index scan; left inline.)
+    if basin:
+        return await run_in_threadpool(
+            build_pourpoint_collection,
+            snowdb,
+            offset=offset,
+            limit=limit,
+            basin_geometry=basin,
+            bbox=bbox,
+        )
     return build_pourpoint_collection(
         snowdb,
         offset=offset,
