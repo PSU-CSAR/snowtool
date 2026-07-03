@@ -23,8 +23,9 @@ import logging
 from gazebo.di import Providers
 from gazebo.ext.fastapi import GazeboApp
 
-from snowtool.settings import Settings
+from snowtool.api.settings import Settings
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.reader import SnowDbReader
 
 from .exceptions import install_exception_handlers
@@ -34,6 +35,23 @@ from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
 from .routers.stats import build_stats_router
 from .tags import Tags
+
+
+def _provide_reader(db: SnowDb, settings: Settings) -> SnowDbReader:
+    """The gazebo recipe for the app-scoped :class:`SnowDbReader`.
+
+    The API owns the ``Settings``->domain translation: the reader takes plain
+    read-path knobs, and this recipe sizes them from settings -- the COG cache from
+    ``tiff_cache_size`` and the crossed-stats cap from ``max_zone_cells``. gazebo
+    resolves ``db``/``settings`` from their app bindings and calls this inside the
+    app's event loop at lifespan, so the reader's loop-affine cache is born there.
+    (``snowdb`` itself imports no ``Settings``.)
+    """
+    return SnowDbReader(
+        db,
+        TiffCache(settings.tiff_cache_size),
+        max_zone_cells=settings.max_zone_cells,
+    )
 
 
 def get_app(
@@ -54,7 +72,9 @@ def get_app(
     providers = Providers()
     providers.app(Settings, lambda: settings)
     providers.app(SnowDb, lambda: catalog)
-    providers.app(SnowDbReader)  # built from SnowDb + Settings via __provide__
+    # Supplied recipe rather than a __provide__ on the reader (which is domain code
+    # and imports no Settings); see _provide_reader.
+    providers.app(SnowDbReader, _provide_reader)
 
     # CORS is off by default (GazeboApp accepts cors= when a policy is wanted).
     app = GazeboApp(

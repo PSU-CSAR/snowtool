@@ -6,10 +6,9 @@ that one SnowDb-per-invocation without a global factory, the root ``cli`` group'
 callback stores a :class:`CliContext` on ``ctx.obj``; commands that need the
 database take :func:`pass_snowdb`, which builds (and caches) it on first use.
 
-The build is *lazy* on purpose: ``version``, ``migration`` (path-only), and
-``--help`` must never construct a SnowDb -- doing so would require the
-``snowdb_config`` setting for commands that have no business touching the
-database.
+The build is *lazy* on purpose: ``--version``, ``--help``, and the ``api`` group
+must never construct a SnowDb -- doing so would require a ``--config`` for commands
+that have no business touching the database.
 """
 
 from __future__ import annotations
@@ -17,15 +16,17 @@ from __future__ import annotations
 import functools
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Concatenate
 
 import click
+
+from click.core import ParameterSource
 
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.manager import SnowDbManager
@@ -36,11 +37,13 @@ if TYPE_CHECKING:
 class CliContext:
     """The state the root ``cli`` group hands every command via ``ctx.obj``.
 
-    Holds the ``--config`` value (or ``None`` to fall back to the ``snowdb_config``
-    setting) and the zone-layer providers to bind, and lazily *opens* a single
-    :class:`SnowDb` from its root config the first time :attr:`snowdb` is read --
-    so the CLI serves exactly the registered datasets. Generation sources are
-    declared in the config (``RootConfig.sources``), not injected here.
+    Holds the resolved ``--config`` root (set by :data:`config_option`, which reads
+    the flag or its ``SNOWTOOL_SNOWDB_CONFIG`` env var) and the zone-layer providers
+    to bind, and lazily *opens* a single :class:`SnowDb` from its root config the
+    first time :attr:`snowdb` is read -- so the CLI serves exactly the registered
+    datasets. Generation sources are declared in the config (``RootConfig.sources``),
+    not injected here. The CLI depends on no pydantic ``Settings``: that is an API
+    concern (see :mod:`snowtool.api.settings`).
     """
 
     config: Path | None = None
@@ -51,19 +54,20 @@ class CliContext:
     def snowdb(self) -> SnowDb:
         """The invocation's SnowDb, opened once on first access.
 
-        Resolves ``--config`` if given, otherwise the ``snowdb_config`` setting (read
-        only here, so commands that never touch the database never require it), and
-        opens the snowdb from the root config there.
+        Opens the snowdb from :attr:`config` (the ``--config`` flag or its
+        ``SNOWTOOL_SNOWDB_CONFIG`` env var). With neither set, raises a clean CLI
+        error rather than a traceback.
         """
         if self._snowdb is None:
-            from snowtool.settings import Settings
             from snowtool.snowdb.db import SnowDb
 
-            location = (
-                self.config if self.config is not None else Settings().snowdb_config
-            )
+            if self.config is None:
+                raise click.ClickException(
+                    'No snowdb configured. Pass --config/-C or set '
+                    'SNOWTOOL_SNOWDB_CONFIG.',
+                )
             self._snowdb = SnowDb.open(
-                location,
+                self.config,
                 zone_layer_providers=self.zone_layer_providers,
             )
         return self._snowdb
@@ -129,3 +133,48 @@ def pass_manager[**P, R](
     ``manager.db``.
     """
     return _inject(f, lambda ctx_obj: ctx_obj.manager)
+
+
+def _apply_config(
+    ctx: click.Context,
+    param: click.Parameter,
+    value: Path | None,
+) -> Path | None:
+    """Stash a command's ``--config`` on the :class:`CliContext`.
+
+    The callback behind :data:`config_option`: it runs during arg parsing (before
+    the command body), so ``pass_snowdb``/``pass_manager`` and ``snowdb init`` read
+    the resolved config off ``ctx.obj``. ``value`` is the flag or its
+    ``SNOWTOOL_SNOWDB_CONFIG`` env var (click resolves the envvar).
+
+    An explicit ``--config`` flag always wins; the env var only fills a context that
+    has no config yet. So neither ``None`` (neither set) nor a bare exported env var
+    disturbs a test's injected :class:`CliContext` -- otherwise a maintainer running
+    the CLI suite with ``SNOWTOOL_SNOWDB_CONFIG`` exported (the normal way to use the
+    tool) would have every injected-context command silently open that snowdb instead.
+    """
+    if value is None:
+        return value
+    obj = ctx.ensure_object(CliContext)
+    from_env = ctx.get_parameter_source(param.name) is ParameterSource.ENVIRONMENT
+    if obj.config is None or not from_env:
+        obj.config = value
+    return value
+
+
+# The per-command snowdb-selection option. Applied only to commands that open a
+# snowdb, so a command that doesn't (``api serve``, ``--version``) carries no
+# config flag -- the dependency is declared exactly where it exists. Config-less
+# (``expose_value=False``): it sets ``CliContext.config`` via the callback rather
+# than adding a parameter to every command body.
+config_option = click.option(
+    '--config',
+    '-C',
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar='SNOWTOOL_SNOWDB_CONFIG',
+    expose_value=False,
+    callback=_apply_config,
+    help='Snowdb config file or its directory '
+    '(defaults to the SNOWTOOL_SNOWDB_CONFIG env var).',
+)

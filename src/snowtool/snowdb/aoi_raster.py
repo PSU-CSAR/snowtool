@@ -48,9 +48,7 @@ def tiles_from_tags(
 
     AOI rasters store a ``ul_row ul_col br_row br_col`` tile bounding box in
     ``SNOWTOOL_TILE_BBOX``. The upper-left tile is the window origin and every
-    tile in the box is read (the AOI mask nulls non-AOI pixels). Legacy snodas
-    quadkey tags are not read here; migrate them first with
-    ``snowtool migration aoi-tags``.
+    tile in the box is read (the AOI mask nulls non-AOI pixels).
     """
     try:
         bbox = tags[TILE_BBOX_TAG]

@@ -25,6 +25,16 @@ format_option = click.option(
     help='Output format.',
 )
 
+# The same --format flag for commands whose output is nested (e.g. `query stats`):
+# there is no table form, so the choice is restricted to the two flat serializations.
+nested_format_option = click.option(
+    '--format',
+    'fmt',
+    type=click.Choice(('csv', 'json')),
+    default='csv',
+    help='Output format (the zonal output is nested, so no table form).',
+)
+
 dataset_option = click.option(
     '--dataset',
     '-d',

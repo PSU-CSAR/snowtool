@@ -21,8 +21,8 @@ import click
 
 from pydantic import ValidationError
 
-from snowtool.cli._context import pass_snowdb
-from snowtool.cli._datasets import format_option, get_dataset
+from snowtool.cli._context import config_option, pass_snowdb
+from snowtool.cli._datasets import format_option, get_dataset, nested_format_option
 from snowtool.cli._render import DATE, _emit
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery
@@ -135,13 +135,8 @@ def _build_query(
     default=False,
     help='Permit a clipped result over an AOI the grid only partially covers.',
 )
-@click.option(
-    '--format',
-    'fmt',
-    type=click.Choice(('csv', 'json')),
-    default='csv',
-    help='Output format (the zonal output is nested, so no table form).',
-)
+@nested_format_option
+@config_option
 @pass_snowdb
 def stats(
     snowdb: SnowDb,
@@ -205,6 +200,7 @@ def stats(
 @click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
 @click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
 @format_option
+@config_option
 @pass_snowdb
 def dates(
     snowdb: SnowDb,

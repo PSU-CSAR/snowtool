@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerProvider
 from snowtool.snowdb.zones.zoning import threshold
 
@@ -112,17 +113,25 @@ class LandCoverProvider(ZoneLayerProvider):
         *,
         force: bool = False,
         options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> dict[str, str]:
         """Stream the NLCD ``source`` once, binning forest cover into every target.
 
         ``options`` is accepted for the uniform provider contract but unused: land
-        cover has no block-level parallelism knobs.
+        cover has no block-level parallelism knobs. ``progress`` reports the source's
+        download (the heavy step for the default ~1.5 GB Annual NLCD source).
         """
+        from snowtool.snowdb.zones.landcover_source import LandCoverSource
+
         engine = self._engine
         if engine is None:
             from snowtool.snowdb.zones.landcover_generate import generate_landcover
 
             engine = generate_landcover
 
-        with source.open(bounds) as src:
+        if not isinstance(source, LandCoverSource):  # pragma: no cover - defensive
+            raise TypeError(
+                f'land-cover generation needs a LandCoverSource, got {source!r}',
+            )
+        with source.open(bounds, progress=progress) as src:
             return engine(src, targets, force=force)

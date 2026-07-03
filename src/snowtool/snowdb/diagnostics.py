@@ -257,7 +257,10 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
         try:
             aoi_raster = AOIRaster.open(path, dataset.grid)
         except ValueError:
-            issue = 'missing SNOWTOOL_TILE_BBOX tag (run `migration aoi-tags`)'
+            issue = (
+                'missing SNOWTOOL_TILE_BBOX tag '
+                '(rebuild with `pourpoint rasterize --rebuild`)'
+            )
         except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
             issue = f'unreadable: {e}'
         else:

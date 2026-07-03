@@ -10,17 +10,20 @@ per-dataset rasters.
 
 from __future__ import annotations
 
+import sys
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_manager, pass_snowdb
+from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
     format_option,
     resolve_datasets,
 )
+from snowtool.cli._progress import ClickProgress
 from snowtool.cli._render import _emit, _emit_record
 from snowtool.exceptions import PourpointPruneDestinationRequiredError, SnowtoolError
 
@@ -55,6 +58,7 @@ def _fail_if_invalid(result: PourpointImportResult) -> None:
 @pourpoint.command('import')
 @click.argument('src', type=click.Path(exists=True, path_type=Path))
 @click.option('--dry-run', is_flag=True, help='Classify sources without writing.')
+@config_option
 @pass_manager
 def import_pourpoints(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
     """Additively import pourpoint(s) from a file or directory into the snowdb.
@@ -76,6 +80,7 @@ def import_pourpoints(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
     help='Archive directory for pourpoints removed because they are absent from SRC.',
 )
 @click.option('--dry-run', is_flag=True, help='Show the import + prune plan only.')
+@config_option
 @pass_manager
 def sync_pourpoints(
     manager: SnowDbManager,
@@ -107,6 +112,7 @@ def sync_pourpoints(
 
 @pourpoint.command('list')
 @format_option
+@config_option
 @pass_snowdb
 def list_pourpoints(snowdb: SnowDb, fmt: str) -> None:
     """List stored pourpoints from the index (triplet, name, area, coverage)."""
@@ -125,6 +131,7 @@ def list_pourpoints(snowdb: SnowDb, fmt: str) -> None:
 @pourpoint.command('show')
 @click.argument('triplet')
 @format_option
+@config_option
 @pass_snowdb
 def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
     """Show a stored pourpoint's details (from its record geojson)."""
@@ -161,6 +168,7 @@ def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
     default='.',
     help='Directory to write the record geojson into (default: cwd).',
 )
+@config_option
 @pass_snowdb
 def dump_pourpoint(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
     """Copy a stored pourpoint's record geojson out to OUTPUT_DIR (round-trip)."""
@@ -172,6 +180,7 @@ def dump_pourpoint(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
 
 
 @pourpoint.command('reindex')
+@config_option
 @pass_manager
 def reindex_pourpoints(manager: SnowDbManager) -> None:
     """Rebuild the index.geojson manifest from the stored records."""
@@ -184,6 +193,7 @@ def reindex_pourpoints(manager: SnowDbManager) -> None:
 @pourpoint.command('remove')
 @click.argument('triplet')
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
+@config_option
 @pass_manager
 def remove_pourpoint(manager: SnowDbManager, triplet: str, dry_run: bool) -> None:
     """Remove a stored pourpoint and its per-dataset rasters (cascade)."""
@@ -206,19 +216,29 @@ def remove_pourpoint(manager: SnowDbManager, triplet: str, dry_run: bool) -> Non
     help='Rasterize every stored pourpoint.',
 )
 @click.option('--rebuild', is_flag=True, help='Rebuild even rasters that are current.')
+@click.option(
+    '-v',
+    '--verbose',
+    is_flag=True,
+    help='List each built raster, not just the totals.',
+)
 @dataset_option
+@config_option
 @pass_manager
 def rasterize_aois(
     manager: SnowDbManager,
     triplet: str | None,
     all_pourpoints: bool,
     rebuild: bool,
+    verbose: bool,
     dataset_names: tuple[str, ...],
 ) -> None:
     """Burn pourpoint basin(s) onto each dataset grid, building missing/stale rasters.
 
     Provide a single TRIPLET or ``--all``. By default only missing/stale rasters
-    are (re)built; ``--rebuild`` forces all selected.
+    are (re)built; ``--rebuild`` forces all selected. A live bar shows progress on a
+    TTY; ``--verbose`` (or a non-TTY, where the bar is hidden) lists each built
+    raster.
     """
     if bool(triplet) == bool(all_pourpoints):
         raise click.ClickException('Provide exactly one of TRIPLET or --all.')
@@ -235,12 +255,21 @@ def rasterize_aois(
 
     datasets = resolve_datasets(manager.db, dataset_names)
     try:
-        result = manager.rasterize_aois(pourpoints, datasets, rebuild=rebuild)
+        result = manager.rasterize_aois(
+            pourpoints,
+            datasets,
+            rebuild=rebuild,
+            progress=ClickProgress(),
+        )
     except (FileNotFoundError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
-    for triplet_, dataset_name in result.built:
-        click.echo(f'built {triplet_} [{dataset_name}]')
+    # The bar (stderr) only renders on a TTY; when asked (--verbose) or when it was
+    # hidden (piped/non-TTY), list what built so the detail isn't lost. Printed after
+    # the bar closes, so the two never interleave.
+    if verbose or not sys.stderr.isatty():
+        for triplet_, dataset_name in result.built:
+            click.echo(f'built {triplet_} [{dataset_name}]')
     click.echo(
         f'built {len(result.built)}, skipped {len(result.skipped)} (already current)',
     )

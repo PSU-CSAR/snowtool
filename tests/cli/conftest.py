@@ -63,6 +63,7 @@ def _fake_terrain_engine(
     workers=None,
     block_size=None,
     force=False,
+    progress=None,
 ):
     """Stand in for generate_terrain: a uniform terrain set per target.
 

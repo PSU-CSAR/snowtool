@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import CliContext, pass_snowdb
+from snowtool.cli._context import CliContext, config_option, pass_snowdb
 from snowtool.cli._datasets import dataset_option, resolve_datasets
 from snowtool.cli._render import FORMATS, _emit
 
@@ -26,6 +26,7 @@ def snowdb() -> None:
     default='table',
     help='Output format.',
 )
+@config_option
 @pass_snowdb
 def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
     """Overview of every dataset: artifacts present, date span, and counts."""
@@ -54,6 +55,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
 
 @snowdb.command('validate')
 @dataset_option
+@config_option
 @pass_snowdb
 def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     """Roll up the read-only health checks; exit non-zero if any problem is found.
@@ -106,9 +108,10 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
     required=False,
     type=click.Path(file_okay=False, path_type=Path),
 )
+@config_option
 @click.pass_obj
 def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
-    """Create an empty snowdb at PATH (defaults to the snowdb_config setting).
+    """Create an empty snowdb at PATH (or the ``--config`` / env-var root).
 
     Lays out the root config (``snowdb_conf.json``), ``pourpoints/``, and ``data/``. No
     datasets are registered: a dataset goes live by staging it (``dataset
@@ -116,7 +119,6 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     add``), which is also where area + zone-layer generation happens. Idempotent --
     an existing root config is left untouched.
     """
-    from snowtool.settings import Settings
     from snowtool.snowdb.manager import SnowDbManager
 
     if path is not None:
@@ -124,7 +126,10 @@ def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     elif cli_ctx.config is not None:
         root = cli_ctx.config
     else:
-        root = Settings().snowdb_config
+        raise click.ClickException(
+            'No snowdb location. Pass PATH, --config/-C, or set '
+            'SNOWTOOL_SNOWDB_CONFIG.',
+        )
 
     SnowDbManager.initialize(
         root,
