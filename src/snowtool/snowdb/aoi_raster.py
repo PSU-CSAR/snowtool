@@ -18,6 +18,7 @@ import rasterio
 from rasterio.features import rasterize
 
 from snowtool import types
+from snowtool.exceptions import IncompleteDatasetDataError
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import PixelCoord, tile_base_origin, tiles_in_bbox
@@ -53,7 +54,14 @@ def tiles_from_tags(
     try:
         bbox = tags[TILE_BBOX_TAG]
     except KeyError as e:
-        raise ValueError('AOI raster is missing tile metadata') from e
+        # A burned AOI raster with no tile-bbox tag is corrupt or predates the
+        # tagging: a server-side integrity failure the caller fixes by
+        # re-rasterizing, not a client error. Typed (not a bare ValueError) so the
+        # API surfaces it as an informative 500 problem, not a generic one.
+        raise IncompleteDatasetDataError(
+            'AOI raster is missing its tile-bbox metadata '
+            f'({TILE_BBOX_TAG}); re-rasterize the pourpoint for this dataset.',
+        ) from e
 
     ul_row, ul_col, br_row, br_col = (int(v) for v in bbox.split())
     origin = tile_base_origin(grid[ul_row, ul_col])

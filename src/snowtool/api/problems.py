@@ -53,3 +53,11 @@ PROBLEM_TYPE_NOT_FOUND = _define(
     title='Problem type not found',
     status=404,
 )
+INCOMPLETE_DATASET_DATA = _define(
+    'incomplete-dataset-data',
+    title='Incomplete dataset data',
+    # 500-class: the server's on-disk data for the requested date is incomplete
+    # (a missing/duplicated variable COG), not something the client can fix by
+    # changing the request. The detail names the date/variables (no paths).
+    status=500,
+)

@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from datetime import date
 from typing import TYPE_CHECKING, Self
 
+from snowtool.exceptions import IncompleteDatasetDataError
 from snowtool.snowdb.raster.tiled import DataRaster
 
 if TYPE_CHECKING:
@@ -17,8 +18,10 @@ class RasterCollection:
         self: Self,
         query: DateQuery,
         rasters: dict[DatasetVariable, list[DataRaster]],
+        dataset_name: str | None = None,
     ) -> None:
         self.query = query
+        self.dataset_name = dataset_name
         self._by_variable = {
             variable: sorted(rs, key=lambda x: x.date)
             for variable, rs in rasters.items()
@@ -67,17 +70,24 @@ class RasterCollection:
                 ]
                 for variable in variables
             },
+            dataset_name=dataset.spec.name,
         )
 
     def validate(self: Self) -> None:
-        if len({len(rasters) for rasters in self._by_variable.values()}) > 1:
-            raise ValueError('Variable raster lists are not all the same length')
-
+        # A date present for some requested variables but not others is a partial
+        # date on disk (a missing/crashed-ingest COG) -- surface it as the typed
+        # integrity error before the reduction, naming the missing variable(s).
         expected = self.variables
         for date_, present in self._by_date.items():
             if present != expected:
-                raise ValueError(
-                    f"Unexpected variable set for date '{date_}': "
-                    f'{sorted(v.key for v in expected)} != '
-                    f'{sorted(v.key for v in present)}',
+                raise IncompleteDatasetDataError.for_variables(
+                    self.dataset_name or '<unknown>',
+                    date_,
+                    (v.key for v in expected - present),
                 )
+
+        # After the per-date check every date carries the full requested set, so
+        # the per-variable lists can only differ in length if something upstream
+        # is inconsistent; keep it as a defensive invariant.
+        if len({len(rasters) for rasters in self._by_variable.values()}) > 1:
+            raise ValueError('Variable raster lists are not all the same length')
