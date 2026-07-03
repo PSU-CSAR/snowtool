@@ -126,6 +126,28 @@ def test_list_json(runner, cli_obj, pourpoint_geojson):
     assert rows[0]['area_meters'] > 0
 
 
+def test_list_table_flattens_coverage(runner, cli_obj, pourpoint_geojson):
+    # The coverage cell is a {dataset: Coverage} dict; table/csv must flatten it
+    # (key=value) rather than print the raw Python repr.
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
+
+    result = runner.invoke(cli, ['pourpoint', 'list', '--format', 'table'], obj=cli_obj)
+
+    assert result.exit_code == 0
+    assert 'test=full' in result.output
+    assert "{'test'" not in result.output
+
+
+def test_list_csv_flattens_coverage(runner, cli_obj, pourpoint_geojson):
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
+
+    result = runner.invoke(cli, ['pourpoint', 'list', '--format', 'csv'], obj=cli_obj)
+
+    assert result.exit_code == 0
+    assert 'test=full' in result.output
+    assert "{'test'" not in result.output
+
+
 def test_show(runner, cli_obj, pourpoint_geojson):
     runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 

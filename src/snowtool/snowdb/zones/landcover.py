@@ -57,7 +57,7 @@ FOREST_COVER = ZoneLayer(
     band_descriptions=('forest_cover_percent_0_100',),
     key='forest_cover',
     # Forest cover is a forested/unforested split at a percent threshold (default
-    # 40%), not a set of percent bands: the question is whether a cell is forested,
+    # 50%), not a set of percent bands: the question is whether a cell is forested,
     # and the threshold is the per-query knob. Pixels are already percent, so
     # value_scale is 1.
     zoning=threshold(

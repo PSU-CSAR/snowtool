@@ -11,8 +11,6 @@ snowdb, not the other way around."
 
 from __future__ import annotations
 
-import shutil
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
@@ -24,6 +22,7 @@ from snowtool.exceptions import (
     SnowDbConfigError,
 )
 from snowtool.snowdb import triplet_naming
+from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     PathDatasetLink,
@@ -36,7 +35,7 @@ from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
     from snowtool.snowdb.aoi_raster import AOIRaster
     from snowtool.snowdb.dataset import Dataset
@@ -261,6 +260,75 @@ class SnowDbManager:
 
         return provider.generate(source, targets, bounds, force=force, options=options)
 
+    def generate_dataset_zone_layers(
+        self: Self,
+        dataset: Dataset,
+        provider_names: Iterable[str] | None = None,
+        *,
+        source_overrides: Mapping[str, Path] | None = None,
+        skip_present: bool = False,
+        force: bool = False,
+        options: GenerationOptions | None = None,
+        progress_factory: Callable[[str], ProgressReporter] | None = None,
+    ) -> dict[str, str]:
+        """Generate one dataset's zone layers, resolving each provider's source.
+
+        The single-dataset counterpart to :meth:`generate_zone_layers` (which shares
+        one source read across several *registered* datasets): this one takes
+        ``dataset`` directly rather than a name looked up in ``self.db.datasets``,
+        so a not-yet-registered (staged) dataset can use it too. Backs the CLI's
+        ``dataset create``/``generate-zones`` orchestration (resolve provider, pick
+        override-vs-default source, generate, report) so both commands share one
+        implementation.
+
+        ``provider_names`` selects a subset (default: every provider ``dataset``
+        enables); an unknown name raises :class:`ValueError`. A selected name the
+        dataset does not enable is silently skipped (nothing to build). Each
+        provider's source is ``source_overrides[provider_name]`` (a local path,
+        wrapped via :meth:`ZoneLayerProvider.local_source`) if given, else this
+        database's configured default. ``skip_present`` leaves an
+        already-generated provider's set untouched instead of overwriting it (the
+        ``dataset create`` semantics; ``generate-zones`` always rebuilds).
+        ``progress_factory`` builds a :class:`ProgressReporter` per provider name
+        (default: silent). Returns each generated provider's provenance hash,
+        keyed by provider name -- skipped providers are absent.
+        """
+        source_overrides = source_overrides or {}
+        selected = (
+            tuple(provider_names)
+            if provider_names is not None
+            else tuple(dataset.providers)
+        )
+        for provider_name in selected:
+            if provider_name not in self.db.zone_layer_providers:
+                raise ValueError(f'No such zone-layer provider: {provider_name}')
+
+        hashes: dict[str, str] = {}
+        for provider_name in selected:
+            if provider_name not in dataset.providers:
+                continue
+            if skip_present and dataset.zones[provider_name].present():
+                continue
+            provider = self.db.zone_layer_providers[provider_name]
+            source = (
+                provider.local_source(source_overrides[provider_name])
+                if provider_name in source_overrides
+                else self.db.zone_layer_sources[provider_name]
+            )
+            progress = (
+                progress_factory(provider_name)
+                if progress_factory is not None
+                else NULL_PROGRESS
+            )
+            hashes[provider_name] = dataset.generate_zone_layers(
+                provider,
+                source,
+                force=force,
+                options=options,
+                progress=progress,
+            )
+        return hashes
+
     # --- pourpoint import / sync / lifecycle ----------------------------------------
 
     def reindex_pourpoints(self: Self) -> PourpointIndex:
@@ -328,7 +396,7 @@ class SnowDbManager:
         """Copy each source geojson verbatim to its canonical record path."""
         self.db.pourpoint_records_path.mkdir(parents=True, exist_ok=True)
         for path, aoi in to_import:
-            shutil.copyfile(path, self.db.pourpoint_record_path(aoi.station_triplet))
+            atomic_copy(path, self.db.pourpoint_record_path(aoi.station_triplet))
 
     def import_pourpoints(
         self: Self,

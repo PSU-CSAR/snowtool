@@ -182,24 +182,20 @@ def create_dataset(
     if quick:
         return
 
-    for provider_name, provider in manager.db.zone_layer_providers.items():
-        if ds.zones[provider_name].present():
-            continue
-        source = (
-            provider.local_source(overrides[provider_name])
-            if provider_name in overrides
-            else manager.db.zone_layer_sources[provider_name]
+    try:
+        generated = manager.generate_dataset_zone_layers(
+            ds,
+            source_overrides=overrides,
+            skip_present=True,
+            force=True,
+            options=GenerationOptions(workers=workers, block_size=block_size),
+            progress_factory=lambda provider_name: ClickProgress(
+                prefix=f'{name} {provider_name}: ',
+            ),
         )
-        try:
-            ds.generate_zone_layers(
-                provider,
-                source,
-                force=True,
-                options=GenerationOptions(workers=workers, block_size=block_size),
-                progress=ClickProgress(prefix=f'{name} {provider_name}: '),
-            )
-        except (FileExistsError, SnowtoolError) as e:
-            raise click.ClickException(str(e)) from e
+    except (ValueError, FileExistsError, SnowtoolError) as e:
+        raise click.ClickException(str(e)) from e
+    for provider_name in generated:
         click.echo(f'generated {provider_name} for {name}')
 
 
@@ -369,28 +365,20 @@ def generate_zones(
     ds = get_dataset(manager.db, name)
     overrides = _resolve_source_overrides(manager.db, sources)
 
-    selected = provider_names or tuple(manager.db.zone_layer_providers)
-    for provider_name in selected:
-        if provider_name not in manager.db.zone_layer_providers:
-            raise click.ClickException(f'No such zone-layer provider: {provider_name}')
-
-    for provider_name in selected:
-        provider = manager.db.zone_layer_providers[provider_name]
-        source = (
-            provider.local_source(overrides[provider_name])
-            if provider_name in overrides
-            else manager.db.zone_layer_sources[provider_name]
+    try:
+        generated = manager.generate_dataset_zone_layers(
+            ds,
+            provider_names=provider_names or None,
+            source_overrides=overrides,
+            force=True,
+            options=GenerationOptions(workers=workers, block_size=block_size),
+            progress_factory=lambda provider_name: ClickProgress(
+                prefix=f'{name} {provider_name}: ',
+            ),
         )
-        try:
-            ds.generate_zone_layers(
-                provider,
-                source,
-                force=True,
-                options=GenerationOptions(workers=workers, block_size=block_size),
-                progress=ClickProgress(prefix=f'{name} {provider_name}: '),
-            )
-        except (FileExistsError, SnowtoolError) as e:
-            raise click.ClickException(str(e)) from e
+    except (ValueError, FileExistsError, SnowtoolError) as e:
+        raise click.ClickException(str(e)) from e
+    for provider_name in generated:
         click.echo(f'generated {provider_name} for {name}')
 
 
