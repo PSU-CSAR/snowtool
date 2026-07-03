@@ -25,9 +25,11 @@ from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
+    DatasetConfig,
     PathDatasetLink,
     RootConfig,
 )
+from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
@@ -90,6 +92,30 @@ class AOIRasterizeResult:
 
     built: list[tuple[types.StationTriplet, str]]
     skipped: list[tuple[types.StationTriplet, str]]
+
+
+@dataclass(frozen=True)
+class StagedDataset:
+    """The product of :meth:`SnowDbManager.stage_dataset`: everything a new
+    dataset needs built *under its own data directory* but not yet visible to
+    readers, ready for :meth:`SnowDbManager.register_dataset` to commit.
+
+    ``dataset`` is the built (still-unregistered) :class:`Dataset`;
+    ``config_path`` is the on-disk dataset config the link will point at;
+    ``created`` is whether this stage created the skeleton (vs. found an existing
+    one); ``generated`` maps each generated zone-layer provider to its provenance
+    hash (empty for a ``quick`` stage); ``rasterized`` is the AOI-raster pass over
+    the new grid; ``coverage`` is the per-pourpoint geometric coverage of the new
+    grid, which the commit writes into the index so a reader sees real coverage
+    without waiting for a reindex.
+    """
+
+    dataset: Dataset
+    config_path: Path
+    created: bool
+    generated: dict[str, str]
+    rasterized: AOIRasterizeResult
+    coverage: dict[types.StationTriplet, Coverage]
 
 
 class SnowDbManager:
@@ -175,14 +201,26 @@ class SnowDbManager:
         dataset_config_path: Path,
         *,
         link_type: str = 'path',
+        coverage: Mapping[types.StationTriplet, Coverage] | None = None,
     ) -> RootConfig:
-        """Register a dataset link in the on-disk root config (idempotent).
+        """Commit a dataset registration: the root-config write is the commit point.
 
         Writes ``datasets[name]`` -> a link at ``dataset_config_path``, stored
         relative to the root when the config lives under the tree (a relocatable
         tree) and absolute otherwise (a staged-elsewhere dataset). Re-registering a
-        name overwrites its link. Returns the updated config. Going live still
-        needs a ``pourpoint reindex`` + restart -- this only records the registration.
+        name overwrites its link. Returns the updated config.
+
+        ``coverage`` (a triplet -> :class:`Coverage` map, produced by
+        :meth:`stage_dataset`) is folded into every existing index entry under the
+        new dataset's key *before* the config is written. The two writes are
+        ordered index-first, config-second, and both are atomic (WS0), so every
+        crash window is safe: a crash after the index write leaves only a harmless
+        extra coverage key (readers still see the old dataset set from the config),
+        and a crash before the config write leaves readers seeing exactly the old
+        database. Without ``coverage`` (an out-of-band ``dataset add`` that skipped
+        staging) only the config is written; the missing coverage key reads as
+        ``Coverage.NONE`` until the next ``pourpoint reindex``. Going live still
+        needs a service restart -- the ``SnowDb`` is built once at startup.
         """
         if link_type != 'path':
             raise ValueError(f'unknown dataset link type: {link_type!r}')
@@ -198,9 +236,141 @@ class SnowDbManager:
             link = dataset_config_path.relative_to(root).as_posix()
         else:
             link = str(dataset_config_path)
+
+        # Commit order matters: fold the staged coverage into the index first, so a
+        # crash before the config write leaves only an unreferenced coverage key.
+        if coverage is not None:
+            self._write_dataset_coverage(name, coverage)
+
         config.datasets[name] = PathDatasetLink(path=link)
         config.save(config_path)
         return config
+
+    def _write_dataset_coverage(
+        self: Self,
+        name: str,
+        coverage: Mapping[types.StationTriplet, Coverage],
+    ) -> None:
+        """Add ``name``'s per-pourpoint coverage to the persisted index in place.
+
+        Loads the on-disk index, sets ``entry.coverage[name]`` for every entry (an
+        absent triplet reads as :attr:`Coverage.NONE`), and re-saves it atomically.
+        A no-op when the index is empty -- there is nothing to annotate, and the
+        coverage is re-derived for every dataset by the next reindex regardless.
+        """
+        index = PourpointIndex.load(self.db.pourpoint_index_path)
+        if not index:
+            return
+        for triplet, entry in index.entries.items():
+            entry.coverage[name] = coverage.get(triplet, Coverage.NONE)
+        index.save(self.db.pourpoint_index_path)
+
+    def _build_staged_dataset(
+        self: Self,
+        name: str,
+        dataset_config_path: Path,
+    ) -> Dataset:
+        """Build a :class:`Dataset` from its config *directly*, bypassing the catalog.
+
+        Mirrors the path-link binding :class:`SnowDb` does at construction (config
+        location as the resolution base, ``data/<name>``-beside-config default), so
+        a not-yet-registered dataset gets the same directory a later ``SnowDb.open``
+        will resolve for it -- without appearing in ``self.db.datasets`` yet.
+        """
+        from snowtool.snowdb.dataset import Dataset
+        from snowtool.snowdb.spec import DatasetSpec
+
+        resolved = Path(dataset_config_path).resolve()
+        config = DatasetConfig.load(resolved)
+        spec = DatasetSpec.from_config(config, name)
+        directory = self.db.dataset_dir(
+            name,
+            config,
+            base=resolved.parent,
+            default=resolved.parent,
+        )
+        return Dataset(spec, directory, self.db.zone_layer_providers.values())
+
+    def stage_dataset(
+        self: Self,
+        name: str,
+        dataset_config_path: Path,
+        *,
+        source_overrides: Mapping[str, Path] | None = None,
+        quick: bool = False,
+        force: bool = False,
+        options: GenerationOptions | None = None,
+        zone_progress_factory: Callable[[str], ProgressReporter] | None = None,
+        rasterize_progress: ProgressReporter = NULL_PROGRESS,
+    ) -> StagedDataset:
+        """Build everything a new dataset needs, all *invisible* to readers.
+
+        The staging half of the register split: it builds the dataset from its
+        config (:meth:`_build_staged_dataset`, so it works before the dataset is in
+        ``self.db.datasets``) and, entirely under ``data/<name>/`` -- a directory a
+        reader ignores because datasets come only from the root config -- creates
+        the skeleton, generates the enabled zone layers (unless ``quick``),
+        rasterizes every indexed (basin-bearing) pourpoint's basin onto the new
+        grid, and computes each pourpoint's geometric coverage of that grid.
+        Nothing here touches the root config or the index, so a fresh
+        ``SnowDb.open`` still does not see the dataset until
+        :meth:`register_dataset` commits it (passing back
+        :attr:`StagedDataset.coverage`).
+
+        ``source_overrides``/``options`` are threaded to zone generation;
+        ``zone_progress_factory`` builds a per-provider progress reporter and
+        ``rasterize_progress`` reports the AOI pass. Idempotent: an existing
+        skeleton is tolerated, and generation skips already-present layers.
+        """
+        dataset = self._build_staged_dataset(name, dataset_config_path)
+
+        from snowtool.snowdb.dataset import Dataset
+
+        try:
+            Dataset.create(dataset.spec, dataset.path)
+            created = True
+        except FileExistsError:
+            # Already staged (skeleton exists); generation/rasterize below are
+            # idempotent, so continue rather than clobber existing artifacts.
+            created = False
+
+        generated: dict[str, str] = {}
+        if not quick:
+            generated = self.generate_dataset_zone_layers(
+                dataset,
+                source_overrides=source_overrides,
+                skip_present=True,
+                force=force,
+                options=options,
+                progress_factory=zone_progress_factory,
+            )
+
+        # Only basin-bearing pourpoints are rasterized/covered (point-only ones
+        # have no basin), matching what the index holds.
+        basin_pourpoints = [
+            pourpoint
+            for pourpoint in self.db.pourpoints()
+            if pourpoint.polygon is not None
+        ]
+        rasterized = self.rasterize_aois(
+            basin_pourpoints,
+            [dataset],
+            rebuild=force,
+            progress=rasterize_progress,
+        )
+        domain = dataset.coverage_domain
+        coverage = {
+            pourpoint.station_triplet: dataset_coverage(pourpoint, domain)
+            for pourpoint in basin_pourpoints
+        }
+        return StagedDataset(
+            dataset=dataset,
+            config_path=Path(dataset_config_path),
+            created=created,
+            generated=generated,
+            rasterized=rasterized,
+            coverage=coverage,
+        )
 
     def rasterize_aoi(
         self: Self,

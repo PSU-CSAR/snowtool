@@ -7,6 +7,7 @@ import pytest
 import snowtool.snowdb.aoi_raster as aoi_raster_mod
 
 from snowtool.exceptions import (
+    GeoJSONValidationError,
     PourpointNotFoundError,
     PourpointPruneDestinationRequiredError,
 )
@@ -109,6 +110,62 @@ def test_import_is_idempotent(manager, pourpoint_geojson):
     manager.import_pourpoints(pourpoint_geojson)
 
     assert manager._stored_triplets() == {'12345:MT:USGS'}
+
+
+# --- malformed source classification (3a) ------------------------------------
+
+
+def _write_bad(path, kind):
+    """Write a source file that is unreadable as a pourpoint, three ways."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == 'nonjson':
+        path.write_text('this is not json {{{')
+    elif kind == 'nonutf8':
+        path.write_bytes(b'\xff\xfe\x00 not utf-8 bytes')
+    elif kind == 'wrong_shape':
+        # Valid JSON, but not a GeoJSON object (a bare list).
+        path.write_text(json.dumps([1, 2, 3]))
+    else:  # pragma: no cover - test helper guard
+        raise ValueError(kind)
+
+
+@pytest.mark.parametrize('kind', ['nonjson', 'nonutf8', 'wrong_shape'])
+def test_from_geojson_maps_malformed_to_validation_error(tmp_path, kind):
+    # Decode/parse failures must surface as GeoJSONValidationError (the error
+    # _classify_sources catches), not a raw JSONDecodeError/UnicodeDecodeError.
+    bad = tmp_path / 'bad.geojson'
+    _write_bad(bad, kind)
+
+    with pytest.raises(GeoJSONValidationError):
+        Pourpoint.from_geojson(bad)
+
+
+@pytest.mark.parametrize('kind', ['nonjson', 'nonutf8', 'wrong_shape'])
+@pytest.mark.parametrize('dry_run', [False, True])
+def test_import_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run):
+    # A single garbage file must not abort the whole batch: the good record still
+    # imports and the bad one is classified as invalid (both dry-run and real).
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS')
+    _write_bad(src / 'bad.geojson', kind)
+
+    result = manager.import_pourpoints(src, dry_run=dry_run)
+
+    assert result.imported == ['11111:MT:USGS']
+    assert [p.name for p, _ in result.invalid] == ['bad.geojson']
+
+
+@pytest.mark.parametrize('kind', ['nonjson', 'nonutf8', 'wrong_shape'])
+@pytest.mark.parametrize('dry_run', [False, True])
+def test_sync_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run):
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS')
+    _write_bad(src / 'bad.geojson', kind)
+
+    result = manager.sync_pourpoints(src, dry_run=dry_run)
+
+    assert result.imported == ['11111:MT:USGS']
+    assert [p.name for p, _ in result.invalid] == ['bad.geojson']
 
 
 # --- sync --------------------------------------------------------------------

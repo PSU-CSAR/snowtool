@@ -1,7 +1,12 @@
 """SnowDb binds its configured specs; SnowDbManager creates/registers/rasterizes."""
 
+import asyncio
+import os
 import shutil
 
+from datetime import date
+
+import numpy
 import pytest
 
 from snowtool.exceptions import SnowDbConfigError
@@ -11,14 +16,26 @@ from snowtool.snowdb.config import (
     InlineDatasetLink,
     RootConfig,
 )
+from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.query import DateRangeQuery
+from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
-from ..conftest import make_manager, make_snowdb
+from ..conftest import (
+    SIZE,
+    SWE_VALUE,
+    TILE,
+    make_manager,
+    make_snowdb,
+    register_dataset_config,
+    snodas_swe_name,
+)
 
 
 def _spec(name: str) -> DatasetSpec:
@@ -272,3 +289,130 @@ def test_aoi_triplets(tmp_path, pourpoint_geojson):
     shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pourpoint.geojson')
 
     assert db.pourpoint_triplets() == {'12345:MT:USGS'}
+
+
+# --- coverage fallback (3b) --------------------------------------------------
+
+
+def test_coverage_fallback_none_for_dataset_predating_index(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    # The index is built while only 'test' exists, so its entry carries no key for
+    # a dataset registered later. A dataset the index predates reads as NONE (not a
+    # raw KeyError), even though geometrically the shared grid would fully cover it.
+    manager = make_manager(tmp_path, [spec])
+    manager.import_pourpoints(pourpoint_geojson)
+
+    other = DatasetSpec(name='other', grid_params=spec.grid_params)
+    db = make_snowdb(tmp_path, [spec, other])
+
+    assert db.pourpoint_dataset_coverage('12345:MT:USGS', 'other') is Coverage.NONE
+    # The dataset the index knows still returns its real coverage.
+    assert db.pourpoint_dataset_coverage('12345:MT:USGS', 'test') is Coverage.FULL
+    # A genuinely-unknown (unregistered) dataset is still a programming error.
+    with pytest.raises(KeyError):
+        db.pourpoint_dataset_coverage('12345:MT:USGS', 'unregistered')
+
+
+# --- mtime-revalidated index cache (3b) --------------------------------------
+
+
+def test_index_cache_reloads_after_out_of_band_import(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    # A long-lived reader (e.g. the API's app-scoped SnowDb) picks up an
+    # out-of-band import without a restart: the index cache revalidates on mtime.
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+
+    reader = SnowDb.open(tmp_path)
+    assert reader.pourpoint_index().triplets() == set()  # primed empty at open
+
+    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+
+    assert reader.pourpoint_index().triplets() == {'12345:MT:USGS'}
+
+
+def test_index_cache_is_stable_then_revalidates_on_mtime(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    writer = SnowDbManager.open(tmp_path)
+    writer.import_pourpoints(pourpoint_geojson)
+
+    reader = SnowDb.open(tmp_path)
+    first = reader.pourpoint_index()
+    assert first.triplets() == {'12345:MT:USGS'}
+    # No file change -> the identical cached object is returned (one stat, no reload).
+    assert reader.pourpoint_index() is first
+
+    # Out-of-band removal rewrites the index; bump the mtime explicitly so the test
+    # is independent of the filesystem's mtime resolution.
+    writer.remove_pourpoint('12345:MT:USGS')
+    idx = reader.pourpoint_index_path
+    st = idx.stat()
+    os.utime(idx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+    assert reader.pourpoint_index().triplets() == set()
+
+
+# --- staged dataset registration (3c) ----------------------------------------
+
+
+def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojson):
+    # Import a pourpoint first, then stage + commit a dataset over it. Staging is
+    # invisible to readers; the config write is the commit point.
+    SnowDbManager.initialize(tmp_path)
+    manager = SnowDbManager.open(tmp_path)
+    manager.import_pourpoints(pourpoint_geojson)
+
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir('test', config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+
+    staged = manager.stage_dataset('test', config_path, quick=True)
+
+    assert staged.created is True
+    assert staged.coverage == {'12345:MT:USGS': Coverage.FULL}
+    assert staged.rasterized.built == [('12345:MT:USGS', 'test')]
+    assert (ds_dir / 'aoi-rasters' / '12345_MT_USGS.tif').is_file()
+
+    # Before commit: a fresh open does NOT see the dataset (config unwritten).
+    assert list(SnowDb.open(tmp_path)) == []
+
+    manager.register_dataset('test', config_path, coverage=staged.coverage)
+
+    reopened = SnowDb.open(tmp_path)
+    assert list(reopened) == ['test']
+    assert reopened.pourpoint_dataset_coverage('12345:MT:USGS', 'test') is Coverage.FULL
+
+    # Working stats: ingest a uniform SWE COG over the covered basin and reduce it.
+    ds = reopened['test']
+    out_dir = ds.date_dir(date(2018, 4, 27))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_cog(
+        out_dir / f'{snodas_swe_name()}.tif',
+        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
+        transform=ds.grid.base_grid.transform,
+        tile_size=TILE,
+        predictor=2,
+    )
+    stats = asyncio.run(
+        SnowDbReader(reopened).zonal_stats(
+            '12345:MT:USGS',
+            'test',
+            DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27)),
+            variable_keys=['swe'],
+        ),
+    )
+    (cell,) = stats.dump()[0].zones
+    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
