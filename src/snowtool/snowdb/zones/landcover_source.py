@@ -23,21 +23,26 @@ member.)
 
 from __future__ import annotations
 
-import shutil
 import tempfile
 import urllib.request
 import zipfile
 
-from contextlib import contextmanager
+from abc import abstractmethod
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 import rasterio
 
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.zone_layer import Bounds, ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+# Download read size: stream the ~1.5 GB bundle a chunk at a time so progress can
+# advance (and memory stays flat) rather than buffering the whole response.
+_DOWNLOAD_CHUNK_BYTES = 1 << 20
 
 # The current Annual NLCD land-cover (LndCov) CONUS bundle: Collection 1 Version 1,
 # data year 2024 (the latest published; EPSG:5070, 30 m, categorical uint8). An
@@ -49,7 +54,22 @@ DEFAULT_NLCD_URL = (
 
 
 class LandCoverSource(ZoneLayerSource):
-    """A source of fine-resolution NLCD land cover, opened over an extent."""
+    """A source of fine-resolution NLCD land cover, opened over an extent.
+
+    Adds an optional ``progress`` to :meth:`open` over the base contract: a source
+    that fetches its data (:class:`AnnualNLCD`) reports the download through it;
+    one that reads a local file ignores it.
+    """
+
+    @abstractmethod
+    def open(
+        self: Self,
+        bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> AbstractContextManager[rasterio.io.DatasetReader]:
+        """Context manager yielding an opened NLCD raster covering ``bounds``."""
+        raise NotImplementedError
 
 
 class LocalFile(LandCoverSource):
@@ -59,9 +79,14 @@ class LocalFile(LandCoverSource):
         self.path = Path(path)
 
     @contextmanager
-    def open(self: Self, bounds: Bounds) -> Iterator[rasterio.io.DatasetReader]:
+    def open(
+        self: Self,
+        bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> Iterator[rasterio.io.DatasetReader]:
         # The whole file is the source; the generator reads only the window over
-        # the target grids' extent.
+        # the target grids' extent. Nothing to download, so ``progress`` is unused.
         with rasterio.open(self.path) as src:
             yield src
 
@@ -97,7 +122,10 @@ class AnnualNLCD(LandCoverSource):
         """Where the extracted land-cover GeoTIFF lives in the cache."""
         return self.cache_dir / self._member
 
-    def _ensure_local(self: Self) -> Path:
+    def _ensure_local(
+        self: Self,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> Path:
         """Fetch + extract the raster if it isn't cached yet; return its path."""
         raster = self.raster_path
         if raster.is_file():
@@ -110,7 +138,16 @@ class AnnualNLCD(LandCoverSource):
             # never leaves a truncated zip that looks complete.
             part = zip_path.with_suffix(zip_path.suffix + '.part')
             with urllib.request.urlopen(self.url) as resp, part.open('wb') as out:  # noqa: S310 - fixed https MRLC URL
-                shutil.copyfileobj(resp, out)
+                # .headers.get (not .getheader) so this reads identically off an
+                # http.client.HTTPResponse and a file:// addinfourl (the test path).
+                content_length = resp.headers.get('Content-Length')
+                total = int(content_length) if content_length else None
+                # Stream in chunks (not shutil.copyfileobj) so progress can advance
+                # by bytes written; memory stays flat regardless of the ~1.5 GB size.
+                with progress.track('downloading NLCD', total=total) as task:
+                    while chunk := resp.read(_DOWNLOAD_CHUNK_BYTES):
+                        out.write(chunk)
+                        task.advance(len(chunk))
             part.replace(zip_path)
 
         with zipfile.ZipFile(zip_path) as zf:
@@ -120,7 +157,12 @@ class AnnualNLCD(LandCoverSource):
         return raster
 
     @contextmanager
-    def open(self: Self, bounds: Bounds) -> Iterator[rasterio.io.DatasetReader]:
-        raster = self._ensure_local()
+    def open(
+        self: Self,
+        bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> Iterator[rasterio.io.DatasetReader]:
+        raster = self._ensure_local(progress)
         with rasterio.open(raster) as src:
             yield src

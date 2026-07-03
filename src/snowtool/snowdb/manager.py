@@ -32,6 +32,7 @@ from snowtool.snowdb.config import (
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.aoi_raster import AOIRaster
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import (
         GenerationOptions,
@@ -431,22 +433,29 @@ class SnowDbManager:
         datasets: Iterable[Dataset],
         *,
         rebuild: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> AOIRasterizeResult:
         """Burn each pourpoint's basin onto each dataset's grid when missing or stale.
 
         Builds the cartesian product of ``pourpoints`` x ``datasets``, (re)building a
         raster only when absent or its :attr:`Pourpoint.geometry_hash` tag no longer
-        matches (``rebuild=True`` forces all). Returns the built vs. skipped
-        ``(triplet, dataset_name)`` pairs.
+        matches (``rebuild=True`` forces all). ``progress`` reports the pass, advancing
+        once per pourpoint-dataset pair (built or skipped) -- the same seam zone-layer
+        generation uses. Returns the built vs. skipped ``(triplet, dataset_name)``
+        pairs.
         """
+        pourpoints = list(pourpoints)
         datasets = list(datasets)
         built: list[tuple[types.StationTriplet, str]] = []
         skipped: list[tuple[types.StationTriplet, str]] = []
-        for aoi in pourpoints:
-            for dataset in datasets:
-                pair = (aoi.station_triplet, dataset.spec.name)
-                if dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
-                    built.append(pair)
-                else:
-                    skipped.append(pair)
+        total = len(pourpoints) * len(datasets)
+        with progress.track('rasterizing', total=total) as task:
+            for aoi in pourpoints:
+                for dataset in datasets:
+                    pair = (aoi.station_triplet, dataset.spec.name)
+                    if dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
+                        built.append(pair)
+                    else:
+                        skipped.append(pair)
+                    task.advance()
         return AOIRasterizeResult(built, skipped)

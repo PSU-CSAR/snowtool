@@ -9,13 +9,15 @@ These live at the top level so both the ``snowdb`` and ``cli`` suites reuse them
 import hashlib
 import json
 
+from contextlib import contextmanager
+
 import numpy
 import pytest
 import rasterio
 
 from rasterio.crs import CRS
 
-from snowtool.settings import Settings
+from snowtool.api.settings import Settings
 from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
@@ -36,6 +38,37 @@ from snowtool.snowdb.zones.terrain import (
 # gazebo's pytest plugin (assert_problem / assert_has_link / drive_pagination +
 # fixtures) is opt-in, not auto-registered.
 pytest_plugins = ['gazebo.testing']
+
+
+class CapturingTask:
+    """One task a :class:`CapturingProgress` recorded: its label/total and how far
+    it was advanced (so a test can assert a bar was driven to completion)."""
+
+    def __init__(self, label, total):
+        self.label = label
+        self.total = total
+        self.advanced = 0
+
+    def advance(self, n=1):
+        self.advanced += n
+
+
+class CapturingProgress:
+    """A ``ProgressReporter`` that records every tracked task instead of drawing.
+
+    Lets a test assert the progress *wiring* -- that an operation opened a task with
+    the expected label/total and advanced it -- without a terminal or a real bar.
+    """
+
+    def __init__(self):
+        self.tasks = []
+
+    @contextmanager
+    def track(self, label, *, total=None):
+        task = CapturingTask(label, total)
+        self.tasks.append(task)
+        yield task
+
 
 # Small synthetic grid parameters.
 ORIGIN_X = -120.0

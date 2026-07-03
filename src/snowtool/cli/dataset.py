@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_manager, pass_snowdb
+from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
+from snowtool.cli._progress import ClickProgress
 from snowtool.cli._render import DATE, _emit, _emit_record
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
@@ -32,27 +33,21 @@ def dataset() -> None:
 
 @dataset.command('list')
 @format_option
+@config_option
 @pass_snowdb
 def list_datasets(snowdb: SnowDb, fmt: str) -> None:
-    """List configured datasets and whether each has data on disk."""
-    from snowtool.snowdb.diagnostics import dataset_status
+    """List the names of configured datasets.
 
-    rows = []
-    for name in sorted(snowdb):
-        status = dataset_status(snowdb[name])
-        rows.append(
-            {
-                'dataset': status.name,
-                'present': status.present,
-                'dates': status.date_count,
-            },
-        )
-    _emit(rows, fmt)
+    Just the names -- for presence, date spans, and artifact counts, see
+    ``snowtool snowdb status``.
+    """
+    _emit([{'dataset': name} for name in sorted(snowdb)], fmt)
 
 
 @dataset.command('info')
 @click.argument('name')
 @format_option
+@config_option
 @pass_snowdb
 def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     """Show a dataset's grid, variables, and on-disk artifacts."""
@@ -138,6 +133,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
     'per-worker memory (~workers x block_size^2); no effect on the result.',
 )
+@config_option
 @pass_manager
 def create_dataset(
     manager: SnowDbManager,
@@ -200,6 +196,7 @@ def create_dataset(
                 source,
                 force=True,
                 options=GenerationOptions(workers=workers, block_size=block_size),
+                progress=ClickProgress(prefix=f'{name} {provider_name}: '),
             )
         except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
@@ -257,6 +254,7 @@ def _resolve_source_overrides(
     'config_path',
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
+@config_option
 @pass_manager
 def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     """Register dataset NAME from its config at CONFIG_PATH (writes the link).
@@ -295,6 +293,7 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
+@config_option
 @pass_manager
 def ingest_dataset(
     manager: SnowDbManager,
@@ -348,6 +347,7 @@ def ingest_dataset(
     help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
     'per-worker memory (~workers x block_size^2); no effect on the result.',
 )
+@config_option
 @pass_manager
 def generate_zones(
     manager: SnowDbManager,
@@ -387,6 +387,7 @@ def generate_zones(
                 source,
                 force=True,
                 options=GenerationOptions(workers=workers, block_size=block_size),
+                progress=ClickProgress(prefix=f'{name} {provider_name}: '),
             )
         except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
@@ -397,6 +398,7 @@ def generate_zones(
 @click.argument('name')
 @click.argument('removal_date', metavar='DATE', type=DATE)
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
+@config_option
 @pass_manager
 def remove_date(
     manager: SnowDbManager,
@@ -428,6 +430,7 @@ def remove_date(
     help='Remove all ingested dates strictly before this date.',
 )
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
+@config_option
 @pass_manager
 def prune_dates(manager: SnowDbManager, name: str, before: date, dry_run: bool) -> None:
     """Remove every ingested date in dataset NAME older than --before."""

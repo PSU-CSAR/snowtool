@@ -64,6 +64,31 @@ def test_reader_unknown_variable_is_clean_error(reader):
         )
 
 
+def test_reader_holds_max_zone_cells_from_construction(catalog):
+    from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
+
+    assert SnowDbReader(catalog).max_zone_cells == DEFAULT_MAX_ZONE_CELLS
+    assert SnowDbReader(catalog, max_zone_cells=7).max_zone_cells == 7
+
+
+def test_reader_applies_its_own_max_zone_cells_cap(catalog):
+    # The cap lives on the reader (not passed per query): a reader built with a tiny
+    # cap rejects a crossed query whose zone product exceeds it, before any raster read.
+    from snowtool.snowdb.zonal_stats import ZoneSelection
+
+    reader = SnowDbReader(catalog, max_zone_cells=4)
+    with pytest.raises(ValueError, match='max_zone_cells'):
+        asyncio.run(
+            reader.zonal_stats(
+                TRIPLET,
+                'test',
+                QUERY,
+                variable_keys=['swe'],
+                zone_selections=[ZoneSelection('terrain.elevation')],
+            ),
+        )
+
+
 def test_reader_missing_aoi_raster_raises(tmp_path, spec, pourpoint_geojson):
     # AOI imported (so coverage passes) but never rasterized -> a clean prereq error.
     catalog = populate_synthetic_root(

@@ -196,9 +196,13 @@ def test_rasterize_all_then_skip(runner, cli_obj, source_dem, pourpoint_geojson)
     first = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
     assert first.exit_code == 0
     assert 'built 1' in first.output
+    # Non-TTY (the test runner) lists each built raster, not just the totals.
+    assert '[test]' in first.output
 
     second = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
     assert 'built 0, skipped 1' in second.output
+    # Nothing built the second time -> no per-pair lines, only the summary.
+    assert '[test]' not in second.output
 
 
 def test_rasterize_requires_triplet_or_all(runner, cli_obj, source_dem):

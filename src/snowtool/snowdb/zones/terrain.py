@@ -38,6 +38,7 @@ from snowtool.snowdb.constants import (
     MAX_ELEVATION_M,
     MIN_ELEVATION_M,
 )
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.zone_layer import (
     GenerationOptions,
     ZoneLayer,
@@ -194,12 +195,14 @@ class TerrainProvider(ZoneLayerProvider):
         *,
         force: bool = False,
         options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> dict[str, str]:
         """Stream the DEM ``source`` once, binning terrain into every target.
 
         ``options`` carries the engine's block-level parallelism knobs
         (``workers``, ``block_size``); the DEM source supplies the projected work
-        grid (``work_crs``/``work_resolution``).
+        grid (``work_crs``/``work_resolution``). ``progress`` reports the engine's
+        per-block reprojection.
         """
         from snowtool.snowdb.zones.terrain_source import DemSource
 
@@ -221,4 +224,5 @@ class TerrainProvider(ZoneLayerProvider):
                 workers=options.workers,
                 block_size=options.block_size,
                 force=force,
+                progress=progress,
             )

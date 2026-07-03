@@ -42,6 +42,8 @@ from snowtool.snowdb.zones.terrain_generate import (
 )
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
+from ..conftest import CapturingProgress
+
 
 def _terrain_set(directory):
     """The terrain ZoneLayerSet rooted at ``directory`` (test reader)."""
@@ -124,6 +126,24 @@ def _target(tmp_path):
         tile_size=TARGET_TILE,
         directory=tmp_path / 'terrain',
     )
+
+
+def test_generate_reports_one_block_progress_task_to_completion(tmp_path):
+    src_path = _source_dem(tmp_path / 'src.tif')
+    target = _target(tmp_path)
+    reporter = CapturingProgress()
+
+    with rasterio.open(src_path) as src:
+        generate_terrain(src, [target], force=True, progress=reporter)
+
+    # Exactly one tracked task (the whole streaming pass), advanced once per block
+    # to its declared total -- so the bar reaches 100% regardless of worker count.
+    assert len(reporter.tasks) == 1
+    (task,) = reporter.tasks
+    assert task.label == 'reprojecting DEM'
+    assert task.total is not None
+    assert task.total > 0
+    assert task.advanced == task.total
 
 
 def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):

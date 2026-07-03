@@ -25,6 +25,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from pydantic import ValidationError
+
 from snowtool import types
 from snowtool.exceptions import PourpointNotFoundError, SnowDbConfigError
 from snowtool.snowdb import triplet_naming
@@ -222,7 +224,7 @@ class SnowDb:
         config file itself. The config is *required*: a root without one is not a
         snowdb this version understands, so this raises
         :class:`~snowtool.exceptions.SnowDbConfigError` pointing at ``snowtool
-        migration stamp`` (the deliberate no-backwards-compat call -- there is no
+        snowdb init`` (the deliberate no-backwards-compat call -- there is no
         lenient un-initialized read path). The I/O half of construction: it reads +
         parses the root config, then hands it to the constructor.
         """
@@ -230,7 +232,16 @@ class SnowDb:
         config_path = path / CONFIG_FILENAME if path.is_dir() else path
         if not config_path.is_file():
             raise SnowDbConfigError(path)
-        config = RootConfig.load(config_path)
+        try:
+            config = RootConfig.load(config_path)
+        except ValidationError as e:
+            # A file exists but isn't a valid root config (malformed JSON or a schema
+            # mismatch): still "not a snowdb this version understands", so raise the
+            # same clean error the CLI already renders rather than leaking a traceback.
+            raise SnowDbConfigError(
+                path,
+                detail=f'{config_path} is not a readable snowdb root config: {e}',
+            ) from e
         return cls(
             config,
             zone_layer_providers=zone_layer_providers,

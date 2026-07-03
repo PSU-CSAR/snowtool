@@ -1,5 +1,7 @@
 """CLI context wiring: a single, lazily-built SnowDb per invocation."""
 
+import json
+
 from pathlib import Path
 
 import click
@@ -25,23 +27,93 @@ def test_context_builds_snowdb_lazily_and_once(tmp_path):
     assert first.root == tmp_path
 
 
-def test_context_falls_back_to_settings(tmp_path, monkeypatch):
-    # With no --config, the snowdb_config setting supplies the root.
+def test_config_option_resolves_from_env_var(tmp_path, monkeypatch):
+    # With no --config flag, the option's SNOWTOOL_SNOWDB_CONFIG envvar supplies the
+    # root -- resolved by click on the command, not by CliContext reading Settings.
     SnowDbManager.initialize(tmp_path)
     monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(tmp_path))
-    ctx = CliContext(config=None)
 
-    assert ctx.snowdb.root == tmp_path
+    result = CliRunner().invoke(cli, ['dataset', 'list', '--format', 'json'])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == '[]'
+
+
+def test_snowdb_without_config_is_a_clean_error(monkeypatch):
+    # No flag, no env var -> a clean ClickException, not a traceback.
+    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
+
+    result = CliRunner().invoke(cli, ['dataset', 'list'])
+
+    assert result.exit_code != 0
+    assert 'No snowdb configured' in result.output
+
+
+def test_ambient_env_var_does_not_override_injected_config(
+    cli_obj,
+    tmp_path,
+    monkeypatch,
+):
+    # An exported SNOWTOOL_SNOWDB_CONFIG must not clobber an explicitly injected
+    # CliContext (cli_obj serves the synthetic 'test' dataset). Point the env var at a
+    # *different*, non-snowdb dir: the injected config must still win, so the command
+    # succeeds serving 'test' instead of failing to open the env path. Guards a
+    # maintainer running the suite with the env var exported (the normal way to use it).
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()  # a bare dir -> not a snowdb; opening it would error
+    monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(elsewhere))
+
+    result = CliRunner().invoke(
+        cli,
+        ['dataset', 'list', '--format', 'json'],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == [{'dataset': 'test'}]
+
+
+def test_explicit_config_flag_still_overrides_injected_config(cli_obj, tmp_path):
+    # The env var yields to an injected context, but an explicit --config flag wins:
+    # a *different* initialized (empty) root on the command line replaces cli_obj's.
+    other = tmp_path / 'other'
+    SnowDbManager.initialize(other)
+
+    result = CliRunner().invoke(
+        cli,
+        ['dataset', 'list', '--format', 'json', '--config', str(other)],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == []
+
+
+def test_malformed_config_is_a_clean_cli_error(tmp_path):
+    # A file exists but isn't a valid root config: a clean CLI error, not a traceback.
+    from snowtool.snowdb.config import CONFIG_FILENAME
+
+    (tmp_path / CONFIG_FILENAME).write_text('{ not valid json')
+
+    result = CliRunner().invoke(cli, ['dataset', 'list', '--config', str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert 'not a readable snowdb root config' in result.output
+    assert 'Traceback' not in result.output
 
 
 @pytest.mark.parametrize(
     ('args', 'expected_in_output'),
     [
-        # version must work with no snowdb_config configured: if it tried to build a
-        # SnowDb, Settings() would raise for the missing setting and exit nonzero.
-        (['version'], None),
-        (['migration', '--help'], None),
-        (['--help'], '--config'),
+        # --version must work with no snowdb_config configured: if it tried to build
+        # a SnowDb, Settings() would raise for the missing setting and exit nonzero.
+        (['--version'], None),
+        (['--help'], 'Commands'),
+        # --config is a per-command option now, shown on a command's help (and its
+        # help short-circuits before the callback, so no SnowDb is built).
+        (['dataset', 'list', '--help'], '--config'),
+        # serve surfaces the same --config, not gazebo's --snowtool-snowdb-config.
+        (['api', 'serve', '--help'], '--config'),
     ],
 )
 def test_command_does_not_build_a_snowdb(monkeypatch, args, expected_in_output):
@@ -92,13 +164,3 @@ def test_manager_wraps_the_lazy_snowdb(tmp_path):
     ctx = CliContext(config=tmp_path)
 
     assert ctx.manager.db is ctx.snowdb
-
-
-def test_pass_snowdb_uses_settings_without_root(tmp_path, monkeypatch):
-    SnowDbManager.initialize(tmp_path)
-    monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(tmp_path))
-
-    result = CliRunner().invoke(_app(), ['show'])
-
-    assert result.exit_code == 0
-    assert result.output.strip() == str(tmp_path)

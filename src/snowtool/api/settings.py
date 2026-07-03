@@ -1,10 +1,14 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+from snowtool.snowdb.raster.tiff_cache import DEFAULT_TIFF_CACHE_SIZE
+from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
 
 
 class Settings(BaseSettings):
@@ -31,14 +35,22 @@ class Settings(BaseSettings):
 
     # Filesystem location of the snowdb root config (or its directory); the
     # snowdb -- per-dataset COGs, AOI rasters, DEMs, the global AOIs -- is
-    # whatever that config defines.
-    snowdb_config: Path
+    # whatever that config defines. The description is the field's --help text where
+    # these are surfaced as CLI options (see snowtool.cli.api).
+    snowdb_config: Path = Field(
+        description='Snowdb config file or its directory.',
+    )
 
     # Max number of open async-tiff handles kept in the read-path LRU cache.
-    tiff_cache_size: int = 16384
+    tiff_cache_size: int = Field(
+        DEFAULT_TIFF_CACHE_SIZE,
+        description='Max open async-tiff handles kept in the read-path LRU cache.',
+    )
 
     # Cap on a crossed zonal-stats query's product size (number of zone cells =
     # output rows). Crossing several fine-grained zone axes multiplies their zone
-    # counts; a query over this is rejected before any raster is read. Passed into
-    # ZonalStats.calculate by the (future) stats route/command.
-    max_zone_cells: int = 10_000
+    # counts; a query over this is rejected before any raster is read.
+    max_zone_cells: int = Field(
+        DEFAULT_MAX_ZONE_CELLS,
+        description='Cap on a crossed zonal-stats query product size (output rows).',
+    )

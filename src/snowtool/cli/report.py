@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._context import pass_snowdb
+from snowtool.cli._context import config_option, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
     format_option,
@@ -37,6 +37,7 @@ def report() -> None:
 @report.command('coverage')
 @dataset_option
 @format_option
+@config_option
 @pass_snowdb
 def coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
     """Date span, ingested-date count, and interior gaps per dataset."""
@@ -64,6 +65,7 @@ def coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
 @click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
 @click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
 @format_option
+@config_option
 @pass_snowdb
 def completeness(
     snowdb: SnowDb,
@@ -89,6 +91,7 @@ def completeness(
 @report.command('missing-files')
 @dataset_option
 @format_option
+@config_option
 @pass_snowdb
 def missing_files(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
     """Datasets missing an expected artifact (dem/area/cogs/aoi-rasters)."""
@@ -103,6 +106,7 @@ def missing_files(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> N
 @report.command('pourpoint-coverage')
 @dataset_option
 @format_option
+@config_option
 @pass_snowdb
 def pourpoint_coverage(
     snowdb: SnowDb,
@@ -135,6 +139,7 @@ def pourpoint_coverage(
 @report.command('aoi-health')
 @dataset_option
 @format_option
+@config_option
 @pass_snowdb
 def aoi_health(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
     """AOI rasters that won't read cleanly (missing tile-bbox tag / unreadable)."""
@@ -162,6 +167,7 @@ def aoi_health(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None
     help='Date to report (default: latest ingested).',
 )
 @format_option
+@config_option
 @pass_snowdb
 def value_ranges(
     snowdb: SnowDb,
@@ -198,6 +204,7 @@ def value_ranges(
 @report.command('grid')
 @click.argument('name')
 @format_option
+@config_option
 @pass_snowdb
 def grid_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     """A dataset grid's CRS, extent, tiling, and cell area."""

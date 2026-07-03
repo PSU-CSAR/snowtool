@@ -19,10 +19,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 from snowtool.exceptions import QueryParameterError
-
-# Imported at runtime (not under TYPE_CHECKING) so the ``__provide__`` DI recipe's
-# type hints resolve: gazebo reads them to wire the app-scoped provider.
-from snowtool.settings import Settings
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.raster.tiff_cache import TiffCache
 
@@ -42,24 +38,27 @@ class SnowDbReader:
     Built around an already-constructed catalog (reachable as :attr:`db`); the
     ``cache`` defaults to a fresh :class:`TiffCache` so a reader can be built with
     nothing but a catalog. The catalog-side reads (coverage guard, AOI raster
-    load) stay on :attr:`db`; this surface only adds the cache and the crossed
-    reduction that consumes it.
+    load) stay on :attr:`db`; this surface adds the two read-path knobs -- the COG
+    ``cache`` and the crossed-stats ``max_zone_cells`` cap -- and the crossed
+    reduction that consumes them. Both are passed in (the API sizes them from its
+    ``Settings``; the CLI/tests take the defaults); the reader imports no settings.
     """
 
-    def __init__(self: Self, db: SnowDb, cache: TiffCache | None = None) -> None:
+    def __init__(
+        self: Self,
+        db: SnowDb,
+        cache: TiffCache | None = None,
+        max_zone_cells: int | None = None,
+    ) -> None:
+        from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
+
         self.db = db
         self.cache = cache if cache is not None else TiffCache()
-
-    @classmethod
-    def __provide__(cls: type[Self], db: SnowDb, settings: Settings) -> Self:
-        """DI recipe (gazebo): build the app-scoped reader from the catalog + settings.
-
-        Registered as ``providers.app(SnowDbReader)``; gazebo resolves ``db`` and
-        ``settings`` from their app-scoped bindings and builds this inside the app's
-        event loop at lifespan, so the loop-affine cache is born in that loop. The
-        cache is sized from ``settings.tiff_cache_size``.
-        """
-        return cls(db, TiffCache(settings.tiff_cache_size))
+        # Output-size guard for a crossed query (product of the selected zone axes);
+        # a read-path cap held here like the cache, not threaded per query.
+        self.max_zone_cells = (
+            DEFAULT_MAX_ZONE_CELLS if max_zone_cells is None else max_zone_cells
+        )
 
     @staticmethod
     def _resolve_variables(
@@ -95,7 +94,6 @@ class SnowDbReader:
         variable_keys: Iterable[str] | None = None,
         zone_selections: Sequence[ZoneSelection] = (),
         allow_partial: bool = False,
-        max_zone_cells: int | None = None,
     ) -> ZonalStats:
         """Compute zonal statistics for one AOI over one dataset.
 
@@ -110,7 +108,7 @@ class SnowDbReader:
         has not been rasterized (:class:`FileNotFoundError`).
         """
         from snowtool.snowdb.raster.collection import RasterCollection
-        from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS, ZonalStats
+        from snowtool.snowdb.zonal_stats import ZonalStats
 
         dataset = self.db.datasets[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
@@ -130,7 +128,5 @@ class SnowDbReader:
             self.cache,
             dataset,
             zone_selections,
-            max_zone_cells=(
-                DEFAULT_MAX_ZONE_CELLS if max_zone_cells is None else max_zone_cells
-            ),
+            max_zone_cells=self.max_zone_cells,
         )

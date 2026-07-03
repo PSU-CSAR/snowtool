@@ -24,16 +24,14 @@ class SnowDbConfigError(SnowtoolError):
     The root config is the system's single entry point, so a root lacking one is
     not a snowdb this version understands -- there is no lenient un-initialized
     read path (the deliberate no-backwards-compat call). Carries the root that was
-    opened and points the operator at ``snowtool migration stamp`` to write a
-    config for a legacy layout.
+    opened and points the operator at ``snowtool snowdb init`` to create one.
     """
 
     def __init__(self, root: object, detail: str | None = None) -> None:
         self.root = root
         message = detail or (
-            f'{root} is not a snowdb (no root config). Run '
-            '`snowtool migration stamp` to write one for a legacy layout, or '
-            '`snowtool snowdb init` to create a new root.'
+            f'{root} is not a snowdb (no root config). '
+            'Run `snowtool snowdb init` to create one.'
         )
         super().__init__(message)
 
