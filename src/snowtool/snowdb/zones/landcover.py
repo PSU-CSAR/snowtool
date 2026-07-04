@@ -38,8 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zone_layer import (
-        Bounds,
         GenerationOptions,
         ZoneLayerSource,
         ZoneLayerTarget,

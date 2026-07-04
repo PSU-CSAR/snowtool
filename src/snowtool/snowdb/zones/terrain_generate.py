@@ -74,7 +74,7 @@ import warnings
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
@@ -116,6 +116,9 @@ from snowtool.snowdb.zones.terrain import (
 )
 
 if TYPE_CHECKING:
+    from affine import Affine
+
+    from snowtool.snowdb.grid import Extent
     from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
 
 # Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
@@ -365,7 +368,7 @@ class _GridAccumulator:
 def _target_bounds_in_work_crs(
     targets: list[ZoneLayerTarget],
     work_crs: str,
-) -> tuple[float, float, float, float]:
+) -> Extent:
     """Union of the target grids' extents, expressed in the work CRS.
 
     The streaming pass only needs to cover where the targets are; this bbox is what
@@ -405,11 +408,11 @@ def _target_bounds_in_work_crs(
 
 
 def _clip_grid_to_bounds(
-    full_transform: Any,
+    full_transform: Affine,
     full_w: int,
     full_h: int,
-    bounds: tuple[float, float, float, float],
-) -> tuple[Any, int, int] | None:
+    bounds: Extent,
+) -> tuple[Affine, int, int] | None:
     """Sub-window of the full work grid covering ``bounds`` (+ halo), same lattice.
 
     Returns ``(transform, width, height)`` clipped to the work grid, or ``None`` if
@@ -664,7 +667,7 @@ class _TerrainStreamer:
     def __init__(
         self: Self,
         wvrt: WarpedVRT,
-        dst_transform: Any,
+        dst_transform: Affine,
         dst_w: int,
         dst_h: int,
         px: float,

@@ -21,7 +21,7 @@ from __future__ import annotations
 import enum
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Self
 
 import shapely
 
@@ -29,6 +29,7 @@ from snowtool.exceptions import PourpointCoverageError
 
 if TYPE_CHECKING:
     from griffine.grid import TiledAffineGrid
+    from pyproj import CRS
 
     from snowtool.snowdb.pourpoint import Pourpoint
 
@@ -73,7 +74,7 @@ class CoverageDomain:
     dataset's real static domain rather than just its bounding box.
     """
 
-    crs: Any
+    crs: CRS
     polygon: shapely.Geometry
 
     @classmethod

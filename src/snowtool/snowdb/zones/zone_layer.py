@@ -34,10 +34,8 @@ if TYPE_CHECKING:
 
     from griffine.grid import TiledAffineGrid
 
+    from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zoning import ZoneScheme
-
-# (west, south, east, north) in EPSG:4326.
-Bounds = tuple[float, float, float, float]
 
 
 @dataclass(frozen=True)

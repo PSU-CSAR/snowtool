@@ -35,7 +35,7 @@ builds and reads terrain like any other zone layer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Protocol, Self
 
 from snowtool.snowdb.constants import (
     DEM_HASH_TAG,
@@ -57,18 +57,36 @@ from snowtool.snowdb.zones.zoning import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
 
-    from snowtool.snowdb.zones.zone_layer import (
-        Bounds,
-        ZoneLayerSource,
-        ZoneLayerTarget,
-    )
+    import rasterio.io
 
-    # The terrain generation engine (terrain_generate.generate_terrain); injectable
-    # so a test can supply a fast stand-in. Returns the per-target provenance hash.
-    TerrainEngine = Callable[..., dict[str, str]]
+    from snowtool.snowdb.grid import Bounds
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerSource, ZoneLayerTarget
+
+    class TerrainEngine(Protocol):
+        """The terrain generation engine's call signature.
+
+        Matches :func:`~snowtool.snowdb.zones.terrain_generate.generate_terrain`;
+        injectable (see :meth:`TerrainProvider.__init__`) so a test can supply a
+        fast stand-in that is signature-checked against the real engine. Returns
+        the per-target provenance hash (all values equal).
+        """
+
+        def __call__(
+            self,
+            source: rasterio.io.DatasetReader,
+            targets: list[ZoneLayerTarget],
+            *,
+            work_crs: str = ...,
+            work_resolution: float | None = ...,
+            workers: int | None = ...,
+            block_size: int | None = ...,
+            cossin_slope_weighted: bool = ...,
+            force: bool = ...,
+            progress: ProgressReporter = ...,
+        ) -> dict[str, str]: ...
+
 
 # On-disk format version of a terrain layer set, owned by TerrainProvider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump

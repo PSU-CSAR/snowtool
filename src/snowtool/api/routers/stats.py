@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Query
 from fastapi.responses import StreamingResponse
-from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Inject, Negotiate
+from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Negotiate
 from gazebo.negotiation import JSON, Representation, alternate_links
 
 # DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
@@ -30,6 +30,7 @@ from gazebo.params import DatetimeInterval
 from pydantic import ValidationError
 
 from snowtool import types
+from snowtool.api.dependencies import ReaderDep
 from snowtool.api.models.stats import StatsResponse, stats_csv_response
 from snowtool.api.tags import Tags
 from snowtool.exceptions import QueryParameterError
@@ -43,12 +44,6 @@ if TYPE_CHECKING:
 
 CSV = Representation('csv', 'text/csv')
 _REPRESENTATIONS = [JSON, CSV]
-
-# SnowDbReader is an app-scoped provider without a __provide__ recipe (its recipe is
-# supplied in app.py), so injection is opt-in via the Inject marker. It already
-# carries its max_zone_cells cap (sized from settings there), so the routes need no
-# Settings.
-ReaderDep = Annotated[SnowDbReader, Inject]
 
 _ZONE = Query(description='Stratify by a zone layer (repeatable).')
 _VARIABLE = Query(description='Variable to report (repeatable; default all).')

@@ -171,25 +171,26 @@ class SwannIngester:
 
         # Name each COG after the source file (+ variable) so the provenance is
         # visible in the filesystem; the full record also goes into COG tags.
-        rasters = [
-            SwannRaster(
-                f'netcdf:{source}:{subdataset}',
-                f'{source.stem}__{variable.key}.tif',
-                transform=transform,
-                crs=crs,
-                tile_size=tile_size,
-                nodata=variable.nodata,
-                tags=source_tags(
-                    dataset=dataset.spec.name,
-                    date=ingest_date,
-                    variable=variable.key,
-                    files=source.name,
-                    extra={'SOURCE_STAGE': match['stage']},
+        rasters = []
+        for subdataset, key in _SUBDATASET_TO_VARIABLE.items():
+            variable = dataset.spec.variables[key]
+            rasters.append(
+                SwannRaster(
+                    f'netcdf:{source}:{subdataset}',
+                    f'{source.stem}__{variable.key}.tif',
+                    transform=transform,
+                    crs=crs,
+                    tile_size=tile_size,
+                    nodata=variable.nodata,
+                    tags=source_tags(
+                        dataset=dataset.spec.name,
+                        date=ingest_date,
+                        variable=variable.key,
+                        files=source.name,
+                        extra={'SOURCE_STAGE': match['stage']},
+                    ),
                 ),
             )
-            for subdataset, key in _SUBDATASET_TO_VARIABLE.items()
-            for variable in (dataset.spec.variables[key],)
-        ]
 
         dataset.write_date_cogs(ingest_date, rasters, force=force)
         return [ingest_date]

@@ -37,11 +37,12 @@ from async_tiff.enums import SampleFormat
 from async_tiff.store import S3Store
 from rasterio.crs import CRS
 
+from snowtool.snowdb.grid import Bounds
 from snowtool.snowdb.zones.terrain_generate import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
 )
-from snowtool.snowdb.zones.zone_layer import Bounds, ZoneLayerSource
+from snowtool.snowdb.zones.zone_layer import ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
