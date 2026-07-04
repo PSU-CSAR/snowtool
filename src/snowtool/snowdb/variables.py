@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import math
 
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Reducer(StrEnum):
@@ -23,8 +24,16 @@ class Reducer(StrEnum):
     TOTAL = 'total'
 
 
-@dataclass(frozen=True)
-class Unit:
+class Unit(BaseModel):
+    """A variable's reporting unit, serialized inline as ``{name, scale_factor}``.
+
+    Frozen (so it is hashable and can ride on the hashable
+    :class:`DatasetVariable`) and its own persisted form -- there is no separate
+    config mirror.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
     name: str
     scale_factor: float
 
@@ -32,16 +41,30 @@ class Unit:
         return value / self.scale_factor
 
 
-@dataclass(frozen=True)
-class DatasetVariable:
-    key: str
+class DatasetVariable(BaseModel):
+    """One requestable variable: how to find, read, reduce, and report it.
+
+    Frozen (hashable): used in sets and as dict keys in the zonal-stats engine.
+    It is also its own persisted form -- a dataset config stores its variables as
+    ``{key: {unit, reducer, dtype, nodata, glob}}`` with the ``key`` supplied by
+    the dict key, so ``key`` is excluded from serialization here and injected by
+    :class:`~snowtool.snowdb.config.DatasetConfig` on load.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    # The dict key of a config's ``variables`` map *is* this key, so it is not
+    # written back inside the value (Field(exclude=True)); DatasetConfig injects
+    # it from the map key on load. It still participates in equality and hashing.
+    key: str = Field(exclude=True)
     unit: Unit
     reducer: Reducer
     dtype: str  # numpy read dtype, e.g. 'int16', 'float32'
     nodata: float
     glob: str  # filename glob within a cogs/<YYYYMMDD>/ dir
 
-    def __post_init__(self: Self) -> None:
+    @model_validator(mode='after')
+    def _validate(self: Self) -> Self:
         # COGs are named `<source-provenance>__<key>.tif` and the read glob
         # anchors on that `__` boundary (`*__swe.tif`). A `__` inside a key would
         # let one variable's glob match another's file, so keys must not contain
@@ -66,6 +89,7 @@ class DatasetVariable:
                 'which can never exclude NaN (`x != NaN` is always True), so a NaN '
                 'fill would poison every reduction. Use a finite out-of-range value.',
             )
+        return self
 
     @property
     def stat_name(self: Self) -> str:

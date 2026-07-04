@@ -6,6 +6,7 @@ import numpy
 import pytest
 
 from snowtool.snowdb import diagnostics
+from snowtool.snowdb.config import ZoneLayerParams
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.landcover import FOREST_COVER
@@ -30,7 +31,6 @@ from snowtool.snowdb.zones.zoning import (
     CategoricalZoning,
     ClassZone,
     ThresholdZoning,
-    categorical,
 )
 
 from ..conftest import make_manager, make_snowdb
@@ -66,7 +66,7 @@ def test_banded_zones_are_contiguous_and_aligned_to_zero():
 def test_banded_step_override_changes_band_width():
     scheme = _elevation_scheme()
     default_bands = scheme.zones()
-    coarser = scheme.zones(step=2000)
+    coarser = scheme.with_override(2000).zones()
     assert len(coarser) < len(default_bands)
     assert (coarser[0].min, coarser[0].max) == (-2000, 0)
 
@@ -143,7 +143,7 @@ def test_aspect_component_band_step_is_overridable():
     scheme = NORTHNESS.zoning
     assert isinstance(scheme, BandedZoning)
     # A 100 pct (== 1.0 native) step collapses each half to a single band.
-    coarse = scheme.zones(step=100)
+    coarse = scheme.with_override(100).zones()
     assert [(b.min, b.max) for b in coarse] == [(-100, 0), (0, 100), (100, 200)]
     # The dataset param key that carries this override.
     assert scheme.param_key == 'band_step_pct'
@@ -215,9 +215,10 @@ def test_threshold_override_moves_the_split_and_relabels():
     )
     values = numpy.array([[40, 60]], dtype=numpy.uint8)
     # With the split raised to 50, the 40% pixel drops below it.
-    numpy.testing.assert_array_equal(scheme.assign(values, threshold=50), [[0, 1]])
+    raised = scheme.with_override(50)
+    numpy.testing.assert_array_equal(raised.assign(values), [[0, 1]])
     # The override threshold rides on the zones (labels stay clean).
-    below, above = scheme.zones(threshold=50)
+    below, above = raised.zones()
     assert (below.label, below.threshold) == ('unforested', 50)
     assert (above.label, above.threshold) == ('forested', 50)
 
@@ -270,7 +271,7 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
             rows=8,
             tile_size=8,
         ),
-        zones={'terrain': {'elevation': {'band_step_ft': 1000}}},
+        zones={'terrain': {'elevation': ZoneLayerParams(band_step_ft=1000)}},
     )
     manager = make_manager(tmp_path, [terrain_only])
     db = manager.db
@@ -307,8 +308,8 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
                 nodata=255,
                 band_descriptions=('tier',),
                 key='tier',
-                zoning=categorical(
-                    (
+                zoning=CategoricalZoning(
+                    classes=(
                         ClassZone(key='a', label='a', code=0),
                         ClassZone(key='b', label='b', code=1),
                     ),
@@ -329,7 +330,7 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
     # The dataset must *enable* the new provider (its zones block) for it to be
     # bound/served -- enablement is opt-in.
-    spec.zones = {**spec.zones, 'tiny': {'tier': {}}}
+    spec.zones = {**spec.zones, 'tiny': {'tier': ZoneLayerParams()}}
     db = make_snowdb(tmp_path, [spec], zone_layer_providers=providers)
     ds = db['test']
 

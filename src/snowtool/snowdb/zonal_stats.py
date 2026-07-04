@@ -11,14 +11,11 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
-from pydantic import TypeAdapter
-
 from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.raster import DataRaster
 from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
-from snowtool.snowdb.zonal_stat_models import ZoneRef
 from snowtool.snowdb.zones.zone_layer import available_zones
 from snowtool.snowdb.zones.zoning import Zone
 
@@ -31,11 +28,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.raster.tiff_cache import TiffCache
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import AvailableZone
-
-# Validates a zone's self-described ``ref_fields`` into the matching ZoneRef union
-# member (routed by the ``kind`` tag each Zone carries), so the per-axis JSON refs
-# are built from the Zone hierarchy without switching on zone type here.
-_ZONE_REF_ADAPTER: TypeAdapter[BaseModel] = TypeAdapter(ZoneRef)
+    from snowtool.snowdb.zones.zoning import ZoneScheme
 
 # Cap on the crossed product size (number of cells = rows in the CSV / objects in
 # the JSON, and the cell axis of the in-memory array). Crossing several
@@ -53,8 +46,8 @@ class ZoneSelection:
     ``'terrain.elevation'``). ``override`` is the axis' single scheme param -- a
     band step (banded layers) or a split threshold (threshold layers); ``None``
     uses the scheme default. The scheme owns what the value means and how it is
-    parsed (see :meth:`ZoneScheme.parse_override`/``override_kwargs``), so a
-    categorical axis simply takes no override.
+    parsed (see :meth:`ZoneScheme.parse_override`/:meth:`ZoneScheme.with_override`),
+    so a categorical axis simply takes no override.
     """
 
     layer_key: str
@@ -191,14 +184,10 @@ class ZonalStats:
     ) -> list[BaseModel]:
         """Self-describing per-axis zone refs for one crossed-zone cell.
 
-        Each :class:`Zone` describes itself (:meth:`Zone.ref_fields`, incl. its
-        ``kind`` tag); the adapter routes that to the matching ``ZoneRef`` union
-        member, so a new zone kind needs no change here.
+        Each :class:`Zone` builds its own concrete ``ZoneRef`` (:meth:`Zone.ref`),
+        so a new zone kind owns its ref construction with no change here.
         """
-        return [
-            _ZONE_REF_ADAPTER.validate_python({'layer': layer, **zone.ref_fields()})
-            for layer, zone in zip(layers, cell, strict=True)
-        ]
+        return [zone.ref(layer) for layer, zone in zip(layers, cell, strict=True)]
 
     def dump(self: Self) -> list[BaseModel]:
         self.validate()
@@ -276,26 +265,6 @@ class ZonalStats:
                 )
                 writer.writerow(row)
 
-    @staticmethod
-    def _selection_overrides(
-        selection: ZoneSelection,
-        available: AvailableZone,
-        spec: DatasetSpec,
-    ) -> dict[str, object]:
-        """The scheme kwargs a selection resolves to (only the ones it sets).
-
-        The dataset's configured zone params for this layer (its ``zones`` block --
-        e.g. ``band_step_ft`` for elevation, ``threshold_pct`` for forest cover)
-        become the default, translated to scheme kwargs by the scheme itself; an
-        explicit ``override`` on the selection always wins. Both translations are
-        the scheme's own, so schemes ignore any kwarg they don't use.
-        """
-        params = spec.zone_params(available.provider.name, available.layer.key)
-        overrides = available.scheme.default_overrides(params)
-        if selection.override is not None:
-            overrides.update(available.scheme.override_kwargs(selection.override))
-        return overrides
-
     @classmethod
     async def calculate(
         cls: type[Self],
@@ -327,21 +296,25 @@ class ZonalStats:
         # variable or date -- so it is computed once here and reused by every
         # reduction.
         registry = available_zones(dataset.providers.values())
-        resolved = []
+        resolved: list[tuple[AvailableZone, ZoneScheme]] = []
         for selection in selections:
             available = registry.get(selection.layer_key)
             if available is None:
                 raise _unknown_layer(selection.layer_key, registry)
-            resolved.append(
-                (available, cls._selection_overrides(selection, available, spec)),
+            # Fold the dataset's configured params for this layer into a configured
+            # scheme, then apply the selection's explicit override (if any). After
+            # this the scheme carries everything; zones()/assign() take no kwargs.
+            scheme = available.scheme.configured(
+                spec.zone_params(available.provider.name, available.layer.key),
             )
+            if selection.override is not None:
+                scheme = scheme.with_override(selection.override)
+            resolved.append((available, scheme))
 
         # The axes' zones (hence the crossed product size) are known from the
         # schemes alone, with no raster reads -- so guard against a runaway product
         # before paying for any I/O.
-        axes: list[tuple[Zone, ...]] = [
-            available.scheme.zones(**overrides) for available, overrides in resolved
-        ]
+        axes: list[tuple[Zone, ...]] = [scheme.zones() for _, scheme in resolved]
         n_cells = math.prod(len(axis) for axis in axes)
         if n_cells > max_zone_cells:
             raise QueryParameterError(
@@ -365,12 +338,8 @@ class ZonalStats:
             *(_read_axis(available) for available, _ in resolved),
         )
         ordinals_list = [
-            available.scheme.assign(values, **overrides)
-            for (available, overrides), values in zip(
-                resolved,
-                axis_arrays,
-                strict=True,
-            )
+            scheme.assign(values)
+            for (_, scheme), values in zip(resolved, axis_arrays, strict=True)
         ]
         zone_layers = [selection.layer_key for selection in selections]
 

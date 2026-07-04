@@ -49,7 +49,12 @@ from snowtool.snowdb.zones.zone_layer import (
     ZoneLayer,
     ZoneLayerProvider,
 )
-from snowtool.snowdb.zones.zoning import ClassZone, banded, categorical, threshold
+from snowtool.snowdb.zones.zoning import (
+    BandedZoning,
+    CategoricalZoning,
+    ClassZone,
+    ThresholdZoning,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -123,7 +128,7 @@ ELEVATION = ZoneLayer(
     # means the same thing across AOIs and datasets; pixels are metres, so the
     # scheme scales by M_TO_FT. The per-dataset default step is spec.band_step_ft
     # (passed at query time); default_step here is the fallback.
-    zoning=banded(
+    zoning=BandedZoning(
         domain_min=MIN_ELEVATION_M * M_TO_FT,
         domain_max=MAX_ELEVATION_M * M_TO_FT,
         default_step=1000,
@@ -138,8 +143,8 @@ ASPECT_MAJORITY = ZoneLayer(
     nodata=ASPECT_MAJORITY_NODATA,
     band_descriptions=('majority_cls_0N1E2S3W4flat',),
     key='aspect',
-    zoning=categorical(
-        (
+    zoning=CategoricalZoning(
+        classes=(
             ClassZone(key='N', label='N', code=ASPECT_N),
             ClassZone(key='E', label='E', code=ASPECT_E),
             ClassZone(key='S', label='S', code=ASPECT_S),
@@ -157,7 +162,7 @@ def _component_zoning():
     Both components have the identical domain and units, so they share one scheme
     factory (each axis gets its own instance, keyed by its own layer key/param).
     """
-    return banded(
+    return BandedZoning(
         domain_min=ASPECT_COMPONENT_DOMAIN_MIN,
         domain_max=ASPECT_COMPONENT_DOMAIN_MAX,
         default_step=DEFAULT_ASPECT_COMPONENT_BAND_PCT,
@@ -198,7 +203,7 @@ ASPECT_ENTROPY = ZoneLayer(
     # Meant to be crossed with the majority axis (terrain.aspect): a flat-dominated
     # cell is low-entropy *and* majority flat, so it never poses as a high-signal
     # direction -- the flat case is owned by the majority class, not the entropy.
-    zoning=threshold(
+    zoning=ThresholdZoning(
         default_threshold=DEFAULT_ASPECT_ENTROPY_THRESHOLD,
         unit='frac',
         value_scale=1,
