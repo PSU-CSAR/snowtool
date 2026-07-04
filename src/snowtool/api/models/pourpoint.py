@@ -17,7 +17,7 @@ per-dataset coverage pulled from the index.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from gazebo.geojson import Feature, FeatureCollection
 from gazebo.link import Link
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from gazebo.params import BBox
 
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.geometry import BasinGeometry, PointGeometry
     from snowtool.snowdb.pourpoint import Pourpoint
     from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 
@@ -63,19 +64,22 @@ PourpointFeatureCollection = FeatureCollection[PourpointProperties]
 PourpointDetail = Feature[PourpointDetailProperties]
 
 
-def _point_coords(point: dict[str, Any]) -> tuple[float, float]:
-    lon, lat = point['coordinates'][:2]
+def _point_coords(point: PointGeometry) -> tuple[float, float]:
+    lon, lat = point.coordinates[:2]
     return (lon, lat)
 
 
 def _pourpoint_feature(
     entry: PourpointIndexEntry,
-    geometry: dict[str, Any],
+    geometry: PointGeometry | BasinGeometry,
 ) -> PourpointFeature:
     """One list feature: the chosen ``geometry`` slot + the fixed index properties."""
     return PourpointFeature(
         id=entry.triplet,
-        geometry=geometry,  # type: ignore[arg-type]  # dict validated by geojson-pydantic
+        # dict validated by geojson-pydantic; our own geometry models are a
+        # different pydantic class, so hand gazebo/geojson-pydantic a plain
+        # mapping rather than an instance it does not know how to coerce.
+        geometry=geometry.model_dump(mode='json'),  # type: ignore[arg-type]
         properties=PourpointProperties(
             name=entry.name,
             area_meters=entry.area_meters,
@@ -113,7 +117,7 @@ def build_pourpoint_collection(
     entries = [
         entry
         for entry in index  # PourpointIndex iterates entries sorted by triplet
-        if bbox is None or bbox.contains(*entry.point['coordinates'][:2])
+        if bbox is None or bbox.contains(*entry.point.coordinates[:2])
     ]
     total = len(entries)
     page = entries[offset : offset + limit]
@@ -156,10 +160,12 @@ def build_pourpoint_detail(
     ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
     values from ``entry`` (computed at reindex), not recomputed here.
     """
-    geometry: Any = pourpoint.polygon
+    # dict validated by geojson-pydantic; see `_pourpoint_feature`. `None` passes
+    # through unchanged for a point-only pourpoint (GeoJSON allows null geometry).
+    geometry = pourpoint.polygon.model_dump(mode='json') if pourpoint.polygon else None
     return PourpointDetail(
         id=pourpoint.station_triplet,
-        geometry=geometry,
+        geometry=geometry,  # type: ignore[arg-type]
         properties=PourpointDetailProperties(
             name=pourpoint.name,
             area_meters=entry.area_meters,
