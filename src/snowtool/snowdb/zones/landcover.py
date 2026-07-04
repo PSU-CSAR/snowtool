@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Self
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerProvider
-from snowtool.snowdb.zones.zoning import threshold
+from snowtool.snowdb.zones.zoning import ThresholdZoning
 
 # On-disk format version of a land-cover layer set, owned by LandCoverProvider and
 # stamped (via provenance.versioned_hash) onto NLCD_HASH_TAG by the generator. Bump
@@ -60,7 +60,7 @@ FOREST_COVER = ZoneLayer(
     # 50%), not a set of percent bands: the question is whether a cell is forested,
     # and the threshold is the per-query knob. Pixels are already percent, so
     # value_scale is 1.
-    zoning=threshold(
+    zoning=ThresholdZoning(
         default_threshold=DEFAULT_FOREST_THRESHOLD_PCT,
         unit='%',
         value_scale=1,

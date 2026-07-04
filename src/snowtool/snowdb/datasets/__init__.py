@@ -3,25 +3,19 @@
 Each dataset kind lives in its own module here (:mod:`.snodas`, :mod:`.swann`,
 ...), holding that dataset's variables, grid :class:`~snowtool.snowdb.spec.DatasetSpec`,
 and :class:`~snowtool.snowdb.ingest.Ingester`. ``DEFAULT_DATASET_SPECS`` collects
-them; it is what the app/CLI pass to a :class:`~snowtool.snowdb.db.SnowDb` (tests
-may pass a subset or their own synthetic specs). The public names are re-exported
-here so callers import ``from snowtool.snowdb.datasets import ...`` regardless of
-which per-dataset module defines them.
+them; a :class:`~snowtool.snowdb.db.SnowDb` is built from a
+:class:`~snowtool.snowdb.config.RootConfig`, so ``DEFAULT_DATASET_SPECS`` backs
+the dataset templates (below) and the tests rather than being passed to a SnowDb
+directly. The public names are re-exported here so callers import
+``from snowtool.snowdb.datasets import ...`` regardless of which per-dataset
+module defines them.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-import shapely
-
-from snowtool.snowdb.config import (
-    DatasetConfig,
-    GridConfig,
-    UnitConfig,
-    VariableConfig,
-)
+from snowtool.snowdb.config import DatasetConfig
 from snowtool.snowdb.spec import DatasetSpec
 
 from .instarr import INSTARR_SPEC, INSTARR_VARIABLES, InstarrIngester
@@ -31,7 +25,8 @@ from .swann import SWANN_800M_SPEC, SWANN_800M_VARIABLES, SwannIngester
 if TYPE_CHECKING:
     from snowtool.snowdb.ingest import Ingester
 
-# The built-in datasets; the app/CLI pass this to SnowDb.
+# The built-in datasets; back the dataset templates and the tests (a SnowDb is
+# built from a RootConfig, not from these directly).
 DEFAULT_DATASET_SPECS: tuple[DatasetSpec, ...] = (
     SNODAS_SPEC,
     SWANN_800M_SPEC,
@@ -58,11 +53,11 @@ _INGESTER_NAME_BY_TYPE: dict[type, str] = {
 def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     """Produce the self-describing :class:`DatasetConfig` for a built-in spec.
 
-    The serialization half of :meth:`DatasetSpec.from_config`: it flattens a
-    spec's grid, variables, ``zones``, ingester (by registry name) and
-    ``footprint`` (as a GeoJSON geometry mapping) into a config. Round-tripping a
-    built-in spec through this and back must reproduce the spec exactly -- the
-    guarantee behind the byte-equal templates below.
+    The inverse of :meth:`DatasetSpec.from_config`: the spec's grid, variables,
+    ``zones`` and ``footprint`` are already the persisted domain types, so they
+    pass straight through; only the ingester is mapped to its registry *name*.
+    Round-tripping a built-in spec through this and back reproduces the spec
+    exactly -- the guarantee behind the templates below.
     """
     ingester_name = (
         _INGESTER_NAME_BY_TYPE[type(spec.ingester)]
@@ -70,27 +65,11 @@ def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
         else None
     )
     return DatasetConfig(
-        grid=GridConfig(**asdict(spec.grid_params)),
-        variables={
-            key: VariableConfig(
-                unit=UnitConfig(
-                    name=variable.unit.name,
-                    scale_factor=variable.unit.scale_factor,
-                ),
-                reducer=variable.reducer,
-                dtype=variable.dtype,
-                nodata=variable.nodata,
-                glob=variable.glob,
-            )
-            for key, variable in spec.variables.items()
-        },
+        grid=spec.grid_params,
+        variables=dict(spec.variables),
         ingester=ingester_name,
         zones=spec.zones,
-        footprint=(
-            shapely.geometry.mapping(spec.footprint)
-            if spec.footprint is not None
-            else None
-        ),
+        footprint=spec.footprint,
     )
 
 

@@ -24,16 +24,23 @@ query reports.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
 
 from snowtool.exceptions import QueryParameterError
+from snowtool.snowdb.zonal_stat_models import (
+    BandZoneRef,
+    ClassZoneRef,
+    ThresholdZoneRef,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from pydantic import BaseModel
+
+    from snowtool.snowdb.config import ZoneLayerParams
 
 
 @dataclass(frozen=True)
@@ -48,12 +55,13 @@ class Zone:
     key: str
     label: str
 
-    def ref_fields(self: Self) -> dict[str, object]:
-        """The response-model fields for this zone (incl. its ``kind`` tag).
+    def ref(self: Self, layer: str) -> BaseModel:
+        """The self-describing :class:`ZoneRef` for this zone on axis ``layer``.
 
-        Merged with the axis ``layer`` key and validated into the matching
-        :class:`~snowtool.snowdb.zonal_stat_models.ZoneRef` member, so each kind
-        owns its own self-description rather than being switched on externally.
+        Each kind builds its own concrete
+        :class:`~snowtool.snowdb.zonal_stat_models.ZoneRef` member directly, so a
+        crossed query reports a typed per-axis ref without being switched on
+        externally.
         """
         raise NotImplementedError
 
@@ -82,8 +90,8 @@ class BandZone(Zone):
     def __str__(self: Self) -> str:
         return f'{self.min}_{self.max}'
 
-    def ref_fields(self: Self) -> dict[str, object]:
-        return {'kind': 'band', 'min': self.min, 'max': self.max, 'unit': self.unit}
+    def ref(self: Self, layer: str) -> BandZoneRef:
+        return BandZoneRef(layer=layer, min=self.min, max=self.max, unit=self.unit)
 
     def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
         return [
@@ -101,8 +109,8 @@ class ClassZone(Zone):
     def __str__(self: Self) -> str:
         return self.label
 
-    def ref_fields(self: Self) -> dict[str, object]:
-        return {'kind': 'class', 'code': self.code, 'label': self.label}
+    def ref(self: Self, layer: str) -> ClassZoneRef:
+        return ClassZoneRef(layer=layer, code=self.code, label=self.label)
 
     def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
         return [(layer, self.label)]
@@ -124,14 +132,14 @@ class ThresholdZone(Zone):
     def __str__(self: Self) -> str:
         return self.label
 
-    def ref_fields(self: Self) -> dict[str, object]:
-        return {
-            'kind': 'threshold',
-            'threshold': self.threshold,
-            'unit': self.unit,
-            'side': self.side,
-            'label': self.label,
-        }
+    def ref(self: Self, layer: str) -> ThresholdZoneRef:
+        return ThresholdZoneRef(
+            layer=layer,
+            threshold=self.threshold,
+            unit=self.unit,
+            side=self.side,  # type: ignore[arg-type]
+            label=self.label,
+        )
 
     def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
         return [
@@ -143,38 +151,55 @@ class ThresholdZone(Zone):
 class ZoneScheme(ABC):
     """How one zone layer's pixels map to zones.
 
-    :meth:`zones` enumerates the scheme's zones in ordinal order (optionally
-    overriding its defaults), and :meth:`assign` maps an array of native pixel
-    values to per-pixel zone ordinals (``-1`` = out of zone, which uniformly
-    covers layer-nodata and out-of-domain values).
+    A scheme is *resolved* to a configured instance before use, then queried with
+    no further parameters:
+
+    * :meth:`configured` folds a dataset's configured zone ``params`` (its
+      ``zones`` block -- e.g. ``band_step_ft``, ``threshold_pct``) into a new
+      scheme instance (the base scheme, e.g. categorical, takes no params and
+      returns itself).
+    * :meth:`with_override` then folds in an explicit per-query override value
+      (the CLI/API ``LAYER:override`` token, already typed by
+      :meth:`parse_override`).
+
+    After resolution, :meth:`zones` enumerates the scheme's zones in ordinal order
+    and :meth:`assign` maps an array of native pixel values to per-pixel zone
+    ordinals (``-1`` = out of zone, which uniformly covers layer-nodata and
+    out-of-domain values) -- both from the instance's own fields, taking no kwargs.
     """
 
     @abstractmethod
-    def zones(self: Self, **override: object) -> tuple[Zone, ...]:
-        """The scheme's zones, in ordinal order."""
+    def zones(self: Self) -> tuple[Zone, ...]:
+        """The scheme's zones, in ordinal order (from the instance's own fields)."""
         raise NotImplementedError
 
     @abstractmethod
     def assign(
         self: Self,
         values: numpy.typing.NDArray,
-        **override: object,
     ) -> numpy.typing.NDArray[numpy.int64]:
         """Per-pixel zone ordinal for ``values`` (``-1`` where out of zone)."""
         raise NotImplementedError
 
-    def default_overrides(
-        self: Self,
-        params: Mapping[str, object],
-    ) -> dict[str, object]:
-        """Scheme override kwargs from a dataset's configured zone ``params``.
+    def configured(self: Self, params: ZoneLayerParams) -> Self:
+        """A copy of this scheme with the dataset's configured param applied.
 
         Translates the human-facing param a dataset's ``zones`` block carries (e.g.
-        ``band_step_ft``, ``threshold_pct``) into the kwarg :meth:`zones`/
-        :meth:`assign` consume (``step``/``threshold``). The base scheme takes no
-        params (so a categorical layer ignores any), so it returns nothing.
+        ``band_step_ft``, ``threshold_pct``) into a new configured instance. The
+        base scheme takes no params (so a categorical layer ignores any), so it
+        returns itself unchanged.
         """
-        return {}
+        return self
+
+    def with_override(self: Self, override: int | float) -> Self:
+        """A copy of this scheme with an explicit per-query ``override`` applied.
+
+        The counterpart of :meth:`configured` for the *explicit* override a
+        selection carries (vs. the dataset's configured default). The base scheme
+        consumes no override -- :meth:`parse_override` rejects a token for a
+        categorical axis, so this is never reached for one.
+        """
+        raise NotImplementedError
 
     def parse_override(self: Self, layer_key: str, raw: str) -> int | float:
         """Parse a query's ``:override`` token (the CLI ``--zone`` flag) for this
@@ -184,15 +209,6 @@ class ZoneScheme(ABC):
             f'zone {layer_key!r} takes no override (it is a categorical axis); '
             f'drop the ":{raw}".',
         )
-
-    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
-        """The scheme kwargs an explicit query override resolves to.
-
-        The counterpart of :meth:`default_overrides` for the *explicit* override a
-        selection carries (vs. the dataset's configured default). The base scheme
-        consumes no override, so it returns nothing.
-        """
-        return {}
 
 
 @dataclass(frozen=True)
@@ -204,8 +220,8 @@ class BandedZoning(ZoneScheme):
     (elevation pixels are metres, so ``value_scale`` is ``M_TO_FT``; forest pixels
     are already percent, so it is ``1``). Bands are aligned to 0 so a given band
     means the same thing regardless of the domain, and ``default_step`` is the band
-    width used when a query does not override it (e.g. elevation's per-dataset
-    ``band_step_ft``).
+    width (folded in from the per-dataset ``band_step_ft`` by :meth:`configured` or
+    a query ``:override`` by :meth:`with_override`).
     """
 
     domain_min: float
@@ -215,16 +231,21 @@ class BandedZoning(ZoneScheme):
     value_scale: float
     layer_nodata: float
     # The key a dataset's zones block uses for this layer's band width (e.g.
-    # ``band_step_ft``); its value becomes the ``step`` override.
+    # ``band_step_ft``); its value becomes the configured ``default_step``.
     param_key: str = 'band_step_ft'
 
-    def default_overrides(
-        self: Self,
-        params: Mapping[str, object],
-    ) -> dict[str, object]:
-        if self.param_key in params:
-            return {'step': params[self.param_key]}
-        return {}
+    def __post_init__(self: Self) -> None:
+        if not isinstance(self.default_step, int) or self.default_step <= 0:
+            raise ValueError(
+                f'band step must be a positive int, got {self.default_step!r}',
+            )
+
+    def configured(self: Self, params: ZoneLayerParams) -> Self:
+        value = getattr(params, self.param_key)
+        return self if value is None else replace(self, default_step=value)
+
+    def with_override(self: Self, override: int | float) -> Self:
+        return replace(self, default_step=override)  # type: ignore[arg-type]
 
     def parse_override(self: Self, layer_key: str, raw: str) -> int:
         try:
@@ -234,22 +255,13 @@ class BandedZoning(ZoneScheme):
                 f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
             ) from e
 
-    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
-        return {'step': override}
-
-    def _step(self: Self, override: object) -> int:
-        step = override if override is not None else self.default_step
-        if not isinstance(step, int) or step <= 0:
-            raise ValueError(f'band step must be a positive int, got {step!r}')
-        return step
-
-    def zones(self: Self, **override: object) -> tuple[BandZone, ...]:
-        """The bands spanning the domain at ``step`` (default ``default_step``).
+    def zones(self: Self) -> tuple[BandZone, ...]:
+        """The bands spanning the domain at ``default_step``.
 
         Aligned to 0: band ``i`` is ``[i*step, (i+1)*step)``. Reproduces the old
         ``ElevationBand.generate`` for the elevation domain.
         """
-        step = self._step(override.get('step'))
+        step = self.default_step
         start = int(self.domain_min // step)
         end = int(self.domain_max // step) + 1
         return tuple(
@@ -266,14 +278,13 @@ class BandedZoning(ZoneScheme):
     def assign(
         self: Self,
         values: numpy.typing.NDArray,
-        **override: object,
     ) -> numpy.typing.NDArray[numpy.int64]:
         """Digitize ``values`` (native units) into the band ordinals.
 
         Scales to zone units and digitizes into the band edges; pixels below/above
         the domain, and layer-nodata pixels, become ``-1``.
         """
-        bands = self.zones(**override)
+        bands = self.zones()
         edges = numpy.array(
             [band.min for band in bands] + [bands[-1].max],
             dtype=numpy.float64,
@@ -293,9 +304,11 @@ class ThresholdZoning(ZoneScheme):
 
     The query unit (e.g. forest cover: "below 50% is unforested, 50%+ is
     forested"). ``value_scale`` maps native pixel units to the threshold's unit;
-    ``default_threshold`` is used when a query does not override it. The two zones
-    are :class:`ClassZone`\\ s (ordinal 0 below, 1 at-or-above) whose labels embed
-    the active threshold so each cell stays self-describing.
+    ``default_threshold`` is the split point (folded in from the per-dataset
+    ``threshold_pct`` by :meth:`configured` or a query ``:override`` by
+    :meth:`with_override`). The two zones are :class:`ThresholdZone`\\ s (ordinal 0
+    below, 1 at-or-above) whose ``threshold`` rides on each cell as a structured
+    value so each stays self-describing.
     """
 
     default_threshold: float
@@ -305,16 +318,15 @@ class ThresholdZoning(ZoneScheme):
     below_label: str
     above_label: str
     # The key a dataset's zones block uses for this layer's split point (e.g.
-    # ``threshold_pct``); its value becomes the ``threshold`` override.
+    # ``threshold_pct``); its value becomes the configured ``default_threshold``.
     param_key: str = 'threshold_pct'
 
-    def default_overrides(
-        self: Self,
-        params: Mapping[str, object],
-    ) -> dict[str, object]:
-        if self.param_key in params:
-            return {'threshold': params[self.param_key]}
-        return {}
+    def configured(self: Self, params: ZoneLayerParams) -> Self:
+        value = getattr(params, self.param_key)
+        return self if value is None else replace(self, default_threshold=value)
+
+    def with_override(self: Self, override: int | float) -> Self:
+        return replace(self, default_threshold=float(override))
 
     def parse_override(self: Self, layer_key: str, raw: str) -> float:
         try:
@@ -324,21 +336,13 @@ class ThresholdZoning(ZoneScheme):
                 f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
             ) from e
 
-    def override_kwargs(self: Self, override: int | float) -> dict[str, object]:
-        return {'threshold': override}
-
-    def _threshold(self: Self, override: object) -> float:
-        if override is not None and not isinstance(override, int | float):
-            raise ValueError(f'threshold must be a number, got {override!r}')
-        return float(self.default_threshold if override is None else override)
-
-    def zones(self: Self, **override: object) -> tuple[ThresholdZone, ...]:
+    def zones(self: Self) -> tuple[ThresholdZone, ...]:
         """The two sides of the split (below, at-or-above), with clean labels.
 
         The active threshold rides on each :class:`ThresholdZone` as a structured
         value (not embedded in the label).
         """
-        threshold = self._threshold(override.get('threshold'))
+        threshold = float(self.default_threshold)
         return (
             ThresholdZone(
                 key='below',
@@ -359,10 +363,9 @@ class ThresholdZoning(ZoneScheme):
     def assign(
         self: Self,
         values: numpy.typing.NDArray,
-        **override: object,
     ) -> numpy.typing.NDArray[numpy.int64]:
         """1 where ``values`` (scaled) >= threshold, 0 below, ``-1`` for nodata."""
-        threshold = self._threshold(override.get('threshold'))
+        threshold = float(self.default_threshold)
         scaled = numpy.asarray(values, dtype=numpy.float64) * self.value_scale
         out = (scaled >= threshold).astype(numpy.int64)
         out[numpy.asarray(values) == self.layer_nodata] = -1
@@ -376,14 +379,13 @@ class CategoricalZoning(ZoneScheme):
     classes: tuple[ClassZone, ...]
     layer_nodata: int
 
-    def zones(self: Self, **override: object) -> tuple[ClassZone, ...]:
+    def zones(self: Self) -> tuple[ClassZone, ...]:
         """The class list (its order *is* the ordinal order)."""
         return self.classes
 
     def assign(
         self: Self,
         values: numpy.typing.NDArray,
-        **override: object,
     ) -> numpy.typing.NDArray[numpy.int64]:
         """Map each pixel's class code to its ordinal (``-1`` for nodata/unknown).
 
@@ -393,56 +395,3 @@ class CategoricalZoning(ZoneScheme):
         for ordinal, cls in enumerate(self.classes):
             out[numpy.asarray(values) == cls.code] = ordinal
         return out
-
-
-def banded(
-    *,
-    domain_min: float,
-    domain_max: float,
-    default_step: int,
-    unit: str,
-    value_scale: float,
-    layer_nodata: float,
-    param_key: str = 'band_step_ft',
-) -> BandedZoning:
-    """Convenience constructor for :class:`BandedZoning` (keyword-only)."""
-    return BandedZoning(
-        domain_min=domain_min,
-        domain_max=domain_max,
-        default_step=default_step,
-        unit=unit,
-        value_scale=value_scale,
-        layer_nodata=layer_nodata,
-        param_key=param_key,
-    )
-
-
-def categorical(
-    classes: Sequence[ClassZone],
-    *,
-    layer_nodata: int,
-) -> CategoricalZoning:
-    """Convenience constructor for :class:`CategoricalZoning`."""
-    return CategoricalZoning(classes=tuple(classes), layer_nodata=layer_nodata)
-
-
-def threshold(
-    *,
-    default_threshold: float,
-    unit: str,
-    value_scale: float,
-    layer_nodata: float,
-    below_label: str,
-    above_label: str,
-    param_key: str = 'threshold_pct',
-) -> ThresholdZoning:
-    """Convenience constructor for :class:`ThresholdZoning` (keyword-only)."""
-    return ThresholdZoning(
-        default_threshold=default_threshold,
-        unit=unit,
-        value_scale=value_scale,
-        layer_nodata=layer_nodata,
-        below_label=below_label,
-        above_label=above_label,
-        param_key=param_key,
-    )
