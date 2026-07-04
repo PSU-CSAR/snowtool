@@ -3,6 +3,9 @@
 import pytest
 import shapely
 
+from geojson_pydantic.geometries import Geometry
+from pydantic import TypeAdapter
+
 from snowtool.snowdb.coverage import _grid_extent_polygon
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
@@ -48,7 +51,8 @@ def test_coverage_domain_defaults_to_the_grid_extent():
 
 def test_footprint_overrides_the_coverage_domain():
 
-    # A footprint smaller than the extent *is* the served domain.
+    # A footprint smaller than the extent *is* the served domain. The footprint is
+    # a geojson-pydantic geometry now; `coverage_domain` converts it to shapely.
     footprint = shapely.box(-119.5, 44.5, -119.0, 44.0)
     spec = DatasetSpec(
         name='geo',
@@ -60,9 +64,11 @@ def test_footprint_overrides_the_coverage_domain():
             rows=512,
             tile_size=256,
         ),
-        footprint=footprint,
+        footprint=TypeAdapter(Geometry).validate_python(
+            shapely.geometry.mapping(footprint),
+        ),
     )
-    assert spec.coverage_domain.polygon is footprint
+    assert spec.coverage_domain.polygon.equals_exact(footprint, 0)
 
 
 def test_crs_is_the_single_parsed_grid_crs():

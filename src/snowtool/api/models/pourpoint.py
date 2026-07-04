@@ -29,9 +29,9 @@ from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
     from gazebo.params import BBox
+    from geojson_pydantic import MultiPolygon, Point, Polygon
 
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.geometry import BasinGeometry, PointGeometry
     from snowtool.snowdb.pourpoint import Pourpoint
     from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 
@@ -64,22 +64,21 @@ PourpointFeatureCollection = FeatureCollection[PourpointProperties]
 PourpointDetail = Feature[PourpointDetailProperties]
 
 
-def _point_coords(point: PointGeometry) -> tuple[float, float]:
+def _point_coords(point: Point) -> tuple[float, float]:
     lon, lat = point.coordinates[:2]
     return (lon, lat)
 
 
 def _pourpoint_feature(
     entry: PourpointIndexEntry,
-    geometry: PointGeometry | BasinGeometry,
+    geometry: Point | Polygon | MultiPolygon,
 ) -> PourpointFeature:
     """One list feature: the chosen ``geometry`` slot + the fixed index properties."""
     return PourpointFeature(
         id=entry.triplet,
-        # dict validated by geojson-pydantic; our own geometry models are a
-        # different pydantic class, so hand gazebo/geojson-pydantic a plain
-        # mapping rather than an instance it does not know how to coerce.
-        geometry=geometry.model_dump(mode='json'),  # type: ignore[arg-type]
+        # gazebo's Feature geometry slot is geojson-pydantic's Geometry union, so
+        # our geojson-pydantic geometries pass straight through (no conversion).
+        geometry=geometry,
         properties=PourpointProperties(
             name=entry.name,
             area_meters=entry.area_meters,
@@ -160,12 +159,11 @@ def build_pourpoint_detail(
     ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
     values from ``entry`` (computed at reindex), not recomputed here.
     """
-    # dict validated by geojson-pydantic; see `_pourpoint_feature`. `None` passes
-    # through unchanged for a point-only pourpoint (GeoJSON allows null geometry).
-    geometry = pourpoint.polygon.model_dump(mode='json') if pourpoint.polygon else None
+    # The basin polygon passes straight through (see `_pourpoint_feature`); `None`
+    # for a point-only pourpoint (GeoJSON allows a null geometry).
     return PourpointDetail(
         id=pourpoint.station_triplet,
-        geometry=geometry,  # type: ignore[arg-type]
+        geometry=pourpoint.polygon,
         properties=PourpointDetailProperties(
             name=pourpoint.name,
             area_meters=entry.area_meters,
