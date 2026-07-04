@@ -22,12 +22,14 @@ from typing import TYPE_CHECKING, Self
 import rasterio
 
 from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
+from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
-    from datetime import date
     from pathlib import Path
 
     from affine import Affine
@@ -149,7 +151,7 @@ class SwannIngester:
         dataset: Dataset,
         *,
         force: bool = False,
-    ) -> list[date]:
+    ) -> IngestResult:
         match = self.filename_re.search(source.name)
         if match is None:
             raise SnowtoolError(
@@ -164,6 +166,10 @@ class SwannIngester:
                 'stage pin to ingest finalized data.',
             )
         ingest_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
+
+        # One versioned hash of the source .nc per date (== per file), stamped on
+        # every COG and compared by the skip check.
+        source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
 
         transform = dataset.grid.base_grid.transform
         crs = dataset.grid_crs
@@ -187,13 +193,22 @@ class SwannIngester:
                         date=ingest_date,
                         variable=variable.key,
                         files=source.name,
+                        source_hash=source_hash,
                         extra={'SOURCE_STAGE': match['stage']},
                     ),
                 ),
             )
 
-        dataset.write_date_cogs(ingest_date, rasters, force=force)
-        return [ingest_date]
+        wrote = dataset.write_date_cogs(
+            ingest_date,
+            rasters,
+            source_hash=source_hash,
+            force=force,
+        )
+        dates = [ingest_date]
+        if wrote:
+            return IngestResult(ingested=dates, skipped=[])
+        return IngestResult(ingested=[], skipped=dates)
 
 
 # --- SWANN 800m spec ----------------------------------------------------------

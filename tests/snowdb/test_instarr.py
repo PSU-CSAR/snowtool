@@ -93,13 +93,14 @@ def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
 
     ds = Dataset(INSTARR_SPEC, tmp_path)
     calls: list = []
-    monkeypatch.setattr(
-        ds,
-        'write_date_cogs',
-        lambda d, rasters, **k: calls.append((d, list(rasters))),
-    )
 
-    assert ds.ingest(tmp_path) == [date(2026, 6, 13), date(2026, 6, 14)]
+    def fake_write(d, rasters, **k):
+        calls.append((d, list(rasters)))
+        return True
+
+    monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
+
+    assert ds.ingest(tmp_path).ingested == [date(2026, 6, 13), date(2026, 6, 14)]
     written = dict(calls)
     assert set(written) == {date(2026, 6, 13), date(2026, 6, 14)}
     # One raster per variable, each over the right number of tile source URIs.

@@ -11,6 +11,7 @@ from snowtool.cli._context import CliContext
 from snowtool.snowdb import datasets as datasets_mod
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.ingest import IngestResult
 from snowtool.snowdb.manager import SnowDbManager
 
 from ..conftest import register_dataset_config
@@ -271,7 +272,10 @@ def test_ingest_delegates_to_spec_ingester(
 
         def ingest(self, source, dataset, *, force=False):
             self.calls.append((source, dataset.spec.name, force))
-            return [date(2020, 1, 1), date(2020, 1, 2)]
+            return IngestResult(
+                ingested=[date(2020, 1, 1), date(2020, 1, 2)],
+                skipped=[],
+            )
 
     fake = _FakeIngester()
     # Ingesters are code, referenced by registry name: register the fake so a
@@ -293,6 +297,53 @@ def test_ingest_delegates_to_spec_ingester(
     assert 'ingested test 2020-01-01' in result.output
     assert 'ingested test 2020-01-02' in result.output
     assert len(fake.calls) == 1
+
+
+def test_ingest_converges_and_force_reingests(
+    monkeypatch,
+    runner,
+    tmp_path,
+    spec,
+    source_dem,
+):
+    # Converge-by-default: a run whose source hash matches reports "up to date";
+    # --force re-ingests. The fake ingester reports skipped vs ingested by force.
+    class _ConvergingIngester:
+        def __init__(self):
+            self.forces = []
+
+        def ingest(self, source, dataset, *, force=False):
+            self.forces.append(force)
+            d = date(2020, 1, 1)
+            if force:
+                return IngestResult(ingested=[d], skipped=[])
+            return IngestResult(ingested=[], skipped=[d])
+
+    fake = _ConvergingIngester()
+    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
+
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    config.ingester = 'fake'
+    register_dataset_config(manager, 'test', config)
+    converge = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', str(source_dem)],
+        obj=CliContext(config=tmp_path),
+    )
+    assert converge.exit_code == 0, converge.output
+    assert 'up to date test 2020-01-01' in converge.output
+    assert 'ingested test' not in converge.output
+
+    forced = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', '--force', str(source_dem)],
+        obj=CliContext(config=tmp_path),
+    )
+    assert forced.exit_code == 0, forced.output
+    assert 'ingested test 2020-01-01' in forced.output
+    assert 'up to date' not in forced.output
+    assert fake.forces == [False, True]
 
 
 # --- generate ----------------------------------------------------------------

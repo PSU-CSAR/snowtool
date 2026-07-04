@@ -23,6 +23,7 @@ from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.progress import NULL_PROGRESS
+from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from griffine.grid import TiledAffineGrid
 
     from snowtool.snowdb.coverage import CoverageDomain
-    from snowtool.snowdb.ingest import WritableRaster
+    from snowtool.snowdb.ingest import IngestResult, WritableRaster
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.spec import DatasetSpec
@@ -43,6 +44,13 @@ if TYPE_CHECKING:
         ZoneLayerSource,
         ZoneLayerTarget,
     )
+
+# On-disk format version of an ingested date's COGs, owned here by their writer
+# (Dataset.write_date_cogs). It rides along in the versioned SOURCE_HASH the skip
+# compares, so bumping it makes every existing date read as stale (hash mismatch)
+# and rebuild on the next ingest. Bump on a material change to the ingested-COG
+# encoding (compression, band layout, nodata handling), not for source changes.
+INGEST_FORMAT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -310,11 +318,13 @@ class Dataset:
         path.unlink()
         return True
 
-    def ingest(self: Self, source: Path, *, force: bool = False) -> list[date]:
+    def ingest(self: Self, source: Path, *, force: bool = False) -> IngestResult:
         """Ingest a source artifact into per-date COGs, via this dataset's ingester.
 
         Delegates to ``spec.ingester`` (the dataset-kind-specific parser); raises
-        if the dataset has no configured ingester. Returns the dates ingested.
+        if the dataset has no configured ingester. Returns an
+        :class:`~snowtool.snowdb.ingest.IngestResult` splitting the dates written
+        from those skipped as already current.
         """
         ingester = self.spec.ingester
         if ingester is None:
@@ -339,18 +349,38 @@ class Dataset:
             if sum(fnmatch(name, variable.glob) for name in names) != 1
         }
 
+    def _date_source_hash(self: Self, date_dir: Path) -> str | None:
+        """The ``SOURCE_HASH`` provenance tag on a date's COGs, or ``None``.
+
+        A header-only tags read of any one COG in the dir (they all carry the same
+        per-date hash), the same cheap pattern as :meth:`aoi_raster_hash`. Returns
+        ``None`` when the dir is empty or the COGs predate the tag (a legacy date
+        dir), which the skip check reads as stale.
+        """
+        cogs = sorted(p for p in date_dir.iterdir() if p.is_file())
+        if not cogs:
+            return None
+        with rasterio.open(cogs[0]) as ds:
+            return ds.tags().get(SOURCE_HASH_TAG)
+
     def write_date_cogs(
         self: Self,
         date: date,
         rasters: Iterable[WritableRaster],
         *,
+        source_hash: str,
         force: bool = False,
-    ) -> None:
+    ) -> bool:
         """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/`` atomically.
 
         The dataset-agnostic write side of ingest: it owns the date directory; the
         rasters (produced by an :class:`~snowtool.snowdb.ingest.Ingester`) know how
-        to write themselves as COGs into it.
+        to write themselves as COGs into it. ``source_hash`` is the versioned hash
+        of the source artifact this date came from (see
+        :data:`INGEST_FORMAT_VERSION`); it is both stamped on every COG (via the
+        ingester's ``SOURCE_HASH`` tag) and used by the skip check below. Returns
+        ``True`` if the date dir was (re)built, ``False`` if it was skipped as
+        already current.
 
         The whole per-date directory is the unit of commit. Writes stage into a
         temp dir beside the target (:func:`~snowtool.snowdb.atomic.staged_dir`) and
@@ -368,8 +398,14 @@ class Dataset:
 
         Idempotent-skip granularity is likewise **per-date, not per-file**: without
         ``force`` a date is skipped only when its dir already holds *exactly* the
-        COGs this call would write (complete and free of stale members); any missing
-        or stale member rebuilds the whole date dir. ``force`` always rebuilds.
+        COGs this call would write (complete and free of stale members) **and** their
+        stored ``SOURCE_HASH`` equals ``source_hash``. The filename set alone is not
+        enough: source filenames embed provenance, so a *renamed* re-release is
+        caught by a name mismatch, but a re-release under the *same* filename with
+        different bytes would keep the names identical -- the hash equality catches
+        that, forcing a rebuild. A missing tag (a date dir written before hashing)
+        also reads as stale. Any divergence rebuilds the whole date dir; ``force``
+        always rebuilds.
         """
         rasters = list(rasters)
         expected_names = {raster.out_name for raster in rasters}
@@ -388,13 +424,17 @@ class Dataset:
         output_dir = self.date_dir(date)
 
         # Skip-if-current (per-date): an existing dir already holding exactly the
-        # COGs this call would write is complete and up to date -- nothing to do.
-        # Any divergence (a missing member, or a stale COG from an old source)
-        # falls through to a full, atomic rebuild below.
-        if not force and output_dir.is_dir():
-            on_disk = {p.name for p in output_dir.iterdir() if p.is_file()}
-            if on_disk == expected_names:
-                return
+        # COGs this call would write *and* stamped with the same source hash is
+        # complete and up to date -- nothing to do. Any divergence (a missing
+        # member, a stale COG from an old source, or a same-name different-bytes
+        # re-release) falls through to a full, atomic rebuild below.
+        if (
+            not force
+            and output_dir.is_dir()
+            and {p.name for p in output_dir.iterdir() if p.is_file()} == expected_names
+            and self._date_source_hash(output_dir) == source_hash
+        ):
+            return False
 
         # staged_dir stages beside the target, so the cogs/ parent must exist (a
         # management write may run before any date has been ingested).
@@ -418,6 +458,7 @@ class Dataset:
                     date,
                     missing,
                 )
+        return True
 
     def aoi_rasters(self: Self) -> Iterator[AOIRaster]:
         yield from (

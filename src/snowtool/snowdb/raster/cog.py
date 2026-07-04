@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 
 WGS84 = CRS.from_epsg(4326)
 
+# Ingest provenance tag: a ``versioned_hash`` of the source artifact's bytes (see
+# Dataset.write_date_cogs / INGEST_FORMAT_VERSION), stamped on every COG a date is
+# ingested into. A same-name re-release with different bytes changes this, so the
+# per-date skip rebuilds instead of wrongly skipping. Spelled inline like the other
+# SOURCE_* keys below (a source-record tag, not one of the SNOWTOOL_* geometry tags
+# in constants.py), but named once here since the skip check reads it back too.
+SOURCE_HASH_TAG = 'SOURCE_HASH'
+
 
 def _default_predictor(dtype: numpy.dtype) -> int:
     # 3 = floating-point predictor, 2 = horizontal differencing for integers.
@@ -127,19 +135,25 @@ def source_tags(
     date: date,
     variable: str,
     files: str,
+    source_hash: str,
     extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """The standard ``SOURCE_*`` provenance tags every ingester embeds in a COG.
 
-    The four shared keys (dataset/date/variable/files) are spelled once here;
+    The shared keys (dataset/date/variable/files/hash) are spelled once here;
     ``extra`` carries each dataset's kind-specific tags (e.g. ``SOURCE_STAGE``,
-    ``SOURCE_COLLECTION``, the SNODAS time-step fields).
+    ``SOURCE_COLLECTION``, the SNODAS time-step fields). ``source_hash`` is the
+    :func:`~snowtool.snowdb.provenance.versioned_hash` of the source artifact the
+    date was ingested from; the per-date skip in
+    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs` reads it back to catch
+    a same-name different-bytes re-release.
     """
     tags = {
         'SOURCE_DATASET': dataset,
         'SOURCE_DATE': date.isoformat(),
         'SOURCE_VARIABLE': variable,
         'SOURCE_FILES': files,
+        SOURCE_HASH_TAG: source_hash,
     }
     if extra:
         tags.update(extra)

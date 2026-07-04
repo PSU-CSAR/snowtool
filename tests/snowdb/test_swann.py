@@ -23,13 +23,14 @@ import rasterio
 from rasterio.transform import from_origin
 
 from snowtool.exceptions import SnowtoolError
-from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION, Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.datasets.swann import (
     SWANN_800M_SPEC,
     SWANN_800M_VARIABLES,
     SwannRaster,
 )
+from snowtool.snowdb.provenance import hash_files, versioned_hash
 
 
 def test_spec_grid_matches_product_file():
@@ -72,9 +73,10 @@ def test_ingest_accepts_the_early_stage(tmp_path, monkeypatch):
     # Ingest is pinned to the `_early` revision (fastest available); it is the
     # one stage accepted.
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
-    monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: None)
+    monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: True)
     source = tmp_path / 'UA_SWE_Depth_800m_v1_20260613_early.nc'
-    assert ds.ingest(source) == [date(2026, 6, 13)]
+    source.write_bytes(b'fake swann netcdf')  # the ingester hashes the source file
+    assert ds.ingest(source).ingested == [date(2026, 6, 13)]
 
 
 @pytest.mark.parametrize('variant', ['provisional', 'stable'])
@@ -96,27 +98,39 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
     captured: dict = {}
 
-    def fake_write(d, rasters, *, force=False):
-        captured.update(date=d, rasters=list(rasters), force=force)
+    def fake_write(d, rasters, *, source_hash, force=False):
+        captured.update(
+            date=d,
+            rasters=list(rasters),
+            force=force,
+            source_hash=source_hash,
+        )
+        return True
 
     monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
 
     source = tmp_path / 'UA_SWE_Depth_800m_v1_20240115_early.nc'
-    assert ds.ingest(source, force=True) == [date(2024, 1, 15)]
+    source.write_bytes(b'fake swann netcdf')  # the ingester hashes the source file
+    expected_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
+
+    assert ds.ingest(source, force=True).ingested == [date(2024, 1, 15)]
     assert captured['date'] == date(2024, 1, 15)
     assert captured['force'] is True
+    # ingest computes the versioned source hash once and hands it to write_date_cogs.
+    assert captured['source_hash'] == expected_hash
 
     rasters = {r.out_name: r for r in captured['rasters']}
     stem = 'UA_SWE_Depth_800m_v1_20240115_early'
     assert set(rasters) == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
     assert rasters[f'{stem}__swe.tif'].source_uri == f'netcdf:{source}:SWE'
     assert rasters[f'{stem}__depth.tif'].source_uri == f'netcdf:{source}:DEPTH'
-    # Source provenance is carried into the COG tags.
+    # Source provenance (incl. the source hash) is carried into the COG tags.
     assert rasters[f'{stem}__swe.tif'].tags == {
         'SOURCE_DATASET': 'swann-800m',
         'SOURCE_DATE': '2024-01-15',
         'SOURCE_VARIABLE': 'swe',
         'SOURCE_FILES': source.name,
+        'SOURCE_HASH': expected_hash,
         'SOURCE_STAGE': 'early',
     }
 

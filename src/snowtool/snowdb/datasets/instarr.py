@@ -33,6 +33,9 @@ from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
 from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
+from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
@@ -242,7 +245,7 @@ class InstarrIngester:
         dataset: Dataset,
         *,
         force: bool = False,
-    ) -> list[date]:
+    ) -> IngestResult:
         candidates = (
             sorted(source.glob('**/SPIRES_NRT_*.nc')) if source.is_dir() else [source]
         )
@@ -265,11 +268,16 @@ class InstarrIngester:
         transform = dataset.grid.base_grid.transform
         crs = dataset.grid_crs
 
+        ingested: list[date] = []
+        skipped: list[date] = []
         for ingest_date, tile_paths in sorted(tiles_by_date.items()):
             stem, collection, version = self._distilled_stem(tile_paths)
             # Filesystem-visible provenance is the distilled stem; the COG tags
             # carry the full record, including the exact contributing tiles.
             source_files = ' '.join(sorted(p.name for p in tile_paths))
+            # One versioned hash per date over the date's sorted contributing tiles,
+            # stamped on every COG and compared by the skip check.
+            source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files(tile_paths))
             rasters = [
                 InstarrMosaicRaster(
                     variable,
@@ -283,6 +291,7 @@ class InstarrIngester:
                         date=ingest_date,
                         variable=variable.key,
                         files=source_files,
+                        source_hash=source_hash,
                         extra={
                             'SOURCE_COLLECTION': collection,
                             'SOURCE_VERSION': version,
@@ -291,9 +300,15 @@ class InstarrIngester:
                 )
                 for variable in dataset.spec.variables.values()
             ]
-            dataset.write_date_cogs(ingest_date, rasters, force=force)
+            wrote = dataset.write_date_cogs(
+                ingest_date,
+                rasters,
+                source_hash=source_hash,
+                force=force,
+            )
+            (ingested if wrote else skipped).append(ingest_date)
 
-        return sorted(tiles_by_date)
+        return IngestResult(ingested=ingested, skipped=skipped)
 
     def _distilled_stem(self: Self, tile_paths: list[Path]) -> tuple[str, str, str]:
         """The mosaic's provenance stem plus its ``(collection, version)``.
