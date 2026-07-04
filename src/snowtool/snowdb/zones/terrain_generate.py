@@ -57,11 +57,15 @@ hash -- is identical regardless of worker count. Memory is the fixed target
 accumulators (~72 bytes/cell, sized by the target grids) plus transient per-worker
 block buffers (~``workers * block_size**2``); ``workers`` and ``block_size`` bound
 the latter. The design assumes the targets fit in RAM.
+
+What this engine shares with :mod:`snowtool.snowdb.zones.landcover_generate` -- the
+pre-flight existence guard, the generation-digest-then-stamp pass, and the
+point-in-cell binning arithmetic (cell assignment, pixel-centre coordinates) --
+lives in :mod:`snowtool.snowdb.zones.generate_common`.
 """
 
 from __future__ import annotations
 
-import hashlib
 import math
 import os
 import threading
@@ -85,8 +89,13 @@ from rasterio.windows import transform as window_transform
 from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
-from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.generate_common import (
+    cells_for_points,
+    finalize_and_stamp,
+    pixel_centre_coords,
+    require_absent_layers,
+)
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENT_NODATA,
     ASPECT_E,
@@ -107,7 +116,7 @@ from snowtool.snowdb.zones.terrain import (
 )
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
+    from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
 
 # Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
 # (metres, near-square) keeps slope/aspect undistorted; 10 m matches 3DEP. These
@@ -252,16 +261,10 @@ class _GridAccumulator:
         accumulation order is identical to the serial pass, keeping the generation
         hash reproducible regardless of worker count.
         """
-        col = numpy.floor(self._inv.a * xt + self._inv.b * yt + self._inv.c).astype(
-            numpy.int64,
-        )
-        row = numpy.floor(self._inv.d * xt + self._inv.e * yt + self._inv.f).astype(
-            numpy.int64,
-        )
-        inb = (col >= 0) & (col < self.width) & (row >= 0) & (row < self.height)
+        cell_all, inb = cells_for_points(self._inv, xt, yt, self.width, self.height)
         if not inb.any():
             return
-        cell = row[inb] * self.width + col[inb]
+        cell = cell_all[inb]
         c = cls[inb]
         nc = self._ncell
         self.counts += numpy.bincount(c * nc + cell, minlength=_N_CLASSES * nc)
@@ -275,13 +278,12 @@ class _GridAccumulator:
 
     def finalize(
         self: Self,
-    ) -> tuple[
-        numpy.typing.NDArray[numpy.uint8],
-        numpy.typing.NDArray[numpy.float32],
-        numpy.typing.NDArray[numpy.float32],
-        numpy.typing.NDArray[numpy.float32],
-    ]:
-        """Reduce the accumulators to (majority, components, elevation, entropy)."""
+    ) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]:
+        """Reduce the accumulators to each terrain layer, paired with its array.
+
+        Order matches :data:`~snowtool.snowdb.zones.terrain.TERRAIN_LAYERS`
+        (elevation, aspect majority, northness, eastness, aspect entropy).
+        """
         h, w = self.height, self.width
         counts = self.counts.reshape(_N_CLASSES, h, w)
         total = counts.sum(axis=0)
@@ -322,75 +324,42 @@ class _GridAccumulator:
                 ASPECT_ENTROPY_NODATA,
             )
 
+        # The orientation components are two single-band query axes, not one
+        # two-band file (see TerrainProvider's docstring for why); ``components``
+        # is stacked (northness, eastness) here only to share the astype below.
         components = numpy.stack(
             [northness.astype(numpy.float32), eastness.astype(numpy.float32)],
         )
-        return (
-            majority,
-            components,
-            elevation.astype(numpy.float32),
-            entropy.astype(numpy.float32),
-        )
+        return [
+            (ELEVATION, elevation.astype(numpy.float32)),
+            (ASPECT_MAJORITY, majority),
+            (NORTHNESS, components[0]),
+            (EASTNESS, components[1]),
+            (ASPECT_ENTROPY, entropy.astype(numpy.float32)),
+        ]
 
     def write_layers(
         self: Self,
-        majority: numpy.typing.NDArray[numpy.uint8],
-        components: numpy.typing.NDArray[numpy.float32],
-        elevation: numpy.typing.NDArray[numpy.float32],
-        entropy: numpy.typing.NDArray[numpy.float32],
+        layers: list[tuple[ZoneLayer, numpy.typing.NDArray]],
         dem_hash: str,
     ) -> None:
-        """Write the four layer COGs, all stamped with the generation ``dem_hash``."""
-        tags = {DEM_HASH_TAG: dem_hash}
-
+        """Write each finalized layer as its own COG, stamped with ``dem_hash``."""
         self.target.directory.mkdir(parents=True, exist_ok=True)
         rio_crs = rasterio.crs.CRS.from_wkt(self.crs.to_wkt())
         common = {
             'transform': self.transform,
             'crs': rio_crs,
             'tile_size': self.target.tile_size,
-            'tags': tags,
+            'tags': {DEM_HASH_TAG: dem_hash},
         }
-
-        write_cog(
-            self.target.directory / ELEVATION.filename,
-            elevation,
-            nodata=ELEVATION.nodata,
-            band_descriptions=ELEVATION.band_descriptions,
-            **common,
-        )
-        write_cog(
-            self.target.directory / ASPECT_MAJORITY.filename,
-            majority,
-            nodata=ASPECT_MAJORITY.nodata,
-            band_descriptions=ASPECT_MAJORITY.band_descriptions,
-            **common,
-        )
-        # The orientation components are two single-band query axes, not one
-        # two-band file: ``components`` is stacked (northness, eastness) in memory,
-        # written to their own COGs. Both carry the finite ASPECT_COMPONENT_NODATA
-        # sentinel, so band statistics are computed normally.
-        write_cog(
-            self.target.directory / NORTHNESS.filename,
-            components[0],
-            nodata=NORTHNESS.nodata,
-            band_descriptions=NORTHNESS.band_descriptions,
-            **common,
-        )
-        write_cog(
-            self.target.directory / EASTNESS.filename,
-            components[1],
-            nodata=EASTNESS.nodata,
-            band_descriptions=EASTNESS.band_descriptions,
-            **common,
-        )
-        write_cog(
-            self.target.directory / ASPECT_ENTROPY.filename,
-            entropy,
-            nodata=ASPECT_ENTROPY.nodata,
-            band_descriptions=ASPECT_ENTROPY.band_descriptions,
-            **common,
-        )
+        for layer, array in layers:
+            write_cog(
+                self.target.directory / layer.filename,
+                array,
+                nodata=layer.nodata,
+                band_descriptions=layer.band_descriptions,
+                **common,
+            )
 
 
 def _target_bounds_in_work_crs(
@@ -508,18 +477,7 @@ def generate_terrain(
 
     if not force:
         # Check every target before the (expensive) source read.
-        for target in targets:
-            existing = [
-                layer.filename
-                for layer in TERRAIN_LAYERS
-                if (target.directory / layer.filename).is_file()
-            ]
-            if existing:
-                raise FileExistsError(
-                    f'Could not generate terrain for {target.name}: '
-                    f'{target.directory} already has {", ".join(existing)}. '
-                    'Remove and try again or use force=True.',
-                )
+        require_absent_layers(targets, TERRAIN_LAYERS, 'terrain')
 
     accumulators = [_GridAccumulator(target) for target in targets]
 
@@ -592,21 +550,19 @@ def generate_terrain(
     # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
     # One generation id for the whole pass: a digest over every target's
-    # finalized elevation (sorted by name for determinism), stamped identically on
-    # every layer of every terrain set. It identifies the generation, not an
-    # individual raster -- so all rasters produced together reconcile as one set.
-    finalized = []
-    digest = hashlib.sha256()
-    for acc in sorted(accumulators, key=lambda a: a.target.name):
-        majority, components, elevation, entropy = acc.finalize()
-        finalized.append((acc, majority, components, elevation, entropy))
-        digest.update(acc.target.name.encode('utf-8'))
-        digest.update(elevation.tobytes())
-    dem_hash = versioned_hash(TERRAIN_FORMAT_VERSION, digest.hexdigest())
-
-    for acc, majority, components, elevation, entropy in finalized:
-        acc.write_layers(majority, components, elevation, entropy, dem_hash)
-    return dict.fromkeys((acc.target.name for acc in accumulators), dem_hash)
+    # finalized elevation only (not the other layers -- it identifies the
+    # generation, not a per-raster hash), stamped identically on every layer of
+    # every terrain set so all rasters produced together reconcile as one set.
+    return finalize_and_stamp(
+        accumulators,
+        name_of=lambda acc: acc.target.name,
+        finalize=_GridAccumulator.finalize,
+        digest_array=lambda layers: next(
+            array for layer, array in layers if layer is ELEVATION
+        ),
+        write=_GridAccumulator.write_layers,
+        format_version=TERRAIN_FORMAT_VERSION,
+    )
 
 
 def _read_haloed_block(
@@ -798,17 +754,12 @@ class _TerrainStreamer:
         # shape is zint's; deriving the cell coords this way keeps them aligned
         # with cls/zint regardless of HALO or edge clipping.
         inner_h, inner_w = zint.shape
-        rows = (numpy.arange(inner_h) + (block.r0 - HALO + 1))[:, None]
-        cols = (numpy.arange(inner_w) + (block.c0 - HALO + 1))[None, :]
-        x = (
-            self._dst_transform.c
-            + (cols + 0.5) * self._dst_transform.a
-            + (rows + 0.5) * self._dst_transform.b
-        )
-        y = (
-            self._dst_transform.f
-            + (cols + 0.5) * self._dst_transform.d
-            + (rows + 0.5) * self._dst_transform.e
+        x, y = pixel_centre_coords(
+            self._dst_transform,
+            block.r0 - HALO + 1,
+            block.c0 - HALO + 1,
+            inner_h,
+            inner_w,
         )
 
         keep = cls.ravel() >= 0
