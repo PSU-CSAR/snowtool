@@ -74,3 +74,5 @@ uvicorn snowtool.api.app:get_app --factory --reload
 
 With the `uvicorn` defaults, the app should be accessible at
 `http://localhost:8000`.
+
+For deploying the tool (including Windows/IIS), see the README.
