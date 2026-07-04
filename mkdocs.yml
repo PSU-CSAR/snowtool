@@ -1,0 +1,64 @@
+site_name: snowtool
+site_description: Snow analysis tool for basin forecasting
+repo_url: https://github.com/PSU-CSAR/django-snow
+repo_name: PSU-CSAR/django-snow
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+# Emits reference/openapi.json into the build from the tested golden snapshot,
+# so the HTTP API page needs no live snowdb.
+hooks:
+  - docs/hooks.py
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_root_heading: true
+            show_source: false
+            docstring_style: sphinx
+            members_order: source
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.snippets
+  - mkdocs-click
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Walkthrough: walkthrough.md
+  - Usage: usage.md
+  - Deployment:
+      - Windows / IIS: deployment/windows-iis.md
+  - Reference:
+      - CLI: reference/cli.md
+      - HTTP API: reference/http-api.md
+      - Python API: reference/python-api.md
