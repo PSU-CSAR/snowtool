@@ -1,0 +1,3034 @@
+{
+  "components": {
+    "schemas": {
+      "BandZoneRef": {
+        "description": "One crossed-zone axis that is a numeric band ``[min, max)`` in ``unit``.",
+        "properties": {
+          "kind": {
+            "const": "band",
+            "default": "band",
+            "title": "Kind",
+            "type": "string"
+          },
+          "layer": {
+            "title": "Layer",
+            "type": "string"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "min": {
+            "title": "Min",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "min",
+          "max",
+          "unit"
+        ],
+        "title": "BandZoneRef",
+        "type": "object"
+      },
+      "ClassZoneRef": {
+        "description": "One crossed-zone axis that is a discrete class (its ``code`` + ``label``).",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "class",
+            "default": "class",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "layer": {
+            "title": "Layer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "code",
+          "label"
+        ],
+        "title": "ClassZoneRef",
+        "type": "object"
+      },
+      "ConformanceDeclaration": {
+        "description": "OGC API Common conformance declaration (``GET /conformance``).",
+        "properties": {
+          "conformsTo": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conformsto",
+            "type": "array"
+          }
+        },
+        "title": "ConformanceDeclaration",
+        "type": "object"
+      },
+      "Coverage": {
+        "description": "How fully a dataset's grid contains a pourpoint's basin geometry.\n\n``FULL`` -- the grid extent covers the whole basin (the only state a zonal\nquery may run over without clipping); ``PARTIAL`` -- the basin overlaps the\ngrid but spills outside it (a query would silently use only the in-grid\nportion); ``NONE`` -- the basin is entirely outside the grid (an empty mask).",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Coverage",
+        "type": "string"
+      },
+      "DOYQuery": {
+        "properties": {
+          "day": {
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "end_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "End Year",
+            "type": "integer"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "start_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Start Year",
+            "type": "integer"
+          },
+          "type": {
+            "const": "DayOfYear",
+            "default": "DayOfYear",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "day",
+          "start_year",
+          "end_year"
+        ],
+        "title": "DOYQuery",
+        "type": "object"
+      },
+      "DatasetInfo": {
+        "properties": {
+          "grid": {
+            "$ref": "#/components/schemas/GridInfo"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/VariableInfo"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "grid",
+          "variables"
+        ],
+        "title": "DatasetInfo",
+        "type": "object"
+      },
+      "DatasetList": {
+        "properties": {
+          "datasets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Datasets",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "datasets"
+        ],
+        "title": "DatasetList",
+        "type": "object"
+      },
+      "DateRangeQuery": {
+        "properties": {
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "type": {
+            "const": "DateRange",
+            "default": "DateRange",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DateRangeQuery",
+        "type": "object"
+      },
+      "FeatureCollection_PourpointProperties_": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/Feature_PourpointProperties_"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "numberMatched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numbermatched"
+          },
+          "numberReturned": {
+            "readOnly": true,
+            "title": "Numberreturned",
+            "type": "integer"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features",
+          "numberReturned"
+        ],
+        "title": "FeatureCollection[PourpointProperties]",
+        "type": "object"
+      },
+      "Feature_PourpointDetailProperties_": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "geometry": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "GeometryCollection": "#/components/schemas/GeometryCollection",
+                    "LineString": "#/components/schemas/LineString",
+                    "MultiLineString": "#/components/schemas/MultiLineString",
+                    "MultiPoint": "#/components/schemas/MultiPoint",
+                    "MultiPolygon": "#/components/schemas/MultiPolygon",
+                    "Point": "#/components/schemas/Point",
+                    "Polygon": "#/components/schemas/Polygon"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Point"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiPoint"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LineString"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiLineString"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Polygon"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiPolygon"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GeometryCollection"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geometry"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PourpointDetailProperties"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "geometry",
+          "properties"
+        ],
+        "title": "Feature[PourpointDetailProperties]",
+        "type": "object"
+      },
+      "Feature_PourpointProperties_": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "geometry": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "GeometryCollection": "#/components/schemas/GeometryCollection",
+                    "LineString": "#/components/schemas/LineString",
+                    "MultiLineString": "#/components/schemas/MultiLineString",
+                    "MultiPoint": "#/components/schemas/MultiPoint",
+                    "MultiPolygon": "#/components/schemas/MultiPolygon",
+                    "Point": "#/components/schemas/Point",
+                    "Polygon": "#/components/schemas/Polygon"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Point"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiPoint"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LineString"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiLineString"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Polygon"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiPolygon"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GeometryCollection"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geometry"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PourpointProperties"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "geometry",
+          "properties"
+        ],
+        "title": "Feature[PourpointProperties]",
+        "type": "object"
+      },
+      "GeometryCollection": {
+        "description": "GeometryCollection Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "geometries": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "GeometryCollection": "#/components/schemas/GeometryCollection",
+                  "LineString": "#/components/schemas/LineString",
+                  "MultiLineString": "#/components/schemas/MultiLineString",
+                  "MultiPoint": "#/components/schemas/MultiPoint",
+                  "MultiPolygon": "#/components/schemas/MultiPolygon",
+                  "Point": "#/components/schemas/Point",
+                  "Polygon": "#/components/schemas/Polygon"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Point"
+                },
+                {
+                  "$ref": "#/components/schemas/MultiPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/LineString"
+                },
+                {
+                  "$ref": "#/components/schemas/MultiLineString"
+                },
+                {
+                  "$ref": "#/components/schemas/Polygon"
+                },
+                {
+                  "$ref": "#/components/schemas/MultiPolygon"
+                },
+                {
+                  "$ref": "#/components/schemas/GeometryCollection"
+                }
+              ]
+            },
+            "title": "Geometries",
+            "type": "array"
+          },
+          "type": {
+            "const": "GeometryCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "geometries"
+        ],
+        "title": "GeometryCollection",
+        "type": "object"
+      },
+      "GridInfo": {
+        "description": "A summary of a dataset's tiled grid.",
+        "properties": {
+          "cols": {
+            "title": "Cols",
+            "type": "integer"
+          },
+          "crs": {
+            "title": "Crs",
+            "type": "string"
+          },
+          "is_geographic": {
+            "title": "Is Geographic",
+            "type": "boolean"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "tile_size": {
+            "title": "Tile Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "crs",
+          "rows",
+          "cols",
+          "tile_size",
+          "is_geographic"
+        ],
+        "title": "GridInfo",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InstarrZonalStat": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "InstarrZonalStats": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "zone_layers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Zone Layers",
+            "type": "array"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/InstarrZonalStat"
+            },
+            "title": "Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "date",
+          "zone_layers",
+          "zones"
+        ],
+        "title": "InstarrZonalStats",
+        "type": "object"
+      },
+      "LandingPage": {
+        "additionalProperties": true,
+        "description": "OGC API Common landing page (``GET /``).",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "LandingPage",
+        "type": "object"
+      },
+      "LineString": {
+        "description": "LineString Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Position2D"
+                },
+                {
+                  "$ref": "#/components/schemas/Position3D"
+                }
+              ]
+            },
+            "minItems": 2,
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "LineString",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "LineString",
+        "type": "object"
+      },
+      "Link": {
+        "additionalProperties": true,
+        "description": "An OGC-style link. Null fields are omitted on JSON serialization.",
+        "properties": {
+          "body": {
+            "title": "Body"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
+          },
+          "href": {
+            "$ref": "#/components/schemas/Url"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "rel": {
+            "title": "Rel",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "href",
+          "rel"
+        ],
+        "title": "Link",
+        "type": "object"
+      },
+      "MultiLineString": {
+        "description": "MultiLineString Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Position2D"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Position3D"
+                  }
+                ]
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "MultiLineString",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "MultiLineString",
+        "type": "object"
+      },
+      "MultiPoint": {
+        "description": "MultiPoint Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Position2D"
+                },
+                {
+                  "$ref": "#/components/schemas/Position3D"
+                }
+              ]
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "MultiPoint",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "MultiPoint",
+        "type": "object"
+      },
+      "MultiPolygon": {
+        "description": "MultiPolygon Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "items": {
+              "items": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Position2D"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Position3D"
+                    }
+                  ]
+                },
+                "minItems": 4,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "MultiPolygon",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "MultiPolygon",
+        "type": "object"
+      },
+      "Point": {
+        "description": "Point Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Position2D"
+              },
+              {
+                "$ref": "#/components/schemas/Position3D"
+              }
+            ],
+            "title": "Coordinates"
+          },
+          "type": {
+            "const": "Point",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "Point",
+        "type": "object"
+      },
+      "Polygon": {
+        "description": "Polygon Model",
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 6,
+                "minItems": 6,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "coordinates": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Position2D"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Position3D"
+                  }
+                ]
+              },
+              "minItems": 4,
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Polygon",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "Polygon",
+        "type": "object"
+      },
+      "Position2D": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "title": "Longitude",
+            "type": "number"
+          },
+          {
+            "title": "Latitude",
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "Position3D": {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+          {
+            "title": "Longitude",
+            "type": "number"
+          },
+          {
+            "title": "Latitude",
+            "type": "number"
+          },
+          {
+            "title": "Altitude",
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "PourpointDetailProperties": {
+        "description": "The single-record (detail) properties: the summary set + curated ids.",
+        "properties": {
+          "area_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Meters"
+          },
+          "awdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awdb Id"
+          },
+          "coverage": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Coverage"
+            },
+            "title": "Coverage",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pourpoint": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Pourpoint",
+            "type": "array"
+          },
+          "usgs_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usgs Id"
+          }
+        },
+        "required": [
+          "name",
+          "pourpoint"
+        ],
+        "title": "PourpointDetailProperties",
+        "type": "object"
+      },
+      "PourpointProperties": {
+        "description": "A pourpoint's summary (list) properties -- the denormalized index fields.\n\nFixed regardless of the ``geometry`` view: only the feature ``geometry`` slot\nchanges between point and basin mode, never these properties. ``pourpoint`` is\nthe outflow ``[lon, lat]`` and is always present (free from the index), so the\nbasin view still carries the point.",
+        "properties": {
+          "area_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Meters"
+          },
+          "coverage": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Coverage"
+            },
+            "title": "Coverage",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pourpoint": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Pourpoint",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "pourpoint"
+        ],
+        "title": "PourpointProperties",
+        "type": "object"
+      },
+      "ProblemType": {
+        "description": "A documented, reusable kind of problem: a stable ``type`` URI plus defaults.\n\nDefine these once and raise them by reference, so a service's error catalog lives\nin one place and its ``type`` URIs stop defaulting to ``about:blank`` and stay\nstable/linkable. The per-occurrence ``detail``/``instance`` (and any extension\nmembers) are supplied at the raise site::\n\n    NOT_FOUND = ProblemType(\n        type='https://errors.example/not-found', title='Resource not found', status=404,\n    )\n    raise NOT_FOUND.exception(detail='plant 5 not found', instance='/plants/5')",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status"
+        ],
+        "title": "ProblemType",
+        "type": "object"
+      },
+      "SnodasZonalStat": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "SnodasZonalStats": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "zone_layers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Zone Layers",
+            "type": "array"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/SnodasZonalStat"
+            },
+            "title": "Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "date",
+          "zone_layers",
+          "zones"
+        ],
+        "title": "SnodasZonalStats",
+        "type": "object"
+      },
+      "StatsResponse_InstarrZonalStats_": {
+        "properties": {
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "pourpoint": {
+            "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+            "title": "Pourpoint",
+            "type": "string"
+          },
+          "query": {
+            "discriminator": {
+              "mapping": {
+                "DateRange": "#/components/schemas/DateRangeQuery",
+                "DayOfYear": "#/components/schemas/DOYQuery"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateRangeQuery"
+              },
+              {
+                "$ref": "#/components/schemas/DOYQuery"
+              }
+            ],
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/InstarrZonalStats"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pourpoint",
+          "dataset",
+          "query",
+          "results"
+        ],
+        "title": "StatsResponse[InstarrZonalStats]",
+        "type": "object"
+      },
+      "StatsResponse_SnodasZonalStats_": {
+        "properties": {
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "pourpoint": {
+            "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+            "title": "Pourpoint",
+            "type": "string"
+          },
+          "query": {
+            "discriminator": {
+              "mapping": {
+                "DateRange": "#/components/schemas/DateRangeQuery",
+                "DayOfYear": "#/components/schemas/DOYQuery"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateRangeQuery"
+              },
+              {
+                "$ref": "#/components/schemas/DOYQuery"
+              }
+            ],
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SnodasZonalStats"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pourpoint",
+          "dataset",
+          "query",
+          "results"
+        ],
+        "title": "StatsResponse[SnodasZonalStats]",
+        "type": "object"
+      },
+      "StatsResponse_Swann800mZonalStats_": {
+        "properties": {
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "pourpoint": {
+            "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+            "title": "Pourpoint",
+            "type": "string"
+          },
+          "query": {
+            "discriminator": {
+              "mapping": {
+                "DateRange": "#/components/schemas/DateRangeQuery",
+                "DayOfYear": "#/components/schemas/DOYQuery"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateRangeQuery"
+              },
+              {
+                "$ref": "#/components/schemas/DOYQuery"
+              }
+            ],
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/Swann800mZonalStats"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pourpoint",
+          "dataset",
+          "query",
+          "results"
+        ],
+        "title": "StatsResponse[Swann800mZonalStats]",
+        "type": "object"
+      },
+      "Swann800mZonalStat": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "Swann800mZonalStats": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "zone_layers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Zone Layers",
+            "type": "array"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/Swann800mZonalStat"
+            },
+            "title": "Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "date",
+          "zone_layers",
+          "zones"
+        ],
+        "title": "Swann800mZonalStats",
+        "type": "object"
+      },
+      "ThresholdZoneRef": {
+        "description": "One crossed-zone axis that is a threshold split (forested vs unforested).\n\n``threshold`` (in ``unit``) is the split point as a real value; ``side`` is\n``'below'`` or ``'above'`` (at-or-above); ``label`` is the human name of the\nside (e.g. ``'forested'``).",
+        "properties": {
+          "kind": {
+            "const": "threshold",
+            "default": "threshold",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "layer": {
+            "title": "Layer",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "below",
+              "above"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer",
+          "threshold",
+          "unit",
+          "side",
+          "label"
+        ],
+        "title": "ThresholdZoneRef",
+        "type": "object"
+      },
+      "Url": {
+        "format": "uri",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VariableInfo": {
+        "description": "A requestable variable of a dataset and how its stat is reported.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "reducer": {
+            "title": "Reducer",
+            "type": "string"
+          },
+          "stat_name": {
+            "title": "Stat Name",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "stat_name",
+          "unit",
+          "reducer"
+        ],
+        "title": "VariableInfo",
+        "type": "object"
+      },
+      "VersionInfo": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "version": {
+            "default": "0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "VersionInfo",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Pourpoint metadata and snow zonal statistics.",
+    "title": "PSU CSAR snowtool API",
+    "version": "0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "landing__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LandingPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Landing"
+      }
+    },
+    "/conformance": {
+      "get": {
+        "operationId": "conformance_conformance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConformanceDeclaration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Conformance"
+      }
+    },
+    "/datasets": {
+      "get": {
+        "operationId": "list_datasets_datasets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Datasets",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/datasets/instarr/stats/{triplet}/date-range": {
+      "get": {
+        "operationId": "instarr_stats_date_range_datasets_instarr_stats__triplet__date_range_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          },
+          {
+            "in": "query",
+            "name": "datetime",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Datetime"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_InstarrZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instarr Stats Date Range",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/instarr/stats/{triplet}/doy": {
+      "get": {
+        "operationId": "instarr_stats_doy_datasets_instarr_stats__triplet__doy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_InstarrZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instarr Stats Doy",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/snodas/stats/{triplet}/date-range": {
+      "get": {
+        "operationId": "snodas_stats_date_range_datasets_snodas_stats__triplet__date_range_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          },
+          {
+            "in": "query",
+            "name": "datetime",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Datetime"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_SnodasZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Snodas Stats Date Range",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/snodas/stats/{triplet}/doy": {
+      "get": {
+        "operationId": "snodas_stats_doy_datasets_snodas_stats__triplet__doy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_SnodasZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Snodas Stats Doy",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/swann-800m/stats/{triplet}/date-range": {
+      "get": {
+        "operationId": "swann_800m_stats_date_range_datasets_swann_800m_stats__triplet__date_range_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          },
+          {
+            "in": "query",
+            "name": "datetime",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Datetime"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_Swann800mZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Swann-800M Stats Date Range",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/swann-800m/stats/{triplet}/doy": {
+      "get": {
+        "operationId": "swann_800m_stats_doy_datasets_swann_800m_stats__triplet__doy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable).",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse_Swann800mZonalStats_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Swann-800M Stats Doy",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/{dataset}": {
+      "get": {
+        "operationId": "get_dataset_datasets__dataset__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "title": "Dataset",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/pourpoints": {
+      "get": {
+        "operationId": "list_pourpoints_pourpoints_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "geometry",
+            "required": false,
+            "schema": {
+              "default": "point",
+              "enum": [
+                "point",
+                "basin"
+              ],
+              "title": "Geometry",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bbox",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bbox"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureCollection_PourpointProperties_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Pourpoints",
+        "tags": [
+          "pourpoints"
+        ]
+      }
+    },
+    "/pourpoints/{triplet}": {
+      "get": {
+        "operationId": "get_pourpoint_pourpoints__triplet__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "example": "12354500:MT:USGS",
+              "title": "Triplet"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature_PourpointDetailProperties_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pourpoint",
+        "tags": [
+          "pourpoints"
+        ]
+      }
+    },
+    "/problems": {
+      "get": {
+        "description": "The catalog of problem types this API raises, keyed by short name.\n\nEach problem ``type`` URI resolves to its entry here, so a client can look up\nthe meaning of a received ``application/problem+json`` ``type``.",
+        "operationId": "list_problems_problems_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/ProblemType"
+                  },
+                  "title": "Response List Problems Problems Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Problems",
+        "tags": [
+          "root"
+        ]
+      }
+    },
+    "/problems/{key}": {
+      "get": {
+        "operationId": "get_problem_problems__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemType"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Problem",
+        "tags": [
+          "root"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "get_version_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Version",
+        "tags": [
+          "root"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "datasets"
+    },
+    {
+      "name": "pourpoints"
+    },
+    {
+      "name": "stats"
+    }
+  ]
+}
