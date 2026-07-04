@@ -21,20 +21,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-import shapely
-
+from geojson_pydantic.geometries import Geometry
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
-    PlainSerializer,
     PrivateAttr,
     TypeAdapter,
     field_validator,
     model_serializer,
 )
-from shapely import Geometry
 
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.grid import GridParams
@@ -84,29 +80,6 @@ class ZoneLayerParams(BaseModel):
         return {name: value for name, value in self if value is not None}
 
 
-def _to_geometry(value: object) -> Geometry | None:
-    """Accept a GeoJSON mapping (via :func:`shapely.geometry.shape`) or a
-    :class:`~shapely.Geometry` (passed through); ``None`` stays ``None``."""
-    if value is None or isinstance(value, Geometry):
-        return value
-    return shapely.geometry.shape(value)
-
-
-def _geometry_to_mapping(value: Geometry | None) -> dict[str, object] | None:
-    """Serialize a geometry back to a GeoJSON mapping (``None`` stays ``None``)."""
-    return shapely.geometry.mapping(value) if value is not None else None
-
-
-# A served footprint: a real shapely geometry in the grid CRS, persisted as a
-# GeoJSON geometry mapping. The before-validator reads the mapping (or passes a
-# Geometry through) on load; the serializer writes the mapping back out.
-FootprintField = Annotated[
-    Geometry | None,
-    BeforeValidator(_to_geometry),
-    PlainSerializer(_geometry_to_mapping, return_type=dict | None),
-]
-
-
 class DatasetConfig(ResourceModel):
     """A self-describing dataset definition (``snowtool.dataset/v1``).
 
@@ -126,14 +99,16 @@ class DatasetConfig(ResourceModel):
     presence enables it for the dataset; absence means no such zone layer.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     resource: Literal['snowtool.dataset/v1'] = 'snowtool.dataset/v1'
     grid: GridParams
     variables: dict[str, DatasetVariable]
     ingester: str | None = None
     zones: dict[str, dict[str, ZoneLayerParams]] = Field(default_factory=dict)
-    footprint: FootprintField = None
+    # The region this dataset actually serves, as a GeoJSON geometry in the grid
+    # CRS (e.g. a MODIS block minus a never-ingested tile); omitted means the whole
+    # grid extent. Modeled with geojson-pydantic; the geometry math converts it to
+    # shapely once, in DatasetSpec.coverage_domain.
+    footprint: Geometry | None = None
     # Where this dataset's data lives (the dir holding cogs/, aoi-rasters/, ...).
     # Absolute -> anywhere (decoupled from the config's location); relative ->
     # against the config's own dir; omitted -> the convention (beside a referenced
