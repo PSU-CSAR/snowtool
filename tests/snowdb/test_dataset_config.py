@@ -6,10 +6,8 @@ from pydantic import ValidationError
 
 from snowtool.snowdb.config import (
     DatasetConfig,
-    GridConfig,
     RootConfig,
-    UnitConfig,
-    VariableConfig,
+    ZoneLayerParams,
     load_entity,
 )
 from snowtool.snowdb.datasets import (
@@ -18,12 +16,13 @@ from snowtool.snowdb.datasets import (
     SwannIngester,
     config_from_spec,
 )
+from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.spec import DatasetSpec
-from snowtool.snowdb.variables import Reducer
+from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 
-def _grid_config() -> GridConfig:
-    return GridConfig(
+def _grid_config() -> GridParams:
+    return GridParams(
         origin_x=-120.0,
         origin_y=45.0,
         px_size=0.01,
@@ -97,8 +96,9 @@ def test_read_only_dataset_has_no_ingester():
     config = DatasetConfig(
         grid=_grid_config(),
         variables={
-            'swe': VariableConfig(
-                unit=UnitConfig(name='mm', scale_factor=1),
+            'swe': DatasetVariable(
+                key='swe',
+                unit=Unit(name='mm', scale_factor=1),
                 reducer=Reducer.MEAN,
                 dtype='int16',
                 nodata=-999,
@@ -128,3 +128,68 @@ def test_union_rejects_an_unknown_resource(tmp_path):
     path.write_text('{"resource": "snowtool.unknown/v1"}')
     with pytest.raises(ValidationError):
         load_entity(path)
+
+
+def _swe_variable() -> DatasetVariable:
+    return DatasetVariable(
+        key='swe',
+        unit=Unit(name='mm', scale_factor=1),
+        reducer=Reducer.MEAN,
+        dtype='int16',
+        nodata=-999,
+        glob='swe.tif',
+    )
+
+
+def test_variable_key_is_injected_from_map_key_and_omitted_from_json():
+    # The on-disk value carries no 'key'; it comes from the map key on load.
+    config = DatasetConfig(grid=_grid_config(), variables={'swe': _swe_variable()})
+    dumped = config.model_dump()
+    assert 'key' not in dumped['variables']['swe']
+
+    reloaded = DatasetConfig.model_validate_json(config.model_dump_json())
+    assert reloaded.variables['swe'].key == 'swe'
+    assert reloaded.variables['swe'] == _swe_variable()
+
+
+def test_variable_instance_whose_key_disagrees_with_map_key_is_rejected():
+    with pytest.raises(ValidationError, match='does not match'):
+        DatasetConfig(grid=_grid_config(), variables={'depth': _swe_variable()})
+
+
+def test_unknown_zone_param_is_rejected_at_config_load():
+    # extra='forbid' turns a typo'd/unknown zone param into a load-time error.
+    with pytest.raises(ValidationError):
+        DatasetConfig(
+            grid=_grid_config(),
+            variables={'swe': _swe_variable()},
+            zones={'terrain': {'elevation': {'band_step_feet': 1000}}},
+        )
+
+
+def test_zone_params_omit_none_fields_in_json():
+    config = DatasetConfig(
+        grid=_grid_config(),
+        variables={'swe': _swe_variable()},
+        zones={'terrain': {'elevation': ZoneLayerParams(band_step_ft=1000)}},
+    )
+    text = config.model_dump_json()
+    assert '"elevation":{"band_step_ft":1000}' in text
+    assert 'band_step_pct' not in text  # unset params are omitted
+
+
+def test_footprint_round_trips_through_json(tmp_path):
+    import shapely
+
+    footprint = shapely.box(-119.5, 44.0, -119.0, 44.5)
+    config = DatasetConfig(
+        grid=_grid_config(),
+        variables={'swe': _swe_variable()},
+        footprint=footprint,
+    )
+    path = tmp_path / 'dataset.json'
+    config.save(path)
+
+    reloaded = DatasetConfig.load(path)
+    assert reloaded.footprint is not None
+    assert reloaded.footprint.equals_exact(footprint, 0)

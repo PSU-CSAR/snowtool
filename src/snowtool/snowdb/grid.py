@@ -14,7 +14,28 @@ from typing import NamedTuple
 
 from griffine import Affine, Grid, Point
 from griffine.grid import AffineGridTile, TiledAffineGrid
+from pydantic import BaseModel, ConfigDict
 from rasterio.warp import transform_bounds
+
+
+class GridParams(BaseModel):
+    """The parameters defining a dataset's north-up tiled grid.
+
+    A frozen model: it is both the dataset's grid *definition* (carried on a
+    :class:`~snowtool.snowdb.spec.DatasetSpec`) and its persisted form (the
+    ``grid`` block of a dataset config), so there is one type, not a hand-mirrored
+    pair. ``crs`` is an EPSG int or a WKT string.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    origin_x: float
+    origin_y: float
+    px_size: float
+    cols: int
+    rows: int
+    tile_size: int
+    crs: int | str = 4326
 
 
 def make_grid(

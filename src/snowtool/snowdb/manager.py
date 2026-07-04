@@ -231,11 +231,13 @@ class SnowDbManager:
         dataset_config_path = Path(dataset_config_path).resolve()
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
-        # the dataset is staged elsewhere.
+        # the dataset is staged elsewhere. Stored posix-normalized (via the
+        # relative path's as_posix / the absolute path itself), which Path
+        # round-trips on POSIX.
         if dataset_config_path.is_relative_to(root):
-            link = dataset_config_path.relative_to(root).as_posix()
+            link = Path(dataset_config_path.relative_to(root).as_posix())
         else:
-            link = str(dataset_config_path)
+            link = dataset_config_path
 
         # Commit order matters: fold the staged coverage into the index first, so a
         # crash before the config write leaves only an unreferenced coverage key.

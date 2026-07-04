@@ -5,6 +5,7 @@ import os
 import shutil
 
 from datetime import date
+from pathlib import Path
 
 import numpy
 import pytest
@@ -507,7 +508,7 @@ def test_register_dataset_overwrites_an_existing_link(tmp_path, spec):
     link = RootConfig.load(tmp_path / CONFIG_FILENAME).datasets[spec.name]
     assert isinstance(link, PathDatasetLink)
     # Both stage dirs live under the root, so the link is stored relative.
-    assert link.path == 'second/dataset.json'
+    assert link.path == Path('second/dataset.json')
 
     # A fresh open resolves the dataset beside its *second* config, not the first.
     opened = SnowDb.open(tmp_path)

@@ -1,5 +1,7 @@
 """The resource-typed root config: defaults, round-trip, and validation."""
 
+from pathlib import Path
+
 import pytest
 
 from pydantic import ValidationError
@@ -12,8 +14,8 @@ def test_create_stamps_defaults():
 
     assert config.resource == 'snowtool.snowdb/v1'
     assert config.datasets == {}
-    assert config.pourpoint_index == 'pourpoints/index.geojson'
-    assert config.pourpoint_records == 'pourpoints/records'
+    assert config.pourpoint_index == Path('pourpoints/index.geojson')
+    assert config.pourpoint_records == Path('pourpoints/records')
     assert config.created_at.tzinfo is not None  # stamped in UTC
 
 
