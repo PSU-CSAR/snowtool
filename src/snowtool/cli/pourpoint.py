@@ -144,7 +144,7 @@ def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
     # area_meters and geometry_hash are cached on the index entry (computed at
     # reindex); read them rather than recomputing from the basin polygon.
     entry = index[triplet]
-    lon, lat = pp.point['coordinates'][:2]
+    lon, lat = pp.point.coordinates[:2]
     record = {
         'triplet': pp.station_triplet,
         'name': pp.name,

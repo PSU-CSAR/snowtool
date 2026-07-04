@@ -11,19 +11,26 @@ signal) -- persisted to ``pourpoints/index.geojson``. It is GeoJSON-native on
 purpose: the same file is a plottable point layer and the FastAPI listing payload.
 Being derived, it is always rebuildable from ``records/`` (``pourpoint reindex``),
 so it never has to be trusted as primary data.
+
+``_IndexFeature``/``_IndexFeatureCollection`` are minimal local pydantic models for
+the on-disk ``Feature``/``FeatureCollection`` shape -- just this module's own
+(de)serialization concern, distinct from the API's gazebo-backed response models.
 """
 
 from __future__ import annotations
 
 import json
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
+from snowtool.snowdb.geometry import PointGeometry
 from snowtool.snowdb.pourpoint import Pourpoint
 
 if TYPE_CHECKING:
@@ -32,13 +39,39 @@ if TYPE_CHECKING:
     from snowtool.snowdb.coverage import CoverageDomain
 
 
-@dataclass(frozen=True)
-class PourpointIndexEntry:
+class _IndexFeatureProperties(BaseModel):
+    """The index manifest ``Feature``'s ``properties`` block."""
+
+    name: str
+    area_meters: float | None = None
+    geometry_hash: str
+    coverage: dict[str, Coverage] = Field(default_factory=dict)
+
+
+class _IndexFeature(BaseModel):
+    """One index manifest ``Feature`` -- point geometry + denormalized properties."""
+
+    type: Literal['Feature'] = 'Feature'
+    id: types.StationTriplet
+    geometry: PointGeometry
+    properties: _IndexFeatureProperties
+
+
+class _IndexFeatureCollection(BaseModel):
+    """The persisted ``index.geojson`` -- a plain (link-free) ``FeatureCollection``."""
+
+    type: Literal['FeatureCollection'] = 'FeatureCollection'
+    features: list[_IndexFeature]
+
+
+class PourpointIndexEntry(BaseModel):
     """One pourpoint's denormalized list-fields (a single manifest ``Feature``)."""
+
+    model_config = ConfigDict(frozen=True)
 
     triplet: types.StationTriplet
     name: str
-    point: dict[str, Any]
+    point: PointGeometry
     # Internal rebuild signal (the basin polygon's WKB hash); not surfaced by the
     # API, kept so a stale index can be detected/rebuilt.
     geometry_hash: str
@@ -48,7 +81,7 @@ class PourpointIndexEntry:
     # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
     # name. Derived (a grid change => `pourpoint reindex`), so it is recomputed by
     # `PourpointIndex.from_records`, never edited in place.
-    coverage: dict[str, Coverage] = field(default_factory=dict)
+    coverage: dict[str, Coverage] = Field(default_factory=dict)
 
     @classmethod
     def from_pourpoint(
@@ -68,32 +101,35 @@ class PourpointIndexEntry:
             },
         )
 
+    def _to_index_feature(self: Self) -> _IndexFeature:
+        return _IndexFeature(
+            id=self.triplet,
+            geometry=self.point,
+            properties=_IndexFeatureProperties(
+                name=self.name,
+                area_meters=self.area_meters,
+                geometry_hash=self.geometry_hash,
+                coverage=self.coverage,
+            ),
+        )
+
     def to_feature(self: Self) -> dict[str, Any]:
-        return {
-            'type': 'Feature',
-            'id': self.triplet,
-            'geometry': self.point,
-            'properties': {
-                'name': self.name,
-                'area_meters': self.area_meters,
-                'geometry_hash': self.geometry_hash,
-                'coverage': {name: cov.value for name, cov in self.coverage.items()},
-            },
-        }
+        return self._to_index_feature().model_dump(mode='json')
+
+    @classmethod
+    def _from_index_feature(cls: type[Self], feature: _IndexFeature) -> Self:
+        return cls(
+            triplet=feature.id,
+            name=feature.properties.name,
+            point=feature.geometry,
+            geometry_hash=feature.properties.geometry_hash,
+            area_meters=feature.properties.area_meters,
+            coverage=feature.properties.coverage,
+        )
 
     @classmethod
     def from_feature(cls: type[Self], feature: dict[str, Any]) -> Self:
-        properties = feature['properties']
-        return cls(
-            triplet=types.StationTriplet(feature['id']),
-            name=properties['name'],
-            point=feature['geometry'],
-            geometry_hash=properties['geometry_hash'],
-            area_meters=properties.get('area_meters'),
-            coverage={
-                name: Coverage(value) for name, value in properties['coverage'].items()
-            },
-        )
+        return cls._from_index_feature(_IndexFeature.model_validate(feature))
 
 
 @dataclass
@@ -140,19 +176,20 @@ class PourpointIndex:
         """Load a persisted ``index.geojson`` (empty index if the file is absent)."""
         if not path.is_file():
             return cls({})
-        collection = json.loads(path.read_text())
+        collection = _IndexFeatureCollection.model_validate_json(path.read_text())
         return cls.from_entries(
-            PourpointIndexEntry.from_feature(feature)
-            for feature in collection['features']
+            PourpointIndexEntry._from_index_feature(feature)
+            for feature in collection.features
         )
 
     def to_feature_collection(self: Self) -> dict[str, Any]:
-        return {
-            'type': 'FeatureCollection',
-            'features': [
-                self.entries[triplet].to_feature() for triplet in sorted(self.entries)
+        collection = _IndexFeatureCollection(
+            features=[
+                self.entries[triplet]._to_index_feature()
+                for triplet in sorted(self.entries)
             ],
-        }
+        )
+        return collection.model_dump(mode='json')
 
     def save(self: Self, path: Path) -> None:
         """Write the index as a sorted, indented ``FeatureCollection``."""

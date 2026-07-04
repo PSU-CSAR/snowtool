@@ -126,7 +126,7 @@ def test_entry_from_aoi_denormalizes_list_fields(pourpoint_geojson):
     )
     assert entry.triplet == '12345:MT:USGS'
     assert entry.name == 'Test Basin'
-    assert entry.point['type'] == 'Point'
+    assert entry.point.type == 'Point'
     # Exact geodesic area (WGS84) of the fixture's 0.9 deg x 0.9 deg basin box.
     assert entry.area_meters == pytest.approx(7_164_269_879.72, rel=1e-9)
     assert len(entry.geometry_hash) == 64
