@@ -30,6 +30,7 @@ from snowtool.snowdb.config import (
     RootConfig,
 )
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
+from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
     from snowtool.snowdb.aoi_raster import AOIRaster
-    from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import (
@@ -51,8 +52,8 @@ if TYPE_CHECKING:
 
 
 def _combined_extent(
-    extents: Iterable[tuple[float, float, float, float]],
-) -> tuple[float, float, float, float]:
+    extents: Iterable[Bounds],
+) -> Bounds:
     """Union of ``(west, south, east, north)`` extents."""
     boxes = list(extents)
     return (
@@ -279,7 +280,6 @@ class SnowDbManager:
         a not-yet-registered dataset gets the same directory a later ``SnowDb.open``
         will resolve for it -- without appearing in ``self.db.datasets`` yet.
         """
-        from snowtool.snowdb.dataset import Dataset
         from snowtool.snowdb.spec import DatasetSpec
 
         resolved = Path(dataset_config_path).resolve()
@@ -325,8 +325,6 @@ class SnowDbManager:
         skeleton is tolerated, and generation skips already-present layers.
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
-
-        from snowtool.snowdb.dataset import Dataset
 
         try:
             Dataset.create(dataset.spec, dataset.path)

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.grid import Extent
 
 
 def date_gaps(dates: Iterable[date]) -> list[tuple[date, date]]:
@@ -331,7 +332,7 @@ class GridReport:
     px_size: float
     tile_size: int
     n_tiles: int
-    extent: tuple[float, float, float, float]  # left, bottom, right, top
+    extent: Extent  # left, bottom, right, top
     cell_area_m2: float | None  # None on a geographic grid (per-pixel area raster)
 
 

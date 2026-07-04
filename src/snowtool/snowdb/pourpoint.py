@@ -182,7 +182,7 @@ class Pourpoint:
         wkb = shapely.to_wkb(self.geometry, byte_order=1)
         return hashlib.sha256(wkb).hexdigest()
 
-    def geometry_in_crs(self: Self, crs: Any) -> Geometry:
+    def geometry_in_crs(self: Self, crs: CRS | str | int) -> Geometry:
         """This pourpoint's basin polygon reprojected from WGS84 (lon/lat) to ``crs``.
 
         Pourpoints are global and stored as geojson (EPSG:4326); a dataset whose
