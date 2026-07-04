@@ -143,6 +143,12 @@ class ZonalStats:
 
         self.add_results(*results)
 
+    @property
+    def n_cells(self: Self) -> int:
+        """The crossed-zone product size (cells per date); 1 for a whole-basin
+        (K=0) query."""
+        return len(self._cells_index)
+
     def add_result(self: Self, result: Result) -> None:
         cell = self._array[self._dates_index[result.date]][
             self._cells_index[result.zone]

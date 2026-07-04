@@ -16,6 +16,9 @@ use it -- the API at app-lifespan scope, the CLI inside its ``asyncio.run``.
 
 from __future__ import annotations
 
+import logging
+import time
+
 from typing import TYPE_CHECKING, Self
 
 from snowtool.exceptions import QueryParameterError
@@ -30,6 +33,8 @@ if TYPE_CHECKING:
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
+
+logger = logging.getLogger(__name__)
 
 
 class SnowDbReader:
@@ -113,7 +118,7 @@ class SnowDbReader:
         dataset = self.db.datasets[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
         # served footprint (fully, unless allow_partial), checked before any read.
-        self.db.require_pourpoint_coverage(
+        coverage = self.db.require_pourpoint_coverage(
             triplet,
             dataset_name,
             allow_partial=allow_partial,
@@ -122,7 +127,10 @@ class SnowDbReader:
         variables = self._resolve_variables(dataset, variable_keys)
         aoi_raster = dataset.load_aoi_raster(triplet)
         collection = RasterCollection.from_variables_query(query, variables, dataset)
-        return await ZonalStats.calculate(
+
+        cache_before = self.cache.info()
+        start = time.perf_counter()
+        stats = await ZonalStats.calculate(
             aoi_raster,
             collection,
             self.cache,
@@ -130,3 +138,25 @@ class SnowDbReader:
             zone_selections,
             max_zone_cells=self.max_zone_cells,
         )
+        duration_ms = (time.perf_counter() - start) * 1000
+        cache_after = self.cache.info()
+
+        logger.info(
+            'zonal_stats dataset=%s triplet=%s dates=%d rasters=%d variables=%d '
+            'zone_axes=%d cells=%d coverage=%s allow_partial=%s cache_hits=%d '
+            'cache_misses=%d duration_ms=%.1f',
+            dataset_name,
+            triplet,
+            len(collection.dates),
+            len(collection),
+            len(variables),
+            len(zone_selections),
+            stats.n_cells,
+            coverage.value,
+            allow_partial,
+            cache_after.hits - cache_before.hits,
+            cache_after.misses - cache_before.misses,
+            duration_ms,
+        )
+
+        return stats

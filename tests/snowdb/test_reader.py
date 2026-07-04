@@ -9,6 +9,8 @@ function-scoped reader (the sole cache owner), so cache isolation is structural.
 """
 
 import asyncio
+import logging
+import re
 
 from datetime import date
 
@@ -108,6 +110,64 @@ def test_reader_coverage_guard_rejects_unknown_aoi(reader):
         asyncio.run(
             reader.zonal_stats('00000:MT:USGS', 'test', QUERY),
         )
+
+
+def _log_fields(record: logging.LogRecord) -> dict[str, str]:
+    """Parse the ``key=value`` pairs out of a formatted log message."""
+    return dict(re.findall(r'(\w+)=(\S+)', record.getMessage()))
+
+
+@pytest.mark.parametrize(
+    ('zone_selections', 'expected_zone_axes', 'expected_cells'),
+    [
+        ((), 0, 1),  # whole-basin: no axes, one (empty-zone) cell.
+        pytest.param(
+            'terrain_elevation',
+            1,
+            16,
+            id='single-axis-16-elevation-bands',
+        ),
+    ],
+)
+def test_reader_logs_one_structured_line_per_query(
+    caplog,
+    reader,
+    zone_selections,
+    expected_zone_axes,
+    expected_cells,
+):
+    if zone_selections == 'terrain_elevation':
+        from snowtool.snowdb.zonal_stats import ZoneSelection
+
+        zone_selections = [ZoneSelection('terrain.elevation')]
+
+    caplog.set_level(logging.INFO, logger='snowtool.snowdb.reader')
+    asyncio.run(
+        reader.zonal_stats(
+            TRIPLET,
+            'test',
+            QUERY,
+            variable_keys=['swe'],
+            zone_selections=zone_selections,
+        ),
+    )
+
+    records = [r for r in caplog.records if r.name == 'snowtool.snowdb.reader']
+    assert len(records) == 1
+    fields = _log_fields(records[0])
+
+    assert fields['dataset'] == 'test'
+    assert fields['triplet'] == TRIPLET
+    assert int(fields['dates']) == 1
+    assert int(fields['rasters']) == 1
+    assert int(fields['variables']) == 1
+    assert int(fields['zone_axes']) == expected_zone_axes
+    assert int(fields['cells']) == expected_cells
+    assert fields['coverage'] == 'full'
+    assert fields['allow_partial'] == 'False'
+    assert int(fields['cache_hits']) >= 0
+    assert int(fields['cache_misses']) >= 0
+    assert float(fields['duration_ms']) > 0
 
 
 def test_reader_owns_independent_caches(catalog):
