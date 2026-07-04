@@ -7,8 +7,11 @@ degenerates to per-dataset generation; passing several shares the source read.
 Unlike :mod:`snowtool.snowdb.zones.terrain_generate`, land cover is categorical, so
 there is no slope/aspect, no Horn neighbourhood (hence no block halo), and no
 projected work grid -- aspect needs an undistorted metric grid, but a *fraction of
-pixels* does not. The shared idea is the final stage: each fine source pixel's centre
-is transformed (pyproj) into the target grid's CRS and binned into the cell it lands
+pixels* does not. What the two engines do share -- the pre-flight existence guard,
+the generation-digest-then-stamp pass, and the point-in-cell binning arithmetic
+(cell assignment, pixel-centre coordinates) -- lives in
+:mod:`snowtool.snowdb.zones.generate_common`. Each fine source pixel's centre is
+transformed (pyproj) into the target grid's CRS and binned into the cell it lands
 in (point-in-cell), so a source in any CRS/resolution bins correctly onto any grid.
 
 Per target cell the engine accumulates a count of valid NLCD pixels and of forest
@@ -20,7 +23,6 @@ target grids, not the whole national raster.
 
 from __future__ import annotations
 
-import hashlib
 import math
 
 from typing import TYPE_CHECKING, Self
@@ -39,8 +41,13 @@ from snowtool.snowdb.constants import (
     NLCD_HASH_TAG,
 )
 from snowtool.snowdb.grid import grid_extent_4326
-from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.generate_common import (
+    cells_for_points,
+    finalize_and_stamp,
+    pixel_centre_coords,
+    require_absent_layers,
+)
 from snowtool.snowdb.zones.landcover import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
@@ -90,16 +97,10 @@ class _ForestAccumulator:
     ) -> None:
         """Bin a block of (already-valid) source pixels into this grid's cells."""
         xt, yt = self._tf.transform(x_src, y_src)
-        col = numpy.floor(self._inv.a * xt + self._inv.b * yt + self._inv.c).astype(
-            numpy.int64,
-        )
-        row = numpy.floor(self._inv.d * xt + self._inv.e * yt + self._inv.f).astype(
-            numpy.int64,
-        )
-        inb = (col >= 0) & (col < self.width) & (row >= 0) & (row < self.height)
+        cell_all, inb = cells_for_points(self._inv, xt, yt, self.width, self.height)
         if not inb.any():
             return
-        cell = row[inb] * self.width + col[inb]
+        cell = cell_all[inb]
         n = self._ncell
         self.valid += numpy.bincount(cell, minlength=n)
         forest_cells = cell[is_forest[inb]]
@@ -156,18 +157,7 @@ def generate_landcover(
 
     if not force:
         # Check every target before the (potentially large) source read.
-        for target in targets:
-            existing = [
-                layer.filename
-                for layer in LANDCOVER_LAYERS
-                if (target.directory / layer.filename).is_file()
-            ]
-            if existing:
-                raise FileExistsError(
-                    f'Could not generate land cover for {target.name}: '
-                    f'{target.directory} already has {", ".join(existing)}. '
-                    'Remove and try again or use force=True.',
-                )
+        require_absent_layers(targets, LANDCOVER_LAYERS, 'land cover')
 
     source_crs = source.crs.to_wkt()
     accumulators = [_ForestAccumulator(target, source_crs) for target in targets]
@@ -184,18 +174,14 @@ def generate_landcover(
     # One generation id for the whole pass: a digest over every target's finalized
     # forest array (sorted by name for determinism), stamped identically on every
     # output -- so all layers produced together reconcile as one set.
-    finalized = []
-    digest = hashlib.sha256()
-    for acc in sorted(accumulators, key=lambda a: a.target.name):
-        forest_pct = acc.finalize()
-        finalized.append((acc, forest_pct))
-        digest.update(acc.target.name.encode('utf-8'))
-        digest.update(forest_pct.tobytes())
-    nlcd_hash = versioned_hash(LANDCOVER_FORMAT_VERSION, digest.hexdigest())
-
-    for acc, forest_pct in finalized:
-        acc.write_layer(forest_pct, nlcd_hash)
-    return dict.fromkeys((acc.target.name for acc in accumulators), nlcd_hash)
+    return finalize_and_stamp(
+        accumulators,
+        name_of=lambda acc: acc.target.name,
+        finalize=_ForestAccumulator.finalize,
+        digest_array=lambda forest_pct: forest_pct,
+        write=_ForestAccumulator.write_layer,
+        format_version=LANDCOVER_FORMAT_VERSION,
+    )
 
 
 def _source_window(
@@ -268,10 +254,7 @@ def _stream_blocks(
             # Absolute source-pixel centres -> source-CRS coordinates. NLCD is
             # north-up (b == d == 0), but the full affine form costs nothing and
             # stays correct for any source.
-            rows = (numpy.arange(bh) + r0)[:, None]
-            cols = (numpy.arange(bw) + c0)[None, :]
-            x = transform.c + (cols + 0.5) * transform.a + (rows + 0.5) * transform.b
-            y = transform.f + (cols + 0.5) * transform.d + (rows + 0.5) * transform.e
+            x, y = pixel_centre_coords(transform, r0, c0, bh, bw)
 
             keep = valid.ravel()
             xf = numpy.broadcast_to(x, values.shape).ravel()[keep]
