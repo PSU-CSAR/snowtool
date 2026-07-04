@@ -17,6 +17,15 @@ from griffine.grid import AffineGridTile, TiledAffineGrid
 from pydantic import BaseModel, ConfigDict
 from rasterio.warp import transform_bounds
 
+# A geographic bounding box: (west, south, east, north) in EPSG:4326.
+Bounds = tuple[float, float, float, float]
+
+# A bounding box in some other (typically projected, or the grid's own) CRS:
+# (minx, miny, maxx, maxy), not necessarily 4326. Structurally identical to
+# ``Bounds``; the two aliases exist to document which convention a given tuple
+# follows, not to change behaviour.
+Extent = tuple[float, float, float, float]
+
 
 class GridParams(BaseModel):
     """The parameters defining a dataset's north-up tiled grid.
@@ -95,7 +104,7 @@ def tiles_in_bbox(
 
 def grid_extent_4326(
     grid: TiledAffineGrid,
-) -> tuple[float, float, float, float]:
+) -> Bounds:
     """The grid's full extent as ``(west, south, east, north)`` in EPSG:4326.
 
     Used to tell a DEM source which geographic area to fetch. The extent is
@@ -116,7 +125,7 @@ def grid_extent_4326(
 
 def bounding_tiles(
     grid: TiledAffineGrid,
-    bounds: tuple[float, float, float, float],
+    bounds: Extent,
 ) -> tuple[AffineGridTile, AffineGridTile]:
     """The upper-left and lower-right tiles covering a world-coord bbox.
 

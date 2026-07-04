@@ -232,7 +232,10 @@ class Dataset:
 
         # The AOI is stored in WGS84; reproject it into this grid's CRS so its
         # tile extent and pixel mask are computed in the grid's own coordinates.
-        geometry = aoi.geometry_in_crs(self.grid.crs)
+        crs = self.grid.crs
+        if crs is None:  # pragma: no cover - make_grid always sets a CRS
+            raise ValueError('grid has no CRS')
+        geometry = aoi.geometry_in_crs(crs)
         ul_tile, br_tile = bounding_tiles(self.grid, geometry.bounds)
 
         # A projected grid burns its constant cell area; a geographic grid burns

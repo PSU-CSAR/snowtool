@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated
+from gazebo.ext.fastapi import GazeboRouter
 
-from gazebo.ext.fastapi import GazeboRouter, Inject
-
+from snowtool.api.dependencies import CatalogDb
 from snowtool.api.models.dataset import DatasetInfo, DatasetList
 from snowtool.api.problems import DATASET_NOT_FOUND
 from snowtool.api.tags import Tags
-from snowtool.snowdb.db import SnowDb
-
-# SnowDb is an app-scoped constant provider (no __provide__), so injection is
-# opt-in via the Inject marker.
-CatalogDb = Annotated[SnowDb, Inject]
 
 router: GazeboRouter = GazeboRouter()
 

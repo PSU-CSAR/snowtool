@@ -34,8 +34,9 @@ from typing import TYPE_CHECKING, Self
 
 import rasterio
 
+from snowtool.snowdb.grid import Bounds
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
-from snowtool.snowdb.zones.zone_layer import Bounds, ZoneLayerSource
+from snowtool.snowdb.zones.zone_layer import ZoneLayerSource
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -53,15 +53,40 @@ def test_emit_table_empty_prints_nothing(capsys):
     assert capsys.readouterr().out == ''
 
 
-@pytest.mark.parametrize('value', ['20180427', '2018-04-27'])
-def test_date_param_accepts_both_formats(value):
-    assert DATE.convert(value, None, None) == date(2018, 4, 27)
+@pytest.mark.parametrize(
+    ('value', 'expected'),
+    [
+        ('20180427', date(2018, 4, 27)),
+        ('2018-04-27', date(2018, 4, 27)),
+        # Timezone-independence regression (2e935b6): to_date must take .date()
+        # straight off the parsed datetime, not reinterpret it via astimezone,
+        # which shifted the result across the local-TZ boundary (e.g. '20240101'
+        # -> 2023-12-31 under TZ=Asia/Tokyo).
+        ('20240101', date(2024, 1, 1)),
+        ('2024-01-01', date(2024, 1, 1)),
+        ('20240229', date(2024, 2, 29)),  # leap day
+        ('2024-02-29', date(2024, 2, 29)),  # leap day, dashed
+        ('20231231', date(2023, 12, 31)),
+    ],
+)
+def test_date_param_parses_exact_value(value, expected):
+    assert DATE.convert(value, None, None) == expected
 
 
 def test_date_param_passes_through_date():
     assert DATE.convert(date(2018, 4, 27), None, None) == date(2018, 4, 27)
 
 
-def test_date_param_rejects_garbage():
+@pytest.mark.parametrize(
+    'value',
+    [
+        'not-a-date',
+        '2024-02-30',  # not a leap day
+        '20240230',
+        '',
+        '2024/01/01',
+    ],
+)
+def test_date_param_rejects_invalid_input(value):
     with pytest.raises(click.BadParameter):
-        DATE.convert('not-a-date', None, None)
+        DATE.convert(value, None, None)

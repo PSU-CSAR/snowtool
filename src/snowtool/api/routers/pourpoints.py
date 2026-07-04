@@ -17,11 +17,12 @@ from fastapi import Query
 
 # BBox is imported at runtime (not under TYPE_CHECKING) because it is the resolved
 # type of the bbox param's annotation.
-from gazebo.ext.fastapi import BBoxParam, GazeboRouter, Inject
+from gazebo.ext.fastapi import BBoxParam, GazeboRouter
 from gazebo.params import BBox
 from starlette.concurrency import run_in_threadpool
 
 from snowtool import types
+from snowtool.api.dependencies import CatalogDb
 from snowtool.api.models.pourpoint import (
     PourpointDetail,
     PourpointFeatureCollection,
@@ -29,11 +30,6 @@ from snowtool.api.models.pourpoint import (
     build_pourpoint_detail,
 )
 from snowtool.api.tags import Tags
-from snowtool.snowdb.db import SnowDb
-
-# SnowDb is registered as an app-scoped constant provider (no __provide__ recipe),
-# so injection is opt-in via the Inject marker rather than auto-detected.
-CatalogDb = Annotated[SnowDb, Inject]
 
 GeometryView = Literal['point', 'basin']
 # Point mode serves geometry from the index (cheap); basin mode parses each record's
