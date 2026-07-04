@@ -18,6 +18,7 @@ loop.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from async_lru import alru_cache
 from async_tiff import TIFF
@@ -26,12 +27,35 @@ from async_tiff.store import LocalStore
 DEFAULT_TIFF_CACHE_SIZE = 16384
 
 
+class CacheInfo(NamedTuple):
+    """``hits``/``misses`` (plus ``maxsize``/``currsize``) for one cache snapshot.
+
+    Mirrors :meth:`functools.lru_cache.cache_info`'s field names/order (what
+    ``alru_cache`` itself returns), so a caller diffing two snapshots -- e.g. the
+    reader logging hit/miss deltas for one query -- can rely on the familiar shape.
+    """
+
+    hits: int
+    misses: int
+    maxsize: int | None
+    currsize: int
+
+
 class TiffCache:
     def __init__(self, maxsize: int = DEFAULT_TIFF_CACHE_SIZE) -> None:
         self._cached_open = alru_cache(maxsize=max(1, maxsize))(self._open)
 
     def __len__(self) -> int:
         return self._cached_open.cache_info().currsize
+
+    def info(self) -> CacheInfo:
+        """The underlying ``alru_cache``'s hit/miss/size counters.
+
+        A thin passthrough so callers (the reader's per-query log line) can
+        snapshot before/after a call and log the deltas without reaching into
+        ``_cached_open``.
+        """
+        return CacheInfo(*self._cached_open.cache_info())
 
     async def get(self, path: Path | str) -> TIFF:
         """Return an open ``TIFF`` for ``path``, opening (once) on a miss."""
