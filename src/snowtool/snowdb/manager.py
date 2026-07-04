@@ -125,6 +125,14 @@ class SnowDbManager:
     Built around an already-constructed :class:`SnowDb` (reachable as
     :attr:`db`); :meth:`open` and :meth:`initialize` are the convenience
     constructors that build the read database (or its layout) and wrap it.
+
+    Concurrency: config and index writes are read-modify-write with no
+    cross-process locking, so they assume a single writer at a time -- two admin
+    commands mutating the root config or the pourpoint index concurrently can lose
+    an update (last save wins). Ingest is different: it only writes per-date
+    ``cogs/<date>/`` directories, each committed by an atomic whole-directory swap,
+    so bulk ingest parallelizes freely across distinct dates. Just avoid
+    deliberately ingesting the same date from two processes at once.
     """
 
     def __init__(self: Self, db: SnowDb) -> None:

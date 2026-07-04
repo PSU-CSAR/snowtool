@@ -362,7 +362,9 @@ def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
 
     class _Ingester:
         def ingest(self, source, dataset, *, force=False):  # pragma: no cover
-            return []
+            from snowtool.snowdb.ingest import IngestResult
+
+            return IngestResult(ingested=[], skipped=[])
 
     bare = DatasetSpec(
         name='bare',
