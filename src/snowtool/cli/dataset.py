@@ -294,26 +294,35 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
+@click.option(
+    '--force',
+    is_flag=True,
+    help='Rebuild dates even when the stored source hash already matches.',
+)
 @config_option
 @pass_manager
 def ingest_dataset(
     manager: SnowDbManager,
     name: str,
     archives: tuple[Path, ...],
+    force: bool,
 ) -> None:
     """Ingest one or more source ARCHIVES into dataset NAME.
 
-    Idempotent: re-ingesting an archive overwrites that date's COGs with the
-    same (deterministic) result.
+    Converge-by-default: a date whose COGs already carry the same source hash is
+    left untouched (reported ``up to date``); a re-release under the same filename
+    with different bytes rebuilds. ``--force`` rebuilds every date regardless.
     """
     ds = get_dataset(manager.db, name)
     for archive in archives:
         try:
-            dates = ds.ingest(archive, force=True)
+            result = ds.ingest(archive, force=force)
         except (FileExistsError, SnowtoolError) as e:
             raise click.ClickException(str(e)) from e
-        for ingested in dates:
+        for ingested in result.ingested:
             click.echo(f'ingested {name} {ingested.isoformat()} from {archive}')
+        for skipped in result.skipped:
+            click.echo(f'up to date {name} {skipped.isoformat()} from {archive}')
 
 
 @dataset.command('generate-zones')

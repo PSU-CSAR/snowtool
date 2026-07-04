@@ -27,6 +27,9 @@ from typing import TYPE_CHECKING, ClassVar, Self
 import rasterio
 
 from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
+from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
@@ -221,6 +224,9 @@ class SNODASInputRaster(BaseFileInfo):
                 'SNODAS raster path must be to header file. '
                 f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
             )
+        # The versioned hash of the source tar, set by the ingester once per date
+        # (the same value handed to write_date_cogs) so every COG carries it.
+        self.source_hash = ''
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
@@ -271,6 +277,7 @@ class SNODASInputRaster(BaseFileInfo):
             date=self.datetime.date(),
             variable=self.product.value,
             files=self.path.name,
+            source_hash=self.source_hash,
             extra={
                 'SOURCE_REGION': self.region.value,
                 'SOURCE_MODEL': self.model.value,
@@ -379,11 +386,24 @@ class SnodasIngester:
         dataset: Dataset,
         *,
         force: bool = False,
-    ) -> list[date]:
+    ) -> IngestResult:
+        # One versioned hash of the source tar per date (== per archive), stamped on
+        # every COG and compared by the skip check.
+        source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
         with tempfile.TemporaryDirectory() as extract_dir:
             rasters = SNODASInputRasterSet.from_archive(source, Path(extract_dir))
-            dataset.write_date_cogs(rasters.date, rasters, force=force)
-        return [rasters.date]
+            for raster in rasters:
+                raster.source_hash = source_hash
+            wrote = dataset.write_date_cogs(
+                rasters.date,
+                rasters,
+                source_hash=source_hash,
+                force=force,
+            )
+        dates = [rasters.date]
+        if wrote:
+            return IngestResult(ingested=dates, skipped=[])
+        return IngestResult(ingested=[], skipped=dates)
 
 
 # --- SNODAS variables + spec (the source of truth for SNODAS values) ----------

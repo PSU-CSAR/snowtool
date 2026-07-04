@@ -17,6 +17,34 @@ to stay backward-compatible with.
 
 from __future__ import annotations
 
+import hashlib
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+# Streamed in 1 MiB chunks so a large source artifact (a SNODAS tar can be
+# hundreds of MB) is never read whole into memory just to digest it.
+_HASH_CHUNK_SIZE = 1 << 20
+
+
+def hash_files(paths: Iterable[Path]) -> str:
+    """A single streaming sha256 hex digest over the bytes of ``paths``.
+
+    Paths are digested in sorted order so the result is independent of the
+    caller's iteration order (e.g. a date's contributing tiles), and each file
+    is read in chunks rather than whole. Used to hash a source artifact into
+    ingest provenance, so a same-name re-release with different bytes is detected.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        with path.open('rb') as f:
+            while chunk := f.read(_HASH_CHUNK_SIZE):
+                digest.update(chunk)
+    return digest.hexdigest()
+
 
 def versioned_hash(version: int, digest: str) -> str:
     """A provenance digest prefixed with the on-disk format version it guards."""

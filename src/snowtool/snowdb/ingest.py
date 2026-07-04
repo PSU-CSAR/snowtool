@@ -12,6 +12,7 @@ dataset-agnostic: it just calls ``dataset.ingest(source)``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -19,6 +20,20 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from snowtool.snowdb.dataset import Dataset
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    """The dates an ingest run wrote vs. skipped as already current.
+
+    ``ingested`` are the dates whose ``cogs/<date>/`` dir this run (re)built;
+    ``skipped`` are the dates left untouched because their stored source hash
+    already matched (converge-by-default). One is returned per
+    :meth:`Ingester.ingest`; the CLI reports the two sets on separate lines.
+    """
+
+    ingested: list[date]
+    skipped: list[date]
 
 
 class WritableRaster(Protocol):
@@ -45,8 +60,9 @@ class Ingester(Protocol):
 
     Implementations parse their own source format and write the resulting
     rasters onto ``dataset`` (typically via
-    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`), returning the
-    dates they ingested. One lives on each dataset spec that supports ingest.
+    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`), returning an
+    :class:`IngestResult` splitting the dates written from those skipped as
+    already current. One lives on each dataset spec that supports ingest.
     """
 
     def ingest(
@@ -55,4 +71,4 @@ class Ingester(Protocol):
         dataset: Dataset,
         *,
         force: bool = False,
-    ) -> list[date]: ...
+    ) -> IngestResult: ...
