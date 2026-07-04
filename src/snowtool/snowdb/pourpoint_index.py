@@ -12,9 +12,11 @@ purpose: the same file is a plottable point layer and the FastAPI listing payloa
 Being derived, it is always rebuildable from ``records/`` (``pourpoint reindex``),
 so it never has to be trusted as primary data.
 
-``_IndexFeature``/``_IndexFeatureCollection`` are minimal local pydantic models for
-the on-disk ``Feature``/``FeatureCollection`` shape -- just this module's own
-(de)serialization concern, distinct from the API's gazebo-backed response models.
+The on-disk ``Feature``/``FeatureCollection`` shape is geojson-pydantic's, with
+one local ``_IndexFeatureProperties`` model for the ``properties`` block -- the
+only genuinely index-specific schema here. geojson-pydantic's ``Feature`` allows
+a null ``id``/``geometry``/``properties`` (valid GeoJSON, but not a valid index
+entry), so the load path guards those into clear errors.
 """
 
 from __future__ import annotations
@@ -23,9 +25,9 @@ import json
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Self
 
-from geojson_pydantic import Point
+from geojson_pydantic import Feature, FeatureCollection, Point
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
@@ -48,20 +50,8 @@ class _IndexFeatureProperties(BaseModel):
     coverage: dict[str, Coverage] = Field(default_factory=dict)
 
 
-class _IndexFeature(BaseModel):
-    """One index manifest ``Feature`` -- point geometry + denormalized properties."""
-
-    type: Literal['Feature'] = 'Feature'
-    id: types.StationTriplet
-    geometry: Point
-    properties: _IndexFeatureProperties
-
-
-class _IndexFeatureCollection(BaseModel):
-    """The persisted ``index.geojson`` -- a plain (link-free) ``FeatureCollection``."""
-
-    type: Literal['FeatureCollection'] = 'FeatureCollection'
-    features: list[_IndexFeature]
+_IndexFeature = Feature[Point, _IndexFeatureProperties]
+_IndexFeatureCollection = FeatureCollection[_IndexFeature]
 
 
 class PourpointIndexEntry(BaseModel):
@@ -103,6 +93,7 @@ class PourpointIndexEntry(BaseModel):
 
     def _to_index_feature(self: Self) -> _IndexFeature:
         return _IndexFeature(
+            type='Feature',
             id=self.triplet,
             geometry=self.point,
             properties=_IndexFeatureProperties(
@@ -118,8 +109,16 @@ class PourpointIndexEntry(BaseModel):
 
     @classmethod
     def _from_index_feature(cls: type[Self], feature: _IndexFeature) -> Self:
+        # geojson-pydantic permits a null id/geometry/properties (valid GeoJSON);
+        # an index entry needs all three, so a foreign/corrupt feature fails
+        # loudly here -- the index is derived, so the fix is `pourpoint reindex`.
+        if feature.id is None or feature.geometry is None or feature.properties is None:
+            raise ValueError(
+                'index feature is missing its id, geometry, or properties; '
+                'rebuild the index with `pourpoint reindex`.',
+            )
         return cls(
-            triplet=feature.id,
+            triplet=str(feature.id),
             name=feature.properties.name,
             point=feature.geometry,
             geometry_hash=feature.properties.geometry_hash,
@@ -184,6 +183,7 @@ class PourpointIndex:
 
     def to_feature_collection(self: Self) -> dict[str, Any]:
         collection = _IndexFeatureCollection(
+            type='FeatureCollection',
             features=[
                 self.entries[triplet]._to_index_feature()
                 for triplet in sorted(self.entries)
