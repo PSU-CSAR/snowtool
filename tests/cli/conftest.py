@@ -12,6 +12,8 @@ carrying fast stand-in engines (uniform writes) through the same
 engines themselves are exercised in test_terrain_generate / test_landcover_generate.
 """
 
+from pathlib import Path
+
 import pytest
 import rasterio
 
@@ -105,7 +107,7 @@ def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
     """
     config_path = initialized_root / CONFIG_FILENAME
     config = RootConfig.load(config_path)
-    config.sources = {'terrain': str(source_dem), 'landcover': str(source_nlcd)}
+    config.sources = {'terrain': Path(source_dem), 'landcover': Path(source_nlcd)}
     config.save(config_path)
     return CliContext(
         config=initialized_root,
