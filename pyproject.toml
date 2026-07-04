@@ -132,3 +132,8 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.13.0",
 ]
+docs = [
+    "mkdocs-material>=9.5.0",
+    "mkdocs-click>=0.8.1",
+    "mkdocstrings[python]>=0.26.0",
+]
