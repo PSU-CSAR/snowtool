@@ -5,23 +5,23 @@ import json
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 import shapely
 
-from pydantic import ValidationError
+from geojson_pydantic import MultiPolygon, Point, Polygon
+from pydantic import Field, TypeAdapter, ValidationError
 from pyproj import CRS, Geod, Transformer
 from shapely import Geometry
 from shapely.ops import transform as shapely_transform
 
 from snowtool import types
 from snowtool.exceptions import GeoJSONValidationError
-from snowtool.snowdb.geometry import (
-    BasinGeometry,
-    BasinGeometryAdapter,
-    PointGeometry,
-    PointGeometryAdapter,
-)
+
+# A pourpoint's basin geometry: a single polygon or a multi-part basin,
+# discriminated on the GeoJSON ``type`` string (geojson-pydantic models).
+BasinGeometry = Annotated[Polygon | MultiPolygon, Field(discriminator='type')]
+_BASIN_ADAPTER: TypeAdapter[Polygon | MultiPolygon] = TypeAdapter(BasinGeometry)
 
 _WGS84 = CRS.from_epsg(4326)
 # Geodesic area on the WGS84 ellipsoid -- computes basin area straight from the
@@ -61,8 +61,8 @@ class Pourpoint:
     properties: dict[str, Any]
     station_triplet: types.StationTriplet
     name: str
-    point: PointGeometry
-    polygon: BasinGeometry | None = None
+    point: Point
+    polygon: Polygon | MultiPolygon | None = None
     awdb_id: str | None = None
     usgs_id: str | None = None
 
@@ -92,9 +92,7 @@ class Pourpoint:
                     raise GeoJSONValidationError(
                         'All pourpoints must have a point geometry.',
                     )
-                kwargs['point'] = PointGeometryAdapter.validate_python(
-                    geojson['geometry'],
-                )
+                kwargs['point'] = Point.model_validate(geojson['geometry'])
             elif geojson['type'] == GEOM_COLLECTION:
                 kwargs.update(cls._parse_geometry_collection(geojson['geometries']))
             else:
@@ -134,17 +132,17 @@ class Pourpoint:
             )
         kwargs: dict[str, Any] = {}
         if geoms[0]['type'] == POINT:
-            kwargs['point'] = PointGeometryAdapter.validate_python(geoms[0])
+            kwargs['point'] = Point.model_validate(geoms[0])
         elif geoms[1]['type'] == POINT:
-            kwargs['point'] = PointGeometryAdapter.validate_python(geoms[1])
+            kwargs['point'] = Point.model_validate(geoms[1])
         else:
             raise GeoJSONValidationError(
                 'All pourpoints must have a point geometry.',
             )
         if geoms[0]['type'] in POLYGON_TYPES:
-            kwargs['polygon'] = BasinGeometryAdapter.validate_python(geoms[0])
+            kwargs['polygon'] = _BASIN_ADAPTER.validate_python(geoms[0])
         elif geoms[1]['type'] in POLYGON_TYPES:
-            kwargs['polygon'] = BasinGeometryAdapter.validate_python(geoms[1])
+            kwargs['polygon'] = _BASIN_ADAPTER.validate_python(geoms[1])
         else:
             raise GeoJSONValidationError(
                 'Multi-geometry pourpoints must have one (Mutli)Polygon geometry',
@@ -156,7 +154,9 @@ class Pourpoint:
         if self.polygon is None:
             raise ValueError('pourpoint does not have a basin polygon')
 
-        return self.polygon.shape
+        # geojson-pydantic geometries expose __geo_interface__, so shapely reads
+        # them directly (no intermediate mapping).
+        return shapely.geometry.shape(self.polygon)
 
     @property
     def area_meters(self: Self) -> float:

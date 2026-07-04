@@ -29,6 +29,9 @@ import numpy
 import rasterio
 import shapely
 
+from geojson_pydantic.geometries import Geometry
+from pydantic import TypeAdapter
+
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -76,6 +79,10 @@ _V_MIN, _V_MAX = 4, 5
 # per-date data gap).
 _EMPTY_TILES = frozenset({(10, 5)})
 
+# Validates a GeoJSON geometry mapping into the geojson-pydantic Geometry union
+# (the persisted footprint type; DatasetConfig.footprint holds the same).
+_GEOMETRY_ADAPTER: TypeAdapter[Geometry] = TypeAdapter(Geometry)
+
 
 def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
     """The MODIS sinusoidal extent of tile ``(h, v)`` as a shapely box."""
@@ -84,7 +91,7 @@ def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
     return shapely.box(ul_x, ul_y - _MODIS_TILE_M, ul_x + _MODIS_TILE_M, ul_y)
 
 
-def _instarr_footprint() -> shapely.Geometry:
+def _instarr_footprint() -> Geometry:
     """The region INSTARR serves: the tile block minus the empty corner.
 
     A single (multi)polygon in MODIS-sinusoidal coords -- the union of the
@@ -92,7 +99,8 @@ def _instarr_footprint() -> shapely.Geometry:
     permanently-empty ones). This is the coverage footprint; absent it, coverage
     would default to the whole grid rectangle and mis-report basins over the empty
     corner. Derived here from the canonical tiling for now; a future cut may
-    compute it from the data's real extent.
+    compute it from the data's real extent. The shapely union is validated into
+    the geojson-pydantic Geometry union (the persisted footprint type).
     """
     present = [
         _modis_tile_polygon(h, v)
@@ -100,7 +108,9 @@ def _instarr_footprint() -> shapely.Geometry:
         for v in range(_V_MIN, _V_MAX + 1)
         if (h, v) not in _EMPTY_TILES
     ]
-    return shapely.union_all(present)
+    return _GEOMETRY_ADAPTER.validate_python(
+        shapely.geometry.mapping(shapely.union_all(present)),
+    )
 
 
 # --- INSTARR variables --------------------------------------------------------

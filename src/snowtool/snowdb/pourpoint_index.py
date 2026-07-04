@@ -25,12 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
+from geojson_pydantic import Point
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
-from snowtool.snowdb.geometry import PointGeometry
 from snowtool.snowdb.pourpoint import Pourpoint
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ class _IndexFeature(BaseModel):
 
     type: Literal['Feature'] = 'Feature'
     id: types.StationTriplet
-    geometry: PointGeometry
+    geometry: Point
     properties: _IndexFeatureProperties
 
 
@@ -71,7 +71,7 @@ class PourpointIndexEntry(BaseModel):
 
     triplet: types.StationTriplet
     name: str
-    point: PointGeometry
+    point: Point
     # Internal rebuild signal (the basin polygon's WKB hash); not surfaced by the
     # API, kept so a stale index can be detected/rebuilt.
     geometry_hash: str

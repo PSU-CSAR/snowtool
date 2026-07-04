@@ -44,10 +44,10 @@ def _assert_spec_equivalent(resolved: DatasetSpec, spec: DatasetSpec) -> None:
     if spec.footprint is None:
         assert resolved.footprint is None
     else:
-        # Exact geometric *and* coordinate equality (the GeoJSON round-trip must
-        # not perturb the served footprint at all).
+        # Exact model equality (footprints are geojson-pydantic geometries now, so
+        # the round-trip must not perturb the served footprint at all).
         assert resolved.footprint is not None
-        assert resolved.footprint.equals_exact(spec.footprint, 0)
+        assert resolved.footprint == spec.footprint
 
 
 @pytest.mark.parametrize('spec', DEFAULT_DATASET_SPECS, ids=lambda s: s.name)
@@ -181,7 +181,12 @@ def test_zone_params_omit_none_fields_in_json():
 def test_footprint_round_trips_through_json(tmp_path):
     import shapely
 
-    footprint = shapely.box(-119.5, 44.0, -119.0, 44.5)
+    from geojson_pydantic.geometries import Geometry
+    from pydantic import TypeAdapter
+
+    footprint = TypeAdapter(Geometry).validate_python(
+        shapely.geometry.mapping(shapely.box(-119.5, 44.0, -119.0, 44.5)),
+    )
     config = DatasetConfig(
         grid=_grid_config(),
         variables={'swe': _swe_variable()},
@@ -192,4 +197,4 @@ def test_footprint_round_trips_through_json(tmp_path):
 
     reloaded = DatasetConfig.load(path)
     assert reloaded.footprint is not None
-    assert reloaded.footprint.equals_exact(footprint, 0)
+    assert reloaded.footprint == footprint

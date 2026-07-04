@@ -27,8 +27,8 @@ from snowtool.snowdb.grid import GridParams, make_grid
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from geojson_pydantic.geometries import Geometry
     from pydantic import BaseModel
-    from shapely import Geometry
 
     from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.coverage import CoverageDomain
@@ -159,9 +159,19 @@ class DatasetSpec:
         full grid-extent rectangle -- so a basin over a permanently-empty hole is
         not reported as fully covered.
         """
+        import shapely
+
         from snowtool.snowdb.coverage import CoverageDomain
 
-        return CoverageDomain.from_grid(self.grid, footprint=self.footprint)
+        # The footprint is a geojson-pydantic geometry (grid CRS); the geometry
+        # math wants shapely, so convert once here (geojson-pydantic exposes
+        # __geo_interface__, so shapely reads it directly).
+        footprint = (
+            shapely.geometry.shape(self.footprint)
+            if self.footprint is not None
+            else None
+        )
+        return CoverageDomain.from_grid(self.grid, footprint=footprint)
 
     @cached_property
     def is_geographic(self) -> bool:
