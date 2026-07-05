@@ -6,15 +6,24 @@ with all three built-in dataset types — **SNODAS**, **UA SWANN (800 m)**, and
 
 The order matters: pourpoints are imported and indexed *first*, because each
 dataset bakes an AOI raster of every indexed basin onto its grid when it's
-created.
+staged.
+
+Standing a dataset up is a deliberate register/activate split: **`dataset
+create`** stages everything under `data/<name>/` *and* registers the dataset in
+the root config — **inactive**, so it exists and is manageable by name but stays
+invisible to readers — and **`dataset activate`** later flips it live. Keeping
+registration and activation apart lets you stage all three datasets cheaply,
+generate their zone layers in a single shared source read (see
+[step 4](#4-generate-zone-layers-in-one-shared-pass)), and ingest their data —
+so the expensive terrain/land-cover reads happen once for the whole set, and a
+dataset is fully populated before anything serves it.
 
 !!! note "Network access"
-    Creating a dataset generates its zone layers — terrain from USGS **3DEP**
-    and land cover from **Annual NLCD** — by reading open public data by
-    default (3DEP tiles over S3, and the Annual NLCD bundle over an open MRLC
-    HTTPS download). To work fully offline, supply local inputs with
-    `--source PROVIDER PATH` (shown below). Ingesting data also requires source
-    archives you provide.
+    Generating a dataset's zone layers reads terrain from USGS **3DEP** and land
+    cover from **Annual NLCD** — open public data by default (3DEP tiles over S3,
+    and the Annual NLCD bundle over an open MRLC HTTPS download). To work fully
+    offline, supply local inputs with `--source PROVIDER PATH` (shown below).
+    Ingesting data also requires source archives you provide.
 
 ## 1. Initialize an empty snowdb
 
@@ -55,34 +64,50 @@ create next can see the imported basins.
 `pourpoint import` brings in a single record from a local file or a raw file
 URL (e.g. a `raw.githubusercontent.com` link).
 
-## 3. Create the three datasets
+## 3. Stage and register the three datasets
 
 Each `dataset create` stamps a built-in template — carrying all of that
-dataset's variables — then stages the dataset's directory, area raster, and
-zone layers, and rasterizes every indexed basin onto the new grid. `--activate`
-registers it in the root config so readers (and the API) can see it.
+dataset's variables — stages the dataset's directory and area raster,
+rasterizes every indexed basin onto the new grid, and registers the dataset in
+the root config **inactive**: it exists and is manageable by name (ingest,
+`generate-zones`, diagnostics), but readers don't see it until you activate it
+in [step 6](#6-activate-the-datasets). Create never generates zone layers —
+the expensive terrain/land-cover reads are inherently deferred to a single
+shared `generate-zones` pass in the next step:
 
 ```console
-snowtool dataset create snodas  --template snodas     --activate
-snowtool dataset create swann   --template swann-800m --activate
-snowtool dataset create instarr --template instarr    --activate
+snowtool dataset create snodas  --template snodas
+snowtool dataset create swann   --template swann-800m
+snowtool dataset create instarr --template instarr
 ```
 
 The three template names are `snodas`, `swann-800m`, and `instarr`. The dataset
 name (first argument) is yours to choose; it's what you'll ingest and query
 against.
 
-To generate zone layers from local files instead of the network defaults, add
-`--source` (repeatable) to each `create`:
+## 4. Generate zone layers in one shared pass
+
+`dataset generate-zones` takes one *or more* datasets and reads each provider's
+source **once** over their combined extent, binning it into every one — so
+terrain's DEM reproject and the ~1.5 GB NLCD download happen a single time for
+the whole set instead of once per dataset. Activation doesn't matter here —
+zone layers live under each dataset's own `data/<name>/`, so the
+registered-inactive datasets from step 3 work as is:
 
 ```console
-snowtool dataset create snodas --template snodas \
-  --source terrain /data/dem.tif \
-  --source landcover /data/nlcd.tif \
-  --activate
+snowtool dataset generate-zones snodas swann instarr
 ```
 
-## 4. Ingest source data
+To generate from local files instead of the network defaults, add `--source`
+(repeatable):
+
+```console
+snowtool dataset generate-zones snodas swann instarr \
+  --source terrain /data/dem.tif \
+  --source landcover /data/nlcd.tif
+```
+
+## 5. Ingest source data
 
 Templates define *what* each dataset holds; ingest fills it with dates. Point
 `dataset ingest` at one or more source archives for that dataset (see the
@@ -94,11 +119,34 @@ snowtool dataset ingest swann   /data/swann/*.nc
 snowtool dataset ingest instarr /data/instarr/*.h5
 ```
 
+This works while the datasets are still inactive — that's the point of the
+register/activate split: populate a dataset fully before anything serves it.
 Ingest is converge-by-default: a date whose COGs already carry the same source
 hash is left untouched; a re-release under the same filename with changed bytes
 rebuilds. Use `--force` to rebuild every date regardless.
 
-## 5. Validate and start the API
+## 6. Activate the datasets
+
+`dataset activate` flips a registered dataset's `active` flag in the root
+config — the visibility toggle that makes it served by the query CLI and the
+API (a running API server needs a restart to pick the change up):
+
+```console
+snowtool dataset activate snodas
+snowtool dataset activate swann
+snowtool dataset activate instarr
+snowtool pourpoint reindex
+```
+
+`reindex` refreshes each pourpoint's coverage against the registered grids
+(here it's belt and braces — `create` already computed coverage when it staged
+each grid; it's required after a `dataset add`, which skips staging).
+
+For a dataset built *out of tree* (its config and data living outside this
+snowdb), `dataset add NAME CONFIG_PATH` is the escape hatch that registers an
+external config — also inactive, activated the same way.
+
+## 7. Validate and start the API
 
 Check the database, then confirm the API app builds before serving:
 
@@ -114,8 +162,8 @@ Then serve it:
 snowtool api serve
 ```
 
-The API opens the catalog once at startup, so if you register or ingest more
-after it's running, restart it to pick up the changes. With the server up,
+The API opens the catalog once at startup, so if you register, activate, or
+ingest more after it's running, restart it to pick up the changes. With the server up,
 validate interactively:
 
 - `GET /pourpoints` — the imported pourpoints.

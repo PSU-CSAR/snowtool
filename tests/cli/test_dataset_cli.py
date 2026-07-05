@@ -9,6 +9,7 @@ import pytest
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
 from snowtool.snowdb import datasets as datasets_mod
+from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import IngestResult
@@ -21,10 +22,17 @@ def _json(result):
     return json.loads(result.output)
 
 
-def _create(runner, cli_obj, source_dem):
+def _create(runner, cli_obj):
+    """Stage + register the synthetic dataset (create is stage-only: no zones)."""
+    return runner.invoke(cli, ['dataset', 'create', 'test'], obj=cli_obj)
+
+
+def _generate_zones(runner, cli_obj, source_dem):
+    """Generate zone layers for 'test' explicitly (terrain from a local DEM;
+    landcover from the root config's declared local source)."""
     return runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
+        ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 
@@ -36,7 +44,7 @@ def test_list_reports_dataset_names(runner, cli_obj):
     result = runner.invoke(cli, ['dataset', 'list', '--format', 'json'], obj=cli_obj)
 
     assert result.exit_code == 0
-    assert _json(result) == [{'dataset': 'test'}]
+    assert _json(result) == [{'dataset': 'test', 'active': True}]
 
 
 def test_info_unknown_dataset_errors(runner, cli_obj):
@@ -47,7 +55,8 @@ def test_info_unknown_dataset_errors(runner, cli_obj):
 
 
 def test_info_after_create(runner, cli_obj, source_dem):
-    _create(runner, cli_obj, source_dem)
+    _create(runner, cli_obj)
+    _generate_zones(runner, cli_obj, source_dem)
 
     result = runner.invoke(
         cli,
@@ -57,6 +66,7 @@ def test_info_after_create(runner, cli_obj, source_dem):
 
     info = _json(result)
     assert info['name'] == 'test'
+    assert info['active'] is True
     assert info['present'] is True
     assert info['zone_layers']['terrain']['present'] is True
     assert info['zone_layers']['landcover']['present'] is True
@@ -68,18 +78,29 @@ def test_info_after_create(runner, cli_obj, source_dem):
 # --- create ------------------------------------------------------------------
 
 
-def test_create_builds_terrain_and_landcover(
+def test_create_stages_without_zones_then_generate_zones_builds_them(
     runner,
     cli_obj,
     initialized_root,
     source_dem,
     source_nlcd,
 ):
-    result = runner.invoke(
+    created = _create(runner, cli_obj)
+
+    # Create is stage-only: skeleton + registration, never zone layers.
+    assert created.exit_code == 0
+    assert 'created dataset test' in created.output
+    assert 'generated' not in created.output
+    data = initialized_root / 'data' / 'test'
+    assert not (data / 'terrain' / 'elevation.tif').exists()
+    assert not (data / 'landcover' / 'forest_cover_pct.tif').exists()
+
+    # Zone layers come only from the explicit generate-zones pass.
+    generated = runner.invoke(
         cli,
         [
             'dataset',
-            'create',
+            'generate-zones',
             'test',
             '--source',
             'terrain',
@@ -91,11 +112,9 @@ def test_create_builds_terrain_and_landcover(
         obj=cli_obj,
     )
 
-    assert result.exit_code == 0
-    assert 'created dataset test' in result.output
-    assert 'generated terrain for test' in result.output
-    assert 'generated landcover for test' in result.output
-    data = initialized_root / 'data' / 'test'
+    assert generated.exit_code == 0
+    assert 'generated terrain for test' in generated.output
+    assert 'generated landcover for test' in generated.output
     assert (data / 'terrain' / 'elevation.tif').is_file()
     assert (data / 'terrain' / 'aspect_majority.tif').is_file()
     assert (data / 'terrain' / 'northness.tif').is_file()
@@ -103,11 +122,9 @@ def test_create_builds_terrain_and_landcover(
     assert (data / 'landcover' / 'forest_cover_pct.tif').is_file()
 
 
-def test_create_is_idempotent(runner, cli_obj, source_dem):
-    args = ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)]
-
-    first = runner.invoke(cli, args, obj=cli_obj)
-    second = runner.invoke(cli, args, obj=cli_obj)
+def test_create_is_idempotent(runner, cli_obj):
+    first = _create(runner, cli_obj)
+    second = _create(runner, cli_obj)
 
     assert first.exit_code == 0
     assert 'created dataset test' in first.output
@@ -131,18 +148,14 @@ def test_create_requires_initialized_root(runner, tmp_path):
     assert 'not a snowdb' in result.output
 
 
-def test_create_unknown_dataset_errors(runner, cli_obj, source_dem):
-    result = runner.invoke(
-        cli,
-        ['dataset', 'create', 'nope', '--source', 'terrain', str(source_dem)],
-        obj=cli_obj,
-    )
+def test_create_unknown_dataset_errors(runner, cli_obj):
+    result = runner.invoke(cli, ['dataset', 'create', 'nope'], obj=cli_obj)
 
     assert result.exit_code != 0
     assert 'No such dataset' in result.output
 
 
-# --- add / activate (explicit registration) ----------------------------------
+# --- register (create/add) / activate ----------------------------------------
 
 
 def _empty_ctx(tmp_path):
@@ -152,42 +165,80 @@ def _empty_ctx(tmp_path):
     return root, CliContext(config=root)
 
 
-def test_create_template_does_not_register_without_activate(runner, tmp_path):
+def test_create_registers_inactive(runner, tmp_path):
     root, ctx = _empty_ctx(tmp_path)
 
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'snodas', '--template', 'snodas', '--quick'],
+        ['dataset', 'create', 'snodas', '--template', 'snodas'],
         obj=ctx,
     )
 
     assert result.exit_code == 0, result.output
-    # Staged but not registered: opening from the config serves no datasets.
+    # The registered echo points at the two follow-up steps.
+    assert 'registered snodas' in result.output
+    assert 'dataset generate-zones snodas' in result.output
+    assert 'dataset activate snodas' in result.output
+    # Registered inactive: readers see nothing ...
     assert list(SnowDb.open(root)) == []
-    # ... but the staged config is on disk, ready to register.
+    # ... but the root config carries the link, flagged inactive, and the staged
+    # config is on disk.
+    config = RootConfig.load(root / CONFIG_FILENAME)
+    assert config.datasets['snodas'].active is False
     assert (root / 'data' / 'snodas' / 'dataset.json').is_file()
 
 
-def test_create_template_activate_registers(runner, tmp_path):
-    root, ctx = _empty_ctx(tmp_path)
+def test_create_is_idempotent_and_preserves_the_active_flag(runner, tmp_path):
+    # A fresh CliContext per invocation: each real CLI process opens the root
+    # config anew, and `create`'s registered-check must see the prior writes.
+    root, _ = _empty_ctx(tmp_path)
+    args = ['dataset', 'create', 'snodas', '--template', 'snodas']
 
-    result = runner.invoke(
+    first = runner.invoke(cli, args, obj=CliContext(config=root))
+    assert first.exit_code == 0, first.output
+    activated = runner.invoke(
         cli,
-        [
-            'dataset',
-            'create',
-            'snodas',
-            '--template',
-            'snodas',
-            '--quick',
-            '--activate',
-        ],
+        ['dataset', 'activate', 'snodas'],
+        obj=CliContext(config=root),
+    )
+    assert activated.exit_code == 0, activated.output
+
+    # Re-creating a registered dataset never touches its link: it stays active.
+    second = runner.invoke(cli, args, obj=CliContext(config=root))
+
+    assert second.exit_code == 0, second.output
+    assert 'registered' not in second.output
+    assert RootConfig.load(root / CONFIG_FILENAME).datasets['snodas'].active is True
+
+
+def test_activate_toggles_reader_visibility(runner, tmp_path):
+    root, ctx = _empty_ctx(tmp_path)
+    staged = runner.invoke(
+        cli,
+        ['dataset', 'create', 'snodas', '--template', 'snodas'],
         obj=ctx,
     )
+    assert staged.exit_code == 0, staged.output
 
-    assert result.exit_code == 0, result.output
-    assert 'registered snodas' in result.output
+    activated = runner.invoke(cli, ['dataset', 'activate', 'snodas'], obj=ctx)
+    assert activated.exit_code == 0, activated.output
+    assert 'activated snodas' in activated.output
     assert list(SnowDb.open(root)) == ['snodas']
+
+    deactivated = runner.invoke(cli, ['dataset', 'deactivate', 'snodas'], obj=ctx)
+    assert deactivated.exit_code == 0, deactivated.output
+    assert 'deactivated snodas' in deactivated.output
+    assert list(SnowDb.open(root)) == []
+
+
+@pytest.mark.parametrize('command', ['activate', 'deactivate'])
+def test_activate_unregistered_name_errors(runner, tmp_path, command):
+    _, ctx = _empty_ctx(tmp_path)
+
+    result = runner.invoke(cli, ['dataset', command, 'nope'], obj=ctx)
+
+    assert result.exit_code != 0
+    assert "No registered dataset 'nope'" in result.output
 
 
 def test_create_unknown_template_errors(runner, tmp_path):
@@ -195,7 +246,7 @@ def test_create_unknown_template_errors(runner, tmp_path):
 
     result = runner.invoke(
         cli,
-        ['dataset', 'create', 'x', '--template', 'nope', '--quick'],
+        ['dataset', 'create', 'x', '--template', 'nope'],
         obj=ctx,
     )
 
@@ -216,8 +267,12 @@ def test_add_registers_an_external_config(runner, cli_obj, initialized_root):
     )
 
     assert result.exit_code == 0, result.output
-    # 'test' was already registered by the fixture; 'snodas' joins it.
-    assert sorted(SnowDb.open(initialized_root)) == ['snodas', 'test']
+    assert 'inactive' in result.output
+    # 'test' was already registered by the fixture; 'snodas' joins it registered
+    # but inactive, so readers keep serving only 'test'.
+    db = SnowDb.open(initialized_root)
+    assert sorted(db.registered) == ['snodas', 'test']
+    assert list(db) == ['test']
 
 
 def test_add_rejects_an_unusable_config(runner, cli_obj, initialized_root):
@@ -346,11 +401,65 @@ def test_ingest_converges_and_force_reingests(
     assert fake.forces == [False, True]
 
 
+def test_inactive_dataset_is_manageable_but_not_queryable(
+    monkeypatch,
+    runner,
+    tmp_path,
+    spec,
+    source_dem,
+):
+    # The register/activate contract end-to-end: a deactivated dataset stays fully
+    # manageable by name (ingest), reports active=false, and the read surface
+    # (query) refuses it with a pointed "activate it" error.
+    class _FakeIngester:
+        def ingest(self, source, dataset, *, force=False):
+            return IngestResult(ingested=[date(2020, 1, 1)], skipped=[])
+
+    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', _FakeIngester())
+
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    config.ingester = 'fake'
+    register_dataset_config(manager, 'test', config)
+
+    # A fresh CliContext per invocation: each real CLI process opens the root
+    # config anew, so post-deactivate commands must see the flipped flag.
+    def ctx():
+        return CliContext(config=tmp_path)
+
+    deactivated = runner.invoke(cli, ['dataset', 'deactivate', 'test'], obj=ctx())
+    assert deactivated.exit_code == 0, deactivated.output
+
+    listed = runner.invoke(cli, ['dataset', 'list', '--format', 'json'], obj=ctx())
+    assert _json(listed) == [{'dataset': 'test', 'active': False}]
+
+    info = runner.invoke(
+        cli,
+        ['dataset', 'info', 'test', '--format', 'json'],
+        obj=ctx(),
+    )
+    assert info.exit_code == 0, info.output
+    assert _json(info)['active'] is False
+
+    ingested = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', str(source_dem)],
+        obj=ctx(),
+    )
+    assert ingested.exit_code == 0, ingested.output
+    assert 'ingested test 2020-01-01' in ingested.output
+
+    refused = runner.invoke(cli, ['query', 'dates', '-d', 'test'], obj=ctx())
+    assert refused.exit_code != 0
+    assert 'registered but inactive' in refused.output
+    assert 'dataset activate test' in refused.output
+
+
 # --- generate ----------------------------------------------------------------
 
 
 def test_generate_is_idempotent(runner, cli_obj, source_dem):
-    _create(runner, cli_obj, source_dem)
+    _create(runner, cli_obj)
 
     # Running generate repeatedly overwrites and always succeeds (idempotent).
     for _ in range(2):
@@ -385,7 +494,7 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
         return inner(source, targets, **kwargs)
 
     terrain._engine = _capture
-    _create(runner, cli_obj, source_dem)
+    _create(runner, cli_obj)
 
     result = runner.invoke(
         cli,
@@ -410,8 +519,8 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
     assert captured['block'] == 512
 
 
-def test_generate_landcover_is_idempotent(runner, cli_obj, source_dem, source_nlcd):
-    _create(runner, cli_obj, source_dem)
+def test_generate_landcover_is_idempotent(runner, cli_obj, source_nlcd):
+    _create(runner, cli_obj)
 
     for _ in range(2):
         result = runner.invoke(

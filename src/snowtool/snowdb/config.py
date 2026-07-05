@@ -152,11 +152,17 @@ class PathDatasetLink(BaseModel):
 
     ``path`` is relative to the root config's own directory (a relocatable tree)
     or absolute (a staged-elsewhere dataset). The dataset's data lives beside its
-    config, wherever the path points.
+    config, wherever the path points. ``active`` gates *visibility to readers*
+    (query/API), not existence: an inactive dataset is still registered -- resolved
+    by name for management (ingest, zone generation, health checks) -- but the
+    read surface skips it. Defaults ``True`` so a bare hand-written link just
+    works; ``dataset create``/``add`` register inactive and ``dataset activate``
+    flips the flag.
     """
 
     type: Literal['path'] = 'path'
     path: Path
+    active: bool = True
 
 
 class InlineDatasetLink(BaseModel):
@@ -166,10 +172,12 @@ class InlineDatasetLink(BaseModel):
     :class:`DatasetConfig` is carried here rather than in a separate file, so a
     snowdb can be built up entirely in memory (no dataset files on disk). An inline
     dataset's data lives at the conventional ``data/<name>/`` under the root.
+    ``active`` behaves as on :class:`PathDatasetLink`.
     """
 
     type: Literal['inline'] = 'inline'
     dataset: DatasetConfig
+    active: bool = True
 
 
 # A registered dataset link, discriminated on ``type``: a reference to a config
@@ -186,7 +194,8 @@ class RootConfig(ResourceModel):
     Holds the registered datasets (a map of dataset name to its
     :class:`DatasetLink` -- referenced or inline), the pourpoint index and records
     locations, and when the root was created. No datasets are registered by
-    default: a dataset goes live by adding it here.
+    default: this map is the source of truth for what datasets *exist*, and each
+    link's ``active`` flag for what readers *serve*.
     """
 
     resource: Literal['snowtool.snowdb/v1'] = 'snowtool.snowdb/v1'

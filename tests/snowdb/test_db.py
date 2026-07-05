@@ -1,6 +1,7 @@
 """SnowDb binds its configured specs; SnowDbManager creates/registers/rasterizes."""
 
 import asyncio
+import json
 import os
 import shutil
 
@@ -123,8 +124,9 @@ def test_initialize_writes_a_loadable_root_config(tmp_path):
     SnowDbManager.initialize(tmp_path, [_spec('snodas')])
 
     config = RootConfig.load(tmp_path / CONFIG_FILENAME)
-    # No datasets are registered by init -- a dataset goes live only by adding its
-    # link, not by being a configured spec.
+    # No datasets are registered by init -- a dataset exists only once its link
+    # is registered (and is served only while that link is active), not by being
+    # a configured spec.
     assert config.resource == 'snowtool.snowdb/v1'
     assert config.datasets == {}
 
@@ -413,12 +415,21 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)
 
-    staged = manager.stage_dataset('test', config_path, quick=True)
+    staged = manager.stage_dataset('test', config_path)
 
     assert staged.created is True
     assert staged.coverage == {'12345:MT:USGS': Coverage.FULL}
     assert staged.rasterized.built == [('12345:MT:USGS', 'test')]
     assert (ds_dir / 'aoi-rasters' / '12345_MT_USGS.tif').is_file()
+
+    # Re-staging converges: the skeleton is tolerated and the provenance-current
+    # AOI raster is skipped, not rebuilt (no implicit force -- a byte-level
+    # rebuild is `rasterize_aois(rebuild=True)` / `pourpoint rasterize --rebuild`).
+    restaged = manager.stage_dataset('test', config_path)
+    assert restaged.created is False
+    assert restaged.rasterized.built == []
+    assert restaged.rasterized.skipped == [('12345:MT:USGS', 'test')]
+    assert restaged.coverage == staged.coverage
 
     # Before commit: a fresh open does NOT see the dataset (config unwritten).
     assert list(SnowDb.open(tmp_path)) == []
@@ -450,6 +461,132 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     )
     (cell,) = stats.dump()[0].zones
     assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
+
+
+def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):
+    # The token partition is syntactic: a separator/.json token is a path (the
+    # catalog is never consulted); a bare token is a NAME resolved only from the
+    # root config -- an unregistered staged dataset no longer resolves by the
+    # old data/<name>/dataset.json convention.
+    manager = SnowDbManager.initialize(tmp_path)
+    staged_dir = tmp_path / 'data' / 'staged'
+    staged_dir.mkdir(parents=True)
+    config_path = staged_dir / DATASET_CONFIG_FILENAME
+    config_from_spec(spec).save(config_path)
+
+    # Not linked in the root config -> a reader does not serve it ...
+    assert 'staged' not in manager.db.datasets
+    # ... and its explicit config path resolves (name from the parent dir) ...
+    assert manager.resolve_dataset(str(config_path)).spec.name == 'staged'
+    # ... but the bare NAME does not: names never probe the filesystem.
+    with pytest.raises(ValueError, match="No registered dataset 'staged'"):
+        manager.resolve_dataset('staged')
+
+    with pytest.raises(ValueError, match="No registered dataset 'nope'"):
+        manager.resolve_dataset('nope')
+
+
+def test_resolve_dataset_name_is_never_shadowed_by_a_file(tmp_path, monkeypatch, spec):
+    # Collision-proofing: with a file in cwd named exactly like a registered
+    # dataset, the bare token still resolves the REGISTERED dataset (a name
+    # never touches the filesystem), and the path spelling of the same token
+    # never resolves the catalog entry.
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    manager = SnowDbManager.open(tmp_path)
+
+    workdir = tmp_path / 'work'
+    workdir.mkdir()
+    (workdir / 'test').write_text('{}')  # not a dataset config
+    (workdir / 'ghost').write_text('{}')  # no such registered dataset
+    monkeypatch.chdir(workdir)
+
+    resolved = manager.resolve_dataset('test')
+    assert resolved.spec.name == 'test'
+    assert resolved.path == tmp_path / 'data' / 'test'
+
+    # './test' has a separator -> the path branch: the file exists but is not a
+    # dataset config, so it fails validation instead of falling back to the name.
+    with pytest.raises(ValueError, match='validation error'):
+        manager.resolve_dataset('./test')
+
+    # An unregistered bare name raises even though a file of that name exists.
+    with pytest.raises(ValueError, match="No registered dataset 'ghost'"):
+        manager.resolve_dataset('ghost')
+
+
+def test_resolve_dataset_path_token_must_exist(tmp_path):
+    manager = SnowDbManager.initialize(tmp_path)
+
+    with pytest.raises(ValueError, match='No dataset config file at'):
+        manager.resolve_dataset('data/nope/dataset.json')
+
+
+@pytest.mark.parametrize('name', ['a/b', 'a\\b', 'x.json'])
+def test_register_dataset_rejects_pathlike_names(tmp_path, name):
+    # A name must be usable as a bare resolve_dataset token and a directory
+    # name; registration is the single choke point that enforces it.
+    manager = SnowDbManager.initialize(tmp_path)
+
+    with pytest.raises(ValueError, match='Invalid dataset name'):
+        manager.register_dataset(name, tmp_path / DATASET_CONFIG_FILENAME)
+
+    # The rejected call wrote nothing -- the config still has no datasets.
+    assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets == {}
+
+
+# --- register/activate split ---------------------------------------------------
+
+
+def test_inactive_dataset_is_registered_but_not_served(tmp_path, spec):
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir(spec.name, config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+    manager.register_dataset(spec.name, config_path, active=False)
+
+    db = SnowDb.open(tmp_path)
+    # Registered (the management surface binds it) but not served (readers skip it).
+    assert spec.name in db.registered
+    assert spec.name not in db.datasets
+    assert list(db) == []
+
+    # set_dataset_active flips the flag; a reopen serves the dataset.
+    SnowDbManager(db).set_dataset_active(spec.name, True)
+    reopened = SnowDb.open(tmp_path)
+    assert list(reopened) == [spec.name]
+    assert reopened.datasets[spec.name] is reopened.registered[spec.name]
+
+
+def test_set_dataset_active_rejects_an_unregistered_name(tmp_path):
+    manager = SnowDbManager.initialize(tmp_path)
+
+    with pytest.raises(ValueError, match="No registered dataset 'nope'"):
+        manager.set_dataset_active('nope', True)
+
+
+def test_bare_link_without_active_key_reads_as_active(tmp_path, spec):
+    # Backward/hand-written-config compatibility: a link JSON with no `active`
+    # key round-trips through RootConfig as active=True.
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir(spec.name, config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config.save(ds_dir / DATASET_CONFIG_FILENAME)
+
+    config_path = tmp_path / CONFIG_FILENAME
+    raw = json.loads(config_path.read_text())
+    raw['datasets'] = {
+        spec.name: {'type': 'path', 'path': f'data/{spec.name}/dataset.json'},
+    }
+    config_path.write_text(json.dumps(raw))
+
+    loaded = RootConfig.load(config_path)
+    assert loaded.datasets[spec.name].active is True
+    # And the reader serves it: bare links stay live with no config edits.
+    assert list(SnowDb.open(tmp_path)) == [spec.name]
 
 
 # --- register_dataset error paths (WS6) ---------------------------------------

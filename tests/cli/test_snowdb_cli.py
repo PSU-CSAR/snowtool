@@ -18,9 +18,12 @@ def test_status_json_for_uncreated_dataset(runner, cli_obj):
 
 
 def test_status_reflects_created_dataset(runner, cli_obj, source_dem):
+    # Create is stage-only; the zone layers status reports come from the
+    # explicit generate-zones pass.
+    runner.invoke(cli, ['dataset', 'create', 'test'], obj=cli_obj)
     runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
+        ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
 
