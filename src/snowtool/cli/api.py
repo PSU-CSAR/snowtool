@@ -46,8 +46,8 @@ class _ApiGroup(click.Group):
 
 
 def _build_serve_command() -> click.Command:
-    from gazebo.ext.cli import SettingsGroup, default_log_config
-    from gazebo.ext.uvicorn import serve_command
+    from gazebo.ext.cli import SettingsGroup
+    from gazebo.ext.uvicorn import default_log_config, serve_command
 
     from snowtool.api.settings import Settings
 
