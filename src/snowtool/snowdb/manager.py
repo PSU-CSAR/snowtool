@@ -393,8 +393,11 @@ class SnowDbManager:
         :attr:`StagedDataset.coverage`).
 
         ``progress`` reports each slow phase as a sequential tracked task: parsing
-        the pourpoint records, the AOI rasterize pass, and the per-pourpoint
-        coverage computation. Converge-by-default, like
+        the pourpoint records, the per-pourpoint coverage computation, and the
+        AOI rasterize pass. Coverage is computed *first* and only basins the new
+        grid can serve (``PARTIAL``/``FULL``) are rasterized -- an off-grid basin
+        has no window to burn, though its ``NONE`` coverage is still recorded so
+        the index reports it as off-grid. Converge-by-default, like
         ingest: an existing skeleton is tolerated, and rasterization rebuilds an
         AOI raster only when it is absent or its provenance tag reads stale (a
         changed basin polygon or a format-version bump). A byte-level forced
@@ -424,11 +427,6 @@ class SnowDbManager:
                 if pourpoint.polygon is not None:
                     basin_pourpoints.append(pourpoint)
                 task.advance()
-        rasterized = self.rasterize_aois(
-            basin_pourpoints,
-            [dataset],
-            progress=progress,
-        )
         domain = dataset.coverage_domain
         coverage: dict[types.StationTriplet, Coverage] = {}
         with progress.track(
@@ -441,6 +439,19 @@ class SnowDbManager:
                     domain,
                 )
                 task.advance()
+        # Coverage gates the burn: an off-grid basin (NONE) has no tile window
+        # on this grid, so only basins the grid at least partially serves are
+        # rasterized.
+        covered = [
+            pourpoint
+            for pourpoint in basin_pourpoints
+            if coverage[pourpoint.station_triplet] is not Coverage.NONE
+        ]
+        rasterized = self.rasterize_aois(
+            covered,
+            [dataset],
+            progress=progress,
+        )
         return StagedDataset(
             dataset=dataset,
             created=created,
@@ -840,21 +851,28 @@ class SnowDbManager:
 
         Builds the cartesian product of ``pourpoints`` x ``datasets``, (re)building a
         raster only when absent or its :attr:`Pourpoint.geometry_hash` tag no longer
-        matches (``rebuild=True`` forces all). ``progress`` reports the pass, advancing
-        once per pourpoint-dataset pair (built or skipped) -- the same seam zone-layer
-        generation uses. Returns the built vs. skipped ``(triplet, dataset_name)``
-        pairs.
+        matches (``rebuild=True`` forces all). A pair whose basin does not intersect
+        the dataset's coverage domain at all is *skipped* (an off-grid basin has no
+        tile window to burn), so a batch over mixed-extent grids never trips
+        :class:`~snowtool.exceptions.GeometryOutsideGridError`. ``progress`` reports
+        the pass, advancing once per pourpoint-dataset pair (built or skipped) --
+        the same seam zone-layer generation uses. Returns the built vs. skipped
+        ``(triplet, dataset_name)`` pairs.
         """
         pourpoints = list(pourpoints)
         datasets = list(datasets)
+        domains = [dataset.coverage_domain for dataset in datasets]
         built: list[tuple[types.StationTriplet, str]] = []
         skipped: list[tuple[types.StationTriplet, str]] = []
         total = len(pourpoints) * len(datasets)
         with progress.track('rasterizing', total=total) as task:
             for aoi in pourpoints:
-                for dataset in datasets:
+                for dataset, domain in zip(datasets, domains, strict=True):
                     pair = (aoi.station_triplet, dataset.spec.name)
-                    if dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
+                    if dataset_coverage(aoi, domain) is Coverage.NONE:
+                        # Entirely off this grid: nothing to burn.
+                        skipped.append(pair)
+                    elif dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
                         built.append(pair)
                     else:
                         skipped.append(pair)
