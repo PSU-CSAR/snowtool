@@ -57,6 +57,29 @@ Run the tests:
 pytest
 ```
 
+## Documentation
+
+Docs are built with [MkDocs](https://www.mkdocs.org) (Material theme) from the
+`docs/` directory and `mkdocs.yml`. The docs dependencies live in the `docs`
+dependency group, so run MkDocs through `uv run --group docs` (uv installs the
+group on first use — no separate `uv sync` step needed):
+
+```commandline
+uv run --group docs mkdocs serve
+```
+
+This serves a live-reloading preview at `http://localhost:8000`. Build a static
+site into `site/` instead with:
+
+```commandline
+uv run --group docs mkdocs build --strict
+```
+
+`--strict` fails the build on broken links or warnings (matching CI). The CLI
+and Python API reference pages are generated from the source (mkdocs-click and
+mkdocstrings), and the HTTP API page is rendered from the tested OpenAPI golden
+snapshot via `docs/hooks.py`, so no live snowdb is required.
+
 ## Modifying Dependencies
 
 With `uv`, adding dependencies is as simple as running `uv add`. Dev
