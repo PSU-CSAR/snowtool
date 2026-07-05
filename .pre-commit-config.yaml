@@ -1,17 +1,20 @@
 repos:
   - repo: local
     hooks:
+      # All hooks are language: system on purpose: every tool resolves from the
+      # project venv (uv.lock-pinned, reviewed), and the hook runner never
+      # builds isolated environments or installs anything itself.
       - id: ruff_check
         name: ruff check
         entry: ruff check --force-exclude
-        language: python
+        language: system
         'types_or': [python, pyi]
         args: [--fix, --exit-non-zero-on-fix]
         require_serial: true
       - id: ruff_format
         name: ruff format
         entry: ruff format --force-exclude
-        language: python
+        language: system
         'types_or': [python, pyi]
         args: []
         require_serial: true
@@ -44,7 +47,7 @@ repos:
       - id: mypy
         name: mypy
         entry: env MYPYPATH=src mypy
-        language: python
+        language: system
         types_or: [python, pyi]
         args: ["--ignore-missing-imports", "--scripts-are-modules", "--explicit-package-bases"]
         require_serial: true

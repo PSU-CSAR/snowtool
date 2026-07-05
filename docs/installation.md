@@ -25,4 +25,4 @@ uv sync --dev
 ```
 
 See [`CONTRIBUTING.md`](https://github.com/PSU-CSAR/django-snow/blob/main/CONTRIBUTING.md)
-for the full development setup (pre-commit, testing, and conventions).
+for the full development setup (git hooks, testing, and conventions).
