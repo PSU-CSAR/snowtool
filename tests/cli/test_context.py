@@ -70,7 +70,7 @@ def test_ambient_env_var_does_not_override_injected_config(
     )
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == [{'dataset': 'test'}]
+    assert json.loads(result.output) == [{'dataset': 'test', 'active': True}]
 
 
 def test_explicit_config_flag_still_overrides_injected_config(cli_obj, tmp_path):

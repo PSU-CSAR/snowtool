@@ -16,11 +16,17 @@ from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
 
 
 def _create(runner, cli_obj, source_dem):
-    return runner.invoke(
+    """Stage the synthetic dataset, then generate its zone layers explicitly
+    (create is stage-only; zones come only from generate-zones)."""
+    result = runner.invoke(cli, ['dataset', 'create', 'test'], obj=cli_obj)
+    assert result.exit_code == 0, result.output
+    generated = runner.invoke(
         cli,
-        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
+        ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
     )
+    assert generated.exit_code == 0, generated.output
+    return generated
 
 
 def _write_swe(root, grid, date_str='20180427'):
@@ -178,6 +184,41 @@ def test_validate_exits_nonzero_on_missing_files(runner, cli_obj):
     assert result.exit_code == 1
     assert 'missing-files: test' in result.output
     assert 'problem(s) found' in result.output
+
+
+def test_validate_skips_inactive_by_default(runner, cli_obj):
+    # 'test' is registered but uncreated (missing files -> findings). Deactivated,
+    # it drops out of the default sweep: validate gates what readers serve, so a
+    # half-built inactive dataset must not fail cron/CI. Each invocation gets a
+    # fresh CliContext (a real CLI process opens the root config anew).
+    def ctx():
+        from snowtool.cli._context import CliContext
+
+        return CliContext(
+            config=cli_obj.config,
+            zone_layer_providers=cli_obj.zone_layer_providers,
+        )
+
+    deactivated = runner.invoke(cli, ['dataset', 'deactivate', 'test'], obj=ctx())
+    assert deactivated.exit_code == 0, deactivated.output
+
+    result = runner.invoke(cli, ['snowdb', 'validate'], obj=ctx())
+    assert result.exit_code == 0
+    assert 'ok' in result.output
+
+    # --include-inactive widens the sweep back to everything registered ...
+    widened = runner.invoke(
+        cli,
+        ['snowdb', 'validate', '--include-inactive'],
+        obj=ctx(),
+    )
+    assert widened.exit_code == 1
+    assert 'missing-files: test' in widened.output
+
+    # ... and an explicit -d NAME always resolves from registered.
+    named = runner.invoke(cli, ['snowdb', 'validate', '-d', 'test'], obj=ctx())
+    assert named.exit_code == 1
+    assert 'missing-files: test' in named.output
 
 
 def test_validate_rolls_up_completeness_and_coverage(

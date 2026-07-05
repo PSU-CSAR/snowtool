@@ -307,7 +307,7 @@ def test_query_stats_unknown_dataset_is_clean_error(runner, cli_obj, populated_r
 
 
 def test_query_dates_lists_ingested_dates(runner, cli_obj, populated_root):
-    result = runner.invoke(cli, ['query', 'dates', 'test'], obj=cli_obj)
+    result = runner.invoke(cli, ['query', 'dates', '-d', 'test'], obj=cli_obj)
     assert result.exit_code == 0, result.output
     assert '2018-04-27' in result.output
 
@@ -315,7 +315,7 @@ def test_query_dates_lists_ingested_dates(runner, cli_obj, populated_root):
 def test_query_dates_filters_by_range(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
-        ['query', 'dates', 'test', '--start', '20190101'],
+        ['query', 'dates', '-d', 'test', '--start', '20190101'],
         obj=cli_obj,
     )
     assert result.exit_code == 0, result.output

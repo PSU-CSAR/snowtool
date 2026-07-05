@@ -176,7 +176,7 @@ def value_ranges(
     fmt: str,
 ) -> None:
     """Per-variable min/max/mean (unit-scaled) and nodata % for one date."""
-    ds = get_dataset(snowdb, name)
+    ds = get_dataset(snowdb, name, include_inactive=True)
     if on_date is None:
         dates = ds.available_dates()
         if not dates:
@@ -208,7 +208,7 @@ def value_ranges(
 @pass_snowdb
 def grid_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     """A dataset grid's CRS, extent, tiling, and cell area."""
-    ds = get_dataset(snowdb, name)
+    ds = get_dataset(snowdb, name, include_inactive=True)
     result = diagnostics.grid_report(ds)
     record = {
         'name': result.name,

@@ -196,7 +196,13 @@ def stats(
 
 
 @query.command('dates')
-@click.argument('name')
+@click.option(
+    '--dataset',
+    '-d',
+    'name',
+    required=True,
+    help='The dataset whose ingested dates to list (exactly one).',
+)
 @click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
 @click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
 @format_option
