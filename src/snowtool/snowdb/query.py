@@ -35,17 +35,17 @@ _MAX_DAY_IN_MONTH = {
 
 Month = Annotated[
     int,
-    Field(..., ge=1, le=12),
+    Field(..., ge=1, le=12, examples=[4]),
 ]
 
 Day = Annotated[
     int,
-    Field(..., ge=1, le=31),
+    Field(..., ge=1, le=31, examples=[1]),
 ]
 
 Year = Annotated[
     int,
-    Field(..., ge=1, le=9999),
+    Field(..., ge=1, le=9999, examples=[2008]),
 ]
 
 
@@ -64,8 +64,8 @@ class DateRangeQuery(BaseModel):
     # Either bound may be open (``None``): the query is a *filter* over the dates a
     # dataset actually has, so an open end simply drops that side's constraint (the
     # OGC ``datetime`` interval semantics). The CLI always supplies both.
-    start_date: date | None = None
-    end_date: date | None = None
+    start_date: date | None = Field(default=None, examples=['2008-12-01'])
+    end_date: date | None = Field(default=None, examples=['2008-12-14'])
 
     def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
         return '{}_{}-{}{}.csv'.format(
@@ -93,7 +93,7 @@ class DOYQuery(BaseModel):
     month: Month
     day: Day
     start_year: Year
-    end_year: Year
+    end_year: Year = Field(examples=[2020])
 
     @model_validator(mode='after')
     def _check_day_of_month(self: Self) -> Self:

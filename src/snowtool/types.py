@@ -9,20 +9,19 @@ temporal *query objects* (with their ``select``/``csv_name`` behaviour) live in
 
 from typing import Annotated
 
-from pydantic import Field, WithJsonSchema
+from pydantic import Field
 
 STATION_TRIPLET = r'[a-zA-Z0-9\-]+:[a-zA-Z]{2}:[a-zA-Z]+'
 
 
+# ``Field(examples=...)`` rather than ``WithJsonSchema(..., mode='validation')``:
+# the latter applies only to validation-mode schemas, so the example would be
+# invisible in every *response* schema (FastAPI renders those in serialization
+# mode) and Swagger would show a regex-generated random triplet instead.
 StationTriplet = Annotated[
     str,
     Field(
         pattern=f'^{STATION_TRIPLET}$',
-    ),
-    WithJsonSchema(
-        {
-            'example': '12354500:MT:USGS',
-        },
-        mode='validation',
+        examples=['12354500:MT:USGS'],
     ),
 ]

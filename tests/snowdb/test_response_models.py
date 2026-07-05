@@ -1,7 +1,5 @@
 """The per-dataset zonal-stats response models generated from a DatasetSpec."""
 
-import math
-
 from datetime import date
 
 import pytest
@@ -69,17 +67,34 @@ def test_zone_refs_discriminate_band_class_and_threshold(spec):
     )
 
 
-def test_nan_stat_serializes_to_null_but_stays_nan_in_memory(spec):
+def test_nan_stat_is_normalized_to_none_and_serializes_to_null(spec):
     cell = spec.zonal_stat_model(
         zone=[_band_ref()],
         area_m2=0.0,
         mean_swe_mm=float('nan'),
     )
-    # The in-memory value is still nan (zonal_stats relies on this)...
-    assert math.isnan(cell.mean_swe_mm)
-    # ...but it serializes to null, so the JSON is valid (no NaN literal).
+    # A no-data reduction (nan) is normalized to None at *construction* -- via a
+    # validator, not a model_serializer, so the response schema stays non-opaque
+    # (see test_cell_model_serialization_schema_is_not_opaque). Nothing reads the
+    # raw nan back off the model (CSV formats from the raw array), so None here is
+    # equivalent for every consumer.
+    assert cell.mean_swe_mm is None
+    # ...and it serializes to null, so the JSON is valid (no NaN literal).
     assert cell.model_dump(mode='json')['mean_swe_mm'] is None
     assert 'NaN' not in cell.model_dump_json()
+
+
+def test_cell_model_serialization_schema_is_not_opaque(spec):
+    # Regression guard for the OpenAPI docs: FastAPI renders response models in
+    # serialization mode, so the cell schema there must expose every field (a
+    # model_serializer would collapse it to a bare {'type': 'object'}, hiding the
+    # response shape from API users).
+    schema = spec.zonal_stat_model.model_json_schema(mode='serialization')
+    props = schema['properties']
+    assert {'zone', 'area_m2'} <= props.keys()
+    for variable in spec.variables.values():
+        assert variable.stat_name in props
+    assert not schema.get('additionalProperties')
 
 
 def test_real_stat_value_passes_through(spec):
