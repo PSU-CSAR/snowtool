@@ -35,7 +35,7 @@ from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
     from snowtool.snowdb.aoi_raster import AOIRaster
+    from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.spec import DatasetSpec
@@ -374,7 +375,7 @@ class SnowDbManager:
         name: str,
         dataset_config_path: Path,
         *,
-        rasterize_progress: ProgressReporter = NULL_PROGRESS,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> StagedDataset:
         """Build everything a new dataset needs, all *invisible* to readers.
 
@@ -391,7 +392,9 @@ class SnowDbManager:
         until :meth:`register_dataset` commits it (passing back
         :attr:`StagedDataset.coverage`).
 
-        ``rasterize_progress`` reports the AOI pass. Converge-by-default, like
+        ``progress`` reports each slow phase as a sequential tracked task: parsing
+        the pourpoint records, the AOI rasterize pass, and the per-pourpoint
+        coverage computation. Converge-by-default, like
         ingest: an existing skeleton is tolerated, and rasterization rebuilds an
         AOI raster only when it is absent or its provenance tag reads stale (a
         changed basin polygon or a format-version bump). A byte-level forced
@@ -410,21 +413,34 @@ class SnowDbManager:
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
-        basin_pourpoints = [
-            pourpoint
-            for pourpoint in self.db.pourpoints()
-            if pourpoint.polygon is not None
-        ]
+        record_paths = self.db.pourpoint_paths()
+        basin_pourpoints: list[Pourpoint] = []
+        with progress.track(
+            f'parsing {len(record_paths)} pourpoint record(s)',
+            total=len(record_paths),
+        ) as task:
+            for path in record_paths:
+                pourpoint = Pourpoint.from_geojson(path)
+                if pourpoint.polygon is not None:
+                    basin_pourpoints.append(pourpoint)
+                task.advance()
         rasterized = self.rasterize_aois(
             basin_pourpoints,
             [dataset],
-            progress=rasterize_progress,
+            progress=progress,
         )
         domain = dataset.coverage_domain
-        coverage = {
-            pourpoint.station_triplet: dataset_coverage(pourpoint, domain)
-            for pourpoint in basin_pourpoints
-        }
+        coverage: dict[types.StationTriplet, Coverage] = {}
+        with progress.track(
+            f'computing coverage for {len(basin_pourpoints)} pourpoint(s)',
+            total=len(basin_pourpoints),
+        ) as task:
+            for pourpoint in basin_pourpoints:
+                coverage[pourpoint.station_triplet] = dataset_coverage(
+                    pourpoint,
+                    domain,
+                )
+                task.advance()
         return StagedDataset(
             dataset=dataset,
             created=created,
@@ -557,16 +573,79 @@ class SnowDbManager:
 
     # --- pourpoint import / sync / lifecycle ----------------------------------------
 
-    def reindex_pourpoints(self: Self) -> PourpointIndex:
+    def reindex_pourpoints(
+        self: Self,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> PourpointIndex:
         """Rebuild ``index.geojson`` from the ``records/`` dir and persist it.
 
-        Coverage is re-derived against every *registered* dataset's current grid
-        (active or not -- an inactive dataset carries real coverage the moment it
-        is activated), so the manifest always reflects the live grids (a grid
-        change is picked up by re-running this).
+        The explicit FULL rebuild: every record is re-parsed and the persisted
+        index is ignored -- the recovery path for out-of-band ``records/`` edits
+        and for a grid change to an already-registered dataset (the one change
+        the incremental :meth:`_update_index` cannot see). Coverage is re-derived
+        against every *registered* dataset's current grid (active or not -- an
+        inactive dataset carries real coverage the moment it is activated), so
+        the manifest always reflects the live grids.
         """
-        domains = {name: ds.coverage_domain for name, ds in self.db.registered.items()}
-        index = PourpointIndex.from_records(self.db.pourpoint_records_path, domains)
+        domains = self._coverage_domains()
+        index = PourpointIndex.from_records(
+            self.db.pourpoint_records_path,
+            domains,
+            progress=progress,
+        )
+        index.save(self.db.pourpoint_index_path)
+        return index
+
+    def _coverage_domains(self: Self) -> dict[str, CoverageDomain]:
+        """Every registered dataset's coverage domain, keyed by name."""
+        return {name: ds.coverage_domain for name, ds in self.db.registered.items()}
+
+    def _update_index(
+        self: Self,
+        imported: Mapping[types.StationTriplet, Pourpoint],
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> PourpointIndex:
+        """Incrementally rebuild ``index.geojson`` after an import/sync/remove.
+
+        Iterates the *surviving* record files (so removed/pruned triplets fall
+        out naturally) and, per record: a pourpoint parsed in-memory by this
+        operation (``imported``) is indexed without a disk re-parse; an existing
+        index entry whose coverage keys still equal the registered-dataset names
+        is reused as-is; anything else -- a missing/stale index, or a dataset
+        registered/removed since the entry was written -- is re-parsed from disk
+        (the self-healing fallback). The one change this cannot see is a grid
+        change for an already-registered dataset name; that requires an explicit
+        :meth:`reindex_pourpoints`. ``progress`` reports the pass, advancing once
+        per record whether reused, rebuilt from memory, or parsed.
+        """
+        domains = self._coverage_domains()
+        previous = PourpointIndex.load(self.db.pourpoint_index_path)
+        paths = self.db.pourpoint_paths()
+        entries: list[PourpointIndexEntry] = []
+        with progress.track(
+            f'indexing {len(paths)} pourpoint(s)',
+            total=len(paths),
+        ) as task:
+            for path in paths:
+                triplet = triplet_naming.stem_to_triplet(path.stem)
+                if triplet in imported:
+                    entries.append(
+                        PourpointIndexEntry.from_pourpoint(imported[triplet], domains),
+                    )
+                elif triplet in previous and set(previous[triplet].coverage) == set(
+                    domains,
+                ):
+                    entries.append(previous[triplet])
+                else:
+                    pourpoint = Pourpoint.from_geojson(path)
+                    if pourpoint.polygon is not None:
+                        entries.append(
+                            PourpointIndexEntry.from_pourpoint(pourpoint, domains),
+                        )
+                task.advance()
+        index = PourpointIndex.from_entries(entries)
         index.save(self.db.pourpoint_index_path)
         return index
 
@@ -593,6 +672,8 @@ class SnowDbManager:
     @staticmethod
     def _classify_sources(
         sources: Iterable[Path],
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> tuple[
         list[tuple[Path, Pourpoint]],
         list[types.StationTriplet],
@@ -600,23 +681,30 @@ class SnowDbManager:
     ]:
         """Split source paths into importable AOIs, skipped point-only, invalid.
 
-        Pure (no writes): the caller decides whether to persist the result, so a
-        dry run and a real run classify identically.
+        Pure (no writes, aside from advancing ``progress`` once per source): the
+        caller decides whether to persist the result, so a dry run and a real run
+        classify identically.
         """
+        sources = list(sources)
         to_import: list[tuple[Path, Pourpoint]] = []
         skipped: list[types.StationTriplet] = []
         invalid: list[tuple[Path, str]] = []
-        for path in sources:
-            try:
-                aoi = Pourpoint.from_geojson(path)
-            except GeoJSONValidationError as e:
-                invalid.append((path, str(e)))
-                continue
-            if aoi.polygon is None:
-                # A valid pourpoint, but with no basin it is skipped.
-                skipped.append(aoi.station_triplet)
-                continue
-            to_import.append((path, aoi))
+        with progress.track(
+            f'parsing {len(sources)} pourpoint source(s)',
+            total=len(sources),
+        ) as task:
+            for path in sources:
+                try:
+                    aoi = Pourpoint.from_geojson(path)
+                except GeoJSONValidationError as e:
+                    invalid.append((path, str(e)))
+                else:
+                    if aoi.polygon is None:
+                        # A valid pourpoint, but with no basin it is skipped.
+                        skipped.append(aoi.station_triplet)
+                    else:
+                        to_import.append((path, aoi))
+                task.advance()
         return to_import, skipped, invalid
 
     def _write_records(self: Self, to_import: Iterable[tuple[Path, Pourpoint]]) -> None:
@@ -630,20 +718,27 @@ class SnowDbManager:
         src: Path,
         *,
         dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> PourpointImportResult:
         """Additively import Pourpoint(s) from a file or directory into ``records/``.
 
         Imports only polygon-bearing pourpoints (skips point-only ones, reports
         unparseable ones); never removes anything. Idempotent: re-importing a
-        triplet overwrites its record. Rebuilds the index unless ``dry_run``.
+        triplet overwrites its record. Updates the index incrementally
+        (:meth:`_update_index` -- untouched entries are reused, not re-parsed)
+        unless ``dry_run``. ``progress`` reports the parse and index phases.
         """
         to_import, skipped, invalid = self._classify_sources(
             self._resolve_sources(src),
+            progress=progress,
         )
         imported = [aoi.station_triplet for _, aoi in to_import]
         if not dry_run:
             self._write_records(to_import)
-            self.reindex_pourpoints()
+            self._update_index(
+                {aoi.station_triplet: aoi for _, aoi in to_import},
+                progress=progress,
+            )
         return PourpointImportResult(imported, skipped, invalid)
 
     def sync_pourpoints(
@@ -652,6 +747,7 @@ class SnowDbManager:
         *,
         prune_to: Path | None = None,
         dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> PourpointSyncResult:
         """Mirror a directory into storage: import it, then prune absent records.
 
@@ -660,7 +756,9 @@ class SnowDbManager:
         first. Removal is gated: if any pourpoint would be pruned and ``prune_to``
         is ``None`` (and not a dry run), raises
         :class:`PourpointPruneDestinationRequiredError` before writing anything, so
-        the destructive step is never silent.
+        the destructive step is never silent. The index is updated incrementally
+        (:meth:`_update_index`; pruned triplets simply fall out) unless
+        ``dry_run``. ``progress`` reports the parse and index phases.
         """
         src = Path(src)
         if not src.is_dir():
@@ -668,6 +766,7 @@ class SnowDbManager:
 
         to_import, skipped, invalid = self._classify_sources(
             sorted(src.glob('*.geojson')),
+            progress=progress,
         )
         imported = [aoi.station_triplet for _, aoi in to_import]
         # Both AOIs and point-only pourpoints in the source represent triplets the
@@ -684,7 +783,10 @@ class SnowDbManager:
             self._write_records(to_import)
             for triplet in to_prune:
                 self._remove_pourpoint_files(triplet, dump_to=prune_to)
-            self.reindex_pourpoints()
+            self._update_index(
+                {aoi.station_triplet: aoi for _, aoi in to_import},
+                progress=progress,
+            )
 
         return PourpointSyncResult(imported, skipped, invalid, to_prune)
 
@@ -697,7 +799,8 @@ class SnowDbManager:
         """Delete a record and cascade to every dataset's burned AOI raster.
 
         Optionally dumps the record to ``dump_to`` first (the reversible prune
-        path). Does not touch the index -- callers reindex once after a batch.
+        path). Does not touch the index -- callers update it once after a batch
+        (:meth:`_update_index`).
         """
         if dump_to is not None:
             self.db.dump_pourpoint(triplet, dump_to)
@@ -710,16 +813,19 @@ class SnowDbManager:
         triplet: types.StationTriplet,
         *,
         dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> bool:
         """Remove a stored pourpoint and its per-dataset rasters; True if it existed.
 
         Cascade-deletes the record plus every ``aoi-rasters/<triplet>.tif`` and
-        rebuilds the index. Idempotent: removing an absent pourpoint is a no-op success.
+        updates the index incrementally (:meth:`_update_index` -- surviving
+        entries are reused, the removed one falls out). Idempotent: removing an
+        absent pourpoint is a no-op success.
         """
         existed = self.db.pourpoint_record_path(triplet).is_file()
         if not dry_run:
             self._remove_pourpoint_files(triplet)
-            self.reindex_pourpoints()
+            self._update_index({}, progress=progress)
         return existed
 
     def rasterize_aois(

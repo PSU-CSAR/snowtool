@@ -59,10 +59,8 @@ class ClickProgress:
             with NULL_PROGRESS.track(label) as task:
                 yield task
             return
-        # click.progressbar renders nothing on a non-TTY; echo the label there too so
-        # a backgrounded/CI run (`> log 2>&1`) still shows the step is underway rather
-        # than sitting silent for the whole reprojection/download.
-        if not sys.stderr.isatty():
-            click.echo(f'{label}...', err=True)
+        # On a non-TTY click.progressbar renders no bar but still echoes the label
+        # line once, so a backgrounded/CI run (`> log 2>&1`) shows the step without
+        # any extra echo here.
         with click.progressbar(length=total, label=label, file=sys.stderr) as bar:
             yield _BarTask(bar.update)

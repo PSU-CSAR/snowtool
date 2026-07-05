@@ -4,6 +4,7 @@ import hashlib
 import json
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Annotated, Any, Self
 
@@ -149,7 +150,10 @@ class Pourpoint:
             )
         return kwargs
 
-    @property
+    # Pourpoints are treated as immutable after construction, so the derived
+    # geometry/area/hash below are cached_property (computed once per instance;
+    # the no-polygon ValueError is deliberately not cached, so it raises anew).
+    @cached_property
     def geometry(self: Self) -> Geometry:
         if self.polygon is None:
             raise ValueError('pourpoint does not have a basin polygon')
@@ -158,7 +162,7 @@ class Pourpoint:
         # them directly (no intermediate mapping).
         return shapely.geometry.shape(self.polygon)
 
-    @property
+    @cached_property
     def area_meters(self: Self) -> float:
         """Geodesic area (m^2) of the basin polygon on the WGS84 ellipsoid.
 
@@ -169,7 +173,7 @@ class Pourpoint:
         area, _ = _GEOD.geometry_area_perimeter(self.geometry)
         return abs(area)
 
-    @property
+    @cached_property
     def geometry_hash(self: Self) -> str:
         """A stable hex sha256 of the basin polygon, identifying its raster.
 

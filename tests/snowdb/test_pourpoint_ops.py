@@ -12,11 +12,13 @@ from snowtool.exceptions import (
     PourpointPruneDestinationRequiredError,
 )
 from snowtool.snowdb.aoi_raster import aoi_provenance
+from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.spec import DatasetSpec
 
-from ..conftest import make_manager
+from ..conftest import CapturingProgress, make_manager
 
 _POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
 
@@ -263,6 +265,167 @@ def test_load_pourpoint_gates_on_index(manager, db):
 
     manager.reindex_pourpoints()
     assert db.load_pourpoint('77777:MT:USGS').station_triplet == '77777:MT:USGS'
+
+
+# --- incremental index maintenance --------------------------------------------
+
+
+def _mutate_record_name(db, triplet, name):
+    """Edit a stored record's ``name`` out of band (no reindex): index drift."""
+    path = db.pourpoint_record_path(triplet)
+    record = json.loads(path.read_text())
+    record['properties']['name'] = name
+    path.write_text(json.dumps(record))
+
+
+def test_import_reuses_untouched_index_entries(manager, db, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
+
+    # Importing a *different* pourpoint must not re-parse the untouched record:
+    # its entry is reused as-is, so the out-of-band drift stays invisible.
+    manager.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+
+    index = db.pourpoint_index()
+    assert index.triplets() == {'11111:MT:USGS', '22222:MT:USGS'}
+    assert index['11111:MT:USGS'].name == '11111:MT:USGS'  # reused (stale name)
+    assert index['22222:MT:USGS'].name == '22222:MT:USGS'
+
+    # The explicit full rebuild is the recovery path for out-of-band edits.
+    manager.reindex_pourpoints()
+    assert db.pourpoint_index()['11111:MT:USGS'].name == 'MUTATED'
+
+
+def test_remove_drops_removed_entry_and_reuses_the_rest(manager, db, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
+
+    assert manager.remove_pourpoint('22222:MT:USGS') is True
+
+    index = db.pourpoint_index()
+    assert index.triplets() == {'11111:MT:USGS'}
+    # Still the pre-mutation name: the surviving entry was reused, not re-parsed.
+    assert index['11111:MT:USGS'].name == '11111:MT:USGS'
+
+
+def test_sync_prune_drops_pruned_and_reuses_untouched(manager, db, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
+
+    # 11111 is point-only in the source: present (not pruned) but not
+    # re-imported, so its stored record survives and its entry must be reused.
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS', with_polygon=False)
+
+    result = manager.sync_pourpoints(src, prune_to=tmp_path / 'archive')
+
+    assert result.pruned == ['22222:MT:USGS']
+    index = db.pourpoint_index()
+    assert index.triplets() == {'11111:MT:USGS'}
+    assert index['11111:MT:USGS'].name == '11111:MT:USGS'  # reused (stale name)
+
+
+def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spec):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
+    assert set(db.pourpoint_index()['11111:MT:USGS'].coverage) == {'test'}
+
+    # A second registered dataset changes the coverage key set, so the reuse
+    # guard fails and the entry is rebuilt from disk on the next import --
+    # picking up both the new coverage key and the record's current content.
+    other = DatasetSpec(
+        name='other',
+        grid_params=spec.grid_params,
+        variables=spec.variables.values(),
+    )
+    manager2 = make_manager(tmp_path, [spec, other])
+    manager2.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+
+    index = manager2.db.pourpoint_index()
+    entry = index['11111:MT:USGS']
+    assert set(entry.coverage) == {'test', 'other'}
+    assert entry.coverage['other'] is Coverage.FULL
+    assert entry.name == 'MUTATED'  # rebuilt from disk, not reused
+
+
+def test_missing_index_self_heals_on_import(manager, db, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    db.pourpoint_index_path.unlink()
+
+    manager.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+
+    # No old entry to reuse -> the fallback re-parses the record from disk.
+    assert db.pourpoint_index().triplets() == {'11111:MT:USGS', '22222:MT:USGS'}
+
+
+# --- progress reporting --------------------------------------------------------
+
+
+def test_import_reports_parse_and_index_phases(manager, tmp_path):
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS')
+    _write_aoi(src, '22222:MT:USGS')
+    progress = CapturingProgress()
+
+    manager.import_pourpoints(src, progress=progress)
+
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('parsing 2 pourpoint source(s)', 2, 2),
+        ('indexing 2 pourpoint(s)', 2, 2),
+    ]
+
+
+def test_import_dry_run_reports_only_the_parse_phase(manager, tmp_path):
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS')
+    progress = CapturingProgress()
+
+    manager.import_pourpoints(src, dry_run=True, progress=progress)
+
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('parsing 1 pourpoint source(s)', 1, 1),
+    ]
+
+
+def test_sync_reports_parse_and_index_phases(manager, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    src = tmp_path / 'src'
+    _write_aoi(src, '11111:MT:USGS')
+    progress = CapturingProgress()
+
+    manager.sync_pourpoints(src, prune_to=tmp_path / 'archive', progress=progress)
+
+    # The index phase totals the *surviving* records (22222 was pruned).
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('parsing 1 pourpoint source(s)', 1, 1),
+        ('indexing 1 pourpoint(s)', 1, 1),
+    ]
+
+
+def test_reindex_reports_the_index_phase(manager, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    progress = CapturingProgress()
+
+    manager.reindex_pourpoints(progress=progress)
+
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('indexing 2 pourpoint(s)', 2, 2),
+    ]
+
+
+def test_remove_reports_the_index_phase(manager, tmp_path):
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    progress = CapturingProgress()
+
+    manager.remove_pourpoint('22222:MT:USGS', progress=progress)
+
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('indexing 1 pourpoint(s)', 1, 1),
+    ]
 
 
 # --- Dataset staleness + cascade primitives ----------------------------------
