@@ -14,24 +14,24 @@ if TYPE_CHECKING:
 class VariableInfo(BaseModel):
     """A requestable variable of a dataset and how its stat is reported."""
 
-    key: str
-    stat_name: str
-    unit: str
-    reducer: str
+    key: str = Field(examples=['swe'])
+    stat_name: str = Field(examples=['mean_swe_mm'])
+    unit: str = Field(examples=['mm'])
+    reducer: str = Field(examples=['mean'])
 
 
 class GridInfo(BaseModel):
     """A summary of a dataset's tiled grid."""
 
-    crs: str
-    rows: int
-    cols: int
-    tile_size: int
-    is_geographic: bool
+    crs: str = Field(examples=['4326'])
+    rows: int = Field(examples=[3351])
+    cols: int = Field(examples=[6935])
+    tile_size: int = Field(examples=[256])
+    is_geographic: bool = Field(examples=[True])
 
 
 class DatasetInfo(BaseModel):
-    name: str
+    name: str = Field(examples=['snodas'])
     grid: GridInfo
     variables: list[VariableInfo]
     links: list[Link] = Field(default_factory=list)
@@ -63,7 +63,7 @@ class DatasetInfo(BaseModel):
 
 
 class DatasetList(BaseModel):
-    datasets: list[str]
+    datasets: list[str] = Field(examples=[['instarr', 'snodas', 'swann-800m']])
     links: list[Link] = Field(default_factory=list)
 
     @classmethod

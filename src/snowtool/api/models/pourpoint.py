@@ -45,17 +45,20 @@ class PourpointProperties(BaseModel):
     basin view still carries the point.
     """
 
-    name: str
-    area_meters: float | None = None
-    pourpoint: tuple[float, float]
-    coverage: dict[str, Coverage] = Field(default_factory=dict)
+    name: str = Field(examples=['Clark Fork R at St. Regis'])
+    area_meters: float | None = Field(default=None, examples=[27740389176.98])
+    pourpoint: tuple[float, float] = Field(examples=[(-115.087346, 47.301864)])
+    coverage: dict[str, Coverage] = Field(
+        default_factory=dict,
+        examples=[{'snodas': 'full', 'swann-800m': 'full', 'instarr': 'partial'}],
+    )
 
 
 class PourpointDetailProperties(PourpointProperties):
     """The single-record (detail) properties: the summary set + curated ids."""
 
-    awdb_id: str | None = None
-    usgs_id: str | None = None
+    awdb_id: str | None = Field(default=None, examples=['12354500'])
+    usgs_id: str | None = Field(default=None, examples=['12354500'])
 
 
 # The concrete response models (used as ``response_model`` and for OpenAPI).

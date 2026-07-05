@@ -8,8 +8,8 @@ A dataset's variables are not known until its spec is defined, so the per-cell m
 for its zonal statistics is built dynamically with :func:`pydantic.create_model` and
 cached on the spec (``spec.zonal_stat_model`` / ``spec.zonal_stats_model``). Each
 variable contributes one ``<reducer>_<key>_<unit>`` field (see
-:attr:`DatasetVariable.stat_name`); cells with no valid pixels carry ``nan`` in
-memory, which the base model serializes to ``null`` for valid JSON.
+:attr:`DatasetVariable.stat_name`) typed :data:`StatValue`, which normalizes a
+no-valid-pixels ``nan`` to ``None`` at construction so the JSON is always valid.
 
 The response shape is a flat list of self-describing crossed-zone cells (not a
 nested tree): each cell carries ``zone`` -- one :class:`ZoneRef` per crossed axis --
@@ -27,10 +27,9 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     Field,
-    SerializerFunctionWrapHandler,
     create_model,
-    model_serializer,
 )
 
 if TYPE_CHECKING:
@@ -41,19 +40,19 @@ class BandZoneRef(BaseModel):
     """One crossed-zone axis that is a numeric band ``[min, max)`` in ``unit``."""
 
     kind: Literal['band'] = 'band'
-    layer: str  # the registry key, e.g. 'terrain.elevation'
-    min: int
-    max: int
-    unit: str
+    layer: str = Field(examples=['terrain.elevation'])  # the registry key
+    min: int = Field(examples=[6000])
+    max: int = Field(examples=[7000])
+    unit: str = Field(examples=['ft'])
 
 
 class ClassZoneRef(BaseModel):
     """One crossed-zone axis that is a discrete class (its ``code`` + ``label``)."""
 
     kind: Literal['class'] = 'class'
-    layer: str  # the registry key, e.g. 'terrain.aspect'
-    code: int
-    label: str
+    layer: str = Field(examples=['terrain.aspect'])  # the registry key
+    code: int = Field(examples=[0])
+    label: str = Field(examples=['N'])
 
 
 class ThresholdZoneRef(BaseModel):
@@ -65,11 +64,11 @@ class ThresholdZoneRef(BaseModel):
     """
 
     kind: Literal['threshold'] = 'threshold'
-    layer: str  # the registry key, e.g. 'landcover.forest_cover'
-    threshold: float
-    unit: str
-    side: Literal['below', 'above']
-    label: str
+    layer: str = Field(examples=['landcover.forest_cover'])  # the registry key
+    threshold: float = Field(examples=[50.0])
+    unit: str = Field(examples=['%'])
+    side: Literal['below', 'above'] = Field(examples=['above'])
+    label: str = Field(examples=['forested'])
 
 
 # A per-axis zone ref: a band, class, or threshold ref, discriminated on ``kind``.
@@ -79,18 +78,22 @@ ZoneRef = Annotated[
 ]
 
 
-class ZonalStatBase(BaseModel):
-    """Base for the generated per-cell models: turns any ``nan`` float to null."""
+def _nan_to_none(value: Any) -> Any:
+    """A float ``nan`` becomes ``None``; every other value passes through."""
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    return value
 
-    @model_serializer(mode='wrap')
-    def _nan_to_null(
-        self,
-        handler: SerializerFunctionWrapHandler,
-    ) -> dict[str, Any]:
-        return {
-            key: (None if isinstance(value, float) and math.isnan(value) else value)
-            for key, value in handler(self).items()
-        }
+
+# A variable's stat value in a generated cell model. A no-valid-pixels reduction
+# arrives as ``nan`` and is normalized to ``None`` at construction, so the model
+# always serializes to valid JSON (``null``, never a ``NaN`` literal). Deliberately
+# a ``BeforeValidator``, not a ``model_serializer``: a custom model serializer has
+# no declared output schema, so FastAPI (which renders response models in
+# serialization mode) would collapse every generated cell model to an opaque
+# ``{"type": "object"}`` -- hiding the response shape from the OpenAPI docs. No
+# consumer reads the raw ``nan`` back (the CSV path formats from the raw array).
+StatValue = Annotated[float | None, BeforeValidator(_nan_to_none)]
 
 
 def build_zonal_stat_model(spec: DatasetSpec) -> type[BaseModel]:
@@ -100,15 +103,33 @@ def build_zonal_stat_model(spec: DatasetSpec) -> type[BaseModel]:
     variable adds one ``<reducer>_<key>_<unit>`` stat field.
     """
     fields: dict[str, Any] = {
-        'zone': (list[ZoneRef], ...),
-        'area_m2': (Annotated[float, Field(ge=0)], ...),
+        'zone': (
+            list[ZoneRef],
+            Field(
+                ...,
+                examples=[
+                    [
+                        {
+                            'kind': 'band',
+                            'layer': 'terrain.elevation',
+                            'min': 6000,
+                            'max': 7000,
+                            'unit': 'ft',
+                        },
+                    ],
+                ],
+            ),
+        ),
+        'area_m2': (Annotated[float, Field(ge=0)], Field(..., examples=[592891.69])),
     }
     for variable in spec.variables.values():
-        fields[variable.stat_name] = (float | None, None)
+        fields[variable.stat_name] = (
+            StatValue,
+            Field(default=None, examples=[42.7]),
+        )
 
     return create_model(
         f'{spec.model_prefix}ZonalStat',
-        __base__=ZonalStatBase,
         **fields,
     )
 
@@ -120,7 +141,7 @@ def build_zonal_stats_model(
     """Build the per-date wrapper model (``date`` + crossed axes + the cells)."""
     return create_model(
         f'{spec.model_prefix}ZonalStats',
-        date=(date, ...),
-        zone_layers=(list[str], ...),
+        date=(date, Field(..., examples=['2008-12-14'])),
+        zone_layers=(list[str], Field(..., examples=[['terrain.elevation']])),
         zones=(list[stat_model], ...),  # type: ignore[valid-type]
     )
