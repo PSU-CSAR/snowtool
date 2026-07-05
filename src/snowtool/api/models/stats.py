@@ -36,7 +36,7 @@ class StatsResponse[T](BaseModel):
     """A per-dataset zonal-stats envelope: pourpoint/query echo + results + links."""
 
     pourpoint: types.StationTriplet
-    dataset: str
+    dataset: str = Field(examples=['snodas'])
     query: PourPointQuery
     results: list[T]
     links: list[Link] = Field(default_factory=list)

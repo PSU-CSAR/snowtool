@@ -11,18 +11,30 @@
             "type": "string"
           },
           "layer": {
+            "examples": [
+              "terrain.elevation"
+            ],
             "title": "Layer",
             "type": "string"
           },
           "max": {
+            "examples": [
+              7000
+            ],
             "title": "Max",
             "type": "integer"
           },
           "min": {
+            "examples": [
+              6000
+            ],
             "title": "Min",
             "type": "integer"
           },
           "unit": {
+            "examples": [
+              "ft"
+            ],
             "title": "Unit",
             "type": "string"
           }
@@ -40,6 +52,9 @@
         "description": "One crossed-zone axis that is a discrete class (its ``code`` + ``label``).",
         "properties": {
           "code": {
+            "examples": [
+              0
+            ],
             "title": "Code",
             "type": "integer"
           },
@@ -50,10 +65,16 @@
             "type": "string"
           },
           "label": {
+            "examples": [
+              "N"
+            ],
             "title": "Label",
             "type": "string"
           },
           "layer": {
+            "examples": [
+              "terrain.aspect"
+            ],
             "title": "Layer",
             "type": "string"
           }
@@ -93,24 +114,36 @@
       "DOYQuery": {
         "properties": {
           "day": {
+            "examples": [
+              1
+            ],
             "maximum": 31.0,
             "minimum": 1.0,
             "title": "Day",
             "type": "integer"
           },
           "end_year": {
+            "examples": [
+              2020
+            ],
             "maximum": 9999.0,
             "minimum": 1.0,
             "title": "End Year",
             "type": "integer"
           },
           "month": {
+            "examples": [
+              4
+            ],
             "maximum": 12.0,
             "minimum": 1.0,
             "title": "Month",
             "type": "integer"
           },
           "start_year": {
+            "examples": [
+              2008
+            ],
             "maximum": 9999.0,
             "minimum": 1.0,
             "title": "Start Year",
@@ -145,6 +178,9 @@
             "type": "array"
           },
           "name": {
+            "examples": [
+              "snodas"
+            ],
             "title": "Name",
             "type": "string"
           },
@@ -167,6 +203,13 @@
       "DatasetList": {
         "properties": {
           "datasets": {
+            "examples": [
+              [
+                "instarr",
+                "snodas",
+                "swann-800m"
+              ]
+            ],
             "items": {
               "type": "string"
             },
@@ -199,6 +242,9 @@
                 "type": "null"
               }
             ],
+            "examples": [
+              "2008-12-14"
+            ],
             "title": "End Date"
           },
           "start_date": {
@@ -210,6 +256,9 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              "2008-12-01"
             ],
             "title": "Start Date"
           },
@@ -684,22 +733,37 @@
         "description": "A summary of a dataset's tiled grid.",
         "properties": {
           "cols": {
+            "examples": [
+              6935
+            ],
             "title": "Cols",
             "type": "integer"
           },
           "crs": {
+            "examples": [
+              "4326"
+            ],
             "title": "Crs",
             "type": "string"
           },
           "is_geographic": {
+            "examples": [
+              true
+            ],
             "title": "Is Geographic",
             "type": "boolean"
           },
           "rows": {
+            "examples": [
+              3351
+            ],
             "title": "Rows",
             "type": "integer"
           },
           "tile_size": {
+            "examples": [
+              256
+            ],
             "title": "Tile Size",
             "type": "integer"
           }
@@ -728,17 +792,201 @@
         "type": "object"
       },
       "InstarrZonalStat": {
-        "additionalProperties": true,
+        "properties": {
+          "area_m2": {
+            "examples": [
+              592891.69
+            ],
+            "minimum": 0.0,
+            "title": "Area M2",
+            "type": "number"
+          },
+          "mean_albedo_dirty_flat_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Albedo Dirty Flat Percent"
+          },
+          "mean_albedo_dirty_terrain_corrected_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Albedo Dirty Terrain Corrected Percent"
+          },
+          "mean_deltavis_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Deltavis Percent"
+          },
+          "mean_dust_concentration_ppm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Dust Concentration Ppm"
+          },
+          "mean_grain_size_um": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Grain Size Um"
+          },
+          "mean_radiative_forcing_w_per_m2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Radiative Forcing W Per M2"
+          },
+          "mean_snow_cover_duration_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Snow Cover Duration Day"
+          },
+          "mean_snow_fraction_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Snow Fraction Percent"
+          },
+          "mean_viewable_snow_fraction_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Viewable Snow Fraction Percent"
+          },
+          "zone": {
+            "examples": [
+              [
+                {
+                  "kind": "band",
+                  "layer": "terrain.elevation",
+                  "max": 7000,
+                  "min": 6000,
+                  "unit": "ft"
+                }
+              ]
+            ],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "band": "#/components/schemas/BandZoneRef",
+                  "class": "#/components/schemas/ClassZoneRef",
+                  "threshold": "#/components/schemas/ThresholdZoneRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/BandZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ClassZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ThresholdZoneRef"
+                }
+              ]
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone",
+          "area_m2"
+        ],
+        "title": "InstarrZonalStat",
         "type": "object"
       },
       "InstarrZonalStats": {
         "properties": {
           "date": {
+            "examples": [
+              "2008-12-14"
+            ],
             "format": "date",
             "title": "Date",
             "type": "string"
           },
           "zone_layers": {
+            "examples": [
+              [
+                "terrain.elevation"
+              ]
+            ],
             "items": {
               "type": "string"
             },
@@ -1416,6 +1664,9 @@
                 "type": "null"
               }
             ],
+            "examples": [
+              27740389176.98
+            ],
             "title": "Area Meters"
           },
           "awdb_id": {
@@ -1427,20 +1678,39 @@
                 "type": "null"
               }
             ],
+            "examples": [
+              "12354500"
+            ],
             "title": "Awdb Id"
           },
           "coverage": {
             "additionalProperties": {
               "$ref": "#/components/schemas/Coverage"
             },
+            "examples": [
+              {
+                "instarr": "partial",
+                "snodas": "full",
+                "swann-800m": "full"
+              }
+            ],
             "title": "Coverage",
             "type": "object"
           },
           "name": {
+            "examples": [
+              "Clark Fork R at St. Regis"
+            ],
             "title": "Name",
             "type": "string"
           },
           "pourpoint": {
+            "examples": [
+              [
+                -115.087346,
+                47.301864
+              ]
+            ],
             "maxItems": 2,
             "minItems": 2,
             "prefixItems": [
@@ -1462,6 +1732,9 @@
               {
                 "type": "null"
               }
+            ],
+            "examples": [
+              "12354500"
             ],
             "title": "Usgs Id"
           }
@@ -1485,20 +1758,39 @@
                 "type": "null"
               }
             ],
+            "examples": [
+              27740389176.98
+            ],
             "title": "Area Meters"
           },
           "coverage": {
             "additionalProperties": {
               "$ref": "#/components/schemas/Coverage"
             },
+            "examples": [
+              {
+                "instarr": "partial",
+                "snodas": "full",
+                "swann-800m": "full"
+              }
+            ],
             "title": "Coverage",
             "type": "object"
           },
           "name": {
+            "examples": [
+              "Clark Fork R at St. Regis"
+            ],
             "title": "Name",
             "type": "string"
           },
           "pourpoint": {
+            "examples": [
+              [
+                -115.087346,
+                47.301864
+              ]
+            ],
             "maxItems": 2,
             "minItems": 2,
             "prefixItems": [
@@ -1556,17 +1848,187 @@
         "type": "object"
       },
       "SnodasZonalStat": {
-        "additionalProperties": true,
+        "properties": {
+          "area_m2": {
+            "examples": [
+              592891.69
+            ],
+            "minimum": 0.0,
+            "title": "Area M2",
+            "type": "number"
+          },
+          "mean_average_temp_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Average Temp K"
+          },
+          "mean_depth_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Depth Mm"
+          },
+          "mean_precip_liquid_kg_per_m2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Precip Liquid Kg Per M2"
+          },
+          "mean_precip_solid_kg_per_m2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Precip Solid Kg Per M2"
+          },
+          "mean_runoff_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Runoff Mm"
+          },
+          "mean_sublimation_blowing_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Sublimation Blowing Mm"
+          },
+          "mean_sublimation_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Sublimation Mm"
+          },
+          "mean_swe_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Swe Mm"
+          },
+          "zone": {
+            "examples": [
+              [
+                {
+                  "kind": "band",
+                  "layer": "terrain.elevation",
+                  "max": 7000,
+                  "min": 6000,
+                  "unit": "ft"
+                }
+              ]
+            ],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "band": "#/components/schemas/BandZoneRef",
+                  "class": "#/components/schemas/ClassZoneRef",
+                  "threshold": "#/components/schemas/ThresholdZoneRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/BandZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ClassZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ThresholdZoneRef"
+                }
+              ]
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone",
+          "area_m2"
+        ],
+        "title": "SnodasZonalStat",
         "type": "object"
       },
       "SnodasZonalStats": {
         "properties": {
           "date": {
+            "examples": [
+              "2008-12-14"
+            ],
             "format": "date",
             "title": "Date",
             "type": "string"
           },
           "zone_layers": {
+            "examples": [
+              [
+                "terrain.elevation"
+              ]
+            ],
             "items": {
               "type": "string"
             },
@@ -1592,6 +2054,9 @@
       "StatsResponse_InstarrZonalStats_": {
         "properties": {
           "dataset": {
+            "examples": [
+              "snodas"
+            ],
             "title": "Dataset",
             "type": "string"
           },
@@ -1603,6 +2068,9 @@
             "type": "array"
           },
           "pourpoint": {
+            "examples": [
+              "12354500:MT:USGS"
+            ],
             "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
             "title": "Pourpoint",
             "type": "string"
@@ -1645,6 +2113,9 @@
       "StatsResponse_SnodasZonalStats_": {
         "properties": {
           "dataset": {
+            "examples": [
+              "snodas"
+            ],
             "title": "Dataset",
             "type": "string"
           },
@@ -1656,6 +2127,9 @@
             "type": "array"
           },
           "pourpoint": {
+            "examples": [
+              "12354500:MT:USGS"
+            ],
             "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
             "title": "Pourpoint",
             "type": "string"
@@ -1698,6 +2172,9 @@
       "StatsResponse_Swann800mZonalStats_": {
         "properties": {
           "dataset": {
+            "examples": [
+              "snodas"
+            ],
             "title": "Dataset",
             "type": "string"
           },
@@ -1709,6 +2186,9 @@
             "type": "array"
           },
           "pourpoint": {
+            "examples": [
+              "12354500:MT:USGS"
+            ],
             "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
             "title": "Pourpoint",
             "type": "string"
@@ -1749,17 +2229,103 @@
         "type": "object"
       },
       "Swann800mZonalStat": {
-        "additionalProperties": true,
+        "properties": {
+          "area_m2": {
+            "examples": [
+              592891.69
+            ],
+            "minimum": 0.0,
+            "title": "Area M2",
+            "type": "number"
+          },
+          "mean_depth_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Depth Mm"
+          },
+          "mean_swe_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              42.7
+            ],
+            "title": "Mean Swe Mm"
+          },
+          "zone": {
+            "examples": [
+              [
+                {
+                  "kind": "band",
+                  "layer": "terrain.elevation",
+                  "max": 7000,
+                  "min": 6000,
+                  "unit": "ft"
+                }
+              ]
+            ],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "band": "#/components/schemas/BandZoneRef",
+                  "class": "#/components/schemas/ClassZoneRef",
+                  "threshold": "#/components/schemas/ThresholdZoneRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/BandZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ClassZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ThresholdZoneRef"
+                }
+              ]
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone",
+          "area_m2"
+        ],
+        "title": "Swann800mZonalStat",
         "type": "object"
       },
       "Swann800mZonalStats": {
         "properties": {
           "date": {
+            "examples": [
+              "2008-12-14"
+            ],
             "format": "date",
             "title": "Date",
             "type": "string"
           },
           "zone_layers": {
+            "examples": [
+              [
+                "terrain.elevation"
+              ]
+            ],
             "items": {
               "type": "string"
             },
@@ -1792,10 +2358,16 @@
             "type": "string"
           },
           "label": {
+            "examples": [
+              "forested"
+            ],
             "title": "Label",
             "type": "string"
           },
           "layer": {
+            "examples": [
+              "landcover.forest_cover"
+            ],
             "title": "Layer",
             "type": "string"
           },
@@ -1804,14 +2376,23 @@
               "below",
               "above"
             ],
+            "examples": [
+              "above"
+            ],
             "title": "Side",
             "type": "string"
           },
           "threshold": {
+            "examples": [
+              50.0
+            ],
             "title": "Threshold",
             "type": "number"
           },
           "unit": {
+            "examples": [
+              "%"
+            ],
             "title": "Unit",
             "type": "string"
           }
@@ -1874,18 +2455,30 @@
         "description": "A requestable variable of a dataset and how its stat is reported.",
         "properties": {
           "key": {
+            "examples": [
+              "swe"
+            ],
             "title": "Key",
             "type": "string"
           },
           "reducer": {
+            "examples": [
+              "mean"
+            ],
             "title": "Reducer",
             "type": "string"
           },
           "stat_name": {
+            "examples": [
+              "mean_swe_mm"
+            ],
             "title": "Stat Name",
             "type": "string"
           },
           "unit": {
+            "examples": [
+              "mm"
+            ],
             "title": "Unit",
             "type": "string"
           }
@@ -1992,8 +2585,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2106,8 +2703,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2248,8 +2849,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2362,8 +2967,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2504,8 +3113,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2618,8 +3231,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           },
           {
@@ -2894,8 +3511,12 @@
             "name": "triplet",
             "required": true,
             "schema": {
-              "example": "12354500:MT:USGS",
-              "title": "Triplet"
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
             }
           }
         ],
