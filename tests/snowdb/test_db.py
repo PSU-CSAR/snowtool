@@ -34,6 +34,7 @@ from ..conftest import (
     SIZE,
     SWE_VALUE,
     TILE,
+    CapturingProgress,
     make_manager,
     make_snowdb,
     register_dataset_config,
@@ -425,11 +426,19 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     # Re-staging converges: the skeleton is tolerated and the provenance-current
     # AOI raster is skipped, not rebuilt (no implicit force -- a byte-level
     # rebuild is `rasterize_aois(rebuild=True)` / `pourpoint rasterize --rebuild`).
-    restaged = manager.stage_dataset('test', config_path)
+    progress = CapturingProgress()
+    restaged = manager.stage_dataset('test', config_path, progress=progress)
     assert restaged.created is False
     assert restaged.rasterized.built == []
     assert restaged.rasterized.skipped == [('12345:MT:USGS', 'test')]
     assert restaged.coverage == staged.coverage
+    # Staging reports each slow phase sequentially: record parse, AOI
+    # rasterize (per pourpoint x dataset pair), coverage computation.
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('parsing 1 pourpoint record(s)', 1, 1),
+        ('rasterizing', 1, 1),
+        ('computing coverage for 1 pourpoint(s)', 1, 1),
+    ]
 
     # Before commit: a fresh open does NOT see the dataset (config unwritten).
     assert list(SnowDb.open(tmp_path)) == []
