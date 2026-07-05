@@ -71,6 +71,18 @@ class PourpointCoverageError(SnowtoolError):
         super().__init__(f'Pourpoint {triplet!r} {detail} (dataset {dataset!r}).')
 
 
+class GeometryOutsideGridError(SnowtoolError, ValueError):
+    """Raised when a geometry's bounding box does not intersect a dataset grid.
+
+    Rasterizing a basin burns its tile window onto the dataset grid; a basin
+    lying entirely outside the grid has no window (its coverage is ``NONE``), so
+    a direct ``Dataset.rasterize_aoi`` surfaces this typed condition instead of
+    a degenerate (inverted) window and a numpy shape error. The batch paths
+    (``stage_dataset``/``rasterize_aois``) pre-filter by coverage and *skip*
+    such basins rather than raising.
+    """
+
+
 class PourpointNotFoundError(SnowtoolError, FileNotFoundError):
     """Raised when no stored pourpoint record exists for a requested triplet.
 
