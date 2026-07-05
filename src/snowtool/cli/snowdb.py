@@ -29,14 +29,18 @@ def snowdb() -> None:
 @config_option
 @pass_snowdb
 def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
-    """Overview of every dataset: artifacts present, date span, and counts."""
+    """Overview of every registered dataset: active flag, artifacts, date span."""
     from snowtool.snowdb.diagnostics import dataset_status
 
     rows = []
-    for name in sorted(snowdb):
-        status = dataset_status(snowdb[name])
+    for name in sorted(snowdb.registered):
+        status = dataset_status(snowdb.registered[name])
         artifacts = status.artifacts
-        row = {'dataset': status.name, 'present': status.present}
+        row = {
+            'dataset': status.name,
+            'active': name in snowdb.datasets,
+            'present': status.present,
+        }
         # One column per configured zone-layer provider (terrain, landcover, ...).
         for provider_name, present in sorted(artifacts.zone_layers.items()):
             row[provider_name] = present
@@ -55,19 +59,36 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
 
 @snowdb.command('validate')
 @dataset_option
+@click.option(
+    '--include-inactive',
+    is_flag=True,
+    help='Also validate registered-but-inactive datasets (default: active only).',
+)
 @config_option
 @pass_snowdb
-def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
+def snowdb_validate(
+    snowdb: SnowDb,
+    dataset_names: tuple[str, ...],
+    include_inactive: bool,
+) -> None:
     """Roll up the read-only health checks; exit non-zero if any problem is found.
 
-    Aggregates completeness, missing-files, pourpoint-coverage, and aoi-health across
-    the selected datasets (default: all). Prints one line per problem and exits 1
-    when there are any, so it can gate cron/CI.
+    Aggregates completeness, missing-files, pourpoint-coverage, and aoi-health
+    across the selected datasets. By default it validates what readers serve
+    (the *active* datasets), so a half-built staged dataset does not fail the
+    cron/CI gate; ``--include-inactive`` widens the sweep to everything
+    registered (staged or deactivated datasets too). An explicit ``-d`` NAME
+    always resolves from everything registered. Prints one line per problem and
+    exits 1 when there are any.
     """
     from snowtool.snowdb import diagnostics
 
     findings: list[str] = []
-    for ds in resolve_datasets(snowdb, dataset_names):
+    for ds in resolve_datasets(
+        snowdb,
+        dataset_names,
+        include_inactive=include_inactive,
+    ):
         name = ds.spec.name
         findings.extend(
             f'grid: {name}: {issue}' for issue in diagnostics.grid_validation_report(ds)
@@ -113,11 +134,10 @@ def snowdb_validate(snowdb: SnowDb, dataset_names: tuple[str, ...]) -> None:
 def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
     """Create an empty snowdb at PATH (or the ``--config`` / env-var root).
 
-    Lays out the root config (``snowdb_conf.json``), ``pourpoints/``, and ``data/``. No
-    datasets are registered: a dataset goes live by staging it (``dataset
-    create``) and registering it (``dataset create --activate`` or ``dataset
-    add``), which is also where area + zone-layer generation happens. Idempotent --
-    an existing root config is left untouched.
+    Lays out the root config (``snowdb_conf.json``), ``pourpoints/``, and
+    ``data/``. No datasets are registered: ``dataset create`` stages one (area
+    raster + zone layers) and registers it inactive; ``dataset activate`` makes
+    it live. Idempotent -- an existing root config is left untouched.
     """
     from snowtool.snowdb.manager import SnowDbManager
 

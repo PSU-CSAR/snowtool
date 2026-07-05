@@ -11,6 +11,8 @@ snowdb, not the other way around."
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
@@ -102,19 +104,15 @@ class StagedDataset:
     readers, ready for :meth:`SnowDbManager.register_dataset` to commit.
 
     ``dataset`` is the built (still-unregistered) :class:`Dataset`;
-    ``config_path`` is the on-disk dataset config the link will point at;
     ``created`` is whether this stage created the skeleton (vs. found an existing
-    one); ``generated`` maps each generated zone-layer provider to its provenance
-    hash (empty for a ``quick`` stage); ``rasterized`` is the AOI-raster pass over
+    one); ``rasterized`` is the AOI-raster pass over
     the new grid; ``coverage`` is the per-pourpoint geometric coverage of the new
     grid, which the commit writes into the index so a reader sees real coverage
     without waiting for a reindex.
     """
 
     dataset: Dataset
-    config_path: Path
     created: bool
-    generated: dict[str, str]
     rasterized: AOIRasterizeResult
     coverage: dict[types.StationTriplet, Coverage]
 
@@ -169,7 +167,8 @@ class SnowDbManager:
 
         The one entry point that creates the root structure -- the
         ``snowdb_conf.json`` root config (with *no* datasets registered; a dataset
-        goes live only by adding it), ``pourpoints/``, ``data/``, and a ``data/<name>/``
+        exists only once :meth:`register_dataset` links it, and is served only
+        while its link is active), ``pourpoints/``, ``data/``, and a ``data/<name>/``
         directory per ``specs`` entry (a convenience for staging; the CLI ``init``
         passes none). Idempotent: an existing config is loaded and left as is (its
         creation stamp and datasets preserved). Returns a manager over the root --
@@ -210,6 +209,7 @@ class SnowDbManager:
         dataset_config_path: Path,
         *,
         link_type: str = 'path',
+        active: bool = True,
         coverage: Mapping[types.StationTriplet, Coverage] | None = None,
     ) -> RootConfig:
         """Commit a dataset registration: the root-config write is the commit point.
@@ -217,7 +217,10 @@ class SnowDbManager:
         Writes ``datasets[name]`` -> a link at ``dataset_config_path``, stored
         relative to the root when the config lives under the tree (a relocatable
         tree) and absolute otherwise (a staged-elsewhere dataset). Re-registering a
-        name overwrites its link. Returns the updated config.
+        name overwrites its link. ``active`` sets the link's visibility flag:
+        registration makes a dataset *exist* (manageable by name); only an active
+        one is served by readers (toggle later with :meth:`set_dataset_active`).
+        Returns the updated config.
 
         ``coverage`` (a triplet -> :class:`Coverage` map, produced by
         :meth:`stage_dataset`) is folded into every existing index entry under the
@@ -230,7 +233,18 @@ class SnowDbManager:
         staging) only the config is written; the missing coverage key reads as
         ``Coverage.NONE`` until the next ``pourpoint reindex``. Going live still
         needs a service restart -- the ``SnowDb`` is built once at startup.
+
+        ``name`` must be usable as a bare :meth:`resolve_dataset` token and a
+        directory name, so a name containing a path separator or ending in
+        ``.json`` (which that method's syntactic partition would read as a
+        path) is rejected up front -- registration is the single choke point.
         """
+        if '/' in name or '\\' in name or name.endswith('.json'):
+            raise ValueError(
+                f'Invalid dataset name {name!r}: a name must not contain a '
+                "path separator or end with '.json' (it must be usable as a "
+                'bare dataset token and a directory name).',
+            )
         if link_type != 'path':
             raise ValueError(f'unknown dataset link type: {link_type!r}')
         config = self._read_root_config()
@@ -253,7 +267,30 @@ class SnowDbManager:
         if coverage is not None:
             self._write_dataset_coverage(name, coverage)
 
-        config.datasets[name] = PathDatasetLink(path=link)
+        config.datasets[name] = PathDatasetLink(path=link, active=active)
+        config.save(config_path)
+        return config
+
+    def set_dataset_active(self: Self, name: str, active: bool) -> RootConfig:
+        """Toggle dataset ``name``'s ``active`` flag in the root config.
+
+        The activation half of the register/activate split: registration says a
+        dataset exists; this flips whether readers serve it. The config write is
+        the commit point (atomic, like registration), and a running API server
+        still needs a restart to see the change. Raises :class:`ValueError` for a
+        name the root config does not register. Idempotent -- setting the current
+        state re-saves harmlessly.
+        """
+        config = self._read_root_config()
+        config_path = self.db.config_path
+        if config_path is None:  # pragma: no cover - _read_root_config guarantees it
+            raise SnowDbConfigError(self.db.root)
+        if name not in config.datasets:
+            registered = ', '.join(sorted(config.datasets)) or '(none)'
+            raise ValueError(
+                f'No registered dataset {name!r}. Registered datasets: {registered}.',
+            )
+        config.datasets[name].active = active
         config.save(config_path)
         return config
 
@@ -301,16 +338,42 @@ class SnowDbManager:
         )
         return Dataset(spec, directory, self.db.zone_layer_providers.values())
 
+    def resolve_dataset(self: Self, token: str) -> Dataset:
+        """Resolve a dataset NAME or a config path to a :class:`Dataset`.
+
+        The token is partitioned *syntactically*, so a name and a file can
+        never shadow each other: a token containing a path separator or ending
+        in ``.json`` is a PATH; anything else is a NAME. A path token never
+        consults the catalog -- it must be an existing dataset config file
+        (its NAME taken from the parent directory), else :class:`ValueError`.
+        A name token never touches the filesystem -- it resolves only against
+        the root config's registered datasets (active or not: management ops
+        -- ingest, zone generation, diagnostics -- never care about reader
+        visibility); an unregistered name raises :class:`ValueError`. To
+        target an unregistered (staged) config, pass its path.
+        """
+        is_path = (
+            '/' in token or '\\' in token or os.sep in token or token.endswith('.json')
+        )
+        if is_path:
+            path = Path(token)
+            if not path.is_file():
+                raise ValueError(f'No dataset config file at {path}.')
+            return self._build_staged_dataset(path.parent.name, path)
+        if token in self.db.registered:
+            return self.db.registered[token]
+        registered = ', '.join(sorted(self.db.registered)) or '(none)'
+        raise ValueError(
+            f'No registered dataset {token!r}. Registered datasets: '
+            f'{registered}. To target an unregistered dataset config, pass '
+            "its path (e.g. './dataset.json' or 'data/x/dataset.json').",
+        )
+
     def stage_dataset(
         self: Self,
         name: str,
         dataset_config_path: Path,
         *,
-        source_overrides: Mapping[str, Path] | None = None,
-        quick: bool = False,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        zone_progress_factory: Callable[[str], ProgressReporter] | None = None,
         rasterize_progress: ProgressReporter = NULL_PROGRESS,
     ) -> StagedDataset:
         """Build everything a new dataset needs, all *invisible* to readers.
@@ -319,18 +382,21 @@ class SnowDbManager:
         config (:meth:`_build_staged_dataset`, so it works before the dataset is in
         ``self.db.datasets``) and, entirely under ``data/<name>/`` -- a directory a
         reader ignores because datasets come only from the root config -- creates
-        the skeleton, generates the enabled zone layers (unless ``quick``),
-        rasterizes every indexed (basin-bearing) pourpoint's basin onto the new
-        grid, and computes each pourpoint's geometric coverage of that grid.
-        Nothing here touches the root config or the index, so a fresh
-        ``SnowDb.open`` still does not see the dataset until
-        :meth:`register_dataset` commits it (passing back
+        the skeleton, rasterizes every indexed (basin-bearing) pourpoint's basin
+        onto the new grid, and computes each pourpoint's geometric coverage of
+        that grid. Zone layers are *never* generated here -- that is a separate
+        explicit operation (:meth:`generate_zone_layers_for`, which shares one
+        source read across datasets). Nothing here touches the root config or
+        the index, so a fresh ``SnowDb.open`` still does not see the dataset
+        until :meth:`register_dataset` commits it (passing back
         :attr:`StagedDataset.coverage`).
 
-        ``source_overrides``/``options`` are threaded to zone generation;
-        ``zone_progress_factory`` builds a per-provider progress reporter and
-        ``rasterize_progress`` reports the AOI pass. Idempotent: an existing
-        skeleton is tolerated, and generation skips already-present layers.
+        ``rasterize_progress`` reports the AOI pass. Converge-by-default, like
+        ingest: an existing skeleton is tolerated, and rasterization rebuilds an
+        AOI raster only when it is absent or its provenance tag reads stale (a
+        changed basin polygon or a format-version bump). A byte-level forced
+        rebuild is :meth:`rasterize_aois` with ``rebuild=True`` (the
+        ``pourpoint rasterize --rebuild`` command).
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
 
@@ -338,20 +404,9 @@ class SnowDbManager:
             Dataset.create(dataset.spec, dataset.path)
             created = True
         except FileExistsError:
-            # Already staged (skeleton exists); generation/rasterize below are
+            # Already staged (skeleton exists); the rasterize below is
             # idempotent, so continue rather than clobber existing artifacts.
             created = False
-
-        generated: dict[str, str] = {}
-        if not quick:
-            generated = self.generate_dataset_zone_layers(
-                dataset,
-                source_overrides=source_overrides,
-                skip_present=True,
-                force=force,
-                options=options,
-                progress_factory=zone_progress_factory,
-            )
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
@@ -363,7 +418,6 @@ class SnowDbManager:
         rasterized = self.rasterize_aois(
             basin_pourpoints,
             [dataset],
-            rebuild=force,
             progress=rasterize_progress,
         )
         domain = dataset.coverage_domain
@@ -373,9 +427,7 @@ class SnowDbManager:
         }
         return StagedDataset(
             dataset=dataset,
-            config_path=Path(dataset_config_path),
             created=created,
-            generated=generated,
             rasterized=rasterized,
             coverage=coverage,
         )
@@ -385,34 +437,38 @@ class SnowDbManager:
         aoi: Pourpoint,
         force: bool = False,
     ) -> dict[str, AOIRaster]:
-        """Rasterize a pourpoint's basin onto every active dataset's grid.
+        """Rasterize a pourpoint's basin onto every registered dataset's grid.
 
         Pourpoints are shared across datasets, but each dataset has its own grid, so an
         AOI must be burned once per dataset (different grids -> different tile
-        windows and masks). Returns the resulting AOI raster keyed by dataset
-        name.
+        windows and masks). Covers inactive datasets too, so activating one later
+        is instant -- its AOI rasters already exist. Returns the resulting AOI
+        raster keyed by dataset name.
         """
         return {
             name: dataset.rasterize_aoi(aoi, force=force)
-            for name, dataset in self.db.datasets.items()
+            for name, dataset in self.db.registered.items()
         }
 
     def generate_zone_layers(
         self: Self,
         provider_name: str,
-        names: Iterable[str] | None = None,
+        datasets: Iterable[Dataset],
         *,
         source: ZoneLayerSource | None = None,
         force: bool = False,
         options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> dict[str, str]:
         """Generate a provider's zone layers for several datasets in one pass.
 
         Reads ``source`` (default: this database's resolved source for
-        ``provider_name``) once over the combined extent of the selected datasets'
-        grids and bins it into all of them -- e.g. terrain's aspect must be computed
-        at the source resolution, so sharing the read is the whole point. ``names``
-        selects datasets (default: all); either way only the datasets that *enable*
+        ``provider_name``) once over the combined extent of ``datasets``' grids and
+        bins it into all of them -- e.g. terrain's aspect must be computed at the
+        source resolution, so sharing the read is the whole point. ``datasets`` are
+        passed as objects (registered or merely staged), so *activation is
+        irrelevant here*: zone layers live under ``data/<name>/`` regardless of
+        whether the root config links the dataset. Only the datasets that *enable*
         ``provider_name`` are targeted (the rest have no such zone layer).
         ``options`` carries engine knobs (e.g. terrain's ``workers``/
         ``block_size``). Returns each generated dataset's provenance hash, keyed by
@@ -421,13 +477,8 @@ class SnowDbManager:
         from snowtool.snowdb.grid import grid_extent_4326
 
         provider = self.db.zone_layer_providers[provider_name]
-        candidates = (
-            list(self.db.datasets.values())
-            if names is None
-            else [self.db.datasets[name] for name in names]
-        )
         # Only datasets whose config enables this provider have the layer to build.
-        selected = [ds for ds in candidates if provider_name in ds.providers]
+        selected = [ds for ds in datasets if provider_name in ds.providers]
         if not selected:
             return {}
 
@@ -436,57 +487,51 @@ class SnowDbManager:
         targets = [ds.zone_target(provider) for ds in selected]
         bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
 
-        return provider.generate(source, targets, bounds, force=force, options=options)
+        return provider.generate(
+            source,
+            targets,
+            bounds,
+            force=force,
+            options=options,
+            progress=progress,
+        )
 
-    def generate_dataset_zone_layers(
+    def generate_zone_layers_for(
         self: Self,
-        dataset: Dataset,
+        datasets: Iterable[Dataset],
         provider_names: Iterable[str] | None = None,
         *,
         source_overrides: Mapping[str, Path] | None = None,
-        skip_present: bool = False,
         force: bool = False,
         options: GenerationOptions | None = None,
         progress_factory: Callable[[str], ProgressReporter] | None = None,
-    ) -> dict[str, str]:
-        """Generate one dataset's zone layers, resolving each provider's source.
+    ) -> dict[str, dict[str, str]]:
+        """Generate zone layers across ``datasets`` with one shared read per provider.
 
-        The single-dataset counterpart to :meth:`generate_zone_layers` (which shares
-        one source read across several *registered* datasets): this one takes
-        ``dataset`` directly rather than a name looked up in ``self.db.datasets``,
-        so a not-yet-registered (staged) dataset can use it too. Backs the CLI's
-        ``dataset create``/``generate-zones`` orchestration (resolve provider, pick
-        override-vs-default source, generate, report) so both commands share one
-        implementation.
-
-        ``provider_names`` selects a subset (default: every provider ``dataset``
-        enables); an unknown name raises :class:`ValueError`. A selected name the
-        dataset does not enable is silently skipped (nothing to build). Each
-        provider's source is ``source_overrides[provider_name]`` (a local path,
-        wrapped via :meth:`ZoneLayerProvider.local_source`) if given, else this
-        database's configured default. ``skip_present`` leaves an
-        already-generated provider's set untouched instead of overwriting it (the
-        ``dataset create`` semantics; ``generate-zones`` always rebuilds).
-        ``progress_factory`` builds a :class:`ProgressReporter` per provider name
-        (default: silent). Returns each generated provider's provenance hash,
-        keyed by provider name -- skipped providers are absent.
+        The many-datasets orchestrator over :meth:`generate_zone_layers`: for each
+        selected provider it resolves the source once (an override from
+        ``source_overrides``, else the configured default) and reads it a single time
+        over the combined extent of every dataset that enables that provider -- so
+        standing up N datasets that share a provider pays that provider's expensive
+        source read *once*, not N times. ``provider_names`` limits the providers
+        (default: the union of every dataset's enabled providers); an unknown name
+        raises :class:`ValueError`. ``progress_factory`` builds a per-provider
+        reporter (default: silent). Returns ``{provider_name: {dataset_name: hash}}``,
+        with provider keys that targeted no dataset omitted.
         """
+        datasets = list(datasets)
         source_overrides = source_overrides or {}
         selected = (
             tuple(provider_names)
             if provider_names is not None
-            else tuple(dataset.providers)
+            else tuple(dict.fromkeys(p for ds in datasets for p in ds.providers))
         )
         for provider_name in selected:
             if provider_name not in self.db.zone_layer_providers:
                 raise ValueError(f'No such zone-layer provider: {provider_name}')
 
-        hashes: dict[str, str] = {}
+        results: dict[str, dict[str, str]] = {}
         for provider_name in selected:
-            if provider_name not in dataset.providers:
-                continue
-            if skip_present and dataset.zones[provider_name].present():
-                continue
             provider = self.db.zone_layer_providers[provider_name]
             source = (
                 provider.local_source(source_overrides[provider_name])
@@ -498,25 +543,29 @@ class SnowDbManager:
                 if progress_factory is not None
                 else NULL_PROGRESS
             )
-            hashes[provider_name] = dataset.generate_zone_layers(
-                provider,
-                source,
+            hashes = self.generate_zone_layers(
+                provider_name,
+                datasets,
+                source=source,
                 force=force,
                 options=options,
                 progress=progress,
             )
-        return hashes
+            if hashes:
+                results[provider_name] = hashes
+        return results
 
     # --- pourpoint import / sync / lifecycle ----------------------------------------
 
     def reindex_pourpoints(self: Self) -> PourpointIndex:
         """Rebuild ``index.geojson`` from the ``records/`` dir and persist it.
 
-        Coverage is re-derived against every dataset's current grid, so the
-        manifest always reflects the live grids (a grid change is picked up by
-        re-running this).
+        Coverage is re-derived against every *registered* dataset's current grid
+        (active or not -- an inactive dataset carries real coverage the moment it
+        is activated), so the manifest always reflects the live grids (a grid
+        change is picked up by re-running this).
         """
-        domains = {name: ds.coverage_domain for name, ds in self.db.datasets.items()}
+        domains = {name: ds.coverage_domain for name, ds in self.db.registered.items()}
         index = PourpointIndex.from_records(self.db.pourpoint_records_path, domains)
         index.save(self.db.pourpoint_index_path)
         return index
@@ -653,7 +702,7 @@ class SnowDbManager:
         if dump_to is not None:
             self.db.dump_pourpoint(triplet, dump_to)
         self.db.pourpoint_record_path(triplet).unlink(missing_ok=True)
-        for dataset in self.db.datasets.values():
+        for dataset in self.db.registered.values():
             dataset.remove_aoi_raster(triplet)
 
     def remove_pourpoint(

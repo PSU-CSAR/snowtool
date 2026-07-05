@@ -36,12 +36,18 @@ def dataset() -> None:
 @config_option
 @pass_snowdb
 def list_datasets(snowdb: SnowDb, fmt: str) -> None:
-    """List the names of configured datasets.
+    """List every registered dataset and whether readers serve it (``active``).
 
-    Just the names -- for presence, date spans, and artifact counts, see
-    ``snowtool snowdb status``.
+    One row per dataset the root config registers, active or not -- for
+    presence, date spans, and artifact counts, see ``snowtool snowdb status``.
     """
-    _emit([{'dataset': name} for name in sorted(snowdb)], fmt)
+    _emit(
+        [
+            {'dataset': name, 'active': name in snowdb.datasets}
+            for name in sorted(snowdb.registered)
+        ],
+        fmt,
+    )
 
 
 @dataset.command('info')
@@ -50,11 +56,15 @@ def list_datasets(snowdb: SnowDb, fmt: str) -> None:
 @config_option
 @pass_snowdb
 def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
-    """Show a dataset's grid, variables, and on-disk artifacts."""
+    """Show a dataset's grid, variables, and on-disk artifacts.
+
+    Resolves any *registered* dataset -- an inactive one is still inspectable
+    (its ``active`` field says whether readers serve it).
+    """
     from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
     from snowtool.snowdb.diagnostics import dataset_status
 
-    ds = get_dataset(snowdb, name)
+    ds = get_dataset(snowdb, name, include_inactive=True)
     spec = ds.spec
     grid = spec.grid_params
     status = dataset_status(ds)
@@ -62,6 +72,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 
     record = {
         'name': spec.name,
+        'active': name in snowdb.datasets,
         'present': status.present,
         'crs': str(grid.crs),
         'is_geographic': spec.is_geographic,
@@ -101,92 +112,44 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     help='Stamp a built-in dataset template (e.g. snodas, swann-800m, instarr) as '
     'the new dataset NAME, instead of staging an already-registered dataset.',
 )
-@click.option(
-    '--source',
-    'sources',
-    nargs=2,
-    multiple=True,
-    type=(str, click.Path(exists=True, dir_okay=False, path_type=Path)),
-    metavar='PROVIDER PATH',
-    help='Generate PROVIDER zone layers (e.g. terrain, landcover) from a local '
-    'PATH instead of the default source (repeatable).',
-)
-@click.option(
-    '--activate',
-    is_flag=True,
-    help='Register the dataset in the root config after staging it (writes its '
-    'link). Going live still needs `pourpoint reindex` + a service restart.',
-)
-@click.option(
-    '--quick',
-    is_flag=True,
-    help='Create the directory + area raster only; skip zone-layer generation.',
-)
-@click.option(
-    '--workers',
-    default=None,
-    type=click.IntRange(min=1),
-    help='Terrain-generation worker threads (default: one per CPU; 1 = serial). '
-    'Block reprojection is parallelized; the result is identical regardless.',
-)
-@click.option(
-    '--block-size',
-    default=None,
-    type=click.IntRange(min=64),
-    help='Terrain work-grid block edge in pixels (default 1024). Lower it to bound '
-    'per-worker memory (~workers x block_size^2); no effect on the result.',
-)
 @config_option
 @pass_manager
 def create_dataset(
     manager: SnowDbManager,
     name: str,
     template: str | None,
-    sources: tuple[tuple[str, Path], ...],
-    activate: bool,
-    quick: bool,
-    workers: int | None,
-    block_size: int | None,
 ) -> None:
-    """Create dataset NAME's directory + area raster, then its zone layers.
+    """Create dataset NAME: stage its artifacts and register it (inactive).
 
-    Stages the dataset -- all *invisible* to readers -- then, with ``--activate``,
-    commits it. Staging writes the directory skeleton, the area raster, the dataset
-    config (``data/NAME/dataset.json``), and -- unless ``--quick`` -- every
-    configured zone layer (terrain, land cover, ...) from its provider's default
-    source (or ``--source PROVIDER PATH``), plus an AOI raster of every indexed
-    pourpoint's basin on the new grid. Nothing is written to the root config until
-    ``--activate`` registers the dataset (that write is the commit point), so a
-    reader sees the new dataset only afterward -- and a running API server needs a
-    restart, since its ``SnowDb`` is built once at startup. The dataset's
-    definition comes from ``--template`` (a built-in) for a brand-new dataset, or
-    from an already-registered dataset of this NAME otherwise. Register a
-    staged-but-not-activated dataset later with ``dataset add``. Idempotent --
-    existing artifacts are left untouched.
+    Staging writes the directory skeleton, the area raster, the dataset config
+    (``data/NAME/dataset.json``), an AOI raster of every indexed pourpoint's
+    basin on the new grid, and each pourpoint's coverage of that grid -- never
+    zone layers. Zone-layer generation is a separate explicit operation:
+    ``dataset generate-zones NAME ...``, which shares one source read across
+    every named dataset (so create several datasets first, then generate their
+    zone layers together). The dataset is registered *inactive*: it exists
+    (manageable by name -- ingest, generate-zones, diagnostics) but stays
+    invisible to readers (query/API) until ``dataset activate NAME`` flips it
+    live. The dataset's definition comes from ``--template`` (a built-in) for a
+    brand-new dataset, or from an already-registered dataset of this NAME
+    otherwise. Converge-by-default, like ingest: a re-create leaves current
+    artifacts untouched (an AOI raster rebuilds only when its provenance tag
+    reads stale) and never touches an existing registration (its active state
+    and link are preserved). To force-rebuild AOI rasters regardless, use
+    ``pourpoint rasterize --all --rebuild -d NAME``.
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
     ds, config = _resolve_create_target(manager.db, name, template)
-    overrides = _resolve_source_overrides(manager.db, sources)
 
-    # Stage the dataset config beside its data so `stage_dataset` (and later
-    # `dataset add`) can build/register from it. Idempotent overwrite.
+    # Stage the dataset config beside its data so `stage_dataset` can build from
+    # it and `register_dataset` can link it. Idempotent overwrite.
     ds.path.mkdir(parents=True, exist_ok=True)
     config_path = ds.path / DATASET_CONFIG_FILENAME
     config.save(config_path)
 
     try:
-        staged = manager.stage_dataset(
-            name,
-            config_path,
-            source_overrides=overrides,
-            quick=quick,
-            force=True,
-            options=GenerationOptions(workers=workers, block_size=block_size),
-            zone_progress_factory=lambda provider_name: ClickProgress(
-                prefix=f'{name} {provider_name}: ',
-            ),
-        )
+        staged = manager.stage_dataset(name, config_path)
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
@@ -194,14 +157,22 @@ def create_dataset(
         click.echo(f'created dataset {name} at {staged.dataset.path}')
     else:
         click.echo(f'dataset {name} already created')
-    for provider_name in staged.generated:
-        click.echo(f'generated {provider_name} for {name}')
 
-    if activate:
-        # The commit point: write the coverage the stage computed into the index,
-        # then the link into the root config.
-        manager.register_dataset(name, config_path, coverage=staged.coverage)
-        click.echo(f'registered {name} (restart the API to go live)')
+    # Ensure the staged dataset is registered (inactive). An existing
+    # registration -- whatever its link or active state -- is left untouched so
+    # an idempotent re-create never deactivates or relinks a live dataset.
+    if name not in manager.db.registered:
+        manager.register_dataset(
+            name,
+            config_path,
+            coverage=staged.coverage,
+            active=False,
+        )
+        click.echo(
+            f'registered {name} (inactive; generate zones with '
+            f"'dataset generate-zones {name}', activate with "
+            f"'dataset activate {name}')",
+        )
 
 
 def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
@@ -209,8 +180,8 @@ def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
 
     With ``--template`` the dataset is brand-new: its config is the named built-in
     template and a fresh :class:`Dataset` is bound at ``data/<name>/``. Otherwise
-    the dataset must already be registered under ``name`` -- its config is derived
-    from the bound spec.
+    the dataset must already be registered under ``name`` (active or not) -- its
+    config is derived from the bound spec.
     """
     from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.dataset import Dataset
@@ -232,7 +203,7 @@ def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
             snowdb.zone_layer_providers.values(),
         )
         return ds, config
-    ds = get_dataset(snowdb, name)
+    ds = get_dataset(snowdb, name, include_inactive=True)
     return ds, config_from_spec(ds.spec)
 
 
@@ -257,14 +228,22 @@ def _resolve_source_overrides(
 )
 @config_option
 @pass_manager
-def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
+def add_dataset(
+    manager: SnowDbManager,
+    name: str,
+    config_path: Path,
+) -> None:
     """Register dataset NAME from its config at CONFIG_PATH (writes the link).
 
-    The explicit-registration step: a dataset built/staged out of band (anywhere)
-    goes live by linking its config into the root config. The config is validated
-    (it must parse and its ingester must resolve) before the link is written.
-    Idempotent -- re-adding a name overwrites its link. Going live also needs an
-    ``pourpoint reindex`` + a service restart.
+    The escape hatch for a dataset built *out of tree* (or otherwise out of
+    band): ``dataset create`` already stages *and* registers, so ``add`` exists
+    only to link an externally built config into the root config. Registration
+    is inactive: the dataset becomes manageable by name (ingest, generate-zones,
+    diagnostics) but invisible to readers until ``dataset activate NAME``.
+    The config is validated (it must parse and its ingester must resolve) before
+    the link is written. Idempotent -- re-adding a name overwrites its link.
+    Since ``add`` skips staging, pourpoint coverage for the new dataset is
+    unknown until the next ``pourpoint reindex``.
     """
     from pydantic import ValidationError
 
@@ -279,11 +258,64 @@ def add_dataset(manager: SnowDbManager, name: str, config_path: Path) -> None:
             f'Not a usable dataset config ({config_path}): {e}',
         ) from e
 
-    manager.register_dataset(name, config_path)
+    manager.register_dataset(name, config_path, active=False)
     click.echo(
         f'registered {name} -> {config_path} '
-        '(run `pourpoint reindex` + restart to go live)',
+        f"(inactive; run 'pourpoint reindex' to compute coverage, then "
+        f"'dataset activate {name}')",
     )
+
+
+@dataset.command('activate')
+@click.argument('name')
+@config_option
+@pass_manager
+def activate_dataset(manager: SnowDbManager, name: str) -> None:
+    """Make registered dataset NAME visible to readers (query CLI + API).
+
+    Activation only toggles reader visibility: the dataset was already fully
+    manageable by name (ingest, generate-zones, diagnostics) while inactive, and
+    stays so either way. Idempotent.
+    """
+    try:
+        manager.set_dataset_active(name, True)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(
+        f"activated {name} (run 'pourpoint reindex' if never indexed; "
+        'restart the API to pick it up)',
+    )
+
+
+@dataset.command('deactivate')
+@click.argument('name')
+@config_option
+@pass_manager
+def deactivate_dataset(manager: SnowDbManager, name: str) -> None:
+    """Hide registered dataset NAME from readers (query CLI + API).
+
+    The dataset stays registered and fully manageable by name (ingest,
+    generate-zones, diagnostics) -- only reader visibility changes. Idempotent.
+    """
+    try:
+        manager.set_dataset_active(name, False)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f'deactivated {name} (restart the API to pick it up)')
+
+
+def _resolve_managed_dataset(manager: SnowDbManager, token: str):
+    """Resolve a management-surface dataset token, CLI-cleanly.
+
+    Wraps :meth:`SnowDbManager.resolve_dataset` (a bare token is a *registered*
+    NAME -- active or not; a token with a path separator or a ``.json`` suffix
+    is a dataset config file path), converting its :class:`ValueError` to a
+    :class:`click.ClickException`.
+    """
+    try:
+        return manager.resolve_dataset(token)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
 
 
 @dataset.command('ingest')
@@ -309,11 +341,15 @@ def ingest_dataset(
 ) -> None:
     """Ingest one or more source ARCHIVES into dataset NAME.
 
-    Converge-by-default: a date whose COGs already carry the same source hash is
-    left untouched (reported ``up to date``); a re-release under the same filename
-    with different bytes rebuilds. ``--force`` rebuilds every date regardless.
+    NAME is a registered dataset name (active or not) or a dataset config path
+    -- ingest is a management op, so reader visibility is irrelevant (the point
+    of the register/activate split is populating a dataset *before* serving
+    it). Converge-by-default: a date whose COGs already carry the same source
+    hash is left untouched (reported ``up to date``); a re-release under the
+    same filename with different bytes rebuilds. ``--force`` rebuilds every
+    date regardless.
     """
-    ds = get_dataset(manager.db, name)
+    ds = _resolve_managed_dataset(manager, name)
     for archive in archives:
         try:
             result = ds.ingest(archive, force=force)
@@ -326,7 +362,7 @@ def ingest_dataset(
 
 
 @dataset.command('generate-zones')
-@click.argument('name')
+@click.argument('names', nargs=-1, required=True, metavar='NAME...')
 @click.option(
     '--provider',
     'provider_names',
@@ -361,39 +397,48 @@ def ingest_dataset(
 @pass_manager
 def generate_zones(
     manager: SnowDbManager,
-    name: str,
+    names: tuple[str, ...],
     provider_names: tuple[str, ...],
     sources: tuple[tuple[str, Path], ...],
     workers: int | None,
     block_size: int | None,
 ) -> None:
-    """(Re)generate dataset NAME's zone layers, overwriting any existing ones.
+    """(Re)generate zone layers for one or more datasets, sharing each source read.
 
-    Generates every configured zone-layer provider (terrain, land cover, ...)
-    unless ``--provider`` limits the selection; each uses its provider's default
-    source unless ``--source PROVIDER PATH`` supplies a local file. Generation is
-    heavy -- terrain reprojects the whole DEM source to a 10 m work grid (the
-    default 3DEP source streams from S3) and land cover downloads the MRLC Annual
-    NLCD national raster (~1.5 GB) on first use.
+    Each NAME is a registered dataset name (active or not); a token containing
+    a path separator or ending in ``.json`` is instead a dataset config path.
+    Activation does not matter -- zone layers live under ``data/<name>/``
+    independent of the root-config link's visibility flag, so you can generate
+    them for freshly created (registered-inactive) datasets before any of
+    them is activated. Every
+    configured provider (terrain, land cover, ...) is generated unless
+    ``--provider`` limits the selection; each provider's source is read *once* over
+    the combined extent of all the named datasets and binned into every one -- so
+    standing up several datasets that share a provider pays that provider's
+    expensive read (terrain reprojects the whole DEM source to a 10 m work grid;
+    land cover downloads the ~1.5 GB MRLC Annual NLCD national raster) a single
+    time. ``--source PROVIDER PATH`` supplies a local file for a provider instead
+    of its default source. Always rebuilds, overwriting existing layers.
     """
-    ds = get_dataset(manager.db, name)
     overrides = _resolve_source_overrides(manager.db, sources)
 
     try:
-        generated = manager.generate_dataset_zone_layers(
-            ds,
+        datasets = [manager.resolve_dataset(name) for name in names]
+        generated = manager.generate_zone_layers_for(
+            datasets,
             provider_names=provider_names or None,
             source_overrides=overrides,
             force=True,
             options=GenerationOptions(workers=workers, block_size=block_size),
             progress_factory=lambda provider_name: ClickProgress(
-                prefix=f'{name} {provider_name}: ',
+                prefix=f'{provider_name}: ',
             ),
         )
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
-    for provider_name in generated:
-        click.echo(f'generated {provider_name} for {name}')
+    for provider_name, hashes in generated.items():
+        for ds_name in hashes:
+            click.echo(f'generated {provider_name} for {ds_name}')
 
 
 @dataset.command('remove-date')
@@ -408,8 +453,11 @@ def remove_date(
     removal_date: date,
     dry_run: bool,
 ) -> None:
-    """Remove a single ingested DATE from dataset NAME."""
-    ds = get_dataset(manager.db, name)
+    """Remove a single ingested DATE from dataset NAME.
+
+    NAME is a registered dataset name (active or not) or a dataset config path.
+    """
+    ds = _resolve_managed_dataset(manager, name)
     iso = removal_date.isoformat()
 
     if dry_run:
@@ -435,8 +483,11 @@ def remove_date(
 @config_option
 @pass_manager
 def prune_dates(manager: SnowDbManager, name: str, before: date, dry_run: bool) -> None:
-    """Remove every ingested date in dataset NAME older than --before."""
-    ds = get_dataset(manager.db, name)
+    """Remove every ingested date in dataset NAME older than --before.
+
+    NAME is a registered dataset name (active or not) or a dataset config path.
+    """
+    ds = _resolve_managed_dataset(manager, name)
     targets = ds.dates_before(before)
 
     if not targets:

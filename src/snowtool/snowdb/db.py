@@ -133,8 +133,17 @@ class SnowDb:
         self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
         # Each configured dataset is always bound to its directory, present or not.
         # A dataset with no directory simply has no data yet, which keeps the read
-        # path resilient to an un-initialized root.
-        self.datasets = self._bind_datasets()
+        # path resilient to an un-initialized root. `registered` is everything the
+        # root config knows (the management surface: ingest, zone generation,
+        # diagnostics); `datasets` is the active subset -- the read surface
+        # (query/API/available_zones) sees only those, so a link's `active` flag
+        # is the visibility toggle.
+        self.registered = self._bind_datasets()
+        self.datasets = {
+            name: ds
+            for name, ds in self.registered.items()
+            if config.datasets[name].active
+        }
         # The source each provider reads from during generation -- declared in the
         # config (provider name -> path, resolved like any other config path). A
         # source belongs to the whole database (one source bins into every grid in
