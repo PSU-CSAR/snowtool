@@ -68,11 +68,12 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import threading
 import warnings
 
 from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
@@ -693,6 +694,10 @@ class _TerrainStreamer:
         self._local = threading.local()
         # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
         self._read_lock = threading.Lock()
+        # Set when run() is aborting (e.g. ctrl+c): workers bail out before the
+        # read, so teardown waits on at most the one read already in flight
+        # instead of draining every queued block's (possibly network) read.
+        self._cancelled = threading.Event()
 
     def _blocks(self: Self) -> list[_Block]:
         bs = self._block_size
@@ -724,8 +729,20 @@ class _TerrainStreamer:
         return tfs
 
     def _compute(self: Self, block: _Block) -> _BlockResult | None:
-        """Worker step: read, derive terrain, reproject. Pure, no shared writes."""
+        """Worker step: read, derive terrain, reproject. Pure, no shared writes.
+
+        ``None`` means "no contribution" to the reducer -- true for an all-nodata
+        block and for a block abandoned because the run is being cancelled.
+        """
+        # Bail before queueing on the read lock: once run() is aborting, blocks
+        # waiting their turn must not each still pay a read. The re-check under
+        # the lock closes the race for a worker that passed the first check just
+        # before cancellation and acquired the lock just after it.
+        if self._cancelled.is_set():
+            return None
         with self._read_lock:
+            if self._cancelled.is_set():
+                return None
             z = _read_haloed_block(
                 self._wvrt,
                 block.c0,
@@ -812,9 +829,29 @@ class _TerrainStreamer:
             # ``workers`` in-flight futures keeps every worker fed while bounding the
             # transient memory of buffered block results; popping left to right
             # reduces in block order, so the accumulation stays deterministic.
+            # The pool is torn down by hand rather than as a context manager: on
+            # an interrupt, ``__exit__``'s plain ``shutdown(wait=True)`` would
+            # drain every queued block's read, and a second ctrl+c could abort
+            # the join entirely -- leaving a worker inside the WarpedVRT when the
+            # caller closes it (a use-after-free in GDAL).
             pending = iter(blocks)
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                window: deque[Future[_BlockResult | None]] = deque()
+            pool = ThreadPoolExecutor(max_workers=workers)
+            window: deque[Future[_BlockResult | None]] = deque()
+            # Opened by the teardown; warm-up tasks (below) block on it so that
+            # every worker thread exists before any block work is queued.
+            warm_gate = threading.Event()
+            try:
+                # Pre-start the full complement of worker threads on gated
+                # no-ops. A ctrl+c inside Thread.start can leak an OS thread the
+                # executor never registered (CPython registers a worker *after*
+                # starting it), and shutdown() never joins an unregistered
+                # thread -- confining thread starts to this warm-up, when only
+                # harmless gate-waits are queued, means a leaked thread can
+                # never be the one inside a block read. Afterwards the pool is
+                # at max_workers, so the submits below never start a thread.
+                for _ in range(workers):
+                    pool.submit(warm_gate.wait)
+                warm_gate.set()
                 for block in pending:
                     window.append(pool.submit(self._compute, block))
                     if len(window) >= workers:
@@ -827,3 +864,44 @@ class _TerrainStreamer:
                     next_block = next(pending, None)
                     if next_block is not None:
                         window.append(pool.submit(self._compute, next_block))
+            finally:
+                self._teardown(pool, window, warm_gate)
+
+    def _teardown(
+        self: Self,
+        pool: ThreadPoolExecutor,
+        window: deque[Future[_BlockResult | None]],
+        warm_gate: threading.Event,
+    ) -> None:
+        """Join every worker, surviving any number of further ctrl+c presses.
+
+        The caller closes the WarpedVRT (and its GDAL source datasets) as soon
+        as run() unwinds, so no worker may still be reading when this returns --
+        this join is what stands between a ctrl+c and a use-after-free (SIGSEGV)
+        inside GDAL, and further ctrl+c presses must not be able to skip it: the
+        loop retries until the join completes uninterrupted. It catches
+        BaseException, not KeyboardInterrupt, because an interrupt landing
+        inside the wait/join internals can surface as a secondary error (e.g. a
+        RuntimeError from a broken Condition) that must not abort the join
+        either.
+
+        Cancelling first makes still-queued workers no-op instead of reading, so
+        the join waits on at most the one read already in flight. On a clean
+        exit nothing is in flight and the flag is inert.
+        """
+        self._cancelled.set()
+        warm_gate.set()  # unblock warm-up no-ops so shutdown can join
+        interrupted = False
+        while True:
+            try:
+                wait(window)
+                pool.shutdown(wait=True, cancel_futures=True)
+            except BaseException:  # noqa: BLE001 -- see the docstring
+                interrupted = True
+                continue
+            break
+        # An interrupt swallowed by the retry loop must still surface -- unless
+        # one is already propagating out of run()'s try (raising here would
+        # replace it with a bare KeyboardInterrupt for nothing).
+        if interrupted and sys.exc_info()[1] is None:
+            raise KeyboardInterrupt
