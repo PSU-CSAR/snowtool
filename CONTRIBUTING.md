@@ -17,23 +17,28 @@ Sync the project requirements, with all dev dependencies:
 uv sync --dev
 ```
 
-## Pre-commit
+## Git hooks (prek)
 
-Run pre-commit install to enable the pre-commit configuration:
+Git hooks are run by [prek](https://prek.j178.dev), a pre-commit-compatible
+runner (same `.pre-commit-config.yaml`). All hooks are `language: system`:
+every tool (ruff, mypy, the file-hygiene checks) runs from the project venv at
+its `uv.lock`-pinned version -- prek never builds isolated environments or
+installs anything itself. Enable the hooks with:
 
 ```commandline
-pre-commit install
+uv run prek install
 ```
 
-The pre-commit hooks will be run against all files during a `git commit`, or
-you can run it explicitly with:
+The hooks run against staged content during a `git commit` (unstaged changes
+are stashed and restored around the run, so partially staged files are handled
+correctly), or run them explicitly against everything with:
 
 ```commandline
-pre-commit run --all-files
+uv run prek run --all-files
 ```
 
 If for some reason, you wish to commit code that does not pass the
-pre-commit checks, this can be done with:
+checks, this can be done with:
 
 ```commandline
 git commit -m "message" --no-verify

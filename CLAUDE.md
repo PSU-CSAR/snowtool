@@ -11,9 +11,9 @@ uv sync --dev                      # install (incl. dev deps)
 pytest                             # all tests; network tests deselected by default
 pytest tests/snowdb/test_db.py::test_open_requires_config   # single test
 pytest -m network                  # opt-in: real S3 reads (3DEP, NLCD)
-ruff check --fix && ruff format    # lint + format (also run by pre-commit)
+ruff check --fix && ruff format    # lint + format (also run by the commit hooks)
 env MYPYPATH=src mypy --explicit-package-bases src   # type check
-pre-commit run --all-files         # ruff + mypy + file hygiene
+prek run --all-files               # commit hooks (pre-commit-compatible runner): ruff + mypy + file hygiene
 uvicorn snowtool.api.app:get_app --factory --reload   # dev API server (no module-level app; CONTRIBUTING.md is stale)
 snowtool --root <db> ...           # the CLI (entrypoint: snowtool.__main__:cli)
 ```
