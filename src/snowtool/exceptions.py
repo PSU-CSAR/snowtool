@@ -159,6 +159,17 @@ class IncompleteDatasetDataError(SnowtoolError):
         )
 
 
+class RemoteSourceError(SnowtoolError):
+    """Raised when a remote pourpoint source cannot be fetched or enumerated.
+
+    Covers the ``http(s)`` import/sync path (``snowtool.snowdb.pourpoint_remote``):
+    an HTTP failure fetching a file, a GitHub tree listing that came back truncated
+    or empty, or filename collisions that make the flat temp directory ambiguous.
+    Distinct from :class:`GeoJSONValidationError` (a *parsed* file that is invalid)
+    so the CLI can report a transport/enumeration problem separately from bad data.
+    """
+
+
 class PourpointPruneDestinationRequiredError(SnowtoolError):
     """Raised when ``pourpoint sync`` would remove stored records but has no archive.
 

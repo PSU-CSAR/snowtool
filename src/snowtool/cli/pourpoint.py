@@ -25,7 +25,12 @@ from snowtool.cli._datasets import (
 )
 from snowtool.cli._progress import ClickProgress
 from snowtool.cli._render import _emit, _emit_record
-from snowtool.exceptions import PourpointPruneDestinationRequiredError, SnowtoolError
+from snowtool.exceptions import (
+    PourpointPruneDestinationRequiredError,
+    RemoteSourceError,
+    SnowtoolError,
+)
+from snowtool.snowdb.pourpoint_remote import materialize_dir, materialize_file
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -56,23 +61,37 @@ def _fail_if_invalid(result: PourpointImportResult) -> None:
 
 
 @pourpoint.command('import')
-@click.argument('src', type=click.Path(exists=True, path_type=Path))
+@click.argument('src')
 @click.option('--dry-run', is_flag=True, help='Classify sources without writing.')
 @config_option
 @pass_manager
-def import_pourpoints(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
-    """Additively import pourpoint(s) from a file or directory into the snowdb.
+def import_pourpoint(manager: SnowDbManager, src: str, dry_run: bool) -> None:
+    """Additively import a single pourpoint record into the snowdb from SRC.
 
-    Imports basin-bearing pourpoints, skips point-only ones, and reports
-    unparseable files (nonzero exit). Never removes a stored pourpoint.
+    SRC is one local file, or a single-file ``http(s)`` URL (e.g. a
+    raw.githubusercontent.com link). For bulk ingest, use ``pourpoint sync`` (or
+    loop this command, e.g. with ``xargs``).
+
+    Imports a basin-bearing pourpoint, skips a point-only one, and reports an
+    unparseable file (nonzero exit). Never removes a stored pourpoint.
     """
-    result = manager.import_pourpoints(src, dry_run=dry_run)
+    try:
+        with materialize_file(src) as local:
+            result = manager.import_pourpoints(local, dry_run=dry_run)
+    except RemoteSourceError as e:
+        raise click.ClickException(str(e)) from e
+    except IsADirectoryError as e:
+        raise click.ClickException(
+            f'import takes a single file; use `pourpoint sync` for a directory: {src}',
+        ) from e
+    except FileNotFoundError as e:
+        raise click.ClickException(f'no such file: {src}') from e
     _echo_import(result, dry_run=dry_run)
     _fail_if_invalid(result)
 
 
 @pourpoint.command('sync')
-@click.argument('src', type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument('src')
 @click.option(
     '--prune-to',
     type=click.Path(file_okay=False, path_type=Path),
@@ -84,20 +103,30 @@ def import_pourpoints(manager: SnowDbManager, src: Path, dry_run: bool) -> None:
 @pass_manager
 def sync_pourpoints(
     manager: SnowDbManager,
-    src: Path,
+    src: str,
     prune_to: Path | None,
     dry_run: bool,
 ) -> None:
-    """Mirror directory SRC into the snowdb: import it, then prune absent pourpoints.
+    """Mirror SRC into the snowdb: import it, then prune pourpoints absent from it.
+
+    SRC is a local directory or a GitHub tree URL
+    (``https://github.com/<owner>/<repo>/tree/<branch>/<subdir>``, the URL the
+    browser shows for a folder) -- the ``*.geojson`` records under it are fetched
+    into a temp dir and treated exactly like a local directory.
 
     Any stored pourpoint whose triplet is not in SRC is dumped to ``--prune-to`` and
     removed (cascading to its per-dataset rasters). If a prune would happen and
     ``--prune-to`` is absent, the command errors before changing anything.
     """
     try:
-        result = manager.sync_pourpoints(src, prune_to=prune_to, dry_run=dry_run)
+        with materialize_dir(src, progress=ClickProgress()) as local:
+            result = manager.sync_pourpoints(local, prune_to=prune_to, dry_run=dry_run)
     except PourpointPruneDestinationRequiredError as e:
         raise click.ClickException(str(e)) from e
+    except RemoteSourceError as e:
+        raise click.ClickException(str(e)) from e
+    except (FileNotFoundError, NotADirectoryError) as e:
+        raise click.ClickException(f'pourpoint sync requires a directory: {src}') from e
 
     _echo_import(result, dry_run=dry_run)
     if result.pruned:

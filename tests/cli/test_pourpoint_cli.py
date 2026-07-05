@@ -66,23 +66,27 @@ def test_import_file(runner, cli_obj, initialized_root, pourpoint_geojson):
     assert (initialized_root / 'pourpoints' / 'index.geojson').is_file()
 
 
-def test_import_dir_reports_and_exits_nonzero_on_invalid(
-    runner,
-    cli_obj,
-    initialized_root,
-    tmp_path,
-):
+def test_import_invalid_file_exits_nonzero(runner, cli_obj, tmp_path):
+    bad = tmp_path / 'bad.geojson'
+    bad.write_text(json.dumps({'type': 'Nonsense'}))
+
+    result = runner.invoke(cli, ['pourpoint', 'import', str(bad)], obj=cli_obj)
+
+    assert result.exit_code != 0
+    assert 'imported 0 pourpoint(s)' in result.output
+    assert 'invalid source file(s)' in result.output
+
+
+def test_import_rejects_directory(runner, cli_obj, tmp_path):
+    # import is single-record; a directory is a `sync` job.
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
-    _write_aoi(src, '22222:MT:USGS', with_polygon=False)
-    (src / 'bad.geojson').write_text(json.dumps({'type': 'Nonsense'}))
 
     result = runner.invoke(cli, ['pourpoint', 'import', str(src)], obj=cli_obj)
 
     assert result.exit_code != 0
-    assert 'imported 1 pourpoint(s)' in result.output
-    assert 'skipped 1 point-only' in result.output
-    assert 'invalid source file(s)' in result.output
+    assert 'single file' in result.output
+    assert 'sync' in result.output
 
 
 def test_sync_refuses_without_prune_to(runner, cli_obj, tmp_path, pourpoint_geojson):
