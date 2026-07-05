@@ -1,8 +1,8 @@
 # Usage
 
-The CLI is organized into command groups. Run `snowtool --help` or `snowtool
-<group> --help` for details, and see the [CLI reference](reference/cli.md) for
-the full, generated command listing.
+The CLI is organized into command groups. Run `snowtool --help` or
+`snowtool <group> --help` for details, and see the
+[CLI reference](reference/cli.md) for the full, generated command listing.
 
 | Group | Purpose |
 | --- | --- |
@@ -19,13 +19,15 @@ database-backed groups know which snowdb to open.
 
 ## HTTP API
 
-Serve the read-only API with uvicorn:
+Serve the read-only API with `snowtool api serve`:
 
 ```console
-uvicorn snowtool.api.app:get_app --factory
+snowtool api serve --config /srv/snowdb
 ```
 
-`snowtool api serve` wraps the same app for production use. The served API
-exposes interactive docs at `/docs` (Swagger UI) and `/redoc`, and its schema
-at `/openapi.json`; the same schema is rendered in the [HTTP API
-reference](reference/http-api.md).
+`serve` runs the app under uvicorn, forwarding uvicorn's own options
+(`--host`/`--port`/`--workers`/`--reload`/…); add `--check` to validate settings
+and that the app imports without starting a server. The served API exposes
+interactive docs at `/docs` (Swagger UI) and `/redoc`, and its schema at
+`/openapi.json`; the same schema is rendered in the [HTTP API
+reference](reference/http-api.html).

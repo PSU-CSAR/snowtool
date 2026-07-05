@@ -12,13 +12,13 @@ database*, not any one dataset: one source bins into every grid in a single pass
   the box.
 * :class:`LocalFile` -- an NLCD raster the operator already has on disk.
 
-Why download-and-cache rather than stream like 3DEP: the Annual NLCD raster
-bucket (``s3://usgs-landcover/...``) is *requester-pays* (it cannot be read
-anonymously the way the DEM's open ``prd-tnm`` bucket can), but NLCD is a single
-static national file, so the open MRLC HTTPS bundle is fetched once and cached.
-(The ``.tif`` inside the ``.zip`` is deflate-compressed, so it is extracted to the
-cache rather than read in place -- ``/vsizip/`` cannot range-read a compressed
-member.)
+Why download-and-cache rather than stream like 3DEP: unlike the DEM's
+cloud-optimized 3DEP tiles, the Annual NLCD land cover is distributed as a
+single national GeoTIFF inside a ``.zip`` bundle over an open MRLC HTTPS
+download -- not a range-readable cloud object -- but it is one static national
+file, so it is fetched once and cached. (The ``.tif`` inside the ``.zip`` is
+deflate-compressed, so it is extracted to the cache rather than read in place --
+``/vsizip/`` cannot range-read a compressed member.)
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ _DOWNLOAD_CHUNK_BYTES = 1 << 20
 
 # The current Annual NLCD land-cover (LndCov) CONUS bundle: Collection 1 Version 1,
 # data year 2024 (the latest published; EPSG:5070, 30 m, categorical uint8). An
-# open MRLC HTTPS download -- no credentials, unlike the requester-pays S3 bucket.
+# open MRLC HTTPS download -- a single national bundle, no credentials.
 DEFAULT_NLCD_URL = (
     'https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/'
     'Annual_NLCD_LndCov_2024_CU_C1V1.zip'

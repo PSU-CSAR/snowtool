@@ -22,4 +22,4 @@ GDAL required.**
 - **[Deployment](deployment/windows-iis.md)** — running the API under IIS on
   Windows.
 - **Reference** — generated [CLI](reference/cli.md), [HTTP
-  API](reference/http-api.md), and [Python API](reference/python-api.md) docs.
+  API](reference/http-api.html), and [Python API](reference/python-api.md) docs.

@@ -1,8 +1,8 @@
 """Build-time hook: emit the HTTP API's OpenAPI spec into the docs build.
 
 Registered under ``hooks:`` in ``mkdocs.yml`` -- a native MkDocs feature, so no
-plugin dependency. Adds ``reference/openapi.json`` as a generated file (rendered
-by ``reference/http-api.md`` via Redoc).
+plugin dependency. Adds ``reference/openapi.json`` as a generated file, which the
+standalone ``reference/http-api.html`` page renders full-window via Swagger UI.
 
 The single source of truth is ``tests/api/openapi_snapshot.json`` -- the golden
 file ``tests/api/test_openapi_snapshot.py`` pins against the served

@@ -10,10 +10,11 @@ created.
 
 !!! note "Network access"
     Creating a dataset generates its zone layers — terrain from USGS **3DEP**
-    and land cover from **Annual NLCD** — by reading public cloud data by
-    default (NLCD is requester-pays). To work fully offline, supply local
-    inputs with `--source PROVIDER PATH` (shown below). Ingesting data also
-    requires source archives you provide.
+    and land cover from **Annual NLCD** — by reading open public data by
+    default (3DEP tiles over S3, and the Annual NLCD bundle over an open MRLC
+    HTTPS download). To work fully offline, supply local inputs with
+    `--source PROVIDER PATH` (shown below). Ingesting data also requires source
+    archives you provide.
 
 ## 1. Initialize an empty snowdb
 
@@ -31,19 +32,28 @@ need `--config` (see [Configuration](configuration.md)).
 Pourpoint records come from the
 [PSU-CSAR/BAGIS-pourpoints](https://github.com/PSU-CSAR/BAGIS-pourpoints)
 repository — one GeoJSON file per pourpoint (a station triplet, an outflow
-point, and optionally a delineated basin polygon), under `reference/`. Clone it
-yourself; don't assume a copy is already present:
+point, and optionally a delineated basin polygon), under `reference/`.
+
+`pourpoint sync` mirrors a whole folder of records into the snowdb. Point it
+straight at that `reference/` folder on GitHub — the URL your browser shows for
+the directory — and every `*.geojson` under it is fetched and imported, no
+local clone required:
 
 ```console
-git clone https://github.com/PSU-CSAR/BAGIS-pourpoints
-snowtool pourpoint import BAGIS-pourpoints/reference
+snowtool pourpoint sync https://github.com/PSU-CSAR/BAGIS-pourpoints/tree/main/reference
 snowtool pourpoint reindex
 ```
 
-`import` additively imports the basin-bearing pourpoints and skips point-only
-ones (a basin polygon is what gets burned into each dataset's AOI raster).
-`reindex` rebuilds the `index.geojson` manifest so the datasets you create next
-can see the imported basins.
+`sync` imports the basin-bearing pourpoints, skips point-only ones (a basin
+polygon is what gets burned into each dataset's AOI raster), and prunes any
+stored pourpoint absent from the source. On this fresh snowdb nothing is
+pruned; once records exist, a prune requires `--prune-to <dir>` to archive what
+it removes. `reindex` rebuilds the `index.geojson` manifest so the datasets you
+create next can see the imported basins.
+
+`sync` also accepts a local directory (after your own `git clone`), and
+`pourpoint import` brings in a single record from a local file or a raw file
+URL (e.g. a `raw.githubusercontent.com` link).
 
 ## 3. Create the three datasets
 
@@ -111,4 +121,4 @@ validate interactively:
 - `GET /pourpoints` — the imported pourpoints.
 - `GET /datasets` — `snodas`, `swann`, `instarr`.
 - Browse `GET /docs` (Swagger UI) or `GET /redoc`, and per-dataset stats
-  endpoints, all described in the [HTTP API reference](reference/http-api.md).
+  endpoints, all described in the [HTTP API reference](reference/http-api.html).
