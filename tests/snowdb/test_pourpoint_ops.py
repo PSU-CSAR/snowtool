@@ -2,12 +2,14 @@
 
 import json
 
+import numpy
 import pytest
 
 import snowtool.snowdb.aoi_raster as aoi_raster_mod
 
 from snowtool.exceptions import (
     GeoJSONValidationError,
+    GeometryOutsideGridError,
     PourpointNotFoundError,
     PourpointPruneDestinationRequiredError,
 )
@@ -508,3 +510,94 @@ def test_rasterize_aois_built_and_skipped(manager, db, pourpoint_geojson):
     second = manager.rasterize_aois([aoi], datasets)
     assert second.built == []
     assert second.skipped == [('12345:MT:USGS', 'test')]
+
+
+# --- basins beyond the grid edge (window clamping + off-grid skips) -----------
+
+# A basin straddling the grid's north edge (45N): lon -119.9..-119.0, lat
+# 44.5..45.5 -- the top half spills off the grid.
+_STRADDLE = _box(-119.9, 45.5, -119.0, 44.5)
+# The same basin pre-clipped to the grid's north edge (the in-grid part).
+_STRADDLE_CLIPPED = _box(-119.9, 45.0, -119.0, 44.5)
+# A basin entirely north of the grid.
+_OUTSIDE = _box(-119.9, 46.9, -119.0, 46.0)
+
+
+def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):
+    straddle = Pourpoint.from_geojson(
+        _write_aoi(tmp_path / 'src', '33333:MT:USGS', polygon=_STRADDLE),
+    )
+
+    raster = db['test'].rasterize_aoi(straddle)
+
+    # The window is clamped to the single in-grid tile (the bug produced an
+    # inverted window here: griffine wrapped the negative tile row to the last).
+    assert [(t.row, t.col) for t in raster.tiles] == [(0, 0)]
+    # Only the in-grid part burns: 90 cols (lon -119.9..-119.0) x 50 rows
+    # (lat 45.0..44.5) of 0.01-degree pixels.
+    assert (raster.array > 0).sum() == 90 * 50
+    # And it burns *identically* to the polygon pre-clipped to the grid edge.
+    clipped = Pourpoint.from_geojson(
+        _write_aoi(tmp_path / 'src', '44444:MT:USGS', polygon=_STRADDLE_CLIPPED),
+    )
+    clipped_raster = db['test'].rasterize_aoi(clipped)
+    assert numpy.array_equal(raster.array, clipped_raster.array)
+
+
+def test_rasterize_fully_outside_basin_raises_typed_error(db, tmp_path):
+    outside = Pourpoint.from_geojson(
+        _write_aoi(tmp_path / 'src', '55555:MT:USGS', polygon=_OUTSIDE),
+    )
+
+    with pytest.raises(GeometryOutsideGridError, match='do not intersect'):
+        db['test'].rasterize_aoi(outside)
+
+    assert not db['test'].aoi_raster_path_from_triplet('55555:MT:USGS').exists()
+
+
+def test_rasterize_aois_skips_off_grid_basins(manager, db, tmp_path):
+    inside = Pourpoint.from_geojson(_write_aoi(tmp_path / 'src', '11111:MT:USGS'))
+    outside = Pourpoint.from_geojson(
+        _write_aoi(tmp_path / 'src', '55555:MT:USGS', polygon=_OUTSIDE),
+    )
+
+    result = manager.rasterize_aois([inside, outside], list(db.datasets.values()))
+
+    assert result.built == [('11111:MT:USGS', 'test')]
+    assert result.skipped == [('55555:MT:USGS', 'test')]
+    assert db['test'].aoi_raster_path_from_triplet('11111:MT:USGS').is_file()
+    assert not db['test'].aoi_raster_path_from_triplet('55555:MT:USGS').exists()
+
+
+def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, spec):
+    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
+    from snowtool.snowdb.datasets import config_from_spec
+
+    src = tmp_path / 'src'
+    _write_aoi(src, '33333:MT:USGS', polygon=_STRADDLE)
+    _write_aoi(src, '55555:MT:USGS', polygon=_OUTSIDE)
+    manager.import_pourpoints(src)
+
+    other = DatasetSpec(
+        name='other',
+        grid_params=spec.grid_params,
+        variables=spec.variables.values(),
+    )
+    config = config_from_spec(other)
+    ds_dir = manager.db.dataset_dir('other', config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+
+    staged = manager.stage_dataset('other', config_path)
+
+    # Coverage classifies both basins; only the (partially) served one burns.
+    assert staged.coverage == {
+        '33333:MT:USGS': Coverage.PARTIAL,
+        '55555:MT:USGS': Coverage.NONE,
+    }
+    assert staged.rasterized.built == [('33333:MT:USGS', 'other')]
+    assert staged.rasterized.skipped == []
+    aoi_dir = staged.dataset.path / 'aoi-rasters'
+    assert (aoi_dir / '33333_MT_USGS.tif').is_file()
+    assert not (aoi_dir / '55555_MT_USGS.tif').exists()

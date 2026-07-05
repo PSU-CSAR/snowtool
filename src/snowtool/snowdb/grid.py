@@ -10,12 +10,16 @@ metadata lives with ``AOIRaster`` in :mod:`snowtool.snowdb.raster`.)
 
 from __future__ import annotations
 
+import math
+
 from typing import NamedTuple
 
-from griffine import Affine, Grid, Point
+from griffine import Affine, Grid
 from griffine.grid import AffineGridTile, TiledAffineGrid
 from pydantic import BaseModel, ConfigDict
 from rasterio.warp import transform_bounds
+
+from snowtool.exceptions import GeometryOutsideGridError
 
 # A geographic bounding box: (west, south, east, north) in EPSG:4326.
 Bounds = tuple[float, float, float, float]
@@ -102,6 +106,13 @@ def tiles_in_bbox(
     ]
 
 
+def grid_extent(grid: TiledAffineGrid) -> Extent:
+    """The grid's full extent as ``(minx, miny, maxx, maxy)`` in its *own* CRS."""
+    base = grid.base_grid
+    t = base.transform
+    return (t.c, t.f + base.rows * t.e, t.c + base.cols * t.a, t.f)
+
+
 def grid_extent_4326(
     grid: TiledAffineGrid,
 ) -> Bounds:
@@ -110,12 +121,7 @@ def grid_extent_4326(
     Used to tell a DEM source which geographic area to fetch. The extent is
     computed in the grid's own CRS then transformed to lon/lat.
     """
-    base = grid.base_grid
-    t = base.transform
-    xmin = t.c
-    ymax = t.f
-    xmax = t.c + base.cols * t.a
-    ymin = t.f + base.rows * t.e
+    xmin, ymin, xmax, ymax = grid_extent(grid)
     crs = grid.crs
     if crs is None:  # pragma: no cover - make_grid always sets a CRS
         raise ValueError('grid has no CRS')
@@ -127,13 +133,34 @@ def bounding_tiles(
     grid: TiledAffineGrid,
     bounds: Extent,
 ) -> tuple[AffineGridTile, AffineGridTile]:
-    """The upper-left and lower-right tiles covering a world-coord bbox.
+    """The upper-left and lower-right tiles covering a world-coord bbox, clamped
+    to the grid.
 
     ``bounds`` is ``(minx, miny, maxx, maxy)`` in the grid's own CRS (reproject
-    geographic geometry first).
+    geographic geometry first). A bbox spilling past a grid edge is clamped to
+    the edge tiles, so a basin straddling the boundary gets exactly its in-grid
+    window -- griffine would otherwise resolve a negative tile index
+    Python-style to the far edge, producing an inverted (negative-sized)
+    window. A bbox that does not intersect the grid at all has no window to
+    burn and raises :class:`~snowtool.exceptions.GeometryOutsideGridError`.
     """
     minx, miny, maxx, maxy = bounds
-    return (
-        grid.point_to_tile(Point(minx, maxy)),
-        grid.point_to_tile(Point(maxx, miny)),
-    )
+    gminx, gminy, gmaxx, gmaxy = grid_extent(grid)
+    if minx > gmaxx or maxx < gminx or miny > gmaxy or maxy < gminy:
+        raise GeometryOutsideGridError(
+            f'geometry bounds {bounds} do not intersect the grid extent '
+            f'({gminx}, {gminy}, {gmaxx}, {gmaxy})',
+        )
+
+    def clamped_tile(x: float, y: float) -> AffineGridTile:
+        # The tiled grid's transform maps world coords -> (col, row) tile space
+        # (griffine's point_to_tile does the same inversion, but would raise or
+        # wrap out-of-grid indices); floor then clamp into the tile grid so an
+        # out-of-grid corner resolves to its nearest edge tile.
+        col, row = (math.floor(v) for v in ~grid.transform * (x, y))
+        return grid[
+            min(max(row, 0), grid.rows - 1),
+            min(max(col, 0), grid.cols - 1),
+        ]
+
+    return clamped_tile(minx, maxy), clamped_tile(maxx, miny)

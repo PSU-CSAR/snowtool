@@ -226,6 +226,14 @@ class Dataset:
         )
 
     def rasterize_aoi(self, aoi: Pourpoint, force: bool = False) -> AOIRaster:
+        """Burn ``aoi``'s basin onto this dataset's grid as an AOI raster.
+
+        The tile window is clamped to the grid (see
+        :func:`~snowtool.snowdb.grid.bounding_tiles`), so a basin straddling a
+        grid edge burns only its in-grid portion; a basin entirely outside the
+        grid raises :class:`~snowtool.exceptions.GeometryOutsideGridError` (the
+        batch paths pre-filter those by coverage instead of calling this).
+        """
         # A management (write) op may run against a dataset that has no data yet,
         # so create the aoi-rasters dir if it is missing (but never the base
         # snowdb dirs -- those are SnowDbManager.initialize's job).

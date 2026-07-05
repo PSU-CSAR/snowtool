@@ -10,8 +10,9 @@ import pytest
 from griffine import Point
 from pyproj import Geod
 
+from snowtool.exceptions import GeometryOutsideGridError
 from snowtool.snowdb.datasets import SNODAS_SPEC
-from snowtool.snowdb.grid import make_grid, tiles_in_bbox
+from snowtool.snowdb.grid import bounding_tiles, grid_extent, make_grid, tiles_in_bbox
 
 SNODAS_GRID = SNODAS_SPEC.grid
 _GP = SNODAS_SPEC.grid_params  # SNODAS_SPEC is the source of truth for these
@@ -113,6 +114,71 @@ def test_tiles_in_bbox() -> None:
 def test_tiles_in_bbox_single_tile() -> None:
     tiles = tiles_in_bbox(SNODAS_GRID, 5, 7, 5, 7)
     assert [(t.row, t.col) for t in tiles] == [(5, 7)]
+
+
+# --- bounding_tiles clamping (edge-straddling and off-grid bboxes) -----------
+
+
+def _synthetic_grid():
+    """The standard 512x512 / 2x2-tile synthetic grid (extent -120..-114.88,
+    39.88..45 -- each 2.56-degree tile spans 256 x 0.01-degree pixels)."""
+    return make_grid(
+        origin_x=-120.0,
+        origin_y=45.0,
+        px_size=0.01,
+        cols=512,
+        rows=512,
+        tile_size=256,
+    )
+
+
+def test_grid_extent_is_the_grid_bbox_in_its_own_crs() -> None:
+    assert grid_extent(_synthetic_grid()) == (-120.0, 39.88, -114.88, 45.0)
+
+
+def test_bounding_tiles_inside_the_grid() -> None:
+    grid = _synthetic_grid()
+    ul, br = bounding_tiles(grid, (-119.9, 41.0, -117.0, 44.0))
+    assert (ul.row, ul.col) == (0, 0)
+    assert (br.row, br.col) == (1, 1)
+
+
+@pytest.mark.parametrize(
+    ('bounds', 'expected_ul', 'expected_br'),
+    [
+        # Spills north + west of the origin corner: clamps to tile (0, 0).
+        ((-121.0, 44.5, -119.0, 46.0), (0, 0), (0, 0)),
+        # Spills south + east of the far corner: clamps to the last tile.
+        ((-115.0, 30.0, -100.0, 43.0), (0, 1), (1, 1)),
+        # Wholly containing the grid: clamps to the full tile bbox.
+        ((-130.0, 30.0, -100.0, 50.0), (0, 0), (1, 1)),
+    ],
+)
+def test_bounding_tiles_clamps_out_of_grid_bboxes(
+    bounds,
+    expected_ul,
+    expected_br,
+) -> None:
+    grid = _synthetic_grid()
+    ul, br = bounding_tiles(grid, bounds)
+    assert (ul.row, ul.col) == expected_ul
+    assert (br.row, br.col) == expected_br
+    # A clamped window is never inverted (the original bug produced br < ul).
+    assert ul.row <= br.row
+    assert ul.col <= br.col
+
+
+@pytest.mark.parametrize(
+    'bounds',
+    [
+        (-119.9, 46.0, -119.0, 46.9),  # entirely north of the grid
+        (-119.9, 30.0, -119.0, 39.0),  # entirely south
+        (-110.0, 41.0, -105.0, 44.0),  # entirely east
+    ],
+)
+def test_bounding_tiles_raises_for_a_disjoint_bbox(bounds) -> None:
+    with pytest.raises(GeometryOutsideGridError, match='do not intersect'):
+        bounding_tiles(_synthetic_grid(), bounds)
 
 
 # --- geodesic area (griffine native, via the grid's geographic CRS) -----------

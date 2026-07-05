@@ -432,12 +432,13 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     assert restaged.rasterized.built == []
     assert restaged.rasterized.skipped == [('12345:MT:USGS', 'test')]
     assert restaged.coverage == staged.coverage
-    # Staging reports each slow phase sequentially: record parse, AOI
-    # rasterize (per pourpoint x dataset pair), coverage computation.
+    # Staging reports each slow phase sequentially: record parse, coverage
+    # computation (which gates the burn), AOI rasterize (per covered
+    # pourpoint x dataset pair).
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('parsing 1 pourpoint record(s)', 1, 1),
-        ('rasterizing', 1, 1),
         ('computing coverage for 1 pourpoint(s)', 1, 1),
+        ('rasterizing', 1, 1),
     ]
 
     # Before commit: a fresh open does NOT see the dataset (config unwritten).
