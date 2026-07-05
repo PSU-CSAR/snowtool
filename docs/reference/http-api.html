@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!--
+  Standalone full-window Swagger UI for the snowtool HTTP API. Served outside the
+  MkDocs Material theme so it fills the browser and Material's CSS can't fight
+  Swagger UI's. Reads the golden `openapi.json` the docs build emits next to this
+  file (docs/hooks.py); that snapshot is pinned by the test suite, so this page
+  can't drift from production and needs no live snowdb.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>snowtool HTTP API reference</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"
+    />
+    <style>
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: 'openapi.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+      });
+    </script>
+  </body>
+</html>

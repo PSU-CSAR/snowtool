@@ -28,6 +28,13 @@ theme:
 hooks:
   - docs/hooks.py
 
+# Inputs outside docs/ that the build renders from: without these, `mkdocs serve`
+# keeps serving a stale HTTP API schema (the hook reads the snapshot) and stale
+# mkdocstrings pages (rendered from src docstrings) after they change.
+watch:
+  - tests/api/openapi_snapshot.json
+  - src/snowtool
+
 plugins:
   - search
   - mkdocstrings:
@@ -60,5 +67,5 @@ nav:
       - Windows / IIS: deployment/windows-iis.md
   - Reference:
       - CLI: reference/cli.md
-      - HTTP API: reference/http-api.md
+      - HTTP API: reference/http-api.html
       - Python API: reference/python-api.md

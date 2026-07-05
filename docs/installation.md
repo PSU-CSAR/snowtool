@@ -12,7 +12,7 @@ uv tool install snowtool
 
 This puts the `snowtool` command on your PATH. To make it available to *all*
 users on a Windows Server (rather than just the installing account), see
-[Deployment → Windows / IIS](deployment/windows-iis.md#making-snowtool-available-to-all-users).
+[Deployment → Windows / IIS](deployment/windows-iis.md#installing-snowtool-for-all-users).
 
 ## From source
 

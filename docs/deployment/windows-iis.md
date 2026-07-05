@@ -1,37 +1,15 @@
 # Windows / IIS
 
 Deploy `snowtool` as an IIS site fronting `snowtool api serve` via
-httpPlatformHandler.
+httpPlatformHandler. Install the tool machine-wide first, then provision the
+IIS site that runs it.
 
-## Prerequisites
-
-On the target Windows Server:
-
-- IIS with the **httpPlatformHandler** and **IISAdministration** modules
-  installed.
-- An elevated (Administrator) PowerShell/shell to run the install commands.
-
-## Installing the site
-
-Install the tool, then provision the site:
-
-```console
-uv tool install snowtool
-snowtool windows iis install C:\inetpub\snowtool --hostname snow.example.org --config C:\snowdb\snowdb_conf.json
-```
-
-`--config` is written into the site's `web.config` as the
-`SNOWTOOL_SNOWDB_CONFIG` environment variable the hosted process reads, and its
-directory is granted read+execute to the site's app-pool identity.
-
-Re-running `snowtool windows iis install` against an existing site updates it in
-place. Tear a site down with `snowtool windows iis remove`.
-
-## Making `snowtool` available to all users
+## Installing snowtool for all users
 
 `uv tool install` and `uv tool update-shell` only ever touch the *installing
 user's* profile and PATH — there's no install-time hook to make the tool
-available machine-wide. To get `snowtool` onto every user's PATH:
+available machine-wide. To get `snowtool` onto every user's PATH (including the
+IIS app-pool identity that runs the site):
 
 1. Point `uv` at a shared install location instead of its per-user default, in
    an elevated shell, **before installing**:
@@ -42,7 +20,11 @@ available machine-wide. To get `snowtool` onto every user's PATH:
     ```
 
     `setx /M` sets these machine-wide; open a *new* elevated shell so they take
-    effect, then run `uv tool install snowtool`.
+    effect, then install the tool:
+
+    ```console
+    uv tool install snowtool
+    ```
 
 2. Add the shared bin directory to the machine-wide PATH:
 
@@ -57,3 +39,28 @@ available machine-wide. To get `snowtool` onto every user's PATH:
     one account.
 
     Open a new shell afterward to pick up the change.
+
+## IIS setup
+
+With `snowtool` installed (above), provision the IIS site that hosts the API.
+
+### Prerequisites
+
+On the target Windows Server:
+
+- IIS with the **httpPlatformHandler** and **IISAdministration** modules
+  installed.
+- An elevated (Administrator) PowerShell/shell to run the install commands.
+
+### Provisioning the site
+
+```console
+snowtool windows iis install C:\inetpub\snowtool --hostname snow.example.org --config C:\snowdb\snowdb_conf.json
+```
+
+`--config` is written into the site's `web.config` as the
+`SNOWTOOL_SNOWDB_CONFIG` environment variable the hosted process reads, and its
+directory is granted read+execute to the site's app-pool identity.
+
+Re-running `snowtool windows iis install` against an existing site updates it in
+place. Tear a site down with `snowtool windows iis remove`.
