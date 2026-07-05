@@ -77,7 +77,11 @@ def import_pourpoint(manager: SnowDbManager, src: str, dry_run: bool) -> None:
     """
     try:
         with materialize_file(src) as local:
-            result = manager.import_pourpoints(local, dry_run=dry_run)
+            result = manager.import_pourpoints(
+                local,
+                dry_run=dry_run,
+                progress=ClickProgress(),
+            )
     except RemoteSourceError as e:
         raise click.ClickException(str(e)) from e
     except IsADirectoryError as e:
@@ -120,7 +124,12 @@ def sync_pourpoints(
     """
     try:
         with materialize_dir(src, progress=ClickProgress()) as local:
-            result = manager.sync_pourpoints(local, prune_to=prune_to, dry_run=dry_run)
+            result = manager.sync_pourpoints(
+                local,
+                prune_to=prune_to,
+                dry_run=dry_run,
+                progress=ClickProgress(),
+            )
     except PourpointPruneDestinationRequiredError as e:
         raise click.ClickException(str(e)) from e
     except RemoteSourceError as e:
@@ -213,7 +222,7 @@ def dump_pourpoint(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
 @pass_manager
 def reindex_pourpoints(manager: SnowDbManager) -> None:
     """Rebuild the index.geojson manifest from the stored records."""
-    index = manager.reindex_pourpoints()
+    index = manager.reindex_pourpoints(progress=ClickProgress())
     click.echo(
         f'reindexed {len(index)} pourpoint(s) into {manager.db.pourpoint_index_path}',
     )
@@ -230,7 +239,7 @@ def remove_pourpoint(manager: SnowDbManager, triplet: str, dry_run: bool) -> Non
         present = manager.db.pourpoint_record_path(triplet).is_file()
         click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
         return
-    if manager.remove_pourpoint(triplet):
+    if manager.remove_pourpoint(triplet, progress=ClickProgress()):
         click.echo(f'removed {triplet}')
     else:
         click.echo(f'{triplet}: absent (nothing removed)')

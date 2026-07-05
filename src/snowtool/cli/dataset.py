@@ -149,7 +149,7 @@ def create_dataset(
     config.save(config_path)
 
     try:
-        staged = manager.stage_dataset(name, config_path)
+        staged = manager.stage_dataset(name, config_path, progress=ClickProgress())
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 

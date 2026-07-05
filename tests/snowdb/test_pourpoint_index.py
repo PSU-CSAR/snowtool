@@ -112,8 +112,29 @@ def test_geometry_hash_differs_for_a_different_polygon(tmp_path):
 def test_geometry_hash_raises_without_a_polygon(tmp_path):
     path = _write_pourpoint(tmp_path / 'p.geojson', with_polygon=False)
     aoi = Pourpoint.from_geojson(path)
-    with pytest.raises(ValueError, match='does not have a basin polygon'):
-        _ = aoi.geometry_hash
+    # Twice: cached_property must not cache the raised error, only a result.
+    for _ in range(2):
+        with pytest.raises(ValueError, match='does not have a basin polygon'):
+            _ = aoi.geometry_hash
+
+
+def test_geometry_and_derived_values_are_cached(pourpoint_geojson):
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
+    # The shapely conversion runs once per instance: repeated access returns the
+    # very same object (and so do the derived area/hash).
+    assert aoi.geometry is aoi.geometry
+    assert aoi.area_meters is aoi.area_meters
+    assert aoi.geometry_hash is aoi.geometry_hash
+
+
+def test_geometry_hash_pins_the_provenance_contract(pourpoint_geojson):
+    # The exact sha256 of the fixture basin's canonical (little-endian) WKB.
+    # This digest is baked into AOI-raster provenance tags; caching must never
+    # change what is hashed or how.
+    aoi = Pourpoint.from_geojson(pourpoint_geojson)
+    assert aoi.geometry_hash == (
+        'f8ae6d17bbe305616c4422b15d4116e988d766c6bc33bc4f4ee691f116ac7242'
+    )
 
 
 # --- PourpointIndexEntry -----------------------------------------------------------

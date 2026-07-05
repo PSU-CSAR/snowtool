@@ -17,6 +17,13 @@ one local ``_IndexFeatureProperties`` model for the ``properties`` block -- the
 only genuinely index-specific schema here. geojson-pydantic's ``Feature`` allows
 a null ``id``/``geometry``/``properties`` (valid GeoJSON, but not a valid index
 entry), so the load path guards those into clear errors.
+
+Maintenance is split two ways: import/sync/remove update the index *incrementally*
+(``SnowDbManager._update_index`` reuses an entry as-is while its record and the
+registered-dataset set are unchanged), while ``pourpoint reindex``
+(:meth:`PourpointIndex.from_records`) is the explicit FULL rebuild that ignores
+the persisted index -- the recovery path for out-of-band ``records/`` edits and
+for a grid change to an already-registered dataset name.
 """
 
 from __future__ import annotations
@@ -34,11 +41,13 @@ from snowtool import types
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.progress import NULL_PROGRESS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
 
     from snowtool.snowdb.coverage import CoverageDomain
+    from snowtool.snowdb.progress import ProgressReporter
 
 
 class _IndexFeatureProperties(BaseModel):
@@ -69,8 +78,10 @@ class PourpointIndexEntry(BaseModel):
     # can report it without parsing the (large) basin records.
     area_meters: float | None = None
     # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
-    # name. Derived (a grid change => `pourpoint reindex`), so it is recomputed by
-    # `PourpointIndex.from_records`, never edited in place.
+    # name. Derived: `PourpointIndex.from_records` recomputes it, registration
+    # folds a new dataset's key in, and incremental import/sync/remove reuse an
+    # entry only while its key set still matches the registered datasets -- so a
+    # grid change to an already-registered name needs a `pourpoint reindex`.
     coverage: dict[str, Coverage] = Field(default_factory=dict)
 
     @classmethod
@@ -151,23 +162,34 @@ class PourpointIndex:
         cls: type[Self],
         records_dir: Path,
         domains: Mapping[str, CoverageDomain],
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> Self:
         """Rebuild the index by parsing every ``records/<triplet>.geojson``.
 
-        Per-dataset coverage is computed here against ``domains`` (dataset name ->
+        The FULL rebuild (any persisted index is ignored). Per-dataset coverage is
+        computed here against ``domains`` (dataset name ->
         :class:`~snowtool.snowdb.coverage.CoverageDomain`) so it stays derived:
         rebuilding the index re-derives it, and a grid/domain change is picked up
         by a plain ``pourpoint reindex``. Point-only pourpoints are skipped: with no
-        basin they have nothing to cover and no geometry hash to index.
+        basin they have nothing to cover and no geometry hash to index. ``progress``
+        reports the pass, advancing once per record file.
         """
         if not records_dir.is_dir():
             return cls({})
+        paths = sorted(records_dir.glob('*.geojson'))
         entries = []
-        for path in sorted(records_dir.glob('*.geojson')):
-            pourpoint = Pourpoint.from_geojson(path)
-            if pourpoint.polygon is None:
-                continue
-            entries.append(PourpointIndexEntry.from_pourpoint(pourpoint, domains))
+        with progress.track(
+            f'indexing {len(paths)} pourpoint(s)',
+            total=len(paths),
+        ) as task:
+            for path in paths:
+                pourpoint = Pourpoint.from_geojson(path)
+                if pourpoint.polygon is not None:
+                    entries.append(
+                        PourpointIndexEntry.from_pourpoint(pourpoint, domains),
+                    )
+                task.advance()
         return cls.from_entries(entries)
 
     @classmethod

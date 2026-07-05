@@ -369,8 +369,12 @@ class SnowDb:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
 
         Serves ``pourpoint list`` without parsing the (large) basin records. The
-        index is maintained by import/sync/remove/reindex; run ``pourpoint
-        reindex`` if the ``records/`` dir was edited out of band. The result is
+        index is maintained *incrementally* by import/sync/remove (an entry is
+        reused as-is while its record and the registered-dataset set are
+        unchanged); ``pourpoint reindex`` is the explicit full rebuild -- required
+        after out-of-band ``records/`` edits and after a grid change to an
+        already-registered dataset name (the one change incremental maintenance
+        cannot see; registering/removing a dataset self-heals). The result is
         cached and revalidated against the file's mtime (see :meth:`_load_index`),
         so repeated reads within one process are cheap yet still reflect an
         out-of-band rewrite.
