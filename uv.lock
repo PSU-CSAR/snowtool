@@ -311,14 +311,14 @@ wheels = [
 
 [[package]]
 name = "gazebo"
-version = "0.6.0"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/60/b19030d44f8028317ddc7d0dc97f53f409f5249305da620fba51849d5973/gazebo-0.6.0.tar.gz", hash = "sha256:0dac16f03372ce6cc74a3ee66b433940c8d7176c2424cf658a7ecf3015d81043", size = 228476, upload-time = "2026-07-03T21:39:38.127Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/0b/c40f9ba6355b2c2c1d0b4c9fe122b47eb6ed367db80075c69de1ccffe335/gazebo-0.7.0.tar.gz", hash = "sha256:7a9afd55ce097c465e4cbee95d5dda6273cb8a467c818e20225a4e6226f28a67", size = 230392, upload-time = "2026-07-05T02:08:22.516Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/c5/58e52f98212323eb93228e86860d9de35d9b0e0612fb4ae1874d7fc76a98/gazebo-0.6.0-py3-none-any.whl", hash = "sha256:cf2cc3062e134689036494fdcbd2c0770b8d4d60fcc733f8870001bcf0df5cb8", size = 85068, upload-time = "2026-07-03T21:39:36.745Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/0b/07cafb9261433093b6b0d319f0735a320d4d3bfe5dfff2cd043716e9c5ec/gazebo-0.7.0-py3-none-any.whl", hash = "sha256:a3dfb06e212327884d2375cc36cb3a265e72df065220ec36e306e0969e55f457", size = 86695, upload-time = "2026-07-05T02:08:21.216Z" },
 ]
 
 [package.optional-dependencies]
@@ -1252,7 +1252,7 @@ requires-dist = [
     { name = "async-tiff", specifier = ">=0.7.2" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "gazebo", extras = ["fastapi", "geojson", "uvicorn"], specifier = ">=0.6.0" },
+    { name = "gazebo", extras = ["fastapi", "geojson", "uvicorn"], specifier = ">=0.7.0" },
     { name = "geojson-pydantic", specifier = ">=2.1.1" },
     { name = "griffine", extras = ["crs"], specifier = ">=0.1.0" },
     { name = "numpy", specifier = ">=2.4.6" },
