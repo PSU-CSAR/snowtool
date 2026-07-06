@@ -1,7 +1,7 @@
 site_name: snowtool
 site_description: Snow analysis tool for basin forecasting
-repo_url: https://github.com/PSU-CSAR/django-snow
-repo_name: PSU-CSAR/django-snow
+repo_url: https://github.com/PSU-CSAR/snowtool
+repo_name: PSU-CSAR/snowtool
 edit_uri: edit/main/docs/
 
 theme:

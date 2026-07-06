@@ -19,10 +19,10 @@ users on a Windows Server (rather than just the installing account), see
 For development, clone the repository and sync with uv:
 
 ```console
-git clone https://github.com/PSU-CSAR/django-snow
-cd django-snow
+git clone https://github.com/PSU-CSAR/snowtool
+cd snowtool
 uv sync --dev
 ```
 
-See [`CONTRIBUTING.md`](https://github.com/PSU-CSAR/django-snow/blob/main/CONTRIBUTING.md)
+See [`CONTRIBUTING.md`](https://github.com/PSU-CSAR/snowtool/blob/main/CONTRIBUTING.md)
 for the full development setup (git hooks, testing, and conventions).
