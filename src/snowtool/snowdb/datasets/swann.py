@@ -152,6 +152,15 @@ class SwannIngester:
         *,
         force: bool = False,
     ) -> IngestResult:
+        if source.is_dir():
+            # Guarded before the filename regex so a directory earns a precise
+            # error rather than a misleading "does not match" message (or a raw
+            # read failure further in).
+            raise SnowtoolError(
+                f'Expected a single SWANN 800m NetCDF file (one file == one '
+                f'date), got a directory: {source}. Ingest files one per '
+                'invocation.',
+            )
         match = self.filename_re.search(source.name)
         if match is None:
             raise SnowtoolError(

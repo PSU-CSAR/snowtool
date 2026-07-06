@@ -401,6 +401,50 @@ def test_ingest_converges_and_force_reingests(
     assert fake.forces == [False, True]
 
 
+def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
+    # The instarr shape: SOURCE may be a directory (a date's tiles are mosaicked
+    # together, so the whole directory is one ingest call).
+    class _FakeIngester:
+        def __init__(self):
+            self.sources = []
+
+        def ingest(self, source, dataset, *, force=False):
+            self.sources.append(source)
+            return IngestResult(ingested=[date(2020, 1, 1)], skipped=[])
+
+    fake = _FakeIngester()
+    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
+
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    config.ingester = 'fake'
+    register_dataset_config(manager, 'test', config)
+    src_dir = tmp_path / 'tiles'
+    src_dir.mkdir()
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', str(src_dir)],
+        obj=CliContext(config=tmp_path),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'ingested test 2020-01-01' in result.output
+    assert fake.sources == [src_dir]
+
+
+def test_ingest_takes_exactly_one_source(runner, cli_obj, source_dem, source_nlcd):
+    # Batch driving belongs to the shell (xargs); a second SOURCE is a usage error.
+    result = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', str(source_dem), str(source_nlcd)],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code != 0
+    assert 'unexpected extra argument' in result.output.lower()
+
+
 def test_inactive_dataset_is_manageable_but_not_queryable(
     monkeypatch,
     runner,

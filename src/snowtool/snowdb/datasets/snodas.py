@@ -387,6 +387,14 @@ class SnodasIngester:
         *,
         force: bool = False,
     ) -> IngestResult:
+        if source.is_dir():
+            # Guarded here so a directory earns a precise, typed error instead of
+            # tarfile's raw IsADirectoryError.
+            raise SnowtoolError(
+                f'Expected a single SNODAS tar archive (one archive == one '
+                f'date), got a directory: {source}. Ingest archives one per '
+                'invocation.',
+            )
         # One versioned hash of the source tar per date (== per archive), stamped on
         # every COG and compared by the skip check.
         source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))

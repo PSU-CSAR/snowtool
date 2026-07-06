@@ -321,6 +321,16 @@ def test_snodas_spec_has_a_snodas_ingester():
     assert isinstance(SNODAS_SPEC.ingester, SnodasIngester)
 
 
+def test_snodas_ingest_rejects_a_directory_source(tmp_path):
+    # One archive == one date: a directory earns a precise typed error, not
+    # tarfile's raw IsADirectoryError.
+    ds = Dataset(SNODAS_SPEC, tmp_path / 'db')
+    source = tmp_path / 'archives'
+    source.mkdir()
+    with pytest.raises(SnowtoolError, match='got a directory'):
+        ds.ingest(source)
+
+
 class _RevisionRaster:
     """Minimal stand-in carrying just the time-step datetime the pin inspects."""
 
