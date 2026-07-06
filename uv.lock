@@ -1211,7 +1211,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "gazebo", extras = ["test"], specifier = ">=0.2.0" },
+    { name = "gazebo", extras = ["test"], specifier = ">=0.7.1" },
     { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mypy", specifier = ">=1.18.1" },
     { name = "pre-commit-hooks", specifier = ">=6.0.0" },
