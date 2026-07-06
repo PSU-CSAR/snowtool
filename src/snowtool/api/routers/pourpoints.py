@@ -84,4 +84,4 @@ async def get_pourpoint(
     # triplet), so the entry is guaranteed present for its derived coverage.
     index = snowdb.pourpoint_index()
     pourpoint = snowdb.load_pourpoint(triplet, index=index)
-    return build_pourpoint_detail(pourpoint, index[triplet])
+    return build_pourpoint_detail(snowdb, pourpoint, index[triplet])

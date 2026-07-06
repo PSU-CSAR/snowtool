@@ -65,6 +65,55 @@ def many_aois_client(test_settings, spec, tmp_path):
         yield client
 
 
+@pytest.fixture
+def inactive_dataset_client(test_settings, spec, pourpoint_geojson):
+    """A client over a root with two registered datasets, one deactivated.
+
+    The index carries coverage for both (the admin surface shows inactive
+    coverage on purpose); the API responses must expose only the active key.
+    """
+    from snowtool.snowdb.datasets import config_from_spec
+    from snowtool.snowdb.manager import SnowDbManager
+    from snowtool.snowdb.spec import DatasetSpec
+
+    from ..conftest import register_dataset_config
+
+    root = test_settings.snowdb_config
+    manager = SnowDbManager.initialize(root)
+    register_dataset_config(manager, spec.name, config_from_spec(spec))
+    other = DatasetSpec(
+        name='other',
+        grid_params=spec.grid_params,
+        variables=spec.variables.values(),
+    )
+    register_dataset_config(manager, 'other', config_from_spec(other))
+    manager = SnowDbManager.open(root)  # rebind so both datasets are served
+    manager.import_pourpoints(pourpoint_geojson)
+    manager.set_dataset_active('other', False)
+
+    with TestClient(get_app(settings=test_settings)) as client:
+        yield client
+
+
+def test_coverage_is_filtered_to_active_datasets(
+    inactive_dataset_client,
+    test_settings,
+) -> None:
+    from snowtool.snowdb.db import SnowDb
+
+    # List and detail responses carry coverage only for the active dataset: a
+    # client must never see a key that /datasets and the stats routes 404 on.
+    (feature,) = inactive_dataset_client.get('/pourpoints').json()['features']
+    assert feature['properties']['coverage'] == {'test': 'full'}
+    detail = inactive_dataset_client.get(f'/pourpoints/{TRIPLET}').json()
+    assert detail['properties']['coverage'] == {'test': 'full'}
+
+    # The index itself (the admin surface -- CLI `pourpoint list` serves it
+    # verbatim) still carries the inactive dataset's coverage.
+    index = SnowDb.open(test_settings.snowdb_config).pourpoint_index()
+    assert set(index[TRIPLET].coverage) == {'test', 'other'}
+
+
 def test_list_aois_collection_shape(synthetic_client) -> None:
     response = synthetic_client.get('/pourpoints')
     assert response.status_code == 200
