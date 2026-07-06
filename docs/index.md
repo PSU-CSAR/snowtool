@@ -19,6 +19,9 @@ GDAL required.**
 - **[Installation](installation.md)** — install as a `uv` tool or from source.
 - **[Configuration](configuration.md)** — pointing snowtool at a snowdb.
 - **[Usage](usage.md)** — the CLI command groups and the HTTP API.
+- **[Internals](internals/architecture.md)** — how it works underneath: the
+  object model, the on-disk layout and full config surface, provenance and
+  staleness, zone layers and their generation, ingest, and the query engine.
 - **[Deployment](deployment/windows-iis.md)** — running the API under IIS on
   Windows.
 - **Reference** — generated [CLI](reference/cli.md), [HTTP

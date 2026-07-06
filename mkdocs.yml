@@ -63,6 +63,16 @@ nav:
   - Configuration: configuration.md
   - Walkthrough: walkthrough.md
   - Usage: usage.md
+  - Internals:
+      - Architecture: internals/architecture.md
+      - A snowdb on disk: internals/on-disk-layout.md
+      - Configuration in depth: internals/configuration.md
+      - Provenance and staleness: internals/provenance.md
+      - Pourpoints, basins, and AOI rasters: internals/pourpoints.md
+      - Zone layers and zoning: internals/zones.md
+      - Generating zone layers: internals/zone-generation.md
+      - Datasets and ingest: internals/ingest.md
+      - The query engine: internals/queries.md
   - Deployment:
       - Windows / IIS: deployment/windows-iis.md
   - Reference:
