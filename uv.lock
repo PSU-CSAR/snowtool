@@ -1224,7 +1224,7 @@ dev = [
 docs = [
     { name = "mkdocs-click", specifier = ">=0.8.1" },
     { name = "mkdocs-material", specifier = ">=9.5.0" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.4" },
 ]
 
 [[package]]
