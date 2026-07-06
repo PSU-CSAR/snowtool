@@ -89,7 +89,9 @@ against.
 `dataset generate-zones` takes one *or more* datasets and reads each provider's
 source **once** over their combined extent, binning it into every one — so
 terrain's DEM reproject and the ~1.5 GB NLCD download happen a single time for
-the whole set instead of once per dataset. Activation doesn't matter here —
+the whole set instead of once per dataset. (The NLCD download is kept under
+`.cache/landcover/` in the snowdb so later runs skip it; it's safe to delete
+once layers are generated.) Activation doesn't matter here —
 zone layers live under each dataset's own `data/<name>/`, so the
 registered-inactive datasets from step 3 work as is:
 
