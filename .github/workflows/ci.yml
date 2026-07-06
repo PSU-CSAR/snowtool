@@ -1,0 +1,35 @@
+name: "Continuous integration"
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ci:
+    name: Continuous integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Sync
+        run: |
+          uv sync \
+            --locked \
+            --no-editable
+      - name: Prek
+        run: uv run prek run --all-files
+      - name: Test
+        run: uv run pytest
+      - name: "Upload coverage to Codecov"
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          fail_ci_if_error: false
+          verbose: true
