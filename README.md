@@ -41,7 +41,7 @@ The CLI is organized into command groups (`snowdb`, `dataset`, `pourpoint`,
 <group> --help` for details. Serve the read-only HTTP API with
 `uvicorn snowtool.api.app:get_app --factory` (or `snowtool api serve`).
 
-See the [documentation](https://psu-csar.github.io/django-snow/) for full
+See the [documentation](https://psu-csar.github.io/snowtool/) for full
 usage, deployment (including Windows/IIS), and generated CLI, HTTP API, and
 Python API reference.
 
