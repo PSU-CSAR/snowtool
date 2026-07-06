@@ -50,15 +50,14 @@ local clone required:
 
 ```console
 snowtool pourpoint sync https://github.com/PSU-CSAR/BAGIS-pourpoints/tree/main/reference
-snowtool pourpoint reindex
 ```
 
 `sync` imports the basin-bearing pourpoints, skips point-only ones (a basin
-polygon is what gets burned into each dataset's AOI raster), and prunes any
-stored pourpoint absent from the source. On this fresh snowdb nothing is
-pruned; once records exist, a prune requires `--prune-to <dir>` to archive what
-it removes. `reindex` rebuilds the `index.geojson` manifest so the datasets you
-create next can see the imported basins.
+polygon is what gets burned into each dataset's AOI raster), prunes any stored
+pourpoint absent from the source, and maintains the `index.geojson` manifest as
+it goes — the datasets you create next see the imported basins with no separate
+reindex step. On this fresh snowdb nothing is pruned; once records exist, a
+prune requires `--prune-to <dir>` to archive what it removes.
 
 `sync` also accepts a local directory (after your own `git clone`), and
 `pourpoint import` brings in a single record from a local file or a raw file
@@ -109,14 +108,25 @@ snowtool dataset generate-zones snodas swann instarr \
 
 ## 5. Ingest source data
 
-Templates define *what* each dataset holds; ingest fills it with dates. Point
-`dataset ingest` at one or more source archives for that dataset (see the
-dataset's source notes for where to obtain them and their expected format):
+Templates define *what* each dataset holds; ingest fills it with dates. Each
+`dataset ingest` invocation takes a **single source**, whose shape depends on
+the dataset (see the dataset's source notes for where to obtain data and its
+expected format): a single file for SNODAS (a daily tar archive) and SWANN (a
+daily NetCDF) — one file == one date — or a **directory** of SPIRES `.nc`
+tiles for INSTARR. Always pass instarr the directory: a date's mosaic is built
+from all of its tiles in one ingest call.
 
 ```console
-snowtool dataset ingest snodas  /data/snodas/*.tar
-snowtool dataset ingest swann   /data/swann/*.nc
-snowtool dataset ingest instarr /data/instarr/*.h5
+snowtool dataset ingest snodas  /data/snodas/SNODAS_20180427.tar
+snowtool dataset ingest swann   /data/swann/UA_SWE_Depth_800m_v1_20180427_early.nc
+snowtool dataset ingest instarr /data/instarr/
+```
+
+Batch driving belongs to the shell. Each ingested date commits via an atomic
+whole-directory swap, so parallel runs are safe across distinct dates:
+
+```console
+ls /data/snodas/*.tar | xargs -n1 -P4 snowtool dataset ingest snodas
 ```
 
 This works while the datasets are still inactive — that's the point of the
@@ -135,16 +145,17 @@ API (a running API server needs a restart to pick the change up):
 snowtool dataset activate snodas
 snowtool dataset activate swann
 snowtool dataset activate instarr
-snowtool pourpoint reindex
 ```
 
-`reindex` refreshes each pourpoint's coverage against the registered grids
-(here it's belt and braces — `create` already computed coverage when it staged
-each grid; it's required after a `dataset add`, which skips staging).
+Activation is a pure flag flip — `create` already computed each pourpoint's
+coverage when it staged the grid and folded it into the index at registration,
+so nothing needs reindexing here.
 
 For a dataset built *out of tree* (its config and data living outside this
 snowdb), `dataset add NAME CONFIG_PATH` is the escape hatch that registers an
-external config — also inactive, activated the same way.
+external config — also inactive, activated the same way. Because `add` skips
+staging, pourpoint coverage for that dataset reads as `none` until you run
+`snowtool pourpoint reindex`.
 
 ## 7. Validate and start the API
 

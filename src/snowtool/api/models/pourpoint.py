@@ -13,6 +13,12 @@
 there is no payload pressure and it always carries the basin polygon (falling back
 to the point for a point-only pourpoint) plus the full curated property set, with
 per-dataset coverage pulled from the index.
+
+Coverage in both responses is filtered to *active* datasets: the index itself
+carries coverage for every registered dataset (the admin surfaces -- CLI
+``pourpoint list``, diagnostics -- legitimately show inactive coverage), but the
+API must not advertise a dataset key its own ``/datasets`` and stats routes
+refuse to serve.
 """
 
 from __future__ import annotations
@@ -28,6 +34,8 @@ from pydantic import BaseModel, Field
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
+    from collections.abc import Container
+
     from gazebo.params import BBox
     from geojson_pydantic import MultiPolygon, Point, Polygon
 
@@ -72,9 +80,23 @@ def _point_coords(point: Point) -> tuple[float, float]:
     return (lon, lat)
 
 
+def _active_coverage(
+    entry: PourpointIndexEntry,
+    active: Container[str],
+) -> dict[str, Coverage]:
+    """The entry's coverage filtered to active dataset names.
+
+    The index carries coverage for every *registered* dataset; the API serves
+    only the active subset, so a response must not expose a coverage key a
+    client cannot follow to ``/datasets/{name}`` or the stats routes.
+    """
+    return {name: cov for name, cov in entry.coverage.items() if name in active}
+
+
 def _pourpoint_feature(
     entry: PourpointIndexEntry,
     geometry: Point | Polygon | MultiPolygon,
+    coverage: dict[str, Coverage],
 ) -> PourpointFeature:
     """One list feature: the chosen ``geometry`` slot + the fixed index properties."""
     return PourpointFeature(
@@ -86,7 +108,7 @@ def _pourpoint_feature(
             name=entry.name,
             area_meters=entry.area_meters,
             pourpoint=_point_coords(entry.point),
-            coverage=entry.coverage,
+            coverage=coverage,
         ),
         links=[
             Link.to_route(
@@ -135,7 +157,13 @@ def build_pourpoint_collection(
             )
         else:
             geometry = entry.point
-        items.append(_pourpoint_feature(entry, geometry))
+        items.append(
+            _pourpoint_feature(
+                entry,
+                geometry,
+                _active_coverage(entry, snowdb.datasets),
+            ),
+        )
 
     return PourpointFeatureCollection(
         items=items,
@@ -153,6 +181,7 @@ def build_pourpoint_collection(
 
 
 def build_pourpoint_detail(
+    snowdb: SnowDb,
     pourpoint: Pourpoint,
     entry: PourpointIndexEntry,
 ) -> PourpointDetail:
@@ -160,7 +189,8 @@ def build_pourpoint_detail(
 
     The basin polygon and the curated record fields come from the loaded
     ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
-    values from ``entry`` (computed at reindex), not recomputed here.
+    values from ``entry`` (computed at reindex), not recomputed here -- coverage
+    filtered to ``snowdb``'s active datasets (see :func:`_active_coverage`).
     """
     # The basin polygon passes straight through (see `_pourpoint_feature`); `None`
     # for a point-only pourpoint (GeoJSON allows a null geometry).
@@ -171,7 +201,7 @@ def build_pourpoint_detail(
             name=pourpoint.name,
             area_meters=entry.area_meters,
             pourpoint=_point_coords(pourpoint.point),
-            coverage=entry.coverage,
+            coverage=_active_coverage(entry, snowdb.datasets),
             awdb_id=pourpoint.awdb_id,
             usgs_id=pourpoint.usgs_id,
         ),

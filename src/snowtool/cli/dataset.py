@@ -281,10 +281,10 @@ def activate_dataset(manager: SnowDbManager, name: str) -> None:
         manager.set_dataset_active(name, True)
     except ValueError as e:
         raise click.ClickException(str(e)) from e
-    click.echo(
-        f"activated {name} (run 'pourpoint reindex' if never indexed; "
-        'restart the API to pick it up)',
-    )
+    # Activation never needs a reindex: `dataset create` folds coverage into the
+    # index at registration. The one exception (`dataset add`, which skips
+    # staging) prints its own reindex guidance at add time.
+    click.echo(f'activated {name} (restart the API to pick it up)')
 
 
 @dataset.command('deactivate')
@@ -321,10 +321,8 @@ def _resolve_managed_dataset(manager: SnowDbManager, token: str):
 @dataset.command('ingest')
 @click.argument('name')
 @click.argument(
-    'archives',
-    nargs=-1,
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    'source',
+    type=click.Path(exists=True, path_type=Path),
 )
 @click.option(
     '--force',
@@ -336,10 +334,21 @@ def _resolve_managed_dataset(manager: SnowDbManager, token: str):
 def ingest_dataset(
     manager: SnowDbManager,
     name: str,
-    archives: tuple[Path, ...],
+    source: Path,
     force: bool,
 ) -> None:
-    """Ingest one or more source ARCHIVES into dataset NAME.
+    """Ingest a single SOURCE into dataset NAME.
+
+    SOURCE is one source artifact per invocation, and its shape is the
+    dataset's: a single *file* for snodas (a daily tar archive) and swann (a
+    daily NetCDF) -- one file == one date -- or a *directory* of SPIRES ``.nc``
+    tiles for instarr. Always pass instarr the directory: a date's mosaic is
+    built from ALL of its tiles in one ingest call (per-tile calls would each
+    rebuild the date from a single tile, last write wins). Batch driving
+    belongs to the shell -- e.g.
+    ``ls /data/snodas/*.tar | xargs -n1 -P4 snowtool dataset ingest snodas``
+    -- and parallel runs are safe across distinct dates because each date
+    commits via an atomic whole-directory swap.
 
     NAME is a registered dataset name (active or not) or a dataset config path
     -- ingest is a management op, so reader visibility is irrelevant (the point
@@ -350,15 +359,14 @@ def ingest_dataset(
     date regardless.
     """
     ds = _resolve_managed_dataset(manager, name)
-    for archive in archives:
-        try:
-            result = ds.ingest(archive, force=force)
-        except (FileExistsError, SnowtoolError) as e:
-            raise click.ClickException(str(e)) from e
-        for ingested in result.ingested:
-            click.echo(f'ingested {name} {ingested.isoformat()} from {archive}')
-        for skipped in result.skipped:
-            click.echo(f'up to date {name} {skipped.isoformat()} from {archive}')
+    try:
+        result = ds.ingest(source, force=force)
+    except (FileExistsError, SnowtoolError) as e:
+        raise click.ClickException(str(e)) from e
+    for ingested in result.ingested:
+        click.echo(f'ingested {name} {ingested.isoformat()} from {source}')
+    for skipped in result.skipped:
+        click.echo(f'up to date {name} {skipped.isoformat()} from {source}')
 
 
 @dataset.command('generate-zones')

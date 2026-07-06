@@ -69,6 +69,16 @@ def test_ingest_rejects_unrecognized_filename(tmp_path):
         ds.ingest(tmp_path / 'some_other_file.nc')
 
 
+def test_ingest_rejects_a_directory_source(tmp_path):
+    # One file == one date: a directory earns a precise typed error. Named to
+    # match the filename regex to prove the directory guard fires first.
+    ds = Dataset(SWANN_800M_SPEC, tmp_path)
+    source = tmp_path / 'UA_SWE_Depth_800m_v1_20260613_early.nc'
+    source.mkdir()
+    with pytest.raises(SnowtoolError, match='got a directory'):
+        ds.ingest(source)
+
+
 def test_ingest_accepts_the_early_stage(tmp_path, monkeypatch):
     # Ingest is pinned to the `_early` revision (fastest available); it is the
     # one stage accepted.
