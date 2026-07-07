@@ -31,6 +31,8 @@ from snowtool.snowdb.zones.zoning import (
     CategoricalZoning,
     ClassZone,
     ThresholdZoning,
+    ZoneClassDescription,
+    ZoneDescription,
 )
 
 from ..conftest import make_manager, make_snowdb
@@ -101,6 +103,24 @@ def test_banded_assign_marks_nodata_and_out_of_domain_as_minus_one():
     numpy.testing.assert_array_equal(ordinals, [[-1, -1]])
 
 
+def test_banded_describe_reports_param_default_and_unit():
+    scheme = BandedZoning(
+        domain_min=0,
+        domain_max=2000,
+        default_step=1000,
+        unit='ft',
+        value_scale=M_TO_FT,
+        layer_nodata=ELEVATION_NODATA,
+    )
+    assert scheme.describe() == ZoneDescription(
+        kind='banded',
+        param_key='band_step_ft',
+        default=1000,
+        unit='ft',
+        classes=None,
+    )
+
+
 # --- aspect-component banding (northness / eastness) -------------------------
 
 
@@ -168,6 +188,24 @@ def test_categorical_zones_are_the_class_list_in_order():
     assert labels == ['N', 'E', 'S', 'W', 'flat']
 
 
+def test_categorical_describe_has_no_param_and_lists_classes():
+    scheme = ASPECT_MAJORITY.zoning
+    assert isinstance(scheme, CategoricalZoning)
+    assert scheme.describe() == ZoneDescription(
+        kind='categorical',
+        param_key=None,
+        default=None,
+        unit=None,
+        classes=(
+            ZoneClassDescription(key='N', label='N'),
+            ZoneClassDescription(key='E', label='E'),
+            ZoneClassDescription(key='S', label='S'),
+            ZoneClassDescription(key='W', label='W'),
+            ZoneClassDescription(key='flat', label='flat'),
+        ),
+    )
+
+
 # --- ThresholdZoning ---------------------------------------------------------
 
 
@@ -221,6 +259,24 @@ def test_threshold_override_moves_the_split_and_relabels():
     below, above = raised.zones()
     assert (below.label, below.threshold) == ('unforested', 50)
     assert (above.label, above.threshold) == ('forested', 50)
+
+
+def test_threshold_describe_reports_param_default_and_unit():
+    scheme = ThresholdZoning(
+        default_threshold=40,
+        unit='%',
+        value_scale=1,
+        layer_nodata=255,
+        below_label='unforested',
+        above_label='forested',
+    )
+    assert scheme.describe() == ZoneDescription(
+        kind='threshold',
+        param_key='threshold_pct',
+        default=40,
+        unit='%',
+        classes=None,
+    )
 
 
 # --- the registry ------------------------------------------------------------
