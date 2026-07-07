@@ -35,6 +35,7 @@ from pydantic import TypeAdapter
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
 from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
     from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.progress import ProgressReporter
 
 # --- MODIS Sinusoidal grid constants ------------------------------------------
 
@@ -245,6 +247,7 @@ class InstarrIngester:
         dataset: Dataset,
         *,
         force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> IngestResult:
         candidates = (
             sorted(source.glob('**/SPIRES_NRT_*.nc')) if source.is_dir() else [source]
@@ -305,6 +308,7 @@ class InstarrIngester:
                 rasters,
                 source_hash=source_hash,
                 force=force,
+                progress=progress,
             )
             (ingested if wrote else skipped).append(ingest_date)
 

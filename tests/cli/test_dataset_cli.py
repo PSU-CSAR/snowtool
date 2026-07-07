@@ -325,7 +325,7 @@ def test_ingest_delegates_to_spec_ingester(
         def __init__(self):
             self.calls = []
 
-        def ingest(self, source, dataset, *, force=False):
+        def ingest(self, source, dataset, *, force=False, **_):
             self.calls.append((source, dataset.spec.name, force))
             return IngestResult(
                 ingested=[date(2020, 1, 1), date(2020, 1, 2)],
@@ -367,7 +367,7 @@ def test_ingest_converges_and_force_reingests(
         def __init__(self):
             self.forces = []
 
-        def ingest(self, source, dataset, *, force=False):
+        def ingest(self, source, dataset, *, force=False, **_):
             self.forces.append(force)
             d = date(2020, 1, 1)
             if force:
@@ -408,7 +408,7 @@ def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
         def __init__(self):
             self.sources = []
 
-        def ingest(self, source, dataset, *, force=False):
+        def ingest(self, source, dataset, *, force=False, **_):
             self.sources.append(source)
             return IngestResult(ingested=[date(2020, 1, 1)], skipped=[])
 
@@ -456,7 +456,7 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
     # manageable by name (ingest), reports active=false, and the read surface
     # (query) refuses it with a pointed "activate it" error.
     class _FakeIngester:
-        def ingest(self, source, dataset, *, force=False):
+        def ingest(self, source, dataset, *, force=False, **_):
             return IngestResult(ingested=[date(2020, 1, 1)], skipped=[])
 
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', _FakeIngester())
