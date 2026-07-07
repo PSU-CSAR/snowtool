@@ -24,6 +24,7 @@ import rasterio
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
 from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.progress import ProgressReporter
 
 # --- SWANN 800m variables -----------------------------------------------------
 
@@ -151,6 +153,7 @@ class SwannIngester:
         dataset: Dataset,
         *,
         force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> IngestResult:
         if source.is_dir():
             # Guarded before the filename regex so a directory earns a precise
@@ -213,6 +216,7 @@ class SwannIngester:
             rasters,
             source_hash=source_hash,
             force=force,
+            progress=progress,
         )
         dates = [ingest_date]
         if wrote:

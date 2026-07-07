@@ -326,13 +326,20 @@ class Dataset:
         path.unlink()
         return True
 
-    def ingest(self: Self, source: Path, *, force: bool = False) -> IngestResult:
+    def ingest(
+        self: Self,
+        source: Path,
+        *,
+        force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> IngestResult:
         """Ingest a source artifact into per-date COGs, via this dataset's ingester.
 
         Delegates to ``spec.ingester`` (the dataset-kind-specific parser); raises
         if the dataset has no configured ingester. Returns an
         :class:`~snowtool.snowdb.ingest.IngestResult` splitting the dates written
-        from those skipped as already current.
+        from those skipped as already current. ``progress`` reports each date's
+        per-variable COG writes (see :meth:`write_date_cogs`).
         """
         ingester = self.spec.ingester
         if ingester is None:
@@ -340,7 +347,7 @@ class Dataset:
                 f"dataset '{self.spec.name}' has no configured ingester; "
                 'nothing can be ingested into it.',
             )
-        return ingester.ingest(source, self, force=force)
+        return ingester.ingest(source, self, force=force, progress=progress)
 
     def _unresolved_variables(self: Self, names: Iterable[str]) -> set[str]:
         """Spec variable keys whose glob does not match exactly one of ``names``.
@@ -378,6 +385,7 @@ class Dataset:
         *,
         source_hash: str,
         force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> bool:
         """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/`` atomically.
 
@@ -447,11 +455,18 @@ class Dataset:
         # staged_dir stages beside the target, so the cogs/ parent must exist (a
         # management write may run before any date has been ingested).
         self._cogs.mkdir(parents=True, exist_ok=True)
-        with staged_dir(output_dir) as staging:
+        with (
+            staged_dir(output_dir) as staging,
+            progress.track(
+                f'{self.spec.name} {date.isoformat()}',
+                total=len(rasters),
+            ) as task,
+        ):
             for raster in rasters:
                 # The staging dir is fresh and empty, so nothing can be clobbered;
                 # ``force`` just keeps a raster's own existence guard from tripping.
                 raster.write_cog(output_dir=staging, force=True)
+                task.advance()
 
             # Post-validate in the staged dir before the swap: every spec variable
             # must resolve to exactly one written COG. On failure this raises inside

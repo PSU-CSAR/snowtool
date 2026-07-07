@@ -361,7 +361,7 @@ def test_grid_validation_flags_transform_mismatch(dataset):
 def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
 
     class _Ingester:
-        def ingest(self, source, dataset, *, force=False):  # pragma: no cover
+        def ingest(self, source, dataset, *, force=False, **_):  # pragma: no cover
             from snowtool.snowdb.ingest import IngestResult
 
             return IngestResult(ingested=[], skipped=[])

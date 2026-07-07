@@ -360,7 +360,11 @@ def ingest_dataset(
     """
     ds = _resolve_managed_dataset(manager, name)
     try:
-        result = ds.ingest(source, force=force)
+        result = ds.ingest(
+            source,
+            force=force,
+            progress=ClickProgress(prefix=f'{name} ingest: '),
+        )
     except (FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
     for ingested in result.ingested:
