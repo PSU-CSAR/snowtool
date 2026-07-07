@@ -47,6 +47,53 @@ def test_get_dataset_info(snodas_client) -> None:
     assert 'mean_swe_mm' in {v['stat_name'] for v in variables}
 
 
+def test_get_dataset_info_advertises_zones(snodas_client) -> None:
+    body = snodas_client.get('/datasets/snodas').json()
+    zones = {z['key']: z for z in body['zones']}
+
+    # Every stratifiable layer, sorted by key, with its scheme kind + override param.
+    assert set(zones) == {
+        'landcover.forest_cover',
+        'terrain.aspect',
+        'terrain.aspect_entropy',
+        'terrain.eastness',
+        'terrain.elevation',
+        'terrain.northness',
+    }
+    assert body['zones'] == sorted(body['zones'], key=lambda z: z['key'])
+
+    # Banded elevation: overridable by band_step_ft (int), default 1000 ft.
+    elevation = zones['terrain.elevation']
+    assert (
+        elevation['kind'],
+        elevation['param'],
+        elevation['default'],
+        elevation['unit'],
+    ) == (
+        'banded',
+        'band_step_ft',
+        1000,
+        'ft',
+    )
+    assert elevation['classes'] is None
+
+    # Aspect-orientation components: banded, overridable by band_step_pct.
+    assert zones['terrain.northness']['param'] == 'band_step_pct'
+    assert zones['terrain.eastness']['param'] == 'band_step_pct'
+
+    # Threshold layers: forest cover + aspect entropy carry their own params.
+    assert zones['landcover.forest_cover']['kind'] == 'threshold'
+    assert zones['landcover.forest_cover']['param'] == 'threshold_pct'
+    assert zones['terrain.aspect_entropy']['param'] == 'entropy_threshold'
+
+    # Categorical aspect: no override param, but advertises its class keys/labels.
+    aspect = zones['terrain.aspect']
+    assert aspect['kind'] == 'categorical'
+    assert aspect['param'] is None
+    assert aspect['default'] is None
+    assert [c['key'] for c in aspect['classes']] == ['N', 'E', 'S', 'W', 'flat']
+
+
 def test_get_unknown_dataset_returns_404(test_client) -> None:
     response = test_client.get('/datasets/nope')
     assert response.status_code == 404

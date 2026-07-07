@@ -182,12 +182,67 @@ def test_unknown_variable_returns_422(synthetic_client) -> None:
 
 
 def test_unknown_zone_returns_422(synthetic_client) -> None:
+    # ``zone`` is a per-dataset enum now, so an unknown value is rejected at the
+    # schema layer (a request-validation 422) before the handler runs.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.nope'},
     )
+    assert_problem(response, status=422)
+
+
+def test_elevation_band_step_override_changes_band_count(synthetic_client) -> None:
+    # A coarser band step is supplied via the typed, per-layer override query param
+    # ``terrain.elevation.band_step_ft``. The default (1000 ft) yields 16 bands (see
+    # test_date_range_elevation_zone); 2000 ft yields 9, and the SWE now lands in the
+    # 2000-4000 ft band rather than 3000-4000.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'zone': 'terrain.elevation',
+            'terrain.elevation.band_step_ft': 2000,
+        },
+    )
+    assert response.status_code == 200
+    (result,) = response.json()['results']
+    cells = result['zones']
+    assert len(cells) == 9
+    (cell,) = [c for c in cells if c['area_m2'] > 0]
+    (ref,) = cell['zone']
+    assert (ref['min'], ref['max']) == (2000, 4000)
+    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+
+
+def test_override_wrong_type_returns_422(synthetic_client) -> None:
+    # band_step_ft is typed int; a non-int is a schema-level validation 422.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'zone': 'terrain.elevation',
+            'terrain.elevation.band_step_ft': 'wide',
+        },
+    )
+    assert_problem(response, status=422)
+
+
+def test_orphan_override_returns_422(synthetic_client) -> None:
+    # An override supplied for a layer that is NOT in the selected ``zone`` list is a
+    # client mistake -> QueryParameterError -> 422, not a silent no-op.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'terrain.elevation.band_step_ft': 2000,
+        },
+    )
     body = assert_problem(response, status=422)
-    assert 'Unknown zone layer' in body['detail']
+    assert 'terrain.elevation.band_step_ft' in body['detail']
+    assert 'not selected' in body['detail']
 
 
 def test_unknown_aoi_returns_404(synthetic_client) -> None:
