@@ -108,7 +108,7 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
     captured: dict = {}
 
-    def fake_write(d, rasters, *, source_hash, force=False):
+    def fake_write(d, rasters, *, source_hash, force=False, **_):
         captured.update(
             date=d,
             rasters=list(rasters),

@@ -15,11 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from snowtool.snowdb.progress import NULL_PROGRESS
+
 if TYPE_CHECKING:
     from datetime import date
     from pathlib import Path
 
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.progress import ProgressReporter
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,9 @@ class Ingester(Protocol):
     :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`), returning an
     :class:`IngestResult` splitting the dates written from those skipped as
     already current. One lives on each dataset spec that supports ingest.
+
+    ``progress`` reports the write of each date's per-variable COGs (the CLI
+    binds a live bar); it defaults to the no-op :data:`NULL_PROGRESS`.
     """
 
     def ingest(
@@ -71,4 +77,5 @@ class Ingester(Protocol):
         dataset: Dataset,
         *,
         force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> IngestResult: ...
