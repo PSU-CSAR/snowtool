@@ -17,7 +17,7 @@ from snowtool.snowdb.datasets import (
     config_from_spec,
 )
 from snowtool.snowdb.grid import GridParams
-from snowtool.snowdb.spec import DatasetSpec
+from snowtool.snowdb.spec import DEFAULT_ZONES, DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 
@@ -176,6 +176,39 @@ def test_zone_params_omit_none_fields_in_json():
     text = config.model_dump_json()
     assert '"elevation":{"band_step_ft":1000}' in text
     assert 'band_step_pct' not in text  # unset params are omitted
+
+
+def test_default_zones_enumerate_every_served_layer():
+    # DEFAULT_ZONES pins the full set of served layers with their
+    # behaviour-preserving defaults: terrain's five (aspect is categorical, so no
+    # param) and land cover's forest_cover.
+    assert {
+        'terrain': {
+            'elevation': ZoneLayerParams(band_step_ft=1000),
+            'aspect': ZoneLayerParams(),
+            'northness': ZoneLayerParams(band_step_pct=50),
+            'eastness': ZoneLayerParams(band_step_pct=50),
+            'aspect_entropy': ZoneLayerParams(entropy_threshold=0.5),
+        },
+        'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},
+    } == DEFAULT_ZONES
+    # aspect carries no params -> serializes to an empty object.
+    assert DEFAULT_ZONES['terrain']['aspect'].model_dump() == {}
+
+
+def test_default_zones_round_trip_through_dataset_config(tmp_path):
+    # The full DEFAULT_ZONES survives save -> load_entity unchanged.
+    config = DatasetConfig(
+        grid=_grid_config(),
+        variables={'swe': _swe_variable()},
+        zones=DEFAULT_ZONES,
+    )
+    path = tmp_path / 'dataset.json'
+    config.save(path)
+
+    loaded = load_entity(path)
+    assert isinstance(loaded, DatasetConfig)
+    assert loaded.zones == DEFAULT_ZONES
 
 
 def test_footprint_round_trips_through_json(tmp_path):
