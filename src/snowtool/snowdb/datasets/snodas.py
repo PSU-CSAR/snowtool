@@ -29,6 +29,7 @@ import rasterio
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
 from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -36,6 +37,7 @@ from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.progress import ProgressReporter
 
 HDR_EXTS = ('.Hdr', '.txt')
 
@@ -56,7 +58,10 @@ _product_name_to_product_code = {v: k for k, v in _product_code_to_product_name.
 
 _millimeters = Unit(name='mm', scale_factor=1)
 _millimeters_100 = Unit(name='mm', scale_factor=100)
-_kelvin = Unit(name='k', scale_factor=1)
+# SNODAS stores snowpack average temperature in tenths of a Kelvin (raw values
+# run ~2636-2731, where 2731 = 273.1 K, the 0 degrees C snow melt cap), so the
+# reporting scale is 10 despite the NSIDC data-field table listing a scale of 1.
+_kelvin = Unit(name='k', scale_factor=10)
 _kg_per_meter2 = Unit(name='kg_per_m2', scale_factor=10)
 
 _units = {
@@ -386,6 +391,7 @@ class SnodasIngester:
         dataset: Dataset,
         *,
         force: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> IngestResult:
         if source.is_dir():
             # Guarded here so a directory earns a precise, typed error instead of
@@ -407,6 +413,7 @@ class SnodasIngester:
                 rasters,
                 source_hash=source_hash,
                 force=force,
+                progress=progress,
             )
         dates = [rasters.date]
         if wrote:
