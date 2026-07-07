@@ -44,6 +44,34 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class ZoneClassDescription:
+    """One categorical class in a scheme's :class:`ZoneDescription` (key + label)."""
+
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ZoneDescription:
+    """A scheme's self-description: enough to advertise + accept an override.
+
+    The switch-free surface the API discovery/query layers read instead of
+    ``isinstance``-ing a scheme. ``kind`` is ``'banded'`` / ``'threshold'`` /
+    ``'categorical'``; ``param_key`` is the dataset/query param that overrides the
+    scheme (``None`` for a categorical axis, which takes none) and ``default`` its
+    configured default (band step / split threshold; ``None`` for categorical);
+    ``unit`` is the zone unit (``None`` for categorical); ``classes`` is the class
+    list for a categorical axis (``None`` otherwise).
+    """
+
+    kind: str
+    param_key: str | None
+    default: int | float | None
+    unit: str | None
+    classes: tuple[ZoneClassDescription, ...] | None = None
+
+
+@dataclass(frozen=True)
 class Zone:
     """A single zone along one axis -- one cell of a :class:`ZoneScheme`.
 
@@ -181,6 +209,15 @@ class ZoneScheme(ABC):
         """Per-pixel zone ordinal for ``values`` (``-1`` where out of zone)."""
         raise NotImplementedError
 
+    @abstractmethod
+    def describe(self: Self) -> ZoneDescription:
+        """This scheme's self-description (kind, override param, default, unit).
+
+        The switch-free surface the API discovery/query layers read to advertise a
+        zone and accept its override, instead of ``isinstance``-ing the scheme.
+        """
+        raise NotImplementedError
+
     def configured(self: Self, params: ZoneLayerParams) -> Self:
         """A copy of this scheme with the dataset's configured param applied.
 
@@ -254,6 +291,14 @@ class BandedZoning(ZoneScheme):
             raise QueryParameterError(
                 f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
             ) from e
+
+    def describe(self: Self) -> ZoneDescription:
+        return ZoneDescription(
+            kind='banded',
+            param_key=self.param_key,
+            default=self.default_step,
+            unit=self.unit,
+        )
 
     def zones(self: Self) -> tuple[BandZone, ...]:
         """The bands spanning the domain at ``default_step``.
@@ -336,6 +381,14 @@ class ThresholdZoning(ZoneScheme):
                 f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
             ) from e
 
+    def describe(self: Self) -> ZoneDescription:
+        return ZoneDescription(
+            kind='threshold',
+            param_key=self.param_key,
+            default=self.default_threshold,
+            unit=self.unit,
+        )
+
     def zones(self: Self) -> tuple[ThresholdZone, ...]:
         """The two sides of the split (below, at-or-above), with clean labels.
 
@@ -378,6 +431,18 @@ class CategoricalZoning(ZoneScheme):
 
     classes: tuple[ClassZone, ...]
     layer_nodata: int
+
+    def describe(self: Self) -> ZoneDescription:
+        return ZoneDescription(
+            kind='categorical',
+            param_key=None,
+            default=None,
+            unit=None,
+            classes=tuple(
+                ZoneClassDescription(key=cls.key, label=cls.label)
+                for cls in self.classes
+            ),
+        )
 
     def zones(self: Self) -> tuple[ClassZone, ...]:
         """The class list (its order *is* the ordinal order)."""

@@ -190,12 +190,20 @@
             },
             "title": "Variables",
             "type": "array"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/ZoneInfo"
+            },
+            "title": "Zones",
+            "type": "array"
           }
         },
         "required": [
           "name",
           "grid",
-          "variables"
+          "variables",
+          "zones"
         ],
         "title": "DatasetInfo",
         "type": "object"
@@ -2509,6 +2517,763 @@
         },
         "title": "VersionInfo",
         "type": "object"
+      },
+      "ZoneClassInfo": {
+        "description": "One categorical class a zone layer stratifies into (key + human label).",
+        "properties": {
+          "key": {
+            "examples": [
+              "N"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "examples": [
+              "N"
+            ],
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "ZoneClassInfo",
+        "type": "object"
+      },
+      "ZoneInfo": {
+        "description": "A stratifiable zone layer of a dataset and how to override its scheme.\n\n``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme\nkind. An overridable layer advertises its ``param`` (the override query param\nis ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a\ncategorical layer instead advertises its ``classes`` (and has no ``param``).",
+        "properties": {
+          "classes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ZoneClassInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classes"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              1000
+            ],
+            "title": "Default"
+          },
+          "key": {
+            "examples": [
+              "terrain.elevation"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "examples": [
+              "banded"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "param": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "band_step_ft"
+            ],
+            "title": "Param"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "ft"
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "key",
+          "kind"
+        ],
+        "title": "ZoneInfo",
+        "type": "object"
+      },
+      "instarr_DOYStatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "day": {
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "end_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "End Year",
+            "type": "integer"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "start_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Start Year",
+            "type": "integer"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/instarr_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "month",
+          "day",
+          "start_year",
+          "end_year"
+        ],
+        "title": "instarr_DOYStatsQuery",
+        "type": "object"
+      },
+      "instarr_StatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/instarr_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "title": "instarr_StatsQuery",
+        "type": "object"
+      },
+      "instarr_ZoneKey": {
+        "enum": [
+          "landcover.forest_cover",
+          "terrain.aspect",
+          "terrain.aspect_entropy",
+          "terrain.eastness",
+          "terrain.elevation",
+          "terrain.northness"
+        ],
+        "title": "instarr_ZoneKey",
+        "type": "string"
+      },
+      "snodas_DOYStatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "day": {
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "end_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "End Year",
+            "type": "integer"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "start_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Start Year",
+            "type": "integer"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/snodas_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "month",
+          "day",
+          "start_year",
+          "end_year"
+        ],
+        "title": "snodas_DOYStatsQuery",
+        "type": "object"
+      },
+      "snodas_StatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/snodas_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "title": "snodas_StatsQuery",
+        "type": "object"
+      },
+      "snodas_ZoneKey": {
+        "enum": [
+          "landcover.forest_cover",
+          "terrain.aspect",
+          "terrain.aspect_entropy",
+          "terrain.eastness",
+          "terrain.elevation",
+          "terrain.northness"
+        ],
+        "title": "snodas_ZoneKey",
+        "type": "string"
+      },
+      "swann_800m_DOYStatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "day": {
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "end_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "End Year",
+            "type": "integer"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "start_year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Start Year",
+            "type": "integer"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/swann_800m_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "month",
+          "day",
+          "start_year",
+          "end_year"
+        ],
+        "title": "swann_800m_DOYStatsQuery",
+        "type": "object"
+      },
+      "swann_800m_StatsQuery": {
+        "properties": {
+          "allow_partial": {
+            "default": false,
+            "title": "Allow Partial",
+            "type": "boolean"
+          },
+          "landcover.forest_cover.threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "title": "Landcover.Forest Cover.Threshold Pct"
+          },
+          "terrain.aspect_entropy.entropy_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "title": "Terrain.Aspect Entropy.Entropy Threshold"
+          },
+          "terrain.eastness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "title": "Terrain.Eastness.Band Step Pct"
+          },
+          "terrain.elevation.band_step_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "title": "Terrain.Elevation.Band Step Ft"
+          },
+          "terrain.northness.band_step_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "title": "Terrain.Northness.Band Step Pct"
+          },
+          "variable": {
+            "description": "Variable to report (repeatable; default all).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable",
+            "type": "array"
+          },
+          "zone": {
+            "description": "Stratify by a zone layer (repeatable).",
+            "items": {
+              "$ref": "#/components/schemas/swann_800m_ZoneKey"
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "title": "swann_800m_StatsQuery",
+        "type": "object"
+      },
+      "swann_800m_ZoneKey": {
+        "enum": [
+          "landcover.forest_cover",
+          "terrain.aspect",
+          "terrain.aspect_entropy",
+          "terrain.eastness",
+          "terrain.elevation",
+          "terrain.northness"
+        ],
+        "title": "swann_800m_ZoneKey",
+        "type": "string"
       }
     }
   },
@@ -2594,43 +3359,11 @@
             }
           },
           {
-            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "zone",
-            "required": false,
+            "name": "params",
+            "required": true,
             "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/instarr_StatsQuery"
             }
           },
           {
@@ -2713,86 +3446,10 @@
           },
           {
             "in": "query",
-            "name": "month",
+            "name": "params",
             "required": true,
             "schema": {
-              "maximum": 12,
-              "minimum": 1,
-              "title": "Month",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "day",
-            "required": true,
-            "schema": {
-              "maximum": 31,
-              "minimum": 1,
-              "title": "Day",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "start_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "Start Year",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "End Year",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Stratify by a zone layer (repeatable).",
-            "in": "query",
-            "name": "zone",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/instarr_DOYStatsQuery"
             }
           },
           {
@@ -2858,43 +3515,11 @@
             }
           },
           {
-            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "zone",
-            "required": false,
+            "name": "params",
+            "required": true,
             "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/snodas_StatsQuery"
             }
           },
           {
@@ -2977,86 +3602,10 @@
           },
           {
             "in": "query",
-            "name": "month",
+            "name": "params",
             "required": true,
             "schema": {
-              "maximum": 12,
-              "minimum": 1,
-              "title": "Month",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "day",
-            "required": true,
-            "schema": {
-              "maximum": 31,
-              "minimum": 1,
-              "title": "Day",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "start_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "Start Year",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "End Year",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Stratify by a zone layer (repeatable).",
-            "in": "query",
-            "name": "zone",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/snodas_DOYStatsQuery"
             }
           },
           {
@@ -3122,43 +3671,11 @@
             }
           },
           {
-            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "zone",
-            "required": false,
+            "name": "params",
+            "required": true,
             "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/swann_800m_StatsQuery"
             }
           },
           {
@@ -3241,86 +3758,10 @@
           },
           {
             "in": "query",
-            "name": "month",
+            "name": "params",
             "required": true,
             "schema": {
-              "maximum": 12,
-              "minimum": 1,
-              "title": "Month",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "day",
-            "required": true,
-            "schema": {
-              "maximum": 31,
-              "minimum": 1,
-              "title": "Day",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "start_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "Start Year",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_year",
-            "required": true,
-            "schema": {
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "End Year",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Stratify by a zone layer (repeatable).",
-            "in": "query",
-            "name": "zone",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Stratify by a zone layer (repeatable).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Zone",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Variable to report (repeatable; default all).",
-            "in": "query",
-            "name": "variable",
-            "required": false,
-            "schema": {
-              "default": [],
-              "description": "Variable to report (repeatable; default all).",
-              "items": {
-                "type": "string"
-              },
-              "title": "Variable",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "allow_partial",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Allow Partial",
-              "type": "boolean"
+              "$ref": "#/components/schemas/swann_800m_DOYStatsQuery"
             }
           },
           {
