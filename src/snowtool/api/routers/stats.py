@@ -8,15 +8,17 @@ onto :meth:`SnowDbReader.zonal_stats`.
 Zone stratification is advertised *and* validated in the schema. ``zone`` is a
 repeatable enum constrained to the dataset's ``available_zones`` keys (a
 per-dataset :class:`enum.StrEnum` built at router-build time), so an unknown zone
-is a schema-level 422 rather than a hand-rolled error. Each *overridable* zone
-layer contributes one optional, typed query param named ``'<layer_key>.<param_key>'``
+is a schema-level 400 rather than a hand-rolled error. Each *overridable* zone
+layer contributes one typed query param named ``'<layer_key>.<param_key>'``
 (e.g. ``terrain.elevation.band_step_ft``), typed from the matching
-:class:`ZoneLayerParams` field; a categorical layer (no override param) contributes
-none. These vary per dataset and carry dotted names, so they are gathered into a
-per-dataset Pydantic query-params model (:func:`pydantic.create_model` with aliased
-fields) consumed via FastAPI's ``Annotated[Model, Query()]`` support, and shared by
-both endpoints. A supplied override whose layer is not in the selected ``zone`` list
-is a client mistake (:class:`QueryParameterError` -> 422), not a silent no-op.
+:class:`ZoneLayerParams` field but made non-nullable and defaulted to the scheme's own
+default (shown as the example), so the doc advertises a real value; a categorical layer
+(no override param) contributes none. These vary per dataset and carry dotted names, so
+they are gathered into a per-dataset Pydantic query-params model
+(:func:`pydantic.create_model` with aliased fields) consumed via FastAPI's
+``Annotated[Model, Query()]`` support, and shared by both endpoints. An override only
+applies to a *selected* zone; because the defaulted field can't be told from an explicit
+value, an override for an unselected zone is a harmless no-op.
 ``variable`` (repeatable), ``allow_partial``, and the content-negotiation ``f`` and
 (date-range only) OGC ``datetime`` ride on the same model -- ``f``/``datetime`` are
 gazebo field types folded in rather than ``Negotiate``/``DatetimeParam`` dependencies,
@@ -29,15 +31,16 @@ folded enum; a one-line :func:`negotiate` call in the handler layers the ``Accep
 header (read from the ambient request context) back on.
 Coverage/lookup failures propagate to the registered problem handlers
 (PourpointCoverageError->409, PourpointNotFound/AOIRasterNotFound->404); a
-handler-raised QueryParameterError (e.g. unknown variable) is a 422, while a malformed
-query parameter (bad ``zone``/``f``/``datetime``/override) is a schema-layer 400.
+handler-raised QueryParameterError (e.g. an impossible day-of-year) is a 422, while a
+malformed query parameter (bad ``zone``/``variable``/``f``/``datetime``/override) is a
+schema-layer 400.
 """
 
 from __future__ import annotations
 
 import enum
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, NamedTuple, get_args
 
 from fastapi import Query
 from fastapi.responses import StreamingResponse
@@ -114,6 +117,17 @@ def _sanitize(key: str) -> str:
     return ''.join(ch if ch.isalnum() else '_' for ch in key)
 
 
+def _non_optional(annotation: object) -> object:
+    """Strip ``None`` from an ``X | None`` annotation, keeping ``X`` (else as-is)."""
+    args = [a for a in get_args(annotation) if a is not type(None)]
+    return args[0] if len(args) == 1 else annotation
+
+
+def _param_annotation(param_key: str) -> object:
+    """The non-nullable type of a ``ZoneLayerParams`` override param."""
+    return _non_optional(ZoneLayerParams.model_fields[param_key].annotation)
+
+
 def _zone_enum(name: str, registry: Mapping[str, AvailableZone]) -> type[enum.StrEnum]:
     """A per-dataset :class:`enum.StrEnum` whose members *are* the registry keys.
 
@@ -141,28 +155,46 @@ def _variable_enum(name: str, keys: list[str]) -> type[enum.StrEnum]:
     )
 
 
+class _Override(NamedTuple):
+    """An overridable zone layer's query-field wiring + its scheme default/unit."""
+
+    field_name: str
+    alias: str
+    param_key: str
+    default: int | float | None
+    unit: str | None
+
+
 def _override_fields(
     registry: Mapping[str, AvailableZone],
-) -> dict[str, tuple[str, str, str]]:
-    """Overridable layer key -> (model field name, override alias, param key).
+) -> dict[str, _Override]:
+    """Overridable layer key -> its :class:`_Override` (field name, alias, param key,
+    scheme default, unit).
 
     An overridable layer is one whose scheme ``describe()`` names a ``param_key``
     (categorical layers name none). The alias is ``'<layer_key>.<param_key>'`` (the
-    dotted query name); the field name is its sanitized, valid-identifier form.
+    dotted query name); the field name is its sanitized, valid-identifier form. The
+    scheme's own ``default`` becomes the (non-nullable) field default and example.
     """
-    fields: dict[str, tuple[str, str, str]] = {}
+    fields: dict[str, _Override] = {}
     for key in sorted(registry):
-        param_key = registry[key].scheme.describe().param_key
-        if param_key is not None:
-            alias = f'{key}.{param_key}'
-            fields[key] = (_sanitize(alias), alias, param_key)
+        desc = registry[key].scheme.describe()
+        if desc.param_key is not None:
+            alias = f'{key}.{desc.param_key}'
+            fields[key] = _Override(
+                _sanitize(alias),
+                alias,
+                desc.param_key,
+                desc.default,
+                desc.unit,
+            )
     return fields
 
 
 def _base_fields(
     zone_enum: type[enum.StrEnum],
     variable_enum: type[enum.StrEnum],
-    override_fields: dict[str, tuple[str, str, str]],
+    override_fields: dict[str, _Override],
 ) -> dict[str, object]:
     """The query fields both endpoints share: ``zone`` + ``variable`` +
     ``allow_partial`` + one typed, aliased override field per overridable layer.
@@ -194,14 +226,21 @@ def _base_fields(
         # explicitly here. ``None`` (absent ``?f=``) defers to Accept in the handler.
         'f': (_StatsFormat | None, Field(default=None, description=F_DESCRIPTION)),
     }
-    for key, (field_name, alias, param_key) in override_fields.items():
-        annotation = ZoneLayerParams.model_fields[param_key].annotation
-        fields[field_name] = (
+    for key, ov in override_fields.items():
+        # Non-nullable, defaulted to the scheme's own default (shown as the example),
+        # so the doc advertises a real value rather than an empty ``... | null`` box.
+        # The ``ZoneLayerParams`` annotation is optional (``int | None``); strip the
+        # ``None`` to keep int-vs-float but drop nullability.
+        annotation = _param_annotation(ov.param_key)
+        unit = f' {ov.unit}' if ov.unit else ''
+        fields[ov.field_name] = (
             annotation,
             Field(
-                default=None,
-                alias=alias,
-                description=f'Override the scheme param for zone {key!r}.',
+                default=ov.default,
+                alias=ov.alias,
+                examples=[ov.default],
+                description=f'Override the scheme param for zone {key!r} '
+                f'(default: {ov.default}{unit}).',
             ),
         )
     return fields
@@ -232,28 +271,24 @@ def _query_model(name: str, suffix: str, fields: dict[str, object]) -> type[Base
 
 def _selections(
     params: BaseModel,
-    override_fields: dict[str, tuple[str, str, str]],
+    override_fields: dict[str, _Override],
 ) -> list[ZoneSelection]:
     """The crossed-zone selections from a parsed query model.
 
-    One :class:`ZoneSelection` per selected ``zone`` (in request order), each
-    carrying its override value if the client supplied one (else ``None`` -> scheme
-    default). An override supplied for a layer *not* in the selected ``zone`` list is
-    a client mistake, surfaced as a 422 rather than silently ignored.
+    One :class:`ZoneSelection` per selected ``zone`` (in request order), each carrying
+    the override value of its layer (the field is non-nullable and defaults to the
+    scheme's own default, so passing it is always equivalent to the scheme default
+    unless the client changed it). Override fields for *unselected* zones are ignored:
+    with defaulted (never-``None``) fields there is no way to tell an explicit override
+    from the default, so an orphan override is a harmless no-op, not an error.
     """
     selected = [str(z) for z in params.zone]  # type: ignore[attr-defined]
     selected_set = set(selected)
-    overrides: dict[str, int | float] = {}
-    for key, (field_name, alias, _) in override_fields.items():
-        value = getattr(params, field_name)
-        if value is None:
-            continue
-        if key not in selected_set:
-            raise QueryParameterError(
-                f'override {alias!r} was supplied but zone {key!r} is not selected; '
-                f'add it to the "zone" parameter or drop the override.',
-            )
-        overrides[key] = value
+    overrides = {
+        key: getattr(params, ov.field_name)
+        for key, ov in override_fields.items()
+        if key in selected_set
+    }
     return [ZoneSelection(key, overrides.get(key)) for key in selected]
 
 
