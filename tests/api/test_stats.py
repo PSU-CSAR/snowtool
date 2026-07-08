@@ -172,13 +172,14 @@ def test_unknown_format_returns_400(synthetic_client) -> None:
     assert_problem(response, status=400)
 
 
-def test_unknown_variable_returns_422(synthetic_client) -> None:
+def test_unknown_variable_returns_400(synthetic_client) -> None:
+    # ``variable`` is a per-dataset enum now, so an unknown value is rejected at the
+    # schema layer -- a malformed query parameter, a 400 (like ``zone``).
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'nope'},
     )
-    body = assert_problem(response, status=422)
-    assert 'Unknown variable' in body['detail']
+    assert_problem(response, status=400)
 
 
 def test_unknown_zone_returns_400(synthetic_client) -> None:

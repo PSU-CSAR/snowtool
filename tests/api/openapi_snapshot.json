@@ -2695,6 +2695,21 @@
         "title": "_StatsFormat",
         "type": "string"
       },
+      "instarr_VariableKey": {
+        "enum": [
+          "snow_fraction",
+          "viewable_snow_fraction",
+          "albedo_dirty_flat",
+          "albedo_dirty_terrain_corrected",
+          "deltavis",
+          "grain_size",
+          "dust_concentration",
+          "snow_cover_duration",
+          "radiative_forcing"
+        ],
+        "title": "instarr_VariableKey",
+        "type": "string"
+      },
       "instarr_ZoneKey": {
         "enum": [
           "landcover.forest_cover",
@@ -2707,6 +2722,20 @@
         "title": "instarr_ZoneKey",
         "type": "string"
       },
+      "snodas_VariableKey": {
+        "enum": [
+          "precip_solid",
+          "precip_liquid",
+          "swe",
+          "depth",
+          "average_temp",
+          "sublimation",
+          "sublimation_blowing",
+          "runoff"
+        ],
+        "title": "snodas_VariableKey",
+        "type": "string"
+      },
       "snodas_ZoneKey": {
         "enum": [
           "landcover.forest_cover",
@@ -2717,6 +2746,14 @@
           "terrain.northness"
         ],
         "title": "snodas_ZoneKey",
+        "type": "string"
+      },
+      "swann_800m_VariableKey": {
+        "enum": [
+          "swe",
+          "depth"
+        ],
+        "title": "swann_800m_VariableKey",
         "type": "string"
       },
       "swann_800m_ZoneKey": {
@@ -2836,7 +2873,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/instarr_VariableKey"
               },
               "title": "Variable",
               "type": "array"
@@ -3052,7 +3089,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/instarr_VariableKey"
               },
               "title": "Variable",
               "type": "array"
@@ -3288,7 +3325,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/snodas_VariableKey"
               },
               "title": "Variable",
               "type": "array"
@@ -3504,7 +3541,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/snodas_VariableKey"
               },
               "title": "Variable",
               "type": "array"
@@ -3740,7 +3777,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/swann_800m_VariableKey"
               },
               "title": "Variable",
               "type": "array"
@@ -3956,7 +3993,7 @@
             "schema": {
               "description": "Variable to report (repeatable; default all).",
               "items": {
-                "type": "string"
+                "$ref": "#/components/schemas/swann_800m_VariableKey"
               },
               "title": "Variable",
               "type": "array"
