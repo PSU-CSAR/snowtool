@@ -17,14 +17,20 @@ per-dataset Pydantic query-params model (:func:`pydantic.create_model` with alia
 fields) consumed via FastAPI's ``Annotated[Model, Query()]`` support, and shared by
 both endpoints. A supplied override whose layer is not in the selected ``zone`` list
 is a client mistake (:class:`QueryParameterError` -> 422), not a silent no-op.
-``variable`` (repeatable) and ``allow_partial`` ride on the same model. No ``zone``
-=> the legacy whole-basin "basic stats".
+``variable`` (repeatable), ``allow_partial``, and the content-negotiation ``f`` and
+(date-range only) OGC ``datetime`` ride on the same model -- ``f``/``datetime`` are
+gazebo field types folded in rather than ``Negotiate``/``DatetimeParam`` dependencies,
+whose own query params would collapse the model back into one opaque object. No
+``zone`` => the legacy whole-basin "basic stats".
 
-Output is content-negotiated (``?f=json|csv`` or ``Accept``): JSON is the
-per-dataset envelope, CSV streams :meth:`ZonalStats.dump_to_csv`. Coverage/lookup/
-parse failures propagate to the registered problem handlers
-(PourpointCoverageError->409, PourpointNotFound/AOIRasterNotFound->404,
-QueryParameterError->422, ParamError->400).
+Output is content-negotiated (``?f=json|csv`` or ``Accept``): JSON is the per-dataset
+envelope, CSV streams :meth:`ZonalStats.dump_to_csv`. ``?f=`` alone is validated by the
+folded enum; a one-line :func:`negotiate` call in the handler layers the ``Accept``
+header (read from the ambient request context) back on.
+Coverage/lookup failures propagate to the registered problem handlers
+(PourpointCoverageError->409, PourpointNotFound/AOIRasterNotFound->404); a
+handler-raised QueryParameterError (e.g. unknown variable) is a 422, while a malformed
+query parameter (bad ``zone``/``f``/``datetime``/override) is a schema-layer 400.
 """
 
 from __future__ import annotations
@@ -35,12 +41,17 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Query
 from fastapi.responses import StreamingResponse
-from gazebo.ext.fastapi import DatetimeParam, GazeboRouter, Negotiate
-from gazebo.negotiation import JSON, Representation, alternate_links
+from gazebo.ext.fastapi import GazeboRouter
+from gazebo.negotiation import (
+    F_DESCRIPTION,
+    FormatEnum,
+    alternate_links,
+    negotiate,
+)
 
-# DatetimeInterval is imported at runtime (not under TYPE_CHECKING) because it is
-# the resolved type of the interval param's annotation.
-from gazebo.params import DatetimeInterval
+# DatetimeQuery is imported at runtime: it is a folded query-model *field type*
+# (an annotated ``DatetimeInterval | None`` with the OGC parser + self-documentation).
+from gazebo.params import DatetimeQuery
 from pydantic import BaseModel, Field, ValidationError, create_model
 
 from snowtool import types
@@ -57,10 +68,29 @@ from snowtool.snowdb.zones.zone_layer import AvailableZone, available_zones
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from gazebo.negotiation import Representation
+    from gazebo.params import DatetimeInterval
+
     from snowtool.snowdb.dataset import Dataset
 
-CSV = Representation('csv', 'text/csv')
-_REPRESENTATIONS = [JSON, CSV]
+
+class _StatsFormat(FormatEnum):
+    """The ``?f=`` keys the stats routes serve, each carrying its media type.
+
+    Folded into the query model as a field type so ``?f=`` explodes into a
+    documented enum query param (rather than riding a separate ``Negotiate``
+    dependency, which -- being another query param -- would collapse the whole
+    model back into one opaque object). An unknown ``?f=`` is a native pydantic
+    ValidationError -> 400. Because members carry their media type, they *are* the
+    representation set (:meth:`representations`), and ``Accept``-header negotiation is
+    layered back on with a one-line :func:`negotiate` call reading the ambient request.
+    """
+
+    json = 'json', 'application/json'
+    csv = 'csv', 'text/csv'
+
+
+_REPRESENTATIONS = _StatsFormat.representations()
 
 
 def _date_range(interval: DatetimeInterval | None) -> DateRangeQuery:
@@ -144,6 +174,11 @@ def _base_fields(
             ),
         ),
         'allow_partial': (bool, Field(default=False)),
+        # Content negotiation rides *inside* the model (not a Negotiate dependency) so
+        # the model stays the sole query source and explodes; the enum self-documents
+        # the ``?f=`` keys, but the union hides the enum's own description so it is set
+        # explicitly here. ``None`` (absent ``?f=``) defers to Accept in the handler.
+        'f': (_StatsFormat | None, Field(default=None, description=F_DESCRIPTION)),
     }
     for key, (field_name, alias, param_key) in override_fields.items():
         annotation = ZoneLayerParams.model_fields[param_key].annotation
@@ -159,10 +194,11 @@ def _base_fields(
 
 
 # FastAPI expands a Pydantic query model into per-field query params only when it is
-# the endpoint's *sole* field parameter -- a sibling scalar ``Query`` param collapses
-# it back to a single opaque param. So every query param (including the day-of-year
-# ``month``/``day``/year span) rides *inside* the model rather than beside it, and the
-# doy endpoint gets a model that extends the shared base with those fields.
+# the endpoint's *sole* query source -- ANY other query param collapses it back to a
+# single opaque object, including one declared inside a ``Depends`` sub-dependency (as
+# the ``Negotiate``/``DatetimeParam`` adapters do). So every query input rides *inside*
+# the model: ``f``/``datetime`` (folded as gazebo field types), and the day-of-year
+# ``month``/``day``/year span here, which the doy endpoint folds onto the shared base.
 _DOY_FIELDS: dict[str, object] = {
     'month': (int, Field(ge=1, le=12)),
     'day': (int, Field(ge=1, le=31)),
@@ -216,7 +252,14 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     zone_enum = _zone_enum(name, registry)
     override_fields = _override_fields(registry)
     base_fields = _base_fields(zone_enum, override_fields)
-    date_range_model = _query_model(name, 'StatsQuery', base_fields)
+    # ``datetime`` (the OGC interval) rides inside the date-range model too, so the
+    # model stays the sole query source and explodes; doy selects by month/day/year
+    # instead and has no interval.
+    date_range_model = _query_model(
+        name,
+        'StatsQuery',
+        {**base_fields, 'datetime': (DatetimeQuery, None)},
+    )
     doy_model = _query_model(name, 'DOYStatsQuery', {**base_fields, **_DOY_FIELDS})
     # The query-params models are per-dataset (built here), so they cannot be named in
     # a module-level annotation; ``from __future__ import annotations`` would stringify
@@ -257,22 +300,26 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
             alternates=alternate_links(rep, _REPRESENTATIONS),
         )
 
+    # ``f``/``datetime`` are folded model fields, so the model is the endpoint's sole
+    # query source and FastAPI explodes it into individual documented params (no
+    # ``Negotiate``/``DatetimeParam`` dependency, whose own query params would collapse
+    # it back to one opaque object). ``negotiate`` reads the validated ``?f=`` and, with
+    # no explicit ``accept``, falls back to the ambient request's ``Accept`` header.
     async def date_range_stats(
         triplet: types.StationTriplet,
         reader: ReaderDep,
-        rep: Annotated[Representation, Negotiate(_REPRESENTATIONS)],
         params,
-        interval: Annotated[DatetimeInterval | None, DatetimeParam] = None,
     ):
-        query = _date_range(interval)
+        rep = negotiate(_REPRESENTATIONS, f=params.f)
+        query = _date_range(params.datetime)
         return await run(reader, triplet, query, params, rep)
 
     async def doy_stats(
         triplet: types.StationTriplet,
         reader: ReaderDep,
-        rep: Annotated[Representation, Negotiate(_REPRESENTATIONS)],
         params,
     ):
+        rep = negotiate(_REPRESENTATIONS, f=params.f)
         try:
             query = DOYQuery(
                 month=params.month,

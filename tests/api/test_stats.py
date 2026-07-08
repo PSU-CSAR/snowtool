@@ -181,14 +181,15 @@ def test_unknown_variable_returns_422(synthetic_client) -> None:
     assert 'Unknown variable' in body['detail']
 
 
-def test_unknown_zone_returns_422(synthetic_client) -> None:
+def test_unknown_zone_returns_400(synthetic_client) -> None:
     # ``zone`` is a per-dataset enum now, so an unknown value is rejected at the
-    # schema layer (a request-validation 422) before the handler runs.
+    # schema layer before the handler runs -- a malformed *query* parameter, which
+    # gazebo reports as a 400 (OGC client error), like a bad datetime/format.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.nope'},
     )
-    assert_problem(response, status=422)
+    assert_problem(response, status=400)
 
 
 def test_elevation_band_step_override_changes_band_count(synthetic_client) -> None:
@@ -215,8 +216,9 @@ def test_elevation_band_step_override_changes_band_count(synthetic_client) -> No
     assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
-def test_override_wrong_type_returns_422(synthetic_client) -> None:
-    # band_step_ft is typed int; a non-int is a schema-level validation 422.
+def test_override_wrong_type_returns_400(synthetic_client) -> None:
+    # band_step_ft is typed int; a non-int is a malformed query parameter, which
+    # gazebo reports as a 400 (OGC client error).
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -226,7 +228,7 @@ def test_override_wrong_type_returns_422(synthetic_client) -> None:
             'terrain.elevation.band_step_ft': 'wide',
         },
     )
-    assert_problem(response, status=422)
+    assert_problem(response, status=400)
 
 
 def test_orphan_override_returns_422(synthetic_client) -> None:
