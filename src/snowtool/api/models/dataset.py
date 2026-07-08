@@ -109,25 +109,34 @@ class DatasetInfo(BaseModel):
         )
 
 
+class DatasetListItem(BaseModel):
+    """One entry in the dataset list: its name plus a ``self`` link to its detail
+    route, so each item is a followable resource rather than a bare string paired
+    with a link stranded in the collection's ``links`` array."""
+
+    name: str = Field(examples=['snodas'])
+    links: list[Link] = Field(default_factory=list)
+
+
 class DatasetList(BaseModel):
-    datasets: list[str] = Field(examples=[['instarr', 'snodas', 'swann-800m']])
+    datasets: list[DatasetListItem]
     links: list[Link] = Field(default_factory=list)
 
     @classmethod
     def from_snowdb(cls, snowdb: SnowDb) -> Self:
         return cls(
-            datasets=sorted(snowdb),
-            links=[
-                Link.self_link(),
-                Link.root_link(),
-                *(
-                    Link.to_route(
-                        'get_dataset',
-                        rel=Rel.ITEM,
-                        title=name,
-                        path={'dataset': name},
-                    )
-                    for name in sorted(snowdb)
-                ),
+            datasets=[
+                DatasetListItem(
+                    name=name,
+                    links=[
+                        Link.to_route(
+                            'get_dataset',
+                            rel=Rel.SELF,
+                            path={'dataset': name},
+                        ),
+                    ],
+                )
+                for name in sorted(snowdb)
             ],
+            links=[Link.self_link(), Link.root_link()],
         )
