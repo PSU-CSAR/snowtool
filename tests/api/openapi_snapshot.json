@@ -2687,7 +2687,7 @@
         "type": "object"
       },
       "_StatsFormat": {
-        "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+        "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
         "enum": [
           "json",
           "csv"
@@ -2890,7 +2890,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -2903,7 +2903,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },
@@ -2988,14 +2988,6 @@
             "name": "datetime",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/DatetimeInterval"
-                },
-                {
-                  "type": "null"
-                }
-              ],
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
               "examples": [
                 "2020-01-01T00:00:00Z",
@@ -3003,7 +2995,8 @@
                 "../2020-12-31T23:59:59Z",
                 "2020-01-01T00:00:00Z/.."
               ],
-              "title": "Datetime"
+              "title": "Datetime",
+              "type": "string"
             }
           }
         ],
@@ -3091,7 +3084,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -3104,7 +3097,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },
@@ -3312,7 +3305,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -3325,7 +3318,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },
@@ -3410,14 +3403,6 @@
             "name": "datetime",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/DatetimeInterval"
-                },
-                {
-                  "type": "null"
-                }
-              ],
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
               "examples": [
                 "2020-01-01T00:00:00Z",
@@ -3425,7 +3410,8 @@
                 "../2020-12-31T23:59:59Z",
                 "2020-01-01T00:00:00Z/.."
               ],
-              "title": "Datetime"
+              "title": "Datetime",
+              "type": "string"
             }
           }
         ],
@@ -3513,7 +3499,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -3526,7 +3512,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },
@@ -3734,7 +3720,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -3747,7 +3733,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },
@@ -3832,14 +3818,6 @@
             "name": "datetime",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/DatetimeInterval"
-                },
-                {
-                  "type": "null"
-                }
-              ],
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
               "examples": [
                 "2020-01-01T00:00:00Z",
@@ -3847,7 +3825,8 @@
                 "../2020-12-31T23:59:59Z",
                 "2020-01-01T00:00:00Z/.."
               ],
-              "title": "Datetime"
+              "title": "Datetime",
+              "type": "string"
             }
           }
         ],
@@ -3935,7 +3914,7 @@
             }
           },
           {
-            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+            "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
             "required": false,
@@ -3948,7 +3927,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+              "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
             }
           },

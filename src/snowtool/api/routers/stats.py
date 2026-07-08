@@ -46,9 +46,9 @@ from fastapi import Query
 from fastapi.responses import StreamingResponse
 from gazebo.ext.fastapi import GazeboRouter
 from gazebo.negotiation import (
-    F_DESCRIPTION,
     FormatEnum,
     alternate_links,
+    f_description,
     negotiate,
 )
 
@@ -221,10 +221,13 @@ def _base_fields(
         ),
         'allow_partial': (bool, Field(default=False)),
         # Content negotiation rides *inside* the model (not a Negotiate dependency) so
-        # the model stays the sole query source and explodes; the enum self-documents
-        # the ``?f=`` keys, but the union hides the enum's own description so it is set
-        # explicitly here. ``None`` (absent ``?f=``) defers to Accept in the handler.
-        'f': (_StatsFormat | None, Field(default=None, description=F_DESCRIPTION)),
+        # the model stays the sole query source and explodes. The ``| None`` union hides
+        # the enum's own description, so ``f_description`` sets it (naming the actual
+        # ``?f=`` keys, json/csv). ``None`` defers to Accept.
+        'f': (
+            _StatsFormat | None,
+            Field(default=None, description=f_description(_StatsFormat)),
+        ),
     }
     for key, ov in override_fields.items():
         # Non-nullable, defaulted to the scheme's own default (shown as the example),
