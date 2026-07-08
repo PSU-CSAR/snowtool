@@ -325,7 +325,14 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
             **base_fields,
             'datetime': (
                 DatetimeQuery,
-                Field(default=None, examples=_DATETIME_EXAMPLES),
+                # ``examples`` (array) documents every form; Swagger UI won't pre-fill a
+                # query box from it, but it *does* from a singular ``schema.example`` --
+                # injected via ``json_schema_extra`` -- so the box shows a usable value.
+                Field(
+                    default=None,
+                    examples=_DATETIME_EXAMPLES,
+                    json_schema_extra={'example': _DATETIME_EXAMPLES[0]},
+                ),
             ),
         },
     )
