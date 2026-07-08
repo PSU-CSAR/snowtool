@@ -27,7 +27,13 @@ def test_list_datasets_lists_registered(test_client) -> None:
     # built-ins, here), sorted.
     response = test_client.get('/datasets')
     assert response.status_code == 200
-    assert response.json()['datasets'] == ['instarr', 'snodas', 'swann-800m']
+    datasets = response.json()['datasets']
+    assert [d['name'] for d in datasets] == ['instarr', 'snodas', 'swann-800m']
+    # Each item is a followable resource: it carries its own self link to the
+    # detail route, not a link stranded in the collection-level links array.
+    for item in datasets:
+        self_link = next(link for link in item['links'] if link['rel'] == 'self')
+        assert self_link['href'].endswith(f'/datasets/{item["name"]}')
 
 
 def test_get_dataset_info(snodas_client) -> None:
