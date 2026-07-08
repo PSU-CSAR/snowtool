@@ -2792,7 +2792,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Landing"
+        "summary": "Landing",
+        "tags": [
+          "root"
+        ]
       }
     },
     "/conformance": {
@@ -2810,7 +2813,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Conformance"
+        "summary": "Conformance",
+        "tags": [
+          "root"
+        ]
       }
     },
     "/datasets": {
@@ -2989,10 +2995,10 @@
             "required": false,
             "schema": {
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
-              "example": "2018-04-27",
+              "example": "2018-01-01/2018-06-30",
               "examples": [
-                "2018-04-27",
                 "2018-01-01/2018-06-30",
+                "2018-04-27",
                 "2018-01-01/..",
                 "../2018-06-30"
               ],
@@ -3405,10 +3411,10 @@
             "required": false,
             "schema": {
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
-              "example": "2018-04-27",
+              "example": "2018-01-01/2018-06-30",
               "examples": [
-                "2018-04-27",
                 "2018-01-01/2018-06-30",
+                "2018-04-27",
                 "2018-01-01/..",
                 "../2018-06-30"
               ],
@@ -3821,10 +3827,10 @@
             "required": false,
             "schema": {
               "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
-              "example": "2018-04-27",
+              "example": "2018-01-01/2018-06-30",
               "examples": [
-                "2018-04-27",
                 "2018-01-01/2018-06-30",
+                "2018-04-27",
                 "2018-01-01/..",
                 "../2018-06-30"
               ],

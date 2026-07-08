@@ -263,11 +263,11 @@ _DOY_FIELDS: dict[str, object] = {
 }
 
 # Selection is by *date* here, so these override DatetimeQuery's generic timestamp
-# examples with date-style ones covering each form: a single day, a closed interval,
-# and open-ended on either side.
+# examples with date-style ones covering each form. The first is a closed interval:
+# it is the Swagger pre-fill (see ``json_schema_extra``), so the box shows a range.
 _DATETIME_EXAMPLES = [
-    '2018-04-27',
     '2018-01-01/2018-06-30',
+    '2018-04-27',
     '2018-01-01/..',
     '../2018-06-30',
 ]
