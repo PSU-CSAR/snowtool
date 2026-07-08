@@ -297,6 +297,37 @@
         "title": "DateRangeQuery",
         "type": "object"
       },
+      "DatetimeInterval": {
+        "description": "An RFC 3339 instant or interval, as accepted by the OGC ``datetime`` param.\n\n``start``/``end`` of ``None`` denote an open (unbounded) end. An instant\n(a single timestamp with no ``/``) is represented as ``start == end``.",
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          }
+        },
+        "title": "DatetimeInterval",
+        "type": "object"
+      },
       "FeatureCollection_PourpointProperties_": {
         "properties": {
           "bbox": {
@@ -1190,6 +1221,17 @@
           "rel": {
             "title": "Rel",
             "type": "string"
+          },
+          "templated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Templated"
           },
           "title": {
             "anyOf": [
@@ -2644,209 +2686,14 @@
         "title": "ZoneInfo",
         "type": "object"
       },
-      "instarr_DOYStatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "day": {
-            "maximum": 31.0,
-            "minimum": 1.0,
-            "title": "Day",
-            "type": "integer"
-          },
-          "end_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "End Year",
-            "type": "integer"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "month": {
-            "maximum": 12.0,
-            "minimum": 1.0,
-            "title": "Month",
-            "type": "integer"
-          },
-          "start_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "Start Year",
-            "type": "integer"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/instarr_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "required": [
-          "month",
-          "day",
-          "start_year",
-          "end_year"
+      "_StatsFormat": {
+        "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
+        "enum": [
+          "json",
+          "csv"
         ],
-        "title": "instarr_DOYStatsQuery",
-        "type": "object"
-      },
-      "instarr_StatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/instarr_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "title": "instarr_StatsQuery",
-        "type": "object"
+        "title": "_StatsFormat",
+        "type": "string"
       },
       "instarr_ZoneKey": {
         "enum": [
@@ -2860,210 +2707,6 @@
         "title": "instarr_ZoneKey",
         "type": "string"
       },
-      "snodas_DOYStatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "day": {
-            "maximum": 31.0,
-            "minimum": 1.0,
-            "title": "Day",
-            "type": "integer"
-          },
-          "end_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "End Year",
-            "type": "integer"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "month": {
-            "maximum": 12.0,
-            "minimum": 1.0,
-            "title": "Month",
-            "type": "integer"
-          },
-          "start_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "Start Year",
-            "type": "integer"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/snodas_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "required": [
-          "month",
-          "day",
-          "start_year",
-          "end_year"
-        ],
-        "title": "snodas_DOYStatsQuery",
-        "type": "object"
-      },
-      "snodas_StatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/snodas_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "title": "snodas_StatsQuery",
-        "type": "object"
-      },
       "snodas_ZoneKey": {
         "enum": [
           "landcover.forest_cover",
@@ -3075,210 +2718,6 @@
         ],
         "title": "snodas_ZoneKey",
         "type": "string"
-      },
-      "swann_800m_DOYStatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "day": {
-            "maximum": 31.0,
-            "minimum": 1.0,
-            "title": "Day",
-            "type": "integer"
-          },
-          "end_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "End Year",
-            "type": "integer"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "month": {
-            "maximum": 12.0,
-            "minimum": 1.0,
-            "title": "Month",
-            "type": "integer"
-          },
-          "start_year": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "Start Year",
-            "type": "integer"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/swann_800m_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "required": [
-          "month",
-          "day",
-          "start_year",
-          "end_year"
-        ],
-        "title": "swann_800m_DOYStatsQuery",
-        "type": "object"
-      },
-      "swann_800m_StatsQuery": {
-        "properties": {
-          "allow_partial": {
-            "default": false,
-            "title": "Allow Partial",
-            "type": "boolean"
-          },
-          "landcover.forest_cover.threshold_pct": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
-            "title": "Landcover.Forest Cover.Threshold Pct"
-          },
-          "terrain.aspect_entropy.entropy_threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
-            "title": "Terrain.Aspect Entropy.Entropy Threshold"
-          },
-          "terrain.eastness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.eastness'.",
-            "title": "Terrain.Eastness.Band Step Pct"
-          },
-          "terrain.elevation.band_step_ft": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.elevation'.",
-            "title": "Terrain.Elevation.Band Step Ft"
-          },
-          "terrain.northness.band_step_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override the scheme param for zone 'terrain.northness'.",
-            "title": "Terrain.Northness.Band Step Pct"
-          },
-          "variable": {
-            "description": "Variable to report (repeatable; default all).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Variable",
-            "type": "array"
-          },
-          "zone": {
-            "description": "Stratify by a zone layer (repeatable).",
-            "items": {
-              "$ref": "#/components/schemas/swann_800m_ZoneKey"
-            },
-            "title": "Zone",
-            "type": "array"
-          }
-        },
-        "title": "swann_800m_StatsQuery",
-        "type": "object"
       },
       "swann_800m_ZoneKey": {
         "enum": [
@@ -3376,41 +2815,171 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/instarr_StatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/instarr_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
             }
           },
           {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
             "in": "query",
             "name": "datetime",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/DatetimeInterval"
                 },
                 {
                   "type": "null"
                 }
+              ],
+              "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+              "examples": [
+                "2020-01-01T00:00:00Z",
+                "2020-01-01T00:00:00Z/2020-12-31T23:59:59Z",
+                "../2020-12-31T23:59:59Z",
+                "2020-01-01T00:00:00Z/.."
               ],
               "title": "Datetime"
             }
@@ -3462,27 +3031,193 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/instarr_DOYStatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/instarr_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
             }
           }
         ],
@@ -3532,41 +3267,171 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/snodas_StatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/snodas_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
             }
           },
           {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
             "in": "query",
             "name": "datetime",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/DatetimeInterval"
                 },
                 {
                   "type": "null"
                 }
+              ],
+              "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+              "examples": [
+                "2020-01-01T00:00:00Z",
+                "2020-01-01T00:00:00Z/2020-12-31T23:59:59Z",
+                "../2020-12-31T23:59:59Z",
+                "2020-01-01T00:00:00Z/.."
               ],
               "title": "Datetime"
             }
@@ -3618,27 +3483,193 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/snodas_DOYStatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/snodas_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
             }
           }
         ],
@@ -3688,41 +3719,171 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/swann_800m_StatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/swann_800m_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
             }
           },
           {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
             "in": "query",
             "name": "datetime",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/DatetimeInterval"
                 },
                 {
                   "type": "null"
                 }
+              ],
+              "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+              "examples": [
+                "2020-01-01T00:00:00Z",
+                "2020-01-01T00:00:00Z/2020-12-31T23:59:59Z",
+                "../2020-12-31T23:59:59Z",
+                "2020-01-01T00:00:00Z/.."
               ],
               "title": "Datetime"
             }
@@ -3774,27 +3935,193 @@
             }
           },
           {
+            "description": "Stratify by a zone layer (repeatable).",
             "in": "query",
-            "name": "params",
-            "required": true,
+            "name": "zone",
+            "required": false,
             "schema": {
-              "$ref": "#/components/schemas/swann_800m_DOYStatsQuery"
+              "description": "Stratify by a zone layer (repeatable).",
+              "items": {
+                "$ref": "#/components/schemas/swann_800m_ZoneKey"
+              },
+              "title": "Zone",
+              "type": "array"
             }
           },
           {
+            "description": "Variable to report (repeatable; default all).",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default all).",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
             "in": "query",
             "name": "f",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/_StatsFormat"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "The requested output format, as one of the supported representation keys (e.g. `json` or `html`). Takes precedence over the `Accept` header; an unsupported value returns a `400` problem.",
               "title": "F"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+            "in": "query",
+            "name": "landcover.forest_cover.threshold_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'landcover.forest_cover'.",
+              "title": "Landcover.Forest Cover.Threshold Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+            "in": "query",
+            "name": "terrain.aspect_entropy.entropy_threshold",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy'.",
+              "title": "Terrain.Aspect Entropy.Entropy Threshold"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.eastness'.",
+            "in": "query",
+            "name": "terrain.eastness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.eastness'.",
+              "title": "Terrain.Eastness.Band Step Pct"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.elevation'.",
+            "in": "query",
+            "name": "terrain.elevation.band_step_ft",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.elevation'.",
+              "title": "Terrain.Elevation.Band Step Ft"
+            }
+          },
+          {
+            "description": "Override the scheme param for zone 'terrain.northness'.",
+            "in": "query",
+            "name": "terrain.northness.band_step_pct",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override the scheme param for zone 'terrain.northness'.",
+              "title": "Terrain.Northness.Band Step Pct"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
             }
           }
         ],
@@ -3923,6 +4250,18 @@
             }
           },
           {
+            "description": "A bounding box, as comma-separated numbers `minx,miny,maxx,maxy` (WGS 84 longitude/latitude), or `minx,miny,minz,maxx,maxy,maxz` for a 3D box. The x axis may wrap the antimeridian (`minx` may exceed `maxx`); the y (and z) axes must be ordered `min <= max`. Malformed values return a `400` problem.",
+            "examples": {
+              "-180,-90,180,90": {
+                "value": "-180,-90,180,90"
+              },
+              "7,50,0,8,51,1000": {
+                "value": "7,50,0,8,51,1000"
+              },
+              "7.0,50.0,8.0,51.0": {
+                "value": "7.0,50.0,8.0,51.0"
+              }
+            },
             "in": "query",
             "name": "bbox",
             "required": false,
@@ -3935,6 +4274,7 @@
                   "type": "null"
                 }
               ],
+              "description": "A bounding box, as comma-separated numbers `minx,miny,maxx,maxy` (WGS 84 longitude/latitude), or `minx,miny,minz,maxx,maxy,maxz` for a 3D box. The x axis may wrap the antimeridian (`minx` may exceed `maxx`); the y (and z) axes must be ordered `min <= max`. Malformed values return a `400` problem.",
               "title": "Bbox"
             }
           }
