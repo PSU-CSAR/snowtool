@@ -257,8 +257,8 @@ def test_list_aois_bad_bbox_returns_400(many_aois_client) -> None:
     )
 
 
-def test_list_aois_limit_over_max_returns_422(many_aois_client) -> None:
+def test_list_aois_limit_over_max_returns_400(many_aois_client) -> None:
     assert_problem(
         many_aois_client.get('/pourpoints', params={'limit': 100000}),
-        status=422,
+        status=400,
     )
