@@ -128,6 +128,19 @@ def _zone_enum(name: str, registry: Mapping[str, AvailableZone]) -> type[enum.St
     )
 
 
+def _variable_enum(name: str, keys: list[str]) -> type[enum.StrEnum]:
+    """A per-dataset :class:`enum.StrEnum` whose members *are* the variable keys.
+
+    The ``variable`` query param's element type: FastAPI validates against the keys
+    and renders them as an OpenAPI ``enum`` (a dropdown), so an unknown variable is
+    rejected at the schema layer -- like ``zone`` -- rather than reaching the reader.
+    """
+    return enum.StrEnum(  # type: ignore[return-value]
+        f'{_sanitize(name)}_VariableKey',
+        {_sanitize(key): key for key in keys},
+    )
+
+
 def _override_fields(
     registry: Mapping[str, AvailableZone],
 ) -> dict[str, tuple[str, str, str]]:
@@ -148,15 +161,16 @@ def _override_fields(
 
 def _base_fields(
     zone_enum: type[enum.StrEnum],
+    variable_enum: type[enum.StrEnum],
     override_fields: dict[str, tuple[str, str, str]],
 ) -> dict[str, object]:
     """The query fields both endpoints share: ``zone`` + ``variable`` +
     ``allow_partial`` + one typed, aliased override field per overridable layer.
 
-    ``zone`` is the repeatable per-dataset enum; each override field is typed from
-    its :class:`ZoneLayerParams` param and carries the dotted ``'<layer>.<param>'``
-    query alias. Returned as a :func:`pydantic.create_model` field spec map so the
-    two endpoints can each fold in their own extra fields.
+    ``zone`` and ``variable`` are repeatable per-dataset enums; each override field is
+    typed from its :class:`ZoneLayerParams` param and carries the dotted
+    ``'<layer>.<param>'`` query alias. Returned as a :func:`pydantic.create_model`
+    field spec map so the two endpoints can each fold in their own extra fields.
     """
     fields: dict[str, object] = {
         'zone': (
@@ -167,7 +181,7 @@ def _base_fields(
             ),
         ),
         'variable': (
-            list[str],
+            list[variable_enum],  # type: ignore[valid-type]
             Field(
                 default_factory=list,
                 description='Variable to report (repeatable; default all).',
@@ -250,8 +264,9 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     registry = available_zones(dataset.providers.values())
 
     zone_enum = _zone_enum(name, registry)
+    variable_enum = _variable_enum(name, list(dataset.spec.variables))
     override_fields = _override_fields(registry)
-    base_fields = _base_fields(zone_enum, override_fields)
+    base_fields = _base_fields(zone_enum, variable_enum, override_fields)
     # ``datetime`` (the OGC interval) rides inside the date-range model too, so the
     # model stays the sole query source and explodes; doy selects by month/day/year
     # instead and has no interval.
@@ -283,7 +298,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
             triplet,
             name,
             query,
-            variable_keys=params.variable or None,  # type: ignore[attr-defined]
+            variable_keys=[str(v) for v in params.variable] or None,  # type: ignore[attr-defined]
             zone_selections=selections,
             allow_partial=params.allow_partial,  # type: ignore[attr-defined]
         )
