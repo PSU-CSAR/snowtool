@@ -262,6 +262,16 @@ _DOY_FIELDS: dict[str, object] = {
     'end_year': (int, Field(ge=1, le=9999)),
 }
 
+# Selection is by *date* here, so these override DatetimeQuery's generic timestamp
+# examples with date-style ones covering each form: a single day, a closed interval,
+# and open-ended on either side.
+_DATETIME_EXAMPLES = [
+    '2018-04-27',
+    '2018-01-01/2018-06-30',
+    '2018-01-01/..',
+    '../2018-06-30',
+]
+
 
 def _query_model(name: str, suffix: str, fields: dict[str, object]) -> type[BaseModel]:
     """A per-dataset query-params model from a ``create_model`` field-spec map.
@@ -311,7 +321,13 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
     date_range_model = _query_model(
         name,
         'StatsQuery',
-        {**base_fields, 'datetime': (DatetimeQuery, None)},
+        {
+            **base_fields,
+            'datetime': (
+                DatetimeQuery,
+                Field(default=None, examples=_DATETIME_EXAMPLES),
+            ),
+        },
     )
     doy_model = _query_model(name, 'DOYStatsQuery', {**base_fields, **_DOY_FIELDS})
     # The query-params models are per-dataset (built here), so they cannot be named in
