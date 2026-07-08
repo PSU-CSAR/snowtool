@@ -3814,10 +3814,17 @@
         "operationId": "get_dataset_datasets__dataset__get",
         "parameters": [
           {
+            "description": "Dataset name.",
             "in": "path",
             "name": "dataset",
             "required": true,
             "schema": {
+              "description": "Dataset name.",
+              "enum": [
+                "instarr",
+                "snodas",
+                "swann-800m"
+              ],
               "title": "Dataset",
               "type": "string"
             }
