@@ -211,15 +211,8 @@
       "DatasetList": {
         "properties": {
           "datasets": {
-            "examples": [
-              [
-                "instarr",
-                "snodas",
-                "swann-800m"
-              ]
-            ],
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/DatasetListItem"
             },
             "title": "Datasets",
             "type": "array"
@@ -236,6 +229,30 @@
           "datasets"
         ],
         "title": "DatasetList",
+        "type": "object"
+      },
+      "DatasetListItem": {
+        "description": "One entry in the dataset list: its name plus a ``self`` link to its detail\nroute, so each item is a followable resource rather than a bare string paired\nwith a link stranded in the collection's ``links`` array.",
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "name": {
+            "examples": [
+              "snodas"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DatasetListItem",
         "type": "object"
       },
       "DateRangeQuery": {
