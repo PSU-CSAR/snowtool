@@ -26,17 +26,21 @@ from snowtool.api.tags import Tags
 API_TITLE = 'PSU CSAR snowtool API'
 API_DESCRIPTION = 'Pourpoint metadata and snow zonal statistics.'
 
-router: RootRouter = RootRouter()
+# A router-level default tag so the *auto-mounted* landing (``/``) and
+# ``/conformance`` routes are tagged too -- gazebo mounts those inside RootRouter with
+# no tag, so tagging only the routes declared here would leave them in the default
+# section. With the router default set, the per-route ``tags=`` are redundant.
+router: RootRouter = RootRouter(tags=[Tags.ROOT])
 router.add_link(Rel.DATA, 'list_datasets', title='Datasets')
 router.add_link(Rel.DATA, 'list_pourpoints', title='Pourpoints')
 
 
-@router.get('/version', name='get_version', tags=[Tags.ROOT])
+@router.get('/version', name='get_version')
 async def get_version() -> VersionInfo:
     return VersionInfo.build()
 
 
-@router.get('/problems', name='list_problems', tags=[Tags.ROOT])
+@router.get('/problems', name='list_problems')
 async def list_problems() -> dict[str, ProblemType]:
     """The catalog of problem types this API raises, keyed by short name.
 
@@ -46,7 +50,7 @@ async def list_problems() -> dict[str, ProblemType]:
     return PROBLEMS.catalog()
 
 
-@router.get('/problems/{key}', name='get_problem', tags=[Tags.ROOT])
+@router.get('/problems/{key}', name='get_problem')
 async def get_problem(key: str) -> ProblemType:
     problem = PROBLEMS.get(key)
     if problem is None:
