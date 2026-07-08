@@ -232,9 +232,10 @@ def test_override_wrong_type_returns_400(synthetic_client) -> None:
     assert_problem(response, status=400)
 
 
-def test_orphan_override_returns_422(synthetic_client) -> None:
-    # An override supplied for a layer that is NOT in the selected ``zone`` list is a
-    # client mistake -> QueryParameterError -> 422, not a silent no-op.
+def test_orphan_override_is_ignored(synthetic_client) -> None:
+    # Override fields default to the scheme default (never None), so an override for a
+    # layer not in the selected ``zone`` list can't be told from the default -- it is a
+    # harmless no-op, not an error. Here no zone is selected, so it's whole-basin stats.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -243,9 +244,9 @@ def test_orphan_override_returns_422(synthetic_client) -> None:
             'terrain.elevation.band_step_ft': 2000,
         },
     )
-    body = assert_problem(response, status=422)
-    assert 'terrain.elevation.band_step_ft' in body['detail']
-    assert 'not selected' in body['detail']
+    assert response.status_code == 200
+    (result,) = response.json()['results']
+    assert result['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
 def test_unknown_aoi_returns_404(synthetic_client) -> None:
