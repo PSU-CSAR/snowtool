@@ -107,7 +107,7 @@ def _run_calc(aoi, variable, raster, scheme):
     return asyncio.run(ZonalStats._calc(aoi, variable, raster, zone_index, cache=None))
 
 
-def _bounds(result: Result) -> tuple[int, int]:
+def _bounds(result: Result) -> tuple[int | float, int | float]:
     (band,) = result.zone
     assert isinstance(band, BandZone)
     return band.min, band.max
@@ -488,11 +488,13 @@ _FORESTED = ThresholdZone(
         pytest.param(
             ('terrain.elevation',),
             ((_band(0, 10000),), (_band(10000, 20000),)),
-            # One cell with data and one in-range-but-no-data cell (nan value), so
-            # the CSV missing-value rendering is exercised. Long form: one row/cell.
+            # One cell with data and one AOI-present-but-no-data cell (positive area,
+            # nan value) so the CSV missing-value rendering is exercised. The second
+            # cell keeps a nonzero area on purpose: an empty (0-area) cell would be
+            # dropped by the default filter (that path is its own test below).
             [
                 ((_band(0, 10000),), 12.5, 100.0),
-                ((_band(10000, 20000),), float('nan'), 0.0),
+                ((_band(10000, 20000),), float('nan'), 50.0),
             ],
             [
                 'date',
@@ -505,7 +507,7 @@ _FORESTED = ThresholdZone(
             # mean renders empty, never the literal 'nan'.
             [
                 [_DUMP_DAY.isoformat(), '0', '10000', '100.0', '12.5'],
-                [_DUMP_DAY.isoformat(), '10000', '20000', '0.0', ''],
+                [_DUMP_DAY.isoformat(), '10000', '20000', '50.0', ''],
             ],
             id='nodata-cell-empty',
         ),
@@ -573,3 +575,81 @@ def test_dump_to_csv_expands_each_axis_kind(
     assert header == expected_header
     assert rows == expected_rows
     assert 'nan' not in out.getvalue()
+
+
+# --- empty (0-area) zone filtering -------------------------------------------
+
+
+def _two_band_stats() -> ZonalStats:
+    """A single elevation axis with a populated band and an empty (0-area) band.
+
+    The high band is a crossed combination no AOI pixel falls in: 0 area, nan value
+    -- exactly the empty cell the default output drops.
+    """
+    variable = _variable(Reducer.MEAN)
+    cells = ((_band(0, 1000),), (_band(1000, 2000),))
+    results = [
+        Result(date=_DUMP_DAY, zone=cells[0], variable=variable, value=5.0, area=10.0),
+        Result(
+            date=_DUMP_DAY,
+            zone=cells[1],
+            variable=variable,
+            value=float('nan'),
+            area=0.0,
+        ),
+    ]
+    return ZonalStats(
+        _spec_with(variable),
+        {variable},
+        ('terrain.elevation',),
+        cells,
+        (_DUMP_DAY,),
+        *results,
+    )
+
+
+def test_dump_drops_empty_zones_by_default():
+    # The empty (0-area) high band is dropped; only the populated band survives.
+    (day,) = _two_band_stats().dump()
+    (zone,) = day.zones
+    assert zone.area_m2 == 10.0
+
+
+def test_dump_keeps_empty_zones_when_requested():
+    # Opting in restores the full crossed product, empty cells included.
+    (day,) = _two_band_stats().dump(include_empty_zones=True)
+    assert [zone.area_m2 for zone in day.zones] == [10.0, 0.0]
+
+
+def test_dump_to_csv_drops_empty_zones_by_default():
+    out = io.StringIO()
+    _two_band_stats().dump_to_csv(out)
+    _, *rows = list(csv.reader(io.StringIO(out.getvalue())))
+    # Only the populated (0, 1000) band row remains.
+    assert rows == [[_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0']]
+
+
+def test_dump_to_csv_keeps_empty_zones_when_requested():
+    out = io.StringIO()
+    _two_band_stats().dump_to_csv(out, include_empty_zones=True)
+    _, *rows = list(csv.reader(io.StringIO(out.getvalue())))
+    assert rows == [
+        [_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0'],
+        [_DUMP_DAY.isoformat(), '1000', '2000', '0.0', ''],
+    ]
+
+
+def test_whole_basin_cell_is_never_dropped():
+    # The K=0 (unstratified) cell always has area and must survive the default filter.
+    variable = _variable(Reducer.MEAN)
+    stats = ZonalStats(
+        _spec_with(variable),
+        {variable},
+        (),
+        ((),),
+        (_DUMP_DAY,),
+        Result(date=_DUMP_DAY, zone=(), variable=variable, value=5.0, area=100.0),
+    )
+    (day,) = stats.dump()
+    (zone,) = day.zones
+    assert zone.area_m2 == 100.0

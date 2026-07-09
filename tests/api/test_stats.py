@@ -16,22 +16,6 @@ from snowtool.api.app import get_app
 
 from ..conftest import SWE_VALUE, populate_synthetic_root
 
-
-def _populated_csv_rows(rows: list[str]) -> list[str]:
-    """CSV rows whose trailing mean-SWE cell approximates the uniform SWE value.
-
-    The reduction runs in float64 now, so a uniform field's area-weighted mean is
-    the geodesic-weighting rounding of the value (~1e-8), not the exact integer;
-    match the last (mean_swe_mm) cell with a tolerance rather than an exact string.
-    """
-    out = []
-    for row in rows:
-        cell = row.rsplit(',', 1)[-1]
-        if cell and float(cell) == pytest.approx(SWE_VALUE):
-            out.append(row)
-    return out
-
-
 TRIPLET = '12345:MT:USGS'
 BASE = f'/datasets/test/stats/{TRIPLET}'
 DAY = '2018-04-27/2018-04-27'
@@ -65,14 +49,31 @@ def test_date_range_elevation_zone(synthetic_client) -> None:
     assert response.status_code == 200
     (result,) = response.json()['results']
     assert result['zone_layers'] == ['terrain.elevation']
-    # 16 elevation bands; exactly one (3000-4000 ft) carries the SWE.
-    cells = result['zones']
-    assert len(cells) == 16
-    populated = [c for c in cells if c['area_m2'] > 0]
-    (cell,) = populated
+    # 16 elevation bands cross the AOI but only (3000-4000 ft) is populated; the 15
+    # empty (0-area) bands are dropped by default, leaving that single cell.
+    (cell,) = result['zones']
     (ref,) = cell['zone']
     assert (ref['layer'], ref['min'], ref['max']) == ('terrain.elevation', 3000, 4000)
     assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+
+
+def test_date_range_elevation_zone_include_empty(synthetic_client) -> None:
+    # include_empty_zones=true opts back into the full crossed product: all 16 bands,
+    # 15 of them empty (0 area, null mean).
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'zone': 'terrain.elevation',
+            'include_empty_zones': 'true',
+        },
+    )
+    assert response.status_code == 200
+    (result,) = response.json()['results']
+    cells = result['zones']
+    assert len(cells) == 16
+    assert sum(1 for c in cells if c['area_m2'] > 0) == 1
 
 
 def test_day_of_year_json(synthetic_client) -> None:
@@ -109,10 +110,9 @@ def test_csv_via_format_key(synthetic_client) -> None:
     assert lines[0] == (
         'date,terrain.elevation_min_ft,terrain.elevation_max_ft,area_m2,mean_swe_mm'
     )
-    # 16 bands -> 16 rows; one carries the SWE in the 3000-4000 ft band.
+    # Empty bands dropped by default -> the single populated 3000-4000 ft row.
     rows = lines[1:]
-    assert len(rows) == 16
-    (row,) = _populated_csv_rows(rows)
+    (row,) = rows
     assert row.startswith('2018-04-27,3000,4000,')
 
 
@@ -204,7 +204,8 @@ def test_elevation_band_step_override_changes_band_count(synthetic_client) -> No
     # A coarser band step is supplied via the typed, per-layer override query param
     # ``terrain.elevation.band_step_ft``. The default (1000 ft) yields 16 bands (see
     # test_date_range_elevation_zone); 2000 ft yields 9, and the SWE now lands in the
-    # 2000-4000 ft band rather than 3000-4000.
+    # 2000-4000 ft band rather than 3000-4000. include_empty_zones keeps the empty
+    # bands so the band *count* (the thing under test) is observable.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -212,6 +213,7 @@ def test_elevation_band_step_override_changes_band_count(synthetic_client) -> No
             'variable': 'swe',
             'zone': 'terrain.elevation',
             'terrain.elevation.band_step_ft': 2000,
+            'include_empty_zones': 'true',
         },
     )
     assert response.status_code == 200

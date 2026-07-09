@@ -81,6 +81,7 @@ class StatsParams(Protocol):
     zone: list[str]
     variable: list[str]
     allow_partial: bool
+    include_empty_zones: bool
     f: _StatsFormat | None
 
 
@@ -234,6 +235,19 @@ def _base_fields(
                     'as the whole basin); set true to accept a knowingly-clipped '
                     'query over the covered portion. A wholly off-grid basin always '
                     '409s regardless.'
+                ),
+            ),
+        ),
+        'include_empty_zones': (
+            bool,
+            Field(
+                default=False,
+                description=(
+                    'Include crossed zones that no AOI pixel falls in (0 area, all '
+                    'stats null). By default these empty combinations are dropped, '
+                    'which trims a response that would otherwise grow combinatorically '
+                    'with the number of crossed zone axes; set true to emit the full '
+                    'zone product. No effect on a whole-basin (unstratified) query.'
                 ),
             ),
         ),

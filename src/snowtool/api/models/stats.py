@@ -70,10 +70,15 @@ class StatsResponse[T](BaseModel):
         )
 
 
-def stats_csv_response(stats: ZonalStats, filename: str) -> StreamingResponse:
+def stats_csv_response(
+    stats: ZonalStats,
+    filename: str,
+    *,
+    include_empty_zones: bool = False,
+) -> StreamingResponse:
     """Stream a :class:`ZonalStats` as a CSV attachment named ``filename``."""
     buffer = io.StringIO()
-    stats.dump_to_csv(buffer)
+    stats.dump_to_csv(buffer, include_empty_zones=include_empty_zones)
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type='text/csv',
