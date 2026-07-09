@@ -12,7 +12,7 @@ dependencies = [
     "async-tiff>=0.7.2",
     "click>=8.2.1",
     "fastapi>=0.116.1",
-    "gazebo[fastapi,geojson,uvicorn]>=0.9.2",
+    "gazebo[fastapi,geojson,uvicorn]>=0.9.3",
     "geojson-pydantic>=2.1.1",
     "griffine[crs]>=0.2.0",
     "numpy>=2.5.1",
@@ -122,7 +122,7 @@ sort = "Cover"
 
 [dependency-groups]
 dev = [
-    "gazebo[test]>=0.9.2",
+    "gazebo[test]>=0.9.3",
     "httpx2>=2.5.0",
     "mypy>=1.18.1",
     "pre-commit-hooks>=6.0.0",
