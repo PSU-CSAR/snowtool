@@ -2914,13 +2914,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -2929,13 +2929,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -2944,13 +2944,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -2959,13 +2959,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -2974,13 +2974,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3109,13 +3109,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3124,13 +3124,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3139,13 +3139,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3154,13 +3154,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3169,13 +3169,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3330,13 +3330,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3345,13 +3345,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3360,13 +3360,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3375,13 +3375,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3390,13 +3390,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3525,13 +3525,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3540,13 +3540,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3555,13 +3555,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3570,13 +3570,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3585,13 +3585,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3746,13 +3746,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3761,13 +3761,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3776,13 +3776,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3791,13 +3791,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3806,13 +3806,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3941,13 +3941,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %).",
+              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3956,13 +3956,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac).",
+              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3971,13 +3971,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3986,13 +3986,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft).",
+              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -4001,13 +4001,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.band_step_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct).",
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -4093,17 +4093,10 @@
         "operationId": "get_dataset_datasets__dataset__get",
         "parameters": [
           {
-            "description": "Dataset name.",
             "in": "path",
             "name": "dataset",
             "required": true,
             "schema": {
-              "description": "Dataset name.",
-              "enum": [
-                "instarr",
-                "snodas",
-                "swann-800m"
-              ],
               "title": "Dataset",
               "type": "string"
             }

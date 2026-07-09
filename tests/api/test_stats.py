@@ -232,16 +232,32 @@ def test_override_wrong_type_returns_400(synthetic_client) -> None:
     assert_problem(response, status=400)
 
 
-def test_orphan_override_is_ignored(synthetic_client) -> None:
-    # Override fields default to the scheme default (never None), so an override for a
-    # layer not in the selected ``zone`` list can't be told from the default -- it is a
-    # harmless no-op, not an error. Here no zone is selected, so it's whole-basin stats.
+def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None:
+    # An override moved off its default for a layer not in the selected ``zone`` list
+    # can't take effect. It is rejected by the query model's validator, so -- like an
+    # unknown zone or a wrong-typed override -- it is a malformed query parameter,
+    # which gazebo reports as a 400 (not the 422 for well-formed-but-unprocessable
+    # queries). Here no zone is selected, so the elevation override is orphaned.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
             'datetime': DAY,
             'variable': 'swe',
             'terrain.elevation.band_step_ft': 2000,
+        },
+    )
+    assert_problem(response, status=400)
+
+
+def test_orphan_override_at_default_is_noop(synthetic_client) -> None:
+    # An orphan override left *at* the scheme default is a genuine no-op (selecting
+    # the default is equivalent to not overriding), so it does not error.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'terrain.elevation.band_step_ft': 1000,
         },
     )
     assert response.status_code == 200

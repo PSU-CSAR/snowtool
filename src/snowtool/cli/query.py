@@ -158,6 +158,9 @@ def stats(
 
     registry = available_zones(dataset.providers.values())
     try:
+        # The CLI's ``LAYER[:override]`` string tokens converge on the same
+        # ``list[ZoneSelection]`` the API builds from pre-typed query fields (see
+        # ``api.routers._stats_params.selections``); only the input shape differs.
         selections = [parse_zone_selection(token, registry) for token in zones]
     except ValueError as e:
         raise click.ClickException(str(e)) from e
