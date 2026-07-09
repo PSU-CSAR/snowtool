@@ -36,6 +36,7 @@ class ZoneInfo(BaseModel):
     ``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme
     kind. An overridable layer advertises its ``param`` (the override query param
     is ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a
+    banded/bucketed layer also advertises its covered ``min``/``max`` range; a
     categorical layer instead advertises its ``classes`` (and has no ``param``).
     """
 
@@ -44,6 +45,10 @@ class ZoneInfo(BaseModel):
     param: str | None = Field(default=None, examples=['band_step_ft'])
     default: float | int | None = Field(default=None, examples=[1000])
     unit: str | None = Field(default=None, examples=['ft'])
+    # The axis' covered range (banded/bucketed); None for a threshold split or a
+    # categorical axis.
+    min: float | int | None = Field(default=None, examples=[-1000])
+    max: float | int | None = Field(default=None, examples=[15000])
     classes: list[ZoneClassInfo] | None = Field(default=None)
 
 
@@ -56,6 +61,8 @@ def _zone_info(key: str, available: AvailableZone) -> ZoneInfo:
         param=desc.param_key,
         default=desc.default,
         unit=desc.unit,
+        min=desc.min,
+        max=desc.max,
         classes=(
             [ZoneClassInfo(key=c.key, label=c.label) for c in desc.classes]
             if desc.classes is not None

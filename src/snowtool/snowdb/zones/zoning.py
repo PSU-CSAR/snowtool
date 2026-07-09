@@ -63,7 +63,10 @@ class ZoneDescription:
     scheme (``None`` for a categorical axis, which takes none) and ``default`` its
     configured default (band step / split threshold; ``None`` for categorical);
     ``unit`` is the zone unit (``None`` for categorical); ``classes`` is the class
-    list for a categorical axis (``None`` otherwise).
+    list for a categorical axis (``None`` otherwise). ``min``/``max`` are the axis'
+    covered range -- the first band's lower and the last band's upper edge for a
+    banded/bucketed axis (``None`` for a threshold split or categorical axis, which
+    have no numeric range).
     """
 
     kind: str
@@ -71,6 +74,8 @@ class ZoneDescription:
     default: int | float | None
     unit: str | None
     classes: tuple[ZoneClassDescription, ...] | None = None
+    min: int | float | None = None
+    max: int | float | None = None
 
 
 @dataclass(frozen=True)
@@ -339,11 +344,14 @@ class BandedZoning(ZoneScheme):
             ) from e
 
     def describe(self: Self) -> ZoneDescription:
+        bands = self.zones()
         return ZoneDescription(
             kind='banded',
             param_key=self.param_key,
             default=self.default_step,
             unit=self.unit,
+            min=bands[0].min,
+            max=bands[-1].max,
         )
 
     def zones(self: Self) -> tuple[BandZone, ...]:
@@ -419,11 +427,14 @@ class EvenBucketZoning(ZoneScheme):
             ) from e
 
     def describe(self: Self) -> ZoneDescription:
+        bands = self.zones()
         return ZoneDescription(
             kind='bucketed',
             param_key=self.param_key,
             default=self.default_buckets,
             unit=None,
+            min=bands[0].min,
+            max=bands[-1].max,
         )
 
     def zones(self: Self) -> tuple[BandZone, ...]:
