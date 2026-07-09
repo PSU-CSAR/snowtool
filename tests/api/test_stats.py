@@ -185,12 +185,19 @@ def test_unknown_variable_returns_400(synthetic_client) -> None:
 def test_unknown_zone_returns_400(synthetic_client) -> None:
     # ``zone`` is a per-dataset enum now, so an unknown value is rejected at the
     # schema layer before the handler runs -- a malformed *query* parameter, which
-    # gazebo reports as a 400 (OGC client error), like a bad datetime/format.
+    # gazebo reports as a 400 (OGC client error), like a bad datetime/format. Being
+    # repeatable, its error loc is ('query', 'zone', <index>); the cited ``parameter``
+    # must be the name, not the list index.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.nope'},
     )
-    assert_problem(response, status=400)
+    body = assert_problem(
+        response,
+        type='/problems/malformed-query-parameter',
+        status=400,
+    )
+    assert body['parameter'] == 'zone'
 
 
 def test_elevation_band_step_override_changes_band_count(synthetic_client) -> None:
@@ -238,7 +245,8 @@ def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None
     # unknown zone or a wrong-typed override -- it is a malformed query parameter,
     # which gazebo reports as a 400 (not the 422 for well-formed-but-unprocessable
     # queries) carrying our resolvable ``malformed-query-parameter`` type. Here no zone
-    # is selected, so the elevation override is orphaned.
+    # is selected, so the elevation override is orphaned. Being a cross-field model
+    # validator (loc ('query',)), it cites no single ``parameter``.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -247,7 +255,12 @@ def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None
             'terrain.elevation.band_step_ft': 2000,
         },
     )
-    assert_problem(response, type='/problems/malformed-query-parameter', status=400)
+    body = assert_problem(
+        response,
+        type='/problems/malformed-query-parameter',
+        status=400,
+    )
+    assert 'parameter' not in body
 
 
 def test_orphan_override_at_default_is_noop(synthetic_client) -> None:
