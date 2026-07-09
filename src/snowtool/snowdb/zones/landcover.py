@@ -62,6 +62,8 @@ FOREST_COVER = ZoneLayer(
     # value_scale is 1.
     zoning=ThresholdZoning(
         default_threshold=DEFAULT_FOREST_THRESHOLD_PCT,
+        domain_min=0,
+        domain_max=100,
         unit='%',
         value_scale=1,
         layer_nodata=FOREST_PCT_NODATA,

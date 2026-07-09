@@ -483,6 +483,11 @@ class ThresholdZoning(ZoneScheme):
     """
 
     default_threshold: float
+    # The measured quantity's range the split sits within (forest cover 0..100 %,
+    # normalised entropy 0..1); advertised as the axis' min/max, not enforced by
+    # :meth:`assign` (every value is simply below or at-or-above the threshold).
+    domain_min: float
+    domain_max: float
     unit: str
     value_scale: float
     layer_nodata: float
@@ -513,6 +518,8 @@ class ThresholdZoning(ZoneScheme):
             param_key=self.param_key,
             default=self.default_threshold,
             unit=self.unit,
+            min=_as_number(self.domain_min),
+            max=_as_number(self.domain_max),
         )
 
     def zones(self: Self) -> tuple[ThresholdZone, ...]:
