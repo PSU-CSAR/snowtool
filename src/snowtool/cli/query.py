@@ -135,6 +135,16 @@ def _build_query(
     default=False,
     help='Permit a clipped result over an AOI the grid only partially covers.',
 )
+@click.option(
+    '--include-empty-zones',
+    is_flag=True,
+    default=False,
+    help=(
+        'Include crossed zones no AOI pixel falls in (0 area, null stats). '
+        'By default these are dropped; the output otherwise grows '
+        'combinatorically with the number of --zone axes.'
+    ),
+)
 @nested_format_option
 @config_option
 @pass_snowdb
@@ -150,6 +160,7 @@ def stats(
     zones: tuple[str, ...],
     variables: tuple[str, ...],
     allow_partial: bool,
+    include_empty_zones: bool,
     fmt: str,
 ) -> None:
     """Zonal statistics for AOI TRIPLET over a dataset (whole-basin by default)."""
@@ -188,13 +199,16 @@ def stats(
     if fmt == 'json':
         click.echo(
             json.dumps(
-                [model.model_dump(mode='json') for model in result.dump()],
+                [
+                    model.model_dump(mode='json')
+                    for model in result.dump(include_empty_zones=include_empty_zones)
+                ],
                 indent=2,
             ),
         )
         return
     buffer = io.StringIO()
-    result.dump_to_csv(buffer)
+    result.dump_to_csv(buffer, include_empty_zones=include_empty_zones)
     click.echo(buffer.getvalue(), nl=False)
 
 

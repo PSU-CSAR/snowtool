@@ -98,12 +98,13 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
             return stats_csv_response(
                 stats,
                 query.csv_name(triplet, zone_size=len(selected)),
+                include_empty_zones=params.include_empty_zones,
             )
         return StatsResponse.build(
             triplet=triplet,
             dataset=name,
             query=query,
-            results=stats.dump(),
+            results=stats.dump(include_empty_zones=params.include_empty_zones),
             alternates=alternate_links(rep, REPRESENTATIONS),
         )
 

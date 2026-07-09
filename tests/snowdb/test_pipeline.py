@@ -180,14 +180,16 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(
         ],
     )
 
+    # 16 elevation bands x 2 forest classes (forested/unforested) = 32 crossed cells,
+    # but the uniform synthetic AOI populates just one. By default the 31 empty
+    # (0-area) combinations are dropped; include_empty_zones restores the full product.
+    full = stats.dump(include_empty_zones=True)
+    assert len(full[0].zones) == 32
+
     dumped = stats.dump()
     assert dumped[0].zone_layers == ['terrain.elevation', 'landcover.forest_cover']
-    # 16 elevation bands x 2 forest classes (forested/unforested) = 32 cells.
-    cells = dumped[0].zones
-    assert len(cells) == 32
-    with_data = [c for c in cells if c.area_m2 > 0]
-    assert len(with_data) == 1
-    cell = with_data[0]
+    (cell,) = dumped[0].zones
+    assert cell.area_m2 > 0
 
     elev_ref, forest_ref = cell.zone
     assert (elev_ref.layer, elev_ref.min, elev_ref.max) == (
@@ -263,22 +265,22 @@ def test_zonal_stats_crosses_northness_band(dataset, pourpoint_geojson, swe_cog)
         [ZoneSelection('terrain.northness')],
     )
 
+    # Four even buckets over [-1, 1]: [-1,-0.5),[-0.5,0),[0,0.5),[0.5,1]; only the
+    # last is populated, so the default drops the other three empty buckets.
+    assert len(stats.dump(include_empty_zones=True)[0].zones) == 4
+
     dumped = stats.dump()
     assert dumped[0].zone_layers == ['terrain.northness']
-    # Four even buckets over [-1, 1]: [-1,-0.5),[-0.5,0),[0,0.5),[0.5,1].
-    cells = dumped[0].zones
-    assert len(cells) == 4
-    with_data = [c for c in cells if c.area_m2 > 0]
-    assert len(with_data) == 1
-    (north_ref,) = with_data[0].zone
+    (cell,) = dumped[0].zones
+    (north_ref,) = cell.zone
     assert (north_ref.layer, north_ref.min, north_ref.max, north_ref.unit) == (
         'terrain.northness',
         0.5,
         1,
         None,
     )
-    assert with_data[0].mean_swe_mm == pytest.approx(SWE_VALUE)
-    assert with_data[0].area_m2 == pytest.approx(float(aoi_raster.array.sum()))
+    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
+    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):
