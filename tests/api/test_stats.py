@@ -237,7 +237,8 @@ def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None
     # can't take effect. It is rejected by the query model's validator, so -- like an
     # unknown zone or a wrong-typed override -- it is a malformed query parameter,
     # which gazebo reports as a 400 (not the 422 for well-formed-but-unprocessable
-    # queries). Here no zone is selected, so the elevation override is orphaned.
+    # queries) carrying our resolvable ``malformed-query-parameter`` type. Here no zone
+    # is selected, so the elevation override is orphaned.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -246,7 +247,7 @@ def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None
             'terrain.elevation.band_step_ft': 2000,
         },
     )
-    assert_problem(response, status=400)
+    assert_problem(response, type='/problems/malformed-query-parameter', status=400)
 
 
 def test_orphan_override_at_default_is_noop(synthetic_client) -> None:

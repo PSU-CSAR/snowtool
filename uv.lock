@@ -280,14 +280,14 @@ wheels = [
 
 [[package]]
 name = "gazebo"
-version = "0.9.1"
+version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/ef/d1fdb8b8d867ab3dd1c0abfa6f94edf7af035fdfa6798af0ecdc4404ec11/gazebo-0.9.1.tar.gz", hash = "sha256:b21457ad5637a47ec36c1df3e660738bc05517c0c6ee2bbc3d3f4a660b51053e", size = 260052, upload-time = "2026-07-08T22:06:02.14Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/11/5388bd495b9d1961d889df3ad3c24a94a4038909b0dd5cf5c7cc2691f937/gazebo-0.9.2.tar.gz", hash = "sha256:e9ebfa222428471973cd4f80f4b8930d946c9e4438ae0e16bd0bf92f00b85e2e", size = 262933, upload-time = "2026-07-09T04:23:54.788Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/a6/78d7cd1bbf9579f7becc3ecb70622bed984646da7aeccd6909c8b631b43a/gazebo-0.9.1-py3-none-any.whl", hash = "sha256:0bb308cc75fbd7352361a6d58a8772c2fcebeac1eb90fabed1683de030138e9f", size = 96169, upload-time = "2026-07-08T22:06:00.742Z" },
+    { url = "https://files.pythonhosted.org/packages/47/60/ecb07532bc6c7213cb36de8720380957b6b829426c3b773882f7563952d0/gazebo-0.9.2-py3-none-any.whl", hash = "sha256:e863f20fec043d138ef4c66df3cbbaab6a4c829ecc6ff82c26fd415a58865d22", size = 97185, upload-time = "2026-07-09T04:23:53.465Z" },
 ]
 
 [package.optional-dependencies]
@@ -1220,7 +1220,7 @@ requires-dist = [
     { name = "async-tiff", specifier = ">=0.7.2" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "gazebo", extras = ["fastapi", "geojson", "uvicorn"], specifier = ">=0.9.1" },
+    { name = "gazebo", extras = ["fastapi", "geojson", "uvicorn"], specifier = ">=0.9.2" },
     { name = "geojson-pydantic", specifier = ">=2.1.1" },
     { name = "griffine", extras = ["crs"], specifier = ">=0.2.0" },
     { name = "numpy", specifier = ">=2.5.1" },
@@ -1233,7 +1233,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "gazebo", extras = ["test"], specifier = ">=0.9.1" },
+    { name = "gazebo", extras = ["test"], specifier = ">=0.9.2" },
     { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mypy", specifier = ">=1.18.1" },
     { name = "pre-commit-hooks", specifier = ">=6.0.0" },

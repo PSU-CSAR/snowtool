@@ -23,6 +23,7 @@ import logging
 from gazebo.di import Providers
 from gazebo.ext.fastapi import GazeboApp
 
+from snowtool.api.problems import MALFORMED_QUERY_PARAMETER
 from snowtool.api.settings import Settings
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.raster.tiff_cache import TiffCache
@@ -77,11 +78,14 @@ def get_app(
     providers.app(SnowDbReader, _provide_reader)
 
     # CORS is off by default (GazeboApp accepts cors= when a policy is wanted).
+    # ``query_problem`` gives gazebo's own malformed-query-parameter 400s a resolvable
+    # ``type`` from our catalog instead of ``about:blank`` (see problems.py).
     app = GazeboApp(
         providers,
         title=API_TITLE,
         description=API_DESCRIPTION,
         openapi_tags=Tags.metadata(),
+        query_problem=MALFORMED_QUERY_PARAMETER,
     )
 
     app.state.settings = settings
