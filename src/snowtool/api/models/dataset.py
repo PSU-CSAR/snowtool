@@ -74,6 +74,43 @@ class GridInfo(BaseModel):
     is_geographic: bool = Field(examples=[True])
 
 
+# Custom link relations for a dataset's two queryable stats endpoints. No IANA
+# relation fits a parameterized query sub-resource, so these are service-specific
+# tokens; the templated links they tag leave the station triplet and query params
+# for the client to bind.
+STATS_DATE_RANGE_REL = 'stats-date-range'
+STATS_DOY_REL = 'stats-doy'
+
+
+def _stats_links(name: str, zones: list[ZoneInfo]) -> list[Link]:
+    """Templated links to dataset ``name``'s two stats query endpoints.
+
+    The station triplet is an unbound RFC 6570 path variable (the dataset name is
+    already baked into the route) and the query params are a form-query expansion --
+    the shared zone/variable/negotiation params plus each overridable zone's
+    ``<key>.<param>`` override field -- so a client can build a stats query from the
+    dataset resource alone.
+    """
+    overrides = [f'{zone.key}.{zone.param}' for zone in zones if zone.param]
+    shared = ['zone', 'variable', *overrides, 'allow_partial', 'f']
+    return [
+        Link.to_route(
+            f'{name}_stats_date_range',
+            rel=STATS_DATE_RANGE_REL,
+            title='Date-range zonal statistics',
+            template=['triplet'],
+            query_template=['datetime', *shared],
+        ),
+        Link.to_route(
+            f'{name}_stats_doy',
+            rel=STATS_DOY_REL,
+            title='Day-of-year zonal statistics',
+            template=['triplet'],
+            query_template=['month', 'day', 'start_year', 'end_year', *shared],
+        ),
+    ]
+
+
 class DatasetInfo(BaseModel):
     name: str = Field(examples=['snodas'])
     grid: GridInfo
@@ -86,6 +123,7 @@ class DatasetInfo(BaseModel):
         spec = dataset.spec
         grid_params = spec.grid_params
         registry = available_zones(dataset.providers.values())
+        zones = [_zone_info(key, registry[key]) for key in sorted(registry)]
         return cls(
             name=spec.name,
             grid=GridInfo(
@@ -104,8 +142,12 @@ class DatasetInfo(BaseModel):
                 )
                 for variable in spec.variables.values()
             ],
-            zones=[_zone_info(key, registry[key]) for key in sorted(registry)],
-            links=[Link.self_link(), Link.root_link()],
+            zones=zones,
+            links=[
+                Link.self_link(),
+                Link.root_link(),
+                *_stats_links(spec.name, zones),
+            ],
         )
 
 
