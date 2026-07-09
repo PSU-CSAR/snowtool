@@ -236,6 +236,8 @@ def test_forest_cover_uses_a_threshold_split():
 def test_threshold_assign_splits_below_and_at_or_above():
     scheme = ThresholdZoning(
         default_threshold=40,
+        domain_min=0,
+        domain_max=100,
         unit='%',
         value_scale=1,
         layer_nodata=255,
@@ -250,6 +252,8 @@ def test_threshold_assign_splits_below_and_at_or_above():
 def test_threshold_override_moves_the_split_and_relabels():
     scheme = ThresholdZoning(
         default_threshold=40,
+        domain_min=0,
+        domain_max=100,
         unit='%',
         value_scale=1,
         layer_nodata=255,
@@ -269,6 +273,8 @@ def test_threshold_override_moves_the_split_and_relabels():
 def test_threshold_describe_reports_param_default_and_unit():
     scheme = ThresholdZoning(
         default_threshold=40,
+        domain_min=0,
+        domain_max=100,
         unit='%',
         value_scale=1,
         layer_nodata=255,
@@ -281,6 +287,8 @@ def test_threshold_describe_reports_param_default_and_unit():
         default=40,
         unit='%',
         classes=None,
+        min=0,
+        max=100,
     )
 
 
