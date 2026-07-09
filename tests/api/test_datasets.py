@@ -53,6 +53,28 @@ def test_get_dataset_info(snodas_client) -> None:
     assert 'mean_swe_mm' in {v['stat_name'] for v in variables}
 
 
+def test_get_dataset_info_advertises_templated_stats_links(snodas_client) -> None:
+    # The dataset resource advertises templated links to its two stats query
+    # endpoints, so a client can build a query from the dataset alone: the triplet is
+    # an unbound path var and the query params (incl. each overridable zone's
+    # ``<key>.<param>`` field) are an RFC 6570 form-query expansion.
+    body = snodas_client.get('/datasets/snodas').json()
+    links = {link['rel']: link for link in body['links']}
+
+    date_range = links['stats-date-range']
+    assert date_range['templated'] is True
+    assert '/datasets/snodas/stats/{triplet}/date-range{?' in date_range['href']
+    assert 'datetime' in date_range['href']
+    # a per-dataset override param rides in the query template
+    assert 'terrain.elevation.band_step_ft' in date_range['href']
+
+    doy = links['stats-doy']
+    assert doy['templated'] is True
+    assert '/datasets/snodas/stats/{triplet}/doy{?' in doy['href']
+    for var in ('month', 'day', 'start_year', 'end_year'):
+        assert var in doy['href']
+
+
 def test_get_dataset_info_advertises_zones(snodas_client) -> None:
     body = snodas_client.get('/datasets/snodas').json()
     zones = {z['key']: z for z in body['zones']}
