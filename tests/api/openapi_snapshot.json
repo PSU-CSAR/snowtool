@@ -2623,7 +2623,7 @@
         "type": "object"
       },
       "ZoneInfo": {
-        "description": "A stratifiable zone layer of a dataset and how to override its scheme.\n\n``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme\nkind. An overridable layer advertises its ``param`` (the override query param\nis ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a\ncategorical layer instead advertises its ``classes`` (and has no ``param``).",
+        "description": "A stratifiable zone layer of a dataset and how to override its scheme.\n\n``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme\nkind. An overridable layer advertises its ``param`` (the override query param\nis ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a\nbanded/bucketed layer also advertises its covered ``min``/``max`` range; a\ncategorical layer instead advertises its ``classes`` (and has no ``param``).",
         "properties": {
           "classes": {
             "anyOf": [
@@ -2669,6 +2669,40 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              15000
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              -1000
+            ],
+            "title": "Min"
           },
           "param": {
             "anyOf": [
