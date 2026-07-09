@@ -4,8 +4,10 @@ A :class:`ZoneScheme` declares the zones a
 :class:`~snowtool.snowdb.zones.zone_layer.ZoneLayer` stratifies the grid into and how
 each pixel is assigned to one. Three kinds are supported:
 
-* :class:`BandedZoning` -- contiguous numeric bands aligned to 0 over a fixed
-  domain (elevation in feet, forest cover in percent).
+* :class:`BandedZoning` -- contiguous numeric bands of a fixed *width* aligned to 0
+  over a fixed domain (elevation in feet).
+* :class:`EvenBucketZoning` -- a fixed *count* of equal buckets over a closed domain,
+  for a bounded dimensionless measure (the [-1, 1] aspect components).
 * :class:`ThresholdZoning` -- a binary below/at-or-above split (forest cover
   forested vs unforested).
 * :class:`CategoricalZoning` -- a fixed set of discrete classes (aspect
@@ -107,13 +109,14 @@ class Zone:
 class BandZone(Zone):
     """A contiguous numeric band ``[min, max)`` in the scheme's zone ``unit``.
 
-    ``min``/``max`` are whole zone-unit bounds (feet for elevation, percent for
-    forest cover).
+    ``min``/``max`` are integer bounds for an integer-stepped axis (feet for
+    elevation) and fractional for a bucketed one (the dimensionless ``[-1, 1]``
+    aspect components); ``unit`` is ``None`` when the measure is dimensionless.
     """
 
-    min: int
-    max: int
-    unit: str
+    min: int | float
+    max: int | float
+    unit: str | None
 
     def __str__(self: Self) -> str:
         return f'{self.min}_{self.max}'
@@ -122,9 +125,10 @@ class BandZone(Zone):
         return BandZoneRef(layer=layer, min=self.min, max=self.max, unit=self.unit)
 
     def csv_columns(self: Self, layer: str) -> list[tuple[str, str]]:
+        suffix = f'_{self.unit}' if self.unit else ''
         return [
-            (f'{layer}_min_{self.unit}', str(self.min)),
-            (f'{layer}_max_{self.unit}', str(self.max)),
+            (f'{layer}_min{suffix}', str(self.min)),
+            (f'{layer}_max{suffix}', str(self.max)),
         ]
 
 
@@ -248,6 +252,48 @@ class ZoneScheme(ABC):
         )
 
 
+def _as_number(value: float) -> int | float:
+    """A band bound as an ``int`` when integral, else a noise-trimmed ``float``.
+
+    Keeps integer-domain bounds (elevation feet) rendering as ``3000`` while letting a
+    bucketed axis' fractional bounds render as ``0.5`` -- and rounds so an odd bucket
+    count can't leak ``0.30000000000000004`` into a band key/label.
+    """
+    rounded = round(value, 6)
+    return int(rounded) if rounded == int(rounded) else rounded
+
+
+def _assign_bands(
+    values: numpy.typing.NDArray,
+    bands: tuple[BandZone, ...],
+    value_scale: float,
+    layer_nodata: float,
+    *,
+    closed_top: bool = False,
+) -> numpy.typing.NDArray[numpy.int64]:
+    """Digitize ``values`` (native units) into ``bands``' ordinals.
+
+    Scales to zone units and digitizes into the band edges; pixels below/above the
+    domain, and layer-nodata pixels, become ``-1``. Shared by the step-based
+    :class:`BandedZoning` and the count-based :class:`EvenBucketZoning`. ``closed_top``
+    folds a value exactly at the top edge into the last band (the bucket scheme tiles a
+    closed domain exactly, so its final bucket is ``[.., max]``, not half-open).
+    """
+    edges = numpy.array(
+        [band.min for band in bands] + [bands[-1].max],
+        dtype=numpy.float64,
+    )
+    scaled = numpy.asarray(values, dtype=numpy.float64) * value_scale
+    ordinals = (numpy.digitize(scaled, edges) - 1).astype(numpy.int64)
+    if closed_top:
+        ordinals[scaled == edges[-1]] = len(bands) - 1
+    ordinals[(ordinals < 0) | (ordinals >= len(bands))] = -1
+    # Belt-and-suspenders: an explicit nodata sentinel is excluded even if it somehow
+    # scaled into the domain.
+    ordinals[numpy.asarray(values) == layer_nodata] = -1
+    return ordinals
+
+
 @dataclass(frozen=True)
 class BandedZoning(ZoneScheme):
     """Contiguous numeric bands aligned to 0 over ``[domain_min, domain_max]``.
@@ -329,18 +375,87 @@ class BandedZoning(ZoneScheme):
         Scales to zone units and digitizes into the band edges; pixels below/above
         the domain, and layer-nodata pixels, become ``-1``.
         """
-        bands = self.zones()
-        edges = numpy.array(
-            [band.min for band in bands] + [bands[-1].max],
-            dtype=numpy.float64,
+        return _assign_bands(values, self.zones(), self.value_scale, self.layer_nodata)
+
+
+@dataclass(frozen=True)
+class EvenBucketZoning(ZoneScheme):
+    """A fixed count of equal-width buckets over a closed ``[domain_min, domain_max]``.
+
+    For a bounded, *dimensionless* measure -- the ``[-1, 1]`` aspect components (mean
+    ``cos``/``sin`` of aspect) -- where a band *width* carries no external meaning: the
+    only useful knob is how many even buckets to cut the range into. So the param is an
+    integer ``default_buckets`` (not a width), the bucket bounds are computed (and
+    fractional), and there is no unit. Contrast :class:`BandedZoning`, whose fixed step
+    aligned to 0 is what an open-ended, real-unit axis (elevation feet) wants.
+    """
+
+    domain_min: float
+    domain_max: float
+    default_buckets: int
+    layer_nodata: float
+    # The key a dataset's zones block uses for this layer's bucket count.
+    param_key: str = 'buckets'
+
+    def __post_init__(self: Self) -> None:
+        if not isinstance(self.default_buckets, int) or self.default_buckets < 1:
+            raise ValueError(
+                f'bucket count must be a positive int, got {self.default_buckets!r}',
+            )
+
+    def configured(self: Self, params: ZoneLayerParams) -> Self:
+        value = getattr(params, self.param_key)
+        return self if value is None else replace(self, default_buckets=value)
+
+    def with_override(self: Self, override: int | float) -> Self:
+        return replace(self, default_buckets=int(override))
+
+    def parse_override(self: Self, layer_key: str, raw: str) -> int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} bucket count must be an integer, got {raw!r}.',
+            ) from e
+
+    def describe(self: Self) -> ZoneDescription:
+        return ZoneDescription(
+            kind='bucketed',
+            param_key=self.param_key,
+            default=self.default_buckets,
+            unit=None,
         )
-        scaled = numpy.asarray(values, dtype=numpy.float64) * self.value_scale
-        ordinals = (numpy.digitize(scaled, edges) - 1).astype(numpy.int64)
-        ordinals[(ordinals < 0) | (ordinals >= len(bands))] = -1
-        # Belt-and-suspenders: an explicit nodata sentinel is excluded even if it
-        # somehow scaled into the domain.
-        ordinals[numpy.asarray(values) == self.layer_nodata] = -1
-        return ordinals
+
+    def zones(self: Self) -> tuple[BandZone, ...]:
+        """The domain cut into ``default_buckets`` equal, contiguous buckets."""
+        width = (self.domain_max - self.domain_min) / self.default_buckets
+        bands = []
+        for i in range(self.default_buckets):
+            low = _as_number(self.domain_min + i * width)
+            high = _as_number(self.domain_min + (i + 1) * width)
+            bands.append(
+                BandZone(
+                    key=f'{low}_{high}',
+                    label=f'{low} to {high}',
+                    min=low,
+                    max=high,
+                    unit=None,
+                ),
+            )
+        return tuple(bands)
+
+    def assign(
+        self: Self,
+        values: numpy.typing.NDArray,
+    ) -> numpy.typing.NDArray[numpy.int64]:
+        """Digitize ``values`` into the bucket ordinals (dimensionless: no scaling)."""
+        return _assign_bands(
+            values,
+            self.zones(),
+            1,
+            self.layer_nodata,
+            closed_top=True,
+        )
 
 
 @dataclass(frozen=True)

@@ -49,15 +49,15 @@ ZoneConfig = dict[str, dict[str, ZoneLayerParams]]
 # The zones every standard dataset enables: it enumerates every served layer
 # across the built-in providers (terrain's five, land cover's one), each with its
 # behaviour-preserving defaults (these values equal the scheme's own defaults --
-# 1000 ft elevation bands, 50% northness/eastness steps, a 0.5 aspect-entropy
+# 1000 ft elevation bands, 4 northness/eastness buckets, a 0.5 aspect-entropy
 # threshold, a 50% forest threshold; aspect is categorical and takes no param). A
 # dataset that wants a subset (or different params) overrides this.
 DEFAULT_ZONES: ZoneConfig = {
     'terrain': {
         'elevation': ZoneLayerParams(band_step_ft=1000),
         'aspect': ZoneLayerParams(),
-        'northness': ZoneLayerParams(band_step_pct=50),
-        'eastness': ZoneLayerParams(band_step_pct=50),
+        'northness': ZoneLayerParams(buckets=4),
+        'eastness': ZoneLayerParams(buckets=4),
         'aspect_entropy': ZoneLayerParams(entropy_threshold=0.5),
     },
     'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},

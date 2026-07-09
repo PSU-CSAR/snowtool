@@ -71,7 +71,7 @@ class ZoneLayerParams(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     band_step_ft: int | None = None
-    band_step_pct: int | None = None
+    buckets: int | None = None
     threshold_pct: float | None = None
     entropy_threshold: float | None = None
 

@@ -37,13 +37,18 @@ if TYPE_CHECKING:
 
 
 class BandZoneRef(BaseModel):
-    """One crossed-zone axis that is a numeric band ``[min, max)`` in ``unit``."""
+    """One crossed-zone axis that is a numeric band ``[min, max)``.
+
+    ``min``/``max`` are ``int`` for an integer-stepped axis (elevation feet) and
+    fractional for a bucketed one (the dimensionless ``[-1, 1]`` aspect components);
+    ``unit`` is that axis' zone unit, or ``null`` when the measure is dimensionless.
+    """
 
     kind: Literal['band'] = 'band'
     layer: str = Field(examples=['terrain.elevation'])  # the registry key
-    min: int = Field(examples=[6000])
-    max: int = Field(examples=[7000])
-    unit: str = Field(examples=['ft'])
+    min: int | float = Field(examples=[6000])
+    max: int | float = Field(examples=[7000])
+    unit: str | None = Field(default=None, examples=['ft'])
 
 
 class ClassZoneRef(BaseModel):
