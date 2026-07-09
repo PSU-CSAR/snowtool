@@ -212,7 +212,20 @@ def _base_fields(
                 description='Variable to report (repeatable; default all).',
             ),
         ),
-        'allow_partial': (bool, Field(default=False)),
+        'allow_partial': (
+            bool,
+            Field(
+                default=False,
+                description=(
+                    'Permit a basin only partially covered by the dataset grid. By '
+                    'default a partially-covered basin is a 409 (guarding against '
+                    'stats silently computed over just the covered slice but reported '
+                    'as the whole basin); set true to accept a knowingly-clipped '
+                    'query over the covered portion. A wholly off-grid basin always '
+                    '409s regardless.'
+                ),
+            ),
+        ),
         # The ``| None`` union hides the enum's own description, so ``f_description``
         # sets it (naming the actual ``?f=`` keys, json/csv). ``None`` defers to Accept.
         'f': (
