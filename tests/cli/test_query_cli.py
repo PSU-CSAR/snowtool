@@ -116,19 +116,45 @@ def test_query_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     assert result.exit_code == 0, result.output
     lines = result.output.strip().splitlines()
     assert lines[0] == CSV_HEADER
-    # 16 elevation bands -> 16 rows; exactly one (3000-4000 ft) carries the SWE.
+    # 16 elevation bands cross the AOI but only the (3000-4000 ft) band is populated;
+    # the 15 empty (0-area) bands are dropped by default, leaving a single row.
     rows = lines[1:]
-    assert len(rows) == 16
+    assert len(rows) == 1
     # float64 reduction: the uniform field's area-weighted mean is the geodesic
     # rounding of SWE_VALUE (~1e-8), so match the trailing mean cell with tolerance.
-    populated = [
-        r
-        for r in rows
-        if r.rsplit(',', 1)[-1]
-        and float(r.rsplit(',', 1)[-1]) == pytest.approx(SWE_VALUE)
-    ]
-    assert len(populated) == 1
-    assert populated[0].startswith('2018-04-27,3000,4000,')
+    date_, min_ft, max_ft, _area, mean = rows[0].split(',')
+    assert (date_, min_ft, max_ft) == ('2018-04-27', '3000', '4000')
+    assert float(mean) == pytest.approx(SWE_VALUE)
+
+
+def test_query_stats_csv_include_empty_zones(runner, cli_obj, populated_root):
+    # --include-empty-zones restores the full crossed product: all 16 elevation bands,
+    # 15 of them empty (0-area, blank mean), regardless of AOI occupancy.
+    result = runner.invoke(
+        cli,
+        [
+            'query',
+            'stats',
+            TRIPLET,
+            '-d',
+            'test',
+            '--start',
+            DATE,
+            '--end',
+            DATE,
+            '--variable',
+            'swe',
+            '--zone',
+            'terrain.elevation',
+            '--include-empty-zones',
+            '--format',
+            'csv',
+        ],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 0, result.output
+    rows = result.output.strip().splitlines()[1:]
+    assert len(rows) == 16
 
 
 def test_query_stats_threshold_zone_override(runner, cli_obj, populated_root):

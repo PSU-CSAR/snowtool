@@ -195,30 +195,52 @@ class ZonalStats:
         """
         return [zone.ref(layer) for layer, zone in zip(layers, cell, strict=True)]
 
-    def dump(self: Self) -> list[BaseModel]:
+    def _emitted_cells(self: Self, *, include_empty_zones: bool) -> list[int]:
+        """The cell indices (flat product order) the serializers should emit.
+
+        A crossed-zone cell whose area is 0 has no AOI pixels in that combination
+        (the crossed zone doesn't occur in this basin), so it reduces to ``nan`` for
+        every variable and date. Crossing several fine axes makes such empty cells
+        the combinatoric majority of the product, so by default they are dropped from
+        the output; ``include_empty_zones`` keeps the full product. The area weight is
+        per-(date, cell) but date-independent, so a cell is empty for every date or
+        none -- it is dropped from every date consistently. The whole-basin (K=0) cell
+        always has area and is never dropped.
+        """
+        all_cells = list(range(len(self._cells_index)))
+        # No dates => no rows anyway, and self._array[0] would index-error; the
+        # emptiness of a cell is meaningless without a row to read the area from.
+        if include_empty_zones or self._array.shape[0] == 0:
+            return all_cells
+        areas = self._array[0, :, 0]
+        return [idx for idx in all_cells if areas[idx] > 0]
+
+    def dump(self: Self, *, include_empty_zones: bool = False) -> list[BaseModel]:
         self.validate()
         stat_model = self.spec.zonal_stat_model
         stats_model = self.spec.zonal_stats_model
+        cells = list(self._cells_index)
+        emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
         # Zone refs depend only on the cell, not the date; build them once (one
-        # pydantic validation per cell) and reuse across every date.
-        cell_refs = [
-            self._zone_refs(self.zone_layers, cell) for cell in self._cells_index
-        ]
+        # pydantic validation per emitted cell) and reuse across every date.
+        cell_refs = {
+            cell_idx: self._zone_refs(self.zone_layers, cells[cell_idx])
+            for cell_idx in emitted
+        }
         stats: list[BaseModel] = []
         for date_, date_idx in self._dates_index.items():
-            cells: list[BaseModel] = []
-            for cell_idx in range(len(self._cells_index)):
-                cells.append(
-                    stat_model(
-                        zone=cell_refs[cell_idx],
-                        **self._zone_stats(date_idx, cell_idx),
-                    ),
+            zones = [
+                stat_model(
+                    zone=cell_refs[cell_idx],
+                    **self._zone_stats(date_idx, cell_idx),
                 )
+                for cell_idx in emitted
+            ]
             stats.append(
                 stats_model(
                     date=date_,
                     zone_layers=list(self.zone_layers),
-                    zones=cells,
+                    zones=zones,
                 ),
             )
         return stats
@@ -232,7 +254,7 @@ class ZonalStats:
         """
         return next(iter(self._cells_index))
 
-    def dump_to_csv(self: Self, out: IO) -> None:
+    def dump_to_csv(self: Self, out: IO, *, include_empty_zones: bool = False) -> None:
         self.validate()
         writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
 
@@ -249,19 +271,21 @@ class ZonalStats:
         headers.extend(variable.stat_name for variable in self._variables_index)
         writer.writerow(headers)
 
+        cells = list(self._cells_index)
+        emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
         # The zone columns depend only on the cell, not the date; format them once
-        # per cell and reuse across every date's row.
-        cell_columns = [
-            [
+        # per emitted cell and reuse across every date's row.
+        cell_columns = {
+            cell_idx: [
                 value
-                for layer, zone in zip(self.zone_layers, cell, strict=True)
+                for layer, zone in zip(self.zone_layers, cells[cell_idx], strict=True)
                 for _, value in zone.csv_columns(layer)
             ]
-            for cell in self._cells_index
-        ]
+            for cell_idx in emitted
+        }
 
         for date_, date_idx in self._dates_index.items():
-            for cell_idx in range(len(self._cells_index)):
+            for cell_idx in emitted:
                 row: list[str] = [date_.isoformat(), *cell_columns[cell_idx]]
                 # Empty cell for a no-data reduction (nan), matching dump()'s JSON
                 # null -- never the literal 'nan'.

@@ -2952,6 +2952,18 @@
             }
           },
           {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
+              "type": "boolean"
+            }
+          },
+          {
             "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
@@ -3145,6 +3157,18 @@
               "default": false,
               "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
               "type": "boolean"
             }
           },
@@ -3372,6 +3396,18 @@
             }
           },
           {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
+              "type": "boolean"
+            }
+          },
+          {
             "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
@@ -3565,6 +3601,18 @@
               "default": false,
               "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
               "type": "boolean"
             }
           },
@@ -3792,6 +3840,18 @@
             }
           },
           {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
+              "type": "boolean"
+            }
+          },
+          {
             "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
             "in": "query",
             "name": "f",
@@ -3985,6 +4045,18 @@
               "default": false,
               "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all stats null). By default these empty combinations are dropped, which trims a response that would otherwise grow combinatorically with the number of crossed zone axes; set true to emit the full zone product. No effect on a whole-basin (unstratified) query.",
+              "title": "Include Empty Zones",
               "type": "boolean"
             }
           },
