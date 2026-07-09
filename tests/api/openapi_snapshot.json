@@ -2936,13 +2936,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -2951,13 +2951,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -2966,13 +2966,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -2981,13 +2981,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -2996,13 +2996,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3133,13 +3133,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3148,13 +3148,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3163,13 +3163,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3178,13 +3178,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3193,13 +3193,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3356,13 +3356,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3371,13 +3371,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3386,13 +3386,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3401,13 +3401,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3416,13 +3416,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3553,13 +3553,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3568,13 +3568,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3583,13 +3583,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3598,13 +3598,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3613,13 +3613,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3776,13 +3776,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3791,13 +3791,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3806,13 +3806,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3821,13 +3821,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -3836,13 +3836,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -3973,13 +3973,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
               "default": 50,
-              "description": "Override the scheme param for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
               "examples": [
                 50
               ],
@@ -3988,13 +3988,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the scheme param for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -4003,13 +4003,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],
@@ -4018,13 +4018,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+            "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.elevation.band_step_ft",
             "required": false,
             "schema": {
               "default": 1000,
-              "description": "Override the scheme param for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
+              "description": "Override the band width for zone 'terrain.elevation' (default: 1000 ft). Applied only when that zone is also selected.",
               "examples": [
                 1000
               ],
@@ -4033,13 +4033,13 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+            "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
+              "description": "Override the bucket count for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
                 4
               ],

@@ -99,6 +99,15 @@ class DOYParams(StatsParams, Protocol):
     end_year: int
 
 
+# What the override param controls, per scheme kind -- names the knob in the query
+# param's description (a categorical axis has no override param, so is absent).
+_OVERRIDE_NOUN = {
+    'banded': 'band width',
+    'bucketed': 'bucket count',
+    'threshold': 'split threshold',
+}
+
+
 class _Override(NamedTuple):
     """An overridable zone layer's query-field wiring + its scheme default/unit."""
 
@@ -107,6 +116,7 @@ class _Override(NamedTuple):
     param_key: str
     default: int | float | None
     unit: str | None
+    kind: str
 
 
 class StatsQueryModels(NamedTuple):
@@ -183,6 +193,7 @@ def _override_fields(registry: Mapping[str, AvailableZone]) -> dict[str, _Overri
                 desc.param_key,
                 desc.default,
                 desc.unit,
+                desc.kind,
             )
     return fields
 
@@ -240,13 +251,14 @@ def _base_fields(
         # ``None`` to keep int-vs-float but drop nullability.
         annotation = _param_annotation(ov.param_key)
         unit = f' {ov.unit}' if ov.unit else ''
+        noun = _OVERRIDE_NOUN.get(ov.kind, 'scheme param')
         fields[ov.field_name] = (
             annotation,
             Field(
                 default=ov.default,
                 alias=ov.alias,
                 examples=[ov.default],
-                description=f'Override the scheme param for zone {key!r} '
+                description=f'Override the {noun} for zone {key!r} '
                 f'(default: {ov.default}{unit}). Applied only when that zone is '
                 f'also selected.',
             ),
