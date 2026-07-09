@@ -2985,13 +2985,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3182,13 +3182,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3405,13 +3405,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3602,13 +3602,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -3825,13 +3825,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
@@ -4022,13 +4022,13 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
             "in": "query",
             "name": "terrain.aspect_entropy.entropy_threshold",
             "required": false,
             "schema": {
               "default": 0.5,
-              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 frac). Applied only when that zone is also selected.",
+              "description": "Override the split threshold for zone 'terrain.aspect_entropy' (default: 0.5 Hnorm). Applied only when that zone is also selected.",
               "examples": [
                 0.5
               ],
