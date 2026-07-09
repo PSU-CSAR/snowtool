@@ -30,6 +30,7 @@ from snowtool.snowdb.zones.zoning import (
     BandZone,
     CategoricalZoning,
     ClassZone,
+    EvenBucketZoning,
     ThresholdZoning,
     ZoneClassDescription,
     ZoneDescription,
@@ -124,49 +125,49 @@ def test_banded_describe_reports_param_default_and_unit():
 # --- aspect-component banding (northness / eastness) -------------------------
 
 
-def test_aspect_component_bands_span_minus_one_to_one_in_pct():
+def test_aspect_component_bands_are_even_buckets_over_minus_one_to_one():
     scheme = NORTHNESS.zoning
-    assert isinstance(scheme, BandedZoning)
+    assert isinstance(scheme, EvenBucketZoning)
     bands = scheme.zones()
-    # value_scale 100, default step 50 pct == 0.5 native, aligned to 0: four bands
-    # spanning [-1, 1] plus the closed-top boundary band for exactly +1.0.
+    # Dimensionless [-1, 1] cut into the default 4 even buckets; the last is closed at
+    # the top (+1.0). No fabricated unit.
     assert [(b.min, b.max) for b in bands] == [
-        (-100, -50),
-        (-50, 0),
-        (0, 50),
-        (50, 100),
-        (100, 150),
+        (-1, -0.5),
+        (-0.5, 0),
+        (0, 0.5),
+        (0.5, 1),
     ]
-    assert all(b.unit == 'pct' for b in bands)
+    assert all(b.unit is None for b in bands)
 
 
 @pytest.mark.parametrize(
     ('component', 'ordinal'),
     [
-        (-0.7, 0),  # -70 pct -> [-100, -50)
-        (-0.2, 1),  # -20 pct -> [-50, 0)
-        (0.0, 2),  # 0 pct -> [0, 50)
-        (0.6, 3),  # 60 pct -> [50, 100)
+        (-0.7, 0),  # [-1, -0.5)
+        (-0.2, 1),  # [-0.5, 0)
+        (0.0, 2),  # [0, 0.5)
+        (0.6, 3),  # [0.5, 1)
+        (1.0, 3),  # exactly +1.0 -> the closed top bucket, not out of zone
         (ASPECT_COMPONENT_NODATA, -1),  # finite nodata -> out of zone
     ],
 )
-def test_aspect_component_assign_bands_native_values(component, ordinal):
-    # northness/eastness share the scheme; native cos/sin values in [-1, 1] scale
-    # by 100 into percent bands, and the finite nodata sentinel digitises out.
+def test_aspect_component_assign_buckets_native_values(component, ordinal):
+    # northness/eastness share the scheme; native cos/sin values in [-1, 1] digitise
+    # straight into the buckets (no scaling), and the finite nodata sentinel drops out.
     for scheme in (NORTHNESS.zoning, EASTNESS.zoning):
-        assert isinstance(scheme, BandedZoning)
+        assert isinstance(scheme, EvenBucketZoning)
         values = numpy.array([[component]], dtype=numpy.float32)
         numpy.testing.assert_array_equal(scheme.assign(values), [[ordinal]])
 
 
-def test_aspect_component_band_step_is_overridable():
+def test_aspect_component_bucket_count_is_overridable():
     scheme = NORTHNESS.zoning
-    assert isinstance(scheme, BandedZoning)
-    # A 100 pct (== 1.0 native) step collapses each half to a single band.
-    coarse = scheme.with_override(100).zones()
-    assert [(b.min, b.max) for b in coarse] == [(-100, 0), (0, 100), (100, 200)]
+    assert isinstance(scheme, EvenBucketZoning)
+    # 2 buckets collapses each half of [-1, 1] to a single bucket.
+    coarse = scheme.with_override(2).zones()
+    assert [(b.min, b.max) for b in coarse] == [(-1, 0), (0, 1)]
     # The dataset param key that carries this override.
-    assert scheme.param_key == 'band_step_pct'
+    assert scheme.param_key == 'buckets'
 
 
 # --- CategoricalZoning -------------------------------------------------------
@@ -293,9 +294,9 @@ def test_available_zones_lists_zoneable_layers_including_components():
         'terrain.aspect_entropy',
         'landcover.forest_cover',
     }
-    # The aspect-orientation components are now each their own banded axis.
-    assert isinstance(zones['terrain.northness'].scheme, BandedZoning)
-    assert isinstance(zones['terrain.eastness'].scheme, BandedZoning)
+    # The aspect-orientation components are each their own bucketed axis.
+    assert isinstance(zones['terrain.northness'].scheme, EvenBucketZoning)
+    assert isinstance(zones['terrain.eastness'].scheme, EvenBucketZoning)
     # Each entry carries the provider, layer, and its scheme.
     elevation = zones['terrain.elevation']
     assert elevation.layer is ELEVATION
