@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "BandZoneRef": {
-        "description": "One crossed-zone axis that is a numeric band ``[min, max)`` in ``unit``.",
+        "description": "One crossed-zone axis that is a numeric band ``[min, max)``.\n\n``min``/``max`` are ``int`` for an integer-stepped axis (elevation feet) and\nfractional for a bucketed one (the dimensionless ``[-1, 1]`` aspect components);\n``unit`` is that axis' zone unit, or ``null`` when the measure is dimensionless.",
         "properties": {
           "kind": {
             "const": "band",
@@ -18,32 +18,52 @@
             "type": "string"
           },
           "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
             "examples": [
               7000
             ],
-            "title": "Max",
-            "type": "integer"
+            "title": "Max"
           },
           "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
             "examples": [
               6000
             ],
-            "title": "Min",
-            "type": "integer"
+            "title": "Min"
           },
           "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "examples": [
               "ft"
             ],
-            "title": "Unit",
-            "type": "string"
+            "title": "Unit"
           }
         },
         "required": [
           "layer",
           "min",
-          "max",
-          "unit"
+          "max"
         ],
         "title": "BandZoneRef",
         "type": "object"
@@ -2946,17 +2966,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -2976,17 +2996,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },
@@ -3143,17 +3163,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -3173,17 +3193,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },
@@ -3366,17 +3386,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -3396,17 +3416,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },
@@ -3563,17 +3583,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -3593,17 +3613,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },
@@ -3786,17 +3806,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -3816,17 +3836,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },
@@ -3983,17 +4003,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.eastness.band_step_pct",
+            "name": "terrain.eastness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.eastness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.eastness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Eastness.Band Step Pct",
+              "title": "Terrain.Eastness.Buckets",
               "type": "integer"
             }
           },
@@ -4013,17 +4033,17 @@
             }
           },
           {
-            "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+            "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
             "in": "query",
-            "name": "terrain.northness.band_step_pct",
+            "name": "terrain.northness.buckets",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the scheme param for zone 'terrain.northness' (default: 50 pct). Applied only when that zone is also selected.",
+              "default": 4,
+              "description": "Override the scheme param for zone 'terrain.northness' (default: 4). Applied only when that zone is also selected.",
               "examples": [
-                50
+                4
               ],
-              "title": "Terrain.Northness.Band Step Pct",
+              "title": "Terrain.Northness.Buckets",
               "type": "integer"
             }
           },

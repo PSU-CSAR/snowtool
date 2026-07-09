@@ -175,7 +175,7 @@ def test_zone_params_omit_none_fields_in_json():
     )
     text = config.model_dump_json()
     assert '"elevation":{"band_step_ft":1000}' in text
-    assert 'band_step_pct' not in text  # unset params are omitted
+    assert 'buckets' not in text  # unset params are omitted
 
 
 def test_default_zones_enumerate_every_served_layer():
@@ -186,8 +186,8 @@ def test_default_zones_enumerate_every_served_layer():
         'terrain': {
             'elevation': ZoneLayerParams(band_step_ft=1000),
             'aspect': ZoneLayerParams(),
-            'northness': ZoneLayerParams(band_step_pct=50),
-            'eastness': ZoneLayerParams(band_step_pct=50),
+            'northness': ZoneLayerParams(buckets=4),
+            'eastness': ZoneLayerParams(buckets=4),
             'aspect_entropy': ZoneLayerParams(entropy_threshold=0.5),
         },
         'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},

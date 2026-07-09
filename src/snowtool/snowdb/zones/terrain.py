@@ -53,6 +53,7 @@ from snowtool.snowdb.zones.zoning import (
     BandedZoning,
     CategoricalZoning,
     ClassZone,
+    EvenBucketZoning,
     ThresholdZoning,
 )
 
@@ -123,17 +124,14 @@ ASPECT_ENTROPY_NODATA = -1.0
 # per query (the dataset zones param ``entropy_threshold``, or a ``:override`` token).
 DEFAULT_ASPECT_ENTROPY_THRESHOLD = 0.5
 
-# Northness/eastness are banded over [-1, 1]. The scheme works in *percent* zone
-# units (value_scale 100: a native cos/sin of 1.0 is 100), aligned to 0, so a
-# default band width of 50 pct == 0.5 native gives 4 primary bands per axis
-# ([-100,-50), [-50,0), [0,50), [50,100)) -- a user-adjustable default (the dataset
-# zones param ``band_step_pct``, or a query ``:override``). Percent lets BandedZoning
-# keep its integer steps (0.5 native is not an integer) without special-casing.
-ASPECT_COMPONENT_VALUE_SCALE = 100
-ASPECT_COMPONENT_DOMAIN_MIN = -100
-ASPECT_COMPONENT_DOMAIN_MAX = 100
-DEFAULT_ASPECT_COMPONENT_BAND_PCT = 50
-ASPECT_COMPONENT_BAND_PARAM = 'band_step_pct'
+# Northness/eastness are the mean cos/sin of aspect: dimensionless in [-1, 1], where
+# a band *width* carries no external meaning. So they are bucketed, not stepped -- the
+# closed domain is cut into a user-adjustable count of equal buckets (the dataset zones
+# param ``buckets``, or a query ``:override``), default 4 ([-1,-0.5), [-0.5,0), [0,0.5),
+# [0.5,1]). No fabricated unit, no arbitrary width.
+ASPECT_COMPONENT_DOMAIN_MIN = -1
+ASPECT_COMPONENT_DOMAIN_MAX = 1
+DEFAULT_ASPECT_COMPONENT_BUCKETS = 4
 
 
 ELEVATION = ZoneLayer(
@@ -175,19 +173,16 @@ ASPECT_MAJORITY = ZoneLayer(
 
 
 def _component_zoning():
-    """The shared banded scheme for a northness/eastness axis over ``[-1, 1]``.
+    """The shared bucketed scheme for a northness/eastness axis over ``[-1, 1]``.
 
-    Both components have the identical domain and units, so they share one scheme
-    factory (each axis gets its own instance, keyed by its own layer key/param).
+    Both components have the identical domain and bucket count, so they share one
+    scheme factory (each axis gets its own instance, keyed by its own layer key).
     """
-    return BandedZoning(
+    return EvenBucketZoning(
         domain_min=ASPECT_COMPONENT_DOMAIN_MIN,
         domain_max=ASPECT_COMPONENT_DOMAIN_MAX,
-        default_step=DEFAULT_ASPECT_COMPONENT_BAND_PCT,
-        unit='pct',
-        value_scale=ASPECT_COMPONENT_VALUE_SCALE,
+        default_buckets=DEFAULT_ASPECT_COMPONENT_BUCKETS,
         layer_nodata=ASPECT_COMPONENT_NODATA,
-        param_key=ASPECT_COMPONENT_BAND_PARAM,
     )
 
 
@@ -197,7 +192,7 @@ NORTHNESS = ZoneLayer(
     nodata=ASPECT_COMPONENT_NODATA,
     band_descriptions=('northness_mean_cos_aspect',),
     key='northness',
-    # Banded mean cos(aspect): +100 pct due north, -100 pct due south.
+    # Bucketed mean cos(aspect): +1 due north, -1 due south.
     zoning=_component_zoning(),
 )
 EASTNESS = ZoneLayer(
@@ -206,7 +201,7 @@ EASTNESS = ZoneLayer(
     nodata=ASPECT_COMPONENT_NODATA,
     band_descriptions=('eastness_mean_sin_aspect',),
     key='eastness',
-    # Banded mean sin(aspect): +100 pct due east, -100 pct due west.
+    # Bucketed mean sin(aspect): +1 due east, -1 due west.
     zoning=_component_zoning(),
 )
 ASPECT_ENTROPY = ZoneLayer(

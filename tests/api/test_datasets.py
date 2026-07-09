@@ -105,9 +105,15 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
     )
     assert elevation['classes'] is None
 
-    # Aspect-orientation components: banded, overridable by band_step_pct.
-    assert zones['terrain.northness']['param'] == 'band_step_pct'
-    assert zones['terrain.eastness']['param'] == 'band_step_pct'
+    # Aspect-orientation components: bucketed (dimensionless [-1, 1]), overridable by
+    # an integer bucket count, default 4, no unit.
+    for key in ('terrain.northness', 'terrain.eastness'):
+        assert (
+            zones[key]['kind'],
+            zones[key]['param'],
+            zones[key]['default'],
+            zones[key]['unit'],
+        ) == ('bucketed', 'buckets', 4, None)
 
     # Threshold layers: forest cover + aspect entropy carry their own params.
     assert zones['landcover.forest_cover']['kind'] == 'threshold'
