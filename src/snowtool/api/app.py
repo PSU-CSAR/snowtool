@@ -29,7 +29,7 @@ from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.reader import SnowDbReader
 
 from .exceptions import install_exception_handlers
-from .routers.datasets import build_datasets_router
+from .routers.datasets import router as datasets_router
 from .routers.pourpoints import router as pourpoints_router
 from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
@@ -90,7 +90,7 @@ def get_app(
     install_exception_handlers(app)
 
     app.include_router(root_router)
-    app.include_router(build_datasets_router(catalog))
+    app.include_router(datasets_router)
     app.include_router(pourpoints_router)
     for name in catalog.datasets:
         app.include_router(build_stats_router(catalog[name]))
