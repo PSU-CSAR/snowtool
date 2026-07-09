@@ -43,6 +43,15 @@ INVALID_QUERY_PARAMETER = _define(
     title='Invalid query parameter',
     status=422,
 )
+MALFORMED_QUERY_PARAMETER = _define(
+    'malformed-query-parameter',
+    # gazebo's own validation/param handlers render a malformed query parameter as
+    # this 400 (wired via GazeboApp's ``query_problem=``); it is the schema-layer
+    # counterpart of the handler-raised INVALID_QUERY_PARAMETER (422). Without it the
+    # framework's 400s would default to ``about:blank``.
+    title='Malformed query parameter',
+    status=400,
+)
 DATASET_NOT_FOUND = _define(
     'dataset-not-found',
     title='Dataset not found',
