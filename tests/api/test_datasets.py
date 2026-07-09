@@ -119,16 +119,21 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
             zones[key]['max'],
         ) == ('bucketed', 'buckets', 4, None, -1, 1)
 
-    # Threshold layers: forest cover + aspect entropy carry their own params and, being
-    # a split rather than a range, advertise no min/max.
+    # Threshold layers carry their own params and advertise the range their split sits
+    # within: forest cover 0..100 %, normalised aspect entropy 0..1.
     forest = zones['landcover.forest_cover']
-    assert (forest['kind'], forest['param'], forest['min'], forest['max']) == (
-        'threshold',
-        'threshold_pct',
-        None,
-        None,
+    assert (
+        forest['kind'],
+        forest['param'],
+        forest['min'],
+        forest['max'],
+    ) == ('threshold', 'threshold_pct', 0, 100)
+    entropy = zones['terrain.aspect_entropy']
+    assert (entropy['param'], entropy['min'], entropy['max']) == (
+        'entropy_threshold',
+        0,
+        1,
     )
-    assert zones['terrain.aspect_entropy']['param'] == 'entropy_threshold'
 
     # Categorical aspect: no override param, but advertises its class keys/labels.
     aspect = zones['terrain.aspect']

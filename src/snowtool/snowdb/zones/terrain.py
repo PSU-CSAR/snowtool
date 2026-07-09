@@ -218,6 +218,8 @@ ASPECT_ENTROPY = ZoneLayer(
     # direction -- the flat case is owned by the majority class, not the entropy.
     zoning=ThresholdZoning(
         default_threshold=DEFAULT_ASPECT_ENTROPY_THRESHOLD,
+        domain_min=0,
+        domain_max=1,
         # Normalised Shannon entropy H in [0, 1]; 'Hnorm' names the quantity (so the
         # 0.5 split reads as "half of maximum directional entropy") rather than the
         # vaguer 'frac'.
