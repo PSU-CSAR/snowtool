@@ -2886,11 +2886,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
@@ -3081,11 +3083,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
@@ -3302,11 +3306,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
@@ -3497,11 +3503,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
@@ -3718,11 +3726,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
@@ -3913,11 +3923,13 @@
             }
           },
           {
+            "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
             "in": "query",
             "name": "allow_partial",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid. By default a partially-covered basin is a 409 (guarding against stats silently computed over just the covered slice but reported as the whole basin); set true to accept a knowingly-clipped query over the covered portion. A wholly off-grid basin always 409s regardless.",
               "title": "Allow Partial",
               "type": "boolean"
             }
