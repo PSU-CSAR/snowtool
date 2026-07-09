@@ -104,20 +104,30 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
         'ft',
     )
     assert elevation['classes'] is None
+    # Its covered band range (the -100..4500 m bracket in feet, aligned to 1000 ft).
+    assert (elevation['min'], elevation['max']) == (-1000, 15000)
 
     # Aspect-orientation components: bucketed (dimensionless [-1, 1]), overridable by
-    # an integer bucket count, default 4, no unit.
+    # an integer bucket count, default 4, no unit, covering the [-1, 1] range.
     for key in ('terrain.northness', 'terrain.eastness'):
         assert (
             zones[key]['kind'],
             zones[key]['param'],
             zones[key]['default'],
             zones[key]['unit'],
-        ) == ('bucketed', 'buckets', 4, None)
+            zones[key]['min'],
+            zones[key]['max'],
+        ) == ('bucketed', 'buckets', 4, None, -1, 1)
 
-    # Threshold layers: forest cover + aspect entropy carry their own params.
-    assert zones['landcover.forest_cover']['kind'] == 'threshold'
-    assert zones['landcover.forest_cover']['param'] == 'threshold_pct'
+    # Threshold layers: forest cover + aspect entropy carry their own params and, being
+    # a split rather than a range, advertise no min/max.
+    forest = zones['landcover.forest_cover']
+    assert (forest['kind'], forest['param'], forest['min'], forest['max']) == (
+        'threshold',
+        'threshold_pct',
+        None,
+        None,
+    )
     assert zones['terrain.aspect_entropy']['param'] == 'entropy_threshold'
 
     # Categorical aspect: no override param, but advertises its class keys/labels.

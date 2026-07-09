@@ -119,6 +119,10 @@ def test_banded_describe_reports_param_default_and_unit():
         default=1000,
         unit='ft',
         classes=None,
+        # The covered band range: [0, 1000), [1000, 2000), [2000, 3000) (the last is
+        # the closed-top boundary band), so 0..3000.
+        min=0,
+        max=3000,
     )
 
 
