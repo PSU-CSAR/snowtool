@@ -79,3 +79,22 @@ class AOIPruneDestinationRequiredError(SNODASError):
             f'{len(self.triplets)} stored AOI(s) would be removed; pass '
             '--prune-to ARCHIVE to archive them first, or --dry-run to preview.',
         )
+
+
+class LedgerError(SNODASError):
+    """
+    Raised when accessing the ledger for tracking failed download attempts fails
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
+class DownloadError(SNODASError):
+    """
+    Raised when a Download request for a data file results
+    in an internal server error
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
