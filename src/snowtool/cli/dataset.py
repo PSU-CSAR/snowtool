@@ -2,7 +2,7 @@
 
 Thin wrappers over the ``Dataset`` API: each command resolves the dataset,
 calls a domain method, and renders. Write commands (create/ingest/generate/
-remove-date/prune) first require an initialized snowdb root.
+remove-date) first require an initialized snowdb root.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from snowtool.cli._confirm import confirm_destructive
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._progress import RichProgress
@@ -210,16 +211,16 @@ def dataset_values(
 @click.argument('name')
 @click.option(
     '--template',
-    default=None,
+    required=True,
     help='Stamp a built-in dataset template (e.g. snodas, swann-800m, instarr) as '
-    'the new dataset NAME, instead of staging an already-registered dataset.',
+    'the new dataset NAME.',
 )
 @config_option
 @pass_manager
 def create_dataset(
     manager: SnowDbManager,
     name: str,
-    template: str | None,
+    template: str,
 ) -> None:
     """Create dataset NAME: stage its artifacts and register it (inactive).
 
@@ -232,17 +233,30 @@ def create_dataset(
     zone layers together). The dataset is registered *inactive*: it exists
     (manageable by name -- ingest, generate-zones, diagnostics) but stays
     invisible to readers (query/API) until ``dataset activate NAME`` flips it
-    live. The dataset's definition comes from ``--template`` (a built-in) for a
-    brand-new dataset, or from an already-registered dataset of this NAME
-    otherwise. Converge-by-default, like ingest: a re-create leaves current
-    artifacts untouched (an AOI raster rebuilds only when its provenance tag
-    reads stale) and never touches an existing registration (its active state
-    and link are preserved). To force-rebuild AOI rasters regardless, use
+    live. The dataset's definition comes from ``--template`` (a built-in).
+    Converge-by-default, like ingest: a re-create leaves current artifacts
+    untouched (an AOI raster rebuilds only when its provenance tag reads
+    stale) and never touches an existing registration (its active state and
+    link are preserved). To force-rebuild AOI rasters regardless, use
     ``pourpoint rasterize --all --rebuild -d NAME``.
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
+    from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.datasets import DATASET_TEMPLATES
+    from snowtool.snowdb.spec import DatasetSpec
 
-    ds, config = _resolve_create_target(manager.db, name, template)
+    if template not in DATASET_TEMPLATES:
+        known = ', '.join(sorted(DATASET_TEMPLATES))
+        raise click.ClickException(
+            f'No such template: {template!r}. Known templates: {known}.',
+        )
+    config = DATASET_TEMPLATES[template]
+    spec = DatasetSpec.from_config(config, name)
+    ds = Dataset(
+        spec,
+        manager.db.dataset_dir(name, config),
+        manager.db.zone_layer_providers.values(),
+    )
 
     # Stage the dataset config beside its data so `stage_dataset` can build from
     # it and `register_dataset` can link it. Idempotent overwrite.
@@ -277,38 +291,6 @@ def create_dataset(
         )
 
 
-def _resolve_create_target(snowdb: SnowDb, name: str, template: str | None):
-    """The (Dataset, DatasetConfig) to stage for ``dataset create``.
-
-    With ``--template`` the dataset is brand-new: its config is the named built-in
-    template and a fresh :class:`Dataset` is bound at ``data/<name>/``. Otherwise
-    the dataset must already be registered under ``name`` (active or not) -- its
-    config is derived from the bound spec.
-    """
-    from snowtool.snowdb.config import DatasetConfig
-    from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
-    from snowtool.snowdb.spec import DatasetSpec
-
-    config: DatasetConfig
-    if template is not None:
-        if template not in DATASET_TEMPLATES:
-            known = ', '.join(sorted(DATASET_TEMPLATES))
-            raise click.ClickException(
-                f'No such template: {template!r}. Known templates: {known}.',
-            )
-        config = DATASET_TEMPLATES[template]
-        spec = DatasetSpec.from_config(config, name)
-        ds = Dataset(
-            spec,
-            snowdb.dataset_dir(name, config),
-            snowdb.zone_layer_providers.values(),
-        )
-        return ds, config
-    ds = get_dataset(snowdb, name, include_inactive=True)
-    return ds, config_from_spec(ds.spec)
-
-
 def _resolve_source_overrides(
     snowdb: SnowDb,
     sources: tuple[tuple[str, Path], ...],
@@ -322,7 +304,7 @@ def _resolve_source_overrides(
     return overrides
 
 
-@dataset.command('add')
+@dataset.command('register')
 @click.argument('name')
 @click.argument(
     'config_path',
@@ -338,14 +320,14 @@ def add_dataset(
     """Register dataset NAME from its config at CONFIG_PATH (writes the link).
 
     The escape hatch for a dataset built *out of tree* (or otherwise out of
-    band): ``dataset create`` already stages *and* registers, so ``add`` exists
-    only to link an externally built config into the root config. Registration
-    is inactive: the dataset becomes manageable by name (ingest, generate-zones,
-    diagnostics) but invisible to readers until ``dataset activate NAME``.
-    The config is validated (it must parse and its ingester must resolve) before
-    the link is written. Idempotent -- re-adding a name overwrites its link.
-    Since ``add`` skips staging, pourpoint coverage for the new dataset is
-    unknown until the next ``pourpoint reindex``.
+    band): ``dataset create`` already stages *and* registers, so ``register``
+    exists only to link an externally built config into the root config.
+    Registration is inactive: the dataset becomes manageable by name (ingest,
+    generate-zones, diagnostics) but invisible to readers until
+    ``dataset activate NAME``. The config is validated (it must parse and its
+    ingester must resolve) before the link is written. Idempotent -- re-registering
+    a name overwrites its link. Since ``register`` skips staging, pourpoint
+    coverage for the new dataset is unknown until the next ``pourpoint reindex``.
     """
     from pydantic import ValidationError
 
@@ -384,8 +366,8 @@ def activate_dataset(manager: SnowDbManager, name: str) -> None:
     except ValueError as e:
         raise click.ClickException(str(e)) from e
     # Activation never needs a reindex: `dataset create` folds coverage into the
-    # index at registration. The one exception (`dataset add`, which skips
-    # staging) prints its own reindex guidance at add time.
+    # index at registration. The one exception (`dataset register`, which skips
+    # staging) prints its own reindex guidance at registration time.
     click.echo(f'activated {name} (restart the API to pick it up)')
 
 
@@ -559,6 +541,7 @@ def generate_zones(
 @click.argument('name')
 @click.argument('removal_date', metavar='DATE', type=DATE)
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
+@click.option('--yes', is_flag=True, help='Skip the confirmation prompt.')
 @config_option
 @pass_manager
 def remove_date(
@@ -566,6 +549,7 @@ def remove_date(
     name: str,
     removal_date: date,
     dry_run: bool,
+    yes: bool,
 ) -> None:
     """Remove a single ingested DATE from dataset NAME.
 
@@ -579,39 +563,9 @@ def remove_date(
         click.echo(f'would remove {name} {iso}' if present else f'{name} {iso}: absent')
         return
 
+    confirm_destructive(f'Remove {name} {iso}? This deletes its COGs.', yes=yes)
+
     if ds.remove_date(removal_date):
         click.echo(f'removed {name} {iso}')
     else:
         click.echo(f'{name} {iso}: absent (nothing removed)')
-
-
-@dataset.command('prune')
-@click.argument('name')
-@click.option(
-    '--before',
-    required=True,
-    type=DATE,
-    help='Remove all ingested dates strictly before this date.',
-)
-@click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
-@config_option
-@pass_manager
-def prune_dates(manager: SnowDbManager, name: str, before: date, dry_run: bool) -> None:
-    """Remove every ingested date in dataset NAME older than --before.
-
-    NAME is a registered dataset name (active or not) or a dataset config path.
-    """
-    ds = _resolve_managed_dataset(manager, name)
-    targets = ds.dates_before(before)
-
-    if not targets:
-        click.echo(f'{name}: no dates before {before.isoformat()}')
-        return
-
-    for target in targets:
-        iso = target.isoformat()
-        if dry_run:
-            click.echo(f'would remove {name} {iso}')
-        else:
-            ds.remove_date(target)
-            click.echo(f'removed {name} {iso}')
