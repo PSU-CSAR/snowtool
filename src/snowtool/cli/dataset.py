@@ -114,9 +114,9 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 @click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
 @click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
 @click.option(
-    '--gaps',
+    '--missing',
     is_flag=True,
-    help='Summarize the span and interior gaps instead of listing every date.',
+    help='List missing dates in the range instead of ingested ones.',
 )
 @format_option
 @config_option
@@ -126,39 +126,33 @@ def dataset_dates(
     name: str,
     start: date | None,
     end: date | None,
-    gaps: bool,
+    missing: bool,
     fmt: str,
 ) -> None:
-    """Ingested dates for dataset NAME (or, with --gaps, its span and gaps).
+    """Ingested (or, with --missing, missing) dates for dataset NAME.
+
+    Without ``--missing``, lists every ingested date, optionally filtered by
+    ``--start``/``--end``. With ``--missing``, lists every date absent between
+    ``--start`` (default: the dataset's first ingested date) and ``--end``
+    (default: today), inclusive.
 
     Resolves any *registered* dataset -- active or not -- like ``dataset info``.
     """
     from snowtool.snowdb import diagnostics
 
     ds = get_dataset(snowdb, name, include_inactive=True)
-    if gaps:
-        result = diagnostics.coverage_report(ds)
-        _emit_record(
-            {
-                'dataset': result.name,
-                'dates': result.date_count,
-                'first': result.first_date.isoformat() if result.first_date else '',
-                'last': result.last_date.isoformat() if result.last_date else '',
-                'gaps': len(result.gaps),
-                'gap_ranges': '; '.join(
-                    f'{gap_start.isoformat()}..{gap_end.isoformat()}'
-                    for gap_start, gap_end in result.gaps
-                ),
-            },
-            fmt,
-        )
-        return
-    rows = [
-        {'date': d.isoformat()}
-        for d in ds.available_dates()
-        if (start is None or d >= start) and (end is None or d <= end)
-    ]
-    _emit(rows, fmt)
+    if missing:
+        try:
+            dates = diagnostics.missing_dates(ds, start=start, end=end)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
+    else:
+        dates = [
+            d
+            for d in ds.available_dates()
+            if (start is None or d >= start) and (end is None or d <= end)
+        ]
+    _emit([{'date': d.isoformat()} for d in dates], fmt)
 
 
 @dataset.command('values')
