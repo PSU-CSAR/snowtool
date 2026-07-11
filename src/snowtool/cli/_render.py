@@ -122,9 +122,9 @@ def _scalar(value: Any) -> str:
 def _emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
     """Render a single record (one entity, e.g. ``dataset info``) in ``fmt``.
 
-    ``json`` dumps the mapping as-is (lists preserved); ``table`` prints aligned
-    ``key  value`` lines; ``csv`` writes a header row + one value row. List
-    values are comma-joined for the table/csv (non-json) forms.
+    ``json`` dumps the mapping as-is (lists preserved); ``table`` prints a
+    borderless key/value table; ``csv`` writes a header row + one value row.
+    List values are comma-joined for the table/csv (non-json) forms.
     """
     record = dict(record)
 
