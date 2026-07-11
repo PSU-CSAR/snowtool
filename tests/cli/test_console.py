@@ -45,3 +45,20 @@ def test_root_options_are_accepted():
     runner = CliRunner()
     result = runner.invoke(cli, ['--color', 'never', '--quiet', '--version'])
     assert result.exit_code == 0
+
+
+def test_non_terminal_console_gets_fixed_wide_width():
+    # pytest capture is not a terminal, so both consoles built at import time
+    # (and any rebuilt by configure()) must be widened to avoid rich's 80-col
+    # non-TTY default folding wide table rows mid-word.
+    assert _console.out().is_terminal is False
+    assert _console.out().width == _console._NON_TERMINAL_WIDTH
+    assert _console.err().width == _console._NON_TERMINAL_WIDTH
+
+
+def test_configure_non_terminal_still_widens():
+    _console.configure(color='auto')
+    try:
+        assert _console.out().width == _console._NON_TERMINAL_WIDTH
+    finally:
+        _console.configure()
