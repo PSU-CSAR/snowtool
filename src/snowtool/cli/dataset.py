@@ -62,12 +62,13 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     (its ``active`` field says whether readers serve it).
     """
     from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
-    from snowtool.snowdb.diagnostics import dataset_status
+    from snowtool.snowdb.diagnostics import dataset_status, grid_report
 
     ds = get_dataset(snowdb, name, include_inactive=True)
     spec = ds.spec
     grid = spec.grid_params
     status = dataset_status(ds)
+    grid_details = grid_report(ds)
     artifacts = status.artifacts
 
     record = {
@@ -80,6 +81,9 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'cols': grid.cols,
         'tile_size': grid.tile_size,
         'cell_area_m2': 'varies (geographic)' if spec.is_geographic else spec.cell_area,
+        'px_size': grid_details.px_size,
+        'n_tiles': grid_details.n_tiles,
+        'extent': list(grid_details.extent),
         'zones': {
             provider: {layer: params.model_dump() for layer, params in layers.items()}
             for provider, layers in spec.zones.items()
@@ -102,6 +106,104 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'last_date': status.last_date.isoformat() if status.last_date else None,
     }
     _emit_record(record, fmt)
+
+
+@dataset.command('dates')
+@click.argument('name')
+@click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
+@click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
+@click.option(
+    '--gaps',
+    is_flag=True,
+    help='Summarize the span and interior gaps instead of listing every date.',
+)
+@format_option
+@config_option
+@pass_snowdb
+def dataset_dates(
+    snowdb: SnowDb,
+    name: str,
+    start: date | None,
+    end: date | None,
+    gaps: bool,
+    fmt: str,
+) -> None:
+    """Ingested dates for dataset NAME (or, with --gaps, its span and gaps).
+
+    Resolves any *registered* dataset -- active or not -- like ``dataset info``.
+    """
+    from snowtool.snowdb import diagnostics
+
+    ds = get_dataset(snowdb, name, include_inactive=True)
+    if gaps:
+        result = diagnostics.coverage_report(ds)
+        _emit_record(
+            {
+                'dataset': result.name,
+                'dates': result.date_count,
+                'first': result.first_date.isoformat() if result.first_date else '',
+                'last': result.last_date.isoformat() if result.last_date else '',
+                'gaps': len(result.gaps),
+                'gap_ranges': '; '.join(
+                    f'{gap_start.isoformat()}..{gap_end.isoformat()}'
+                    for gap_start, gap_end in result.gaps
+                ),
+            },
+            fmt,
+        )
+        return
+    rows = [
+        {'date': d.isoformat()}
+        for d in ds.available_dates()
+        if (start is None or d >= start) and (end is None or d <= end)
+    ]
+    _emit(rows, fmt)
+
+
+@dataset.command('values')
+@click.argument('name')
+@click.option(
+    '--date',
+    'on_date',
+    type=DATE,
+    default=None,
+    help='Date to report (default: latest ingested).',
+)
+@format_option
+@config_option
+@pass_snowdb
+def dataset_values(
+    snowdb: SnowDb,
+    name: str,
+    on_date: date | None,
+    fmt: str,
+) -> None:
+    """Per-variable min/max/mean (unit-scaled) and nodata % for one date."""
+    from snowtool.snowdb import diagnostics
+
+    ds = get_dataset(snowdb, name, include_inactive=True)
+    if on_date is None:
+        dates = ds.available_dates()
+        if not dates:
+            raise click.ClickException(f'{name} has no ingested dates')
+        on_date = dates[-1]
+
+    rows = [
+        {
+            'variable': result.variable,
+            'unit': result.unit,
+            'min': result.minimum,
+            'max': result.maximum,
+            'mean': result.mean,
+            'nodata_pct': round(result.nodata_pct, 3),
+        }
+        for result in diagnostics.value_ranges_report(ds, on_date)
+    ]
+    if not rows:
+        raise click.ClickException(
+            f'{name} has no variable files for {on_date.isoformat()}',
+        )
+    _emit(rows, fmt)
 
 
 @dataset.command('create')

@@ -4,6 +4,7 @@ import json
 
 from datetime import date
 
+import numpy
 import pytest
 
 from snowtool.cli import cli
@@ -14,8 +15,9 @@ from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import IngestResult
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.raster.cog import write_cog
 
-from ..conftest import register_dataset_config
+from ..conftest import SIZE, SWE_VALUE, TILE, register_dataset_config, snodas_swe_name
 
 
 def _json(result):
@@ -34,6 +36,18 @@ def _generate_zones(runner, cli_obj, source_dem):
         cli,
         ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
         obj=cli_obj,
+    )
+
+
+def _write_swe(root, grid, date_str='20180427'):
+    cogs = root / 'data' / 'test' / 'cogs' / date_str
+    cogs.mkdir(parents=True, exist_ok=True)
+    write_cog(
+        cogs / f'{snodas_swe_name(date_str)}.tif',
+        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
+        transform=grid.base_grid.transform,
+        tile_size=TILE,
+        predictor=2,
     )
 
 
@@ -73,6 +87,75 @@ def test_info_after_create(runner, cli_obj, source_dem):
     assert info['zone_layers']['landcover']['hash'] is not None
     assert info['is_geographic'] is True
     assert 'swe' in info['variables']
+    # Grid details (formerly `report grid`), now folded into `info`.
+    assert info['rows'] == 512
+    assert info['n_tiles'] == 4
+
+
+# --- dates / values ------------------------------------------------------------
+
+
+def test_dates_lists_ingested_dates(runner, cli_obj, initialized_root, grid):
+    _write_swe(initialized_root, grid)
+
+    result = runner.invoke(cli, ['dataset', 'dates', 'test'], obj=cli_obj)
+
+    assert result.exit_code == 0, result.output
+    assert '2018-04-27' in result.output
+
+
+def test_dates_filters_by_range(runner, cli_obj, initialized_root, grid):
+    _write_swe(initialized_root, grid)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'dates', 'test', '--start', '20190101'],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert '2018-04-27' not in result.output
+
+
+def test_dates_gaps_reports_gap(runner, cli_obj, initialized_root):
+    cogs = initialized_root / 'data' / 'test' / 'cogs'
+    for name in ('20180101', '20180103'):
+        (cogs / name).mkdir(parents=True)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'dates', 'test', '--gaps', '--format', 'json'],
+        obj=cli_obj,
+    )
+
+    row = json.loads(result.output)
+    assert row['dates'] == 2
+    assert row['gaps'] == 1
+    assert row['gap_ranges'] == '2018-01-02..2018-01-02'
+
+
+def test_values_without_dates_errors(runner, cli_obj):
+    result = runner.invoke(cli, ['dataset', 'values', 'test'], obj=cli_obj)
+
+    assert result.exit_code != 0
+    assert 'no ingested dates' in result.output
+
+
+def test_values_with_data(runner, cli_obj, source_dem, initialized_root, grid):
+    _create(runner, cli_obj)
+    _generate_zones(runner, cli_obj, source_dem)
+    _write_swe(initialized_root, grid)
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'values', 'test', '--format', 'json'],
+        obj=cli_obj,
+    )
+
+    rows = json.loads(result.output)
+    swe = next(r for r in rows if r['variable'] == 'swe')
+    assert swe['min'] == swe['max'] == 50
+    assert swe['nodata_pct'] == 0.0
 
 
 # --- create ------------------------------------------------------------------
@@ -454,7 +537,7 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
 ):
     # The register/activate contract end-to-end: a deactivated dataset stays fully
     # manageable by name (ingest), reports active=false, and the read surface
-    # (query) refuses it with a pointed "activate it" error.
+    # (stats) refuses it with a pointed "activate it" error.
     class _FakeIngester:
         def ingest(self, source, dataset, *, force=False, **_):
             return IngestResult(ingested=[date(2020, 1, 1)], skipped=[])
@@ -493,7 +576,7 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
     assert ingested.exit_code == 0, ingested.output
     assert 'ingested test 2020-01-01' in ingested.output
 
-    refused = runner.invoke(cli, ['query', 'dates', '-d', 'test'], obj=ctx())
+    refused = runner.invoke(cli, ['stats', 'test', '12345:MT:USGS'], obj=ctx())
     assert refused.exit_code != 0
     assert 'registered but inactive' in refused.output
     assert 'dataset activate test' in refused.output

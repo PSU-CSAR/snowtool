@@ -1,10 +1,11 @@
 """Shared dataset-selection helpers and common options for the CLI groups.
 
-The ``dataset`` and ``report`` groups both resolve datasets by name (or default
-to a whole-database sweep) and share the ``--format`` / ``--dataset`` options;
-those live here so a command body stays a thin wrapper over the domain API. The
-read surface (query) resolves *active* datasets only; the management/diagnostics
-surface resolves everything registered.
+The ``dataset``, ``doctor``, and ``pourpoint`` groups all resolve datasets by
+name (or default to a whole-database sweep) and share the ``--format`` /
+``--dataset`` options; those live here so a command body stays a thin wrapper
+over the domain API. The read surface (``dataset dates``/``values``/``info``)
+resolves everything registered (active or not); the API is what restricts
+readers to active datasets.
 """
 
 from __future__ import annotations
@@ -55,11 +56,11 @@ def get_dataset(
 ) -> Dataset:
     """Resolve a dataset by name, or raise a clean CLI error listing the options.
 
-    By default only *active* datasets resolve (the read surface: query/report
-    serve what readers serve); a registered-but-inactive name gets a pointed
-    "activate it" error instead of a generic miss. ``include_inactive`` widens
-    the lookup to everything registered -- the management/diagnostics surface,
-    where activation is irrelevant.
+    By default only *active* datasets resolve (matching what the API serves);
+    a registered-but-inactive name gets a pointed "activate it" error instead
+    of a generic miss. ``include_inactive`` widens the lookup to everything
+    registered -- the management/diagnostics surface, where activation is
+    irrelevant.
     """
     if include_inactive and name in snowdb.registered:
         return snowdb.registered[name]
