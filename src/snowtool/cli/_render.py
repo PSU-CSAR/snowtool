@@ -18,6 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from rich import box
+from rich.table import Table
+
+from snowtool.cli import _console
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -92,13 +97,12 @@ def _emit(rows: Iterable[Mapping[str, Any]], fmt: str = 'table') -> None:
         click.echo(buffer.getvalue(), nl=False)
         return
 
-    def cells(row: Mapping[str, Any]) -> list[str]:
-        return [_scalar(row.get(header, '')) for header in headers]
-
-    rendered = [headers, *(cells(row) for row in materialized)]
-    widths = [max(len(row[col]) for row in rendered) for col in range(len(headers))]
-    for row in rendered:
-        click.echo('  '.join(cell.ljust(widths[col]) for col, cell in enumerate(row)))
+    table = Table(box=box.SIMPLE_HEAD, header_style='bold', pad_edge=False)
+    for header in headers:
+        table.add_column(header, overflow='fold')
+    for row in materialized:
+        table.add_row(*(_scalar(row.get(header, '')) for header in headers))
+    _console.out().print(table)
 
 
 def _scalar(value: Any) -> str:
@@ -136,6 +140,9 @@ def _emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
         click.echo(buffer.getvalue(), nl=False)
         return
 
-    width = max((len(key) for key in record), default=0)
+    table = Table(box=None, show_header=False, pad_edge=False)
+    table.add_column(style='bold')
+    table.add_column(overflow='fold')
     for key, value in record.items():
-        click.echo(f'{key.ljust(width)}  {_scalar(value)}')
+        table.add_row(key, _scalar(value))
+    _console.out().print(table)
