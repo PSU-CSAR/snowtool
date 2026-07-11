@@ -40,14 +40,6 @@ def _write_aoi(directory, triplet, *, with_polygon=True):
     return path
 
 
-def _create_dataset(runner, cli_obj, source_dem):
-    return runner.invoke(
-        cli,
-        ['dataset', 'create', 'test', '--source', 'terrain', str(source_dem)],
-        obj=cli_obj,
-    )
-
-
 # --- import / sync -----------------------------------------------------------
 
 
@@ -237,8 +229,7 @@ def test_reindex(runner, cli_obj, pourpoint_geojson, initialized_root):
 # --- rasterize ---------------------------------------------------------------
 
 
-def test_rasterize_all_then_skip(runner, cli_obj, source_dem, pourpoint_geojson):
-    _create_dataset(runner, cli_obj, source_dem)
+def test_rasterize_all_then_skip(runner, cli_obj, pourpoint_geojson):
     runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 
     first = runner.invoke(
@@ -264,8 +255,7 @@ def test_rasterize_all_then_skip(runner, cli_obj, source_dem, pourpoint_geojson)
     assert 'built 0, skipped 1' in second.stderr
 
 
-def test_rasterize_requires_triplet_or_all(runner, cli_obj, source_dem):
-    _create_dataset(runner, cli_obj, source_dem)
+def test_rasterize_requires_triplet_or_all(runner, cli_obj):
     result = runner.invoke(cli, ['pourpoint', 'rasterize'], obj=cli_obj)
     assert result.exit_code != 0
     assert 'exactly one of' in result.output

@@ -44,7 +44,8 @@ dataset_option = click.option(
     'dataset_names',
     multiple=True,
     help='Dataset to act on, active or not (repeatable; default: every '
-    'registered dataset, except `doctor` which defaults to active).',
+    'registered dataset -- `doctor` narrows this to active unless '
+    '--include-inactive).',
 )
 
 

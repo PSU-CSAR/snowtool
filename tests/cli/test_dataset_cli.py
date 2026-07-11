@@ -10,7 +10,7 @@ import pytest
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
 from snowtool.snowdb import datasets as datasets_mod
-from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
+from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import IngestResult
@@ -22,18 +22,6 @@ from ..conftest import SIZE, SWE_VALUE, TILE, register_dataset_config, snodas_sw
 
 def _json(result):
     return json.loads(result.output)
-
-
-def _stage(cli_obj, initialized_root):
-    """Stage the already-registered 'test' dataset (skeleton + AOI rasters).
-
-    ``dataset create`` now only stamps a *new* dataset from ``--template``, so
-    staging the synthetic 'test' dataset (registered directly by
-    ``initialized_root``, not via a template) goes straight through the same
-    manager method the CLI command calls.
-    """
-    config_path = initialized_root / 'data' / 'test' / DATASET_CONFIG_FILENAME
-    return cli_obj.manager.stage_dataset('test', config_path)
 
 
 def _generate_zones(runner, cli_obj, source_dem):
@@ -75,8 +63,14 @@ def test_info_unknown_dataset_errors(runner, cli_obj):
     assert 'No such dataset' in result.output
 
 
-def test_info_after_create(runner, cli_obj, source_dem, initialized_root):
-    _stage(cli_obj, initialized_root)
+def test_info_after_create(
+    runner,
+    cli_obj,
+    source_dem,
+    initialized_root,
+    stage_test_dataset,
+):
+    stage_test_dataset(cli_obj, initialized_root)
     _generate_zones(runner, cli_obj, source_dem)
 
     result = runner.invoke(
@@ -148,8 +142,15 @@ def test_values_without_dates_errors(runner, cli_obj):
     assert 'no ingested dates' in result.output
 
 
-def test_values_with_data(runner, cli_obj, source_dem, initialized_root, grid):
-    _stage(cli_obj, initialized_root)
+def test_values_with_data(
+    runner,
+    cli_obj,
+    source_dem,
+    initialized_root,
+    grid,
+    stage_test_dataset,
+):
+    stage_test_dataset(cli_obj, initialized_root)
     _generate_zones(runner, cli_obj, source_dem)
     _write_swe(initialized_root, grid)
 
@@ -174,10 +175,11 @@ def test_staging_then_generate_zones_builds_them(
     initialized_root,
     source_dem,
     source_nlcd,
+    stage_test_dataset,
 ):
     # Staging (skeleton + AOI rasters) never builds zone layers -- those come
     # only from the explicit generate-zones pass.
-    _stage(cli_obj, initialized_root)
+    stage_test_dataset(cli_obj, initialized_root)
 
     data = initialized_root / 'data' / 'test'
     assert not (data / 'terrain' / 'elevation.tif').exists()
