@@ -10,13 +10,13 @@ per-dataset rasters.
 
 from __future__ import annotations
 
-import sys
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
 
+from snowtool.cli import _console
+from snowtool.cli._confirm import confirm_destructive
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
@@ -231,14 +231,26 @@ def reindex_pourpoints(manager: SnowDbManager) -> None:
 @pourpoint.command('remove')
 @click.argument('triplet')
 @click.option('--dry-run', is_flag=True, help='Show what would be removed only.')
+@click.option('--yes', is_flag=True, help='Skip the confirmation prompt.')
 @config_option
 @pass_manager
-def remove_pourpoint(manager: SnowDbManager, triplet: str, dry_run: bool) -> None:
+def remove_pourpoint(
+    manager: SnowDbManager,
+    triplet: str,
+    dry_run: bool,
+    yes: bool,
+) -> None:
     """Remove a stored pourpoint and its per-dataset rasters (cascade)."""
     if dry_run:
         present = manager.db.pourpoint_record_path(triplet).is_file()
         click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
         return
+
+    confirm_destructive(
+        f'Remove {triplet} and its per-dataset rasters?',
+        yes=yes,
+    )
+
     if manager.remove_pourpoint(triplet, progress=RichProgress()):
         click.echo(f'removed {triplet}')
     else:
@@ -254,12 +266,7 @@ def remove_pourpoint(manager: SnowDbManager, triplet: str, dry_run: bool) -> Non
     help='Rasterize every stored pourpoint.',
 )
 @click.option('--rebuild', is_flag=True, help='Rebuild even rasters that are current.')
-@click.option(
-    '-v',
-    '--verbose',
-    is_flag=True,
-    help='List each built raster, not just the totals.',
-)
+@format_option
 @dataset_option
 @config_option
 @pass_manager
@@ -268,15 +275,15 @@ def rasterize_aois(
     triplet: str | None,
     all_pourpoints: bool,
     rebuild: bool,
-    verbose: bool,
     dataset_names: tuple[str, ...],
+    fmt: str,
 ) -> None:
     """Burn pourpoint basin(s) onto each dataset grid, building missing/stale rasters.
 
     Provide a single TRIPLET or ``--all``. By default only missing/stale rasters
-    are (re)built; ``--rebuild`` forces all selected. A live bar shows progress on a
-    TTY; ``--verbose`` (or a non-TTY, where the bar is hidden) lists each built
-    raster.
+    are (re)built; ``--rebuild`` forces all selected. Emits one row per
+    (pourpoint, dataset) built or skipped; a built/skipped summary goes to
+    stderr.
     """
     if bool(triplet) == bool(all_pourpoints):
         raise click.ClickException('Provide exactly one of TRIPLET or --all.')
@@ -302,12 +309,14 @@ def rasterize_aois(
     except (FileNotFoundError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
-    # The bar (stderr) only renders on a TTY; when asked (--verbose) or when it was
-    # hidden (piped/non-TTY), list what built so the detail isn't lost. Printed after
-    # the bar closes, so the two never interleave.
-    if verbose or not sys.stderr.isatty():
-        for triplet_, dataset_name in result.built:
-            click.echo(f'built {triplet_} [{dataset_name}]')
-    click.echo(
+    rows = [
+        {'triplet': t, 'dataset': ds_name, 'action': 'built'}
+        for t, ds_name in result.built
+    ] + [
+        {'triplet': t, 'dataset': ds_name, 'action': 'skipped'}
+        for t, ds_name in result.skipped
+    ]
+    _emit(rows, fmt)
+    _console.err().print(
         f'built {len(result.built)}, skipped {len(result.skipped)} (already current)',
     )

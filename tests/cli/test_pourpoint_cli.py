@@ -197,9 +197,31 @@ def test_remove_dry_run_then_real(runner, cli_obj, pourpoint_geojson, initialize
     assert 'would remove' in dry.output
     assert record.is_file()
 
-    real = runner.invoke(cli, ['pourpoint', 'remove', '12345:MT:USGS'], obj=cli_obj)
+    real = runner.invoke(
+        cli,
+        ['pourpoint', 'remove', '12345:MT:USGS', '--yes'],
+        obj=cli_obj,
+    )
     assert real.exit_code == 0
     assert not record.exists()
+
+
+def test_remove_without_yes_refuses(
+    runner,
+    cli_obj,
+    pourpoint_geojson,
+    initialized_root,
+):
+    # CliRunner's stdin is not a TTY, so this must fail loudly rather than hang
+    # or silently proceed -- the same non-interactive case as CI.
+    runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
+    record = initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson'
+
+    result = runner.invoke(cli, ['pourpoint', 'remove', '12345:MT:USGS'], obj=cli_obj)
+
+    assert result.exit_code != 0
+    assert '--yes' in result.output
+    assert record.is_file()
 
 
 def test_reindex(runner, cli_obj, pourpoint_geojson, initialized_root):
@@ -219,16 +241,27 @@ def test_rasterize_all_then_skip(runner, cli_obj, source_dem, pourpoint_geojson)
     _create_dataset(runner, cli_obj, source_dem)
     runner.invoke(cli, ['pourpoint', 'import', str(pourpoint_geojson)], obj=cli_obj)
 
-    first = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
+    first = runner.invoke(
+        cli,
+        ['pourpoint', 'rasterize', '--all', '--format', 'json'],
+        obj=cli_obj,
+    )
     assert first.exit_code == 0
-    assert 'built 1' in first.output
-    # Non-TTY (the test runner) lists each built raster, not just the totals.
-    assert '[test]' in first.output
+    rows = json.loads(first.stdout)
+    assert rows == [{'triplet': '12345:MT:USGS', 'dataset': 'test', 'action': 'built'}]
+    assert 'built 1, skipped 0' in first.stderr
 
-    second = runner.invoke(cli, ['pourpoint', 'rasterize', '--all'], obj=cli_obj)
-    assert 'built 0, skipped 1' in second.output
-    # Nothing built the second time -> no per-pair lines, only the summary.
-    assert '[test]' not in second.output
+    second = runner.invoke(
+        cli,
+        ['pourpoint', 'rasterize', '--all', '--format', 'json'],
+        obj=cli_obj,
+    )
+    assert second.exit_code == 0
+    rows = json.loads(second.stdout)
+    assert rows == [
+        {'triplet': '12345:MT:USGS', 'dataset': 'test', 'action': 'skipped'},
+    ]
+    assert 'built 0, skipped 1' in second.stderr
 
 
 def test_rasterize_requires_triplet_or_all(runner, cli_obj, source_dem):
