@@ -238,9 +238,7 @@ def test_aoi_health_all_healthy(dataset, pourpoint_geojson):
 
     health = diagnostics.aoi_health_report(dataset)
 
-    assert len(health) == 1
-    assert health[0].ok is True
-    assert health[0].issue is None
+    assert health == []
 
 
 def test_aoi_health_flags_empty_aoi(dataset, grid):
@@ -256,7 +254,7 @@ def test_aoi_health_flags_empty_aoi(dataset, grid):
         compute_stats=False,
     )
 
-    bad = [h for h in diagnostics.aoi_health_report(dataset) if not h.ok]
+    bad = diagnostics.aoi_health_report(dataset)
     assert len(bad) == 1
     assert 'empty AOI' in bad[0].issue
 
@@ -272,7 +270,7 @@ def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
         compute_stats=False,
     )
 
-    bad = [h for h in diagnostics.aoi_health_report(dataset) if not h.ok]
+    bad = diagnostics.aoi_health_report(dataset)
     assert any('TILE_BBOX' in h.issue for h in bad)
 
 
