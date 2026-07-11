@@ -589,10 +589,6 @@ class Dataset:
             cogs=self._cogs.is_dir(),
         )
 
-    def dates_before(self: Self, before: date) -> list[date]:
-        """Ingested dates strictly older than ``before`` (the prune selection)."""
-        return [d for d in self.available_dates() if d < before]
-
     def remove_date(self: Self, d: date) -> bool:
         """Delete a date's ``cogs/<YYYYMMDD>/`` directory; True if it existed."""
         date_dir = self.date_dir(d)
