@@ -230,7 +230,7 @@ class SnowDbManager:
         crash window is safe: a crash after the index write leaves only a harmless
         extra coverage key (readers still see the old dataset set from the config),
         and a crash before the config write leaves readers seeing exactly the old
-        database. Without ``coverage`` (an out-of-band ``dataset add`` that skipped
+        database. Without ``coverage`` (an out-of-band ``dataset register`` that skipped
         staging) only the config is written; the missing coverage key reads as
         ``Coverage.NONE`` until the next ``pourpoint reindex``. Going live still
         needs a service restart -- the ``SnowDb`` is built once at startup.
