@@ -1,3 +1,5 @@
+"""Root-level snow-database commands: ``init`` and ``status``."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,28 +8,18 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._context import CliContext, config_option, pass_snowdb
-from snowtool.cli._render import FORMATS, _emit
+from snowtool.cli._datasets import format_option
+from snowtool.cli._render import _emit
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
 
 
-@click.group()
-def snowdb() -> None:
-    """Snow-database management commands."""
-
-
-@snowdb.command('status')
-@click.option(
-    '--format',
-    'fmt',
-    type=click.Choice(FORMATS),
-    default='table',
-    help='Output format.',
-)
+@click.command('status')
+@format_option
 @config_option
 @pass_snowdb
-def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
+def status(snowdb: SnowDb, fmt: str) -> None:
     """Overview of every registered dataset: active flag, artifacts, date span."""
     from snowtool.snowdb.diagnostics import dataset_status
 
@@ -56,7 +48,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
     _emit(rows, fmt)
 
 
-@snowdb.command('init')
+@click.command('init')
 @click.argument(
     'path',
     required=False,
@@ -64,7 +56,7 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
 )
 @config_option
 @click.pass_obj
-def snowdb_init(cli_ctx: CliContext, path: Path | None) -> None:
+def init_snowdb(cli_ctx: CliContext, path: Path | None) -> None:
     """Create an empty snowdb at PATH (or the ``--config`` / env-var root).
 
     Lays out the root config (``snowdb_conf.json``), ``pourpoints/``, and

@@ -51,7 +51,7 @@ def date_gaps(dates: Iterable[date]) -> list[tuple[date, date]]:
 
 @dataclass(frozen=True)
 class DatasetStatus:
-    """A one-line overview of a dataset's on-disk state (for ``snowdb status``)."""
+    """A one-line overview of a dataset's on-disk state (for ``snowtool status``)."""
 
     name: str
     present: bool  # the data/<name>/ directory exists
@@ -137,7 +137,7 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
     """The dataset's expected on-disk artifacts that are absent.
 
     Every configured zone layer (terrain, land cover, ...) is expected --
-    ``snowdb init`` builds each from its default source -- so a missing one is a
+    ``snowtool init`` builds each from its default source -- so a missing one is a
     finding. An incomplete zone-layer set names the specific layer files that are
     absent (``terrain (elevation.tif, aspect_majority.tif)``) so the finding is
     actionable, not just the provider name.

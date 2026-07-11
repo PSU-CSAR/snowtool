@@ -145,7 +145,7 @@ class Dataset:
 
         try:
             # The dataset dir itself may already exist as an empty skeleton from
-            # `snowdb init`, so tolerate it; whether the dataset is already
+            # `snowtool init`, so tolerate it; whether the dataset is already
             # *populated* is enforced by the artifact guards below (the
             # aoi-rasters/cogs dirs), which still refuse to clobber existing data
             # without force.

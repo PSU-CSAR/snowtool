@@ -27,7 +27,7 @@ if (-not (Get-WebGlobalModule -Name httpPlatformHandler -ErrorAction SilentlyCon
 }
 
 if (-not (Test-Path $SnowdbPath)) {
-    throw "Snowdb path '$SnowdbPath' does not exist. Create it first (e.g. with 'snowtool snowdb init')."
+    throw "Snowdb path '$SnowdbPath' does not exist. Create it first (e.g. with 'snowtool init')."
 }
 
 New-IISAppPool -Name $SiteName -Force | Out-Null

@@ -39,7 +39,7 @@ def list_datasets(snowdb: SnowDb, fmt: str) -> None:
     """List every registered dataset and whether readers serve it (``active``).
 
     One row per dataset the root config registers, active or not -- for
-    presence, date spans, and artifact counts, see ``snowtool snowdb status``.
+    presence, date spans, and artifact counts, see ``snowtool status``.
     """
     _emit(
         [
