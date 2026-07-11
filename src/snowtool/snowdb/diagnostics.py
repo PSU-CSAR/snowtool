@@ -74,29 +74,43 @@ def dataset_status(dataset: Dataset) -> DatasetStatus:
     )
 
 
+def missing_dates(
+    dataset: Dataset,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[date]:
+    """Every date absent from ``dataset`` within ``[start, end]`` (inclusive).
+
+    ``start`` defaults to the dataset's first ingested date; ``end`` defaults to
+    today. Raises :class:`ValueError` if ``start`` is omitted and the dataset has
+    no ingested dates (there is no range start to infer). A ``start`` after
+    ``end`` yields an empty list rather than erroring.
+    """
+    from datetime import date as date_cls
+    from datetime import timedelta
+
+    ingested = set(dataset.available_dates())
+    if start is None:
+        if not ingested:
+            raise ValueError(
+                f'{dataset.spec.name} has no ingested dates; pass start explicitly',
+            )
+        start = min(ingested)
+    if end is None:
+        end = date_cls.today()  # noqa: DTZ011 - a calendar date, not a timestamp
+
+    one_day = timedelta(days=1)
+    missing: list[date] = []
+    current = start
+    while current <= end:
+        if current not in ingested:
+            missing.append(current)
+        current += one_day
+    return missing
+
+
 # --- report builders (read-only; the `dataset`/`doctor` commands render these) --
-
-
-@dataclass(frozen=True)
-class CoverageReport:
-    """A dataset's date span and the interior gaps in it."""
-
-    name: str
-    date_count: int
-    first_date: date | None
-    last_date: date | None
-    gaps: tuple[tuple[date, date], ...]
-
-
-def coverage_report(dataset: Dataset) -> CoverageReport:
-    dates = dataset.available_dates()
-    return CoverageReport(
-        name=dataset.spec.name,
-        date_count=len(dates),
-        first_date=dates[0] if dates else None,
-        last_date=dates[-1] if dates else None,
-        gaps=tuple(date_gaps(dates)),
-    )
 
 
 @dataclass(frozen=True)

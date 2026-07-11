@@ -46,16 +46,32 @@ def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
 # --- coverage / completeness -------------------------------------------------
 
 
-def test_coverage_report_reports_gaps(dataset):
+def test_missing_dates_defaults_to_first_ingested_through_today(dataset):
     for name in ('20180101', '20180103'):
         (dataset._cogs / name).mkdir()
 
-    result = diagnostics.coverage_report(dataset)
+    result = diagnostics.missing_dates(dataset, end=date(2018, 1, 4))
 
-    assert result.date_count == 2
-    assert result.first_date == date(2018, 1, 1)
-    assert result.last_date == date(2018, 1, 3)
-    assert result.gaps == ((date(2018, 1, 2), date(2018, 1, 2)),)
+    assert result == [date(2018, 1, 2), date(2018, 1, 4)]
+
+
+def test_missing_dates_requires_start_when_no_ingested_dates(dataset):
+    with pytest.raises(ValueError, match='no ingested dates'):
+        diagnostics.missing_dates(dataset, end=date(2018, 1, 1))
+
+
+def test_missing_dates_start_after_end_is_empty(dataset):
+    for name in ('20180101',):
+        (dataset._cogs / name).mkdir()
+
+    assert (
+        diagnostics.missing_dates(
+            dataset,
+            start=date(2018, 1, 5),
+            end=date(2018, 1, 1),
+        )
+        == []
+    )
 
 
 def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
