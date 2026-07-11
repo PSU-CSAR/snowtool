@@ -431,18 +431,14 @@ def ingest_dataset(
         {
             'dataset': name,
             'date': d.isoformat(),
-            'action': 'ingested',
+            'action': action,
             'source': str(source),
         }
-        for d in result.ingested
-    ] + [
-        {
-            'dataset': name,
-            'date': d.isoformat(),
-            'action': 'up-to-date',
-            'source': str(source),
-        }
-        for d in result.skipped
+        for action, dates in (
+            ('ingested', result.ingested),
+            ('up-to-date', result.skipped),
+        )
+        for d in dates
     ]
     _emit(rows, fmt)
 

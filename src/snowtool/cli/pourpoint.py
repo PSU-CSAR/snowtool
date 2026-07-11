@@ -310,11 +310,9 @@ def rasterize_aois(
         raise click.ClickException(str(e)) from e
 
     rows = [
-        {'triplet': t, 'dataset': ds_name, 'action': 'built'}
-        for t, ds_name in result.built
-    ] + [
-        {'triplet': t, 'dataset': ds_name, 'action': 'skipped'}
-        for t, ds_name in result.skipped
+        {'triplet': t, 'dataset': ds_name, 'action': action}
+        for action, pairs in (('built', result.built), ('skipped', result.skipped))
+        for t, ds_name in pairs
     ]
     _emit(rows, fmt)
     _console.err().print(
