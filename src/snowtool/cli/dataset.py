@@ -14,7 +14,7 @@ import click
 
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
-from snowtool.cli._progress import ClickProgress
+from snowtool.cli._progress import RichProgress
 from snowtool.cli._render import DATE, _emit, _emit_record
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
@@ -149,7 +149,7 @@ def create_dataset(
     config.save(config_path)
 
     try:
-        staged = manager.stage_dataset(name, config_path, progress=ClickProgress())
+        staged = manager.stage_dataset(name, config_path, progress=RichProgress())
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
@@ -363,7 +363,7 @@ def ingest_dataset(
         result = ds.ingest(
             source,
             force=force,
-            progress=ClickProgress(prefix=f'{name} ingest: '),
+            progress=RichProgress(prefix=f'{name} ingest: '),
         )
     except (FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
@@ -442,7 +442,7 @@ def generate_zones(
             source_overrides=overrides,
             force=True,
             options=GenerationOptions(workers=workers, block_size=block_size),
-            progress_factory=lambda provider_name: ClickProgress(
+            progress_factory=lambda provider_name: RichProgress(
                 prefix=f'{provider_name}: ',
             ),
         )
