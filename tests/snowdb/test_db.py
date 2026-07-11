@@ -144,7 +144,7 @@ def test_initialize_preserves_an_existing_config(tmp_path):
 
 def test_open_requires_a_root_config(tmp_path):
     # A bare directory (no snowdb_conf.json) is not a snowdb open will serve.
-    with pytest.raises(SnowDbConfigError, match='snowdb init'):
+    with pytest.raises(SnowDbConfigError, match='snowtool init'):
         SnowDb.open(tmp_path)
 
 

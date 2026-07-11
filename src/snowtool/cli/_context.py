@@ -143,7 +143,7 @@ def _apply_config(
     """Stash a command's ``--config`` on the :class:`CliContext`.
 
     The callback behind :data:`config_option`: it runs during arg parsing (before
-    the command body), so ``pass_snowdb``/``pass_manager`` and ``snowdb init`` read
+    the command body), so ``pass_snowdb``/``pass_manager`` and ``init`` read
     the resolved config off ``ctx.obj``. ``value`` is the flag or its
     ``SNOWTOOL_SNOWDB_CONFIG`` env var (click resolves the envvar).
 
