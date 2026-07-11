@@ -4,7 +4,7 @@ import json
 
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
-from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
+from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.db import SnowDb
 
 
@@ -20,10 +20,13 @@ def test_status_json_for_uncreated_dataset(runner, cli_obj):
     assert row['dates'] == 0
 
 
-def test_status_reflects_created_dataset(runner, cli_obj, source_dem):
-    # Create is stage-only; the zone layers status reports come from the
-    # explicit generate-zones pass.
-    runner.invoke(cli, ['dataset', 'create', 'test'], obj=cli_obj)
+def test_status_reflects_created_dataset(runner, cli_obj, source_dem, initialized_root):
+    # 'test' is registered directly (not via a template), so staging goes
+    # straight through the manager method 'dataset create' calls -- that
+    # command itself now only stamps a brand-new dataset from --template.
+    # Zone layers still come only from the explicit generate-zones pass.
+    config_path = initialized_root / 'data' / 'test' / DATASET_CONFIG_FILENAME
+    cli_obj.manager.stage_dataset('test', config_path)
     runner.invoke(
         cli,
         ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
