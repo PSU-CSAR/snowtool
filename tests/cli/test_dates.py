@@ -47,6 +47,7 @@ def test_doy_forms(years, expected_years):
         ('2024-06-30/2024-01-01', None),  # reversed interval
         ('04-01', '2024..2018'),  # reversed years (DOYQuery validates)
         ('02-30', '2020'),  # invalid day-of-month
+        ('04-01', 'not-years'),  # malformed --years
     ],
 )
 def test_bad_inputs_raise_value_error(dates, years):

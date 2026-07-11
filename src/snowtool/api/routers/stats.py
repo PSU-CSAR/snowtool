@@ -131,7 +131,7 @@ def build_stats_router(dataset: Dataset) -> GazeboRouter:
             )
         except ValidationError as e:
             # An impossible month/day (Feb 30) or inverted year span is a client
-            # error, not a 500 -- mirrors the CLI's _build_query handling.
+            # error, not a 500 -- mirrors the CLI's parse_dates_query handling.
             raise QueryParameterError(f'Invalid day of year: {e}') from e
         return await run(reader, triplet, query, params, rep)
 

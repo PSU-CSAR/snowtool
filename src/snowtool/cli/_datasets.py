@@ -27,7 +27,7 @@ format_option = click.option(
     help='Output format.',
 )
 
-# The same --format flag for commands whose output is nested (e.g. `query stats`):
+# The same --format flag for commands whose output is nested (e.g. `stats`):
 # there is no table form, so the choice is restricted to the two flat serializations.
 nested_format_option = click.option(
     '--format',

@@ -20,6 +20,7 @@ from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.query import query
 from snowtool.cli.report import report
 from snowtool.cli.snowdb import snowdb
+from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
 
 
@@ -56,5 +57,6 @@ cli.add_command(dataset)
 cli.add_command(pourpoint)
 cli.add_command(report)
 cli.add_command(query)
+cli.add_command(stats)
 cli.add_command(api)
 cli.add_command(windows)

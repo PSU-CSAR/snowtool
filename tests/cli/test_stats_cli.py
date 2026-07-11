@@ -1,6 +1,6 @@
-"""CLI tests for the ``query`` group (stats + dates) over the synthetic pipeline.
+"""CLI tests for the top-level ``stats`` command and the ``query dates`` command.
 
-``query stats`` needs the full set of prerequisites -- a stored AOI, generated
+``stats`` needs the full set of prerequisites -- a stored AOI, generated
 terrain + land cover, a burned AOI raster, and an ingested COG -- so a fixture
 lays all of them down on the synthetic ``test`` dataset, then the commands run
 against the same root via the injected ``cli_obj`` context.
@@ -60,19 +60,15 @@ def populated_root(initialized_root, pourpoint_geojson):
     return initialized_root
 
 
-def test_query_stats_whole_basin_json(runner, cli_obj, populated_root):
+def test_stats_whole_basin_json(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
             '--format',
@@ -91,19 +87,15 @@ def test_query_stats_whole_basin_json(runner, cli_obj, populated_root):
     assert cell['area_m2'] > 0
 
 
-def test_query_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
+def test_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
             '--zone',
@@ -127,21 +119,17 @@ def test_query_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     assert float(mean) == pytest.approx(SWE_VALUE)
 
 
-def test_query_stats_csv_include_empty_zones(runner, cli_obj, populated_root):
+def test_stats_csv_include_empty_zones(runner, cli_obj, populated_root):
     # --include-empty-zones restores the full crossed product: all 16 elevation bands,
     # 15 of them empty (0-area, blank mean), regardless of AOI occupancy.
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
             '--zone',
@@ -157,21 +145,17 @@ def test_query_stats_csv_include_empty_zones(runner, cli_obj, populated_root):
     assert len(rows) == 16
 
 
-def test_query_stats_threshold_zone_override(runner, cli_obj, populated_root):
+def test_stats_threshold_zone_override(runner, cli_obj, populated_root):
     # The synthetic forest layer is 100%; a threshold above 100 flips the basin to
     # "unforested", proving the --zone LAYER:override syntax reaches the scheme.
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
             '--zone',
@@ -192,25 +176,20 @@ def test_query_stats_threshold_zone_override(runner, cli_obj, populated_root):
     assert ref['threshold'] == 100.5
 
 
-def test_query_stats_day_of_year_mode(runner, cli_obj, populated_root):
+def test_stats_day_of_year_mode(runner, cli_obj, populated_root):
     # The ingested COG is 2018-04-27; a single-year DOY query selects exactly it.
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
+            TRIPLET,
             '--variable',
             'swe',
-            '--doy',
-            '4',
-            '27',
-            '--start-year',
-            '2018',
-            '--end-year',
-            '2018',
+            '--dates',
+            '04-27',
+            '--years',
+            '2018..2018',
             '--format',
             'json',
         ],
@@ -222,32 +201,25 @@ def test_query_stats_day_of_year_mode(runner, cli_obj, populated_root):
     assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
 
 
-def test_query_stats_rejects_mixing_date_modes(runner, cli_obj, populated_root):
+def test_stats_rejects_bad_dates(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
+            TRIPLET,
             '--variable',
             'swe',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
-            '--doy',
-            '4',
-            '27',
+            '--dates',
+            'not-a-date',
         ],
         obj=cli_obj,
     )
     assert result.exit_code != 0
-    assert 'not both' in result.output
+    assert '--dates' in result.output
 
 
-def test_query_stats_missing_aoi_raster_is_clean_error(
+def test_stats_missing_aoi_raster_is_clean_error(
     runner,
     cli_obj,
     initialized_root,
@@ -258,15 +230,11 @@ def test_query_stats_missing_aoi_raster_is_clean_error(
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
         ],
@@ -276,19 +244,15 @@ def test_query_stats_missing_aoi_raster_is_clean_error(
     assert 'pourpoint rasterize' in result.output
 
 
-def test_query_stats_unknown_zone_is_clean_error(runner, cli_obj, populated_root):
+def test_stats_unknown_zone_is_clean_error(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'test',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
             '--zone',
@@ -300,29 +264,15 @@ def test_query_stats_unknown_zone_is_clean_error(runner, cli_obj, populated_root
     assert 'Unknown zone layer' in result.output
 
 
-def test_query_stats_requires_a_date_selection(runner, cli_obj, populated_root):
-    result = runner.invoke(
-        cli,
-        ['query', 'stats', TRIPLET, '-d', 'test', '--variable', 'swe'],
-        obj=cli_obj,
-    )
-    assert result.exit_code != 0
-    assert 'date range' in result.output
-
-
-def test_query_stats_unknown_dataset_is_clean_error(runner, cli_obj, populated_root):
+def test_stats_unknown_dataset_is_clean_error(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
-            'query',
             'stats',
-            TRIPLET,
-            '-d',
             'nope',
-            '--start',
-            DATE,
-            '--end',
-            DATE,
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
             '--variable',
             'swe',
         ],
