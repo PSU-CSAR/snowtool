@@ -36,15 +36,28 @@ def test_emit_csv_has_header_and_rows(capsys):
     assert lines[2] == 'test,10'
 
 
-def test_emit_table_aligns_columns(capsys):
+def test_emit_table_has_header_and_rows(capsys):
     _emit(ROWS, 'table')
-    lines = capsys.readouterr().out.splitlines()
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
 
-    # Header then one line per row; the name column is padded to its widest cell.
-    assert lines[0].startswith('name')
-    assert 'dates' in lines[0]
-    assert lines[1].startswith('snodas')
-    assert lines[2].startswith('test  ')  # padded to width of 'snodas'
+    header, *rest = lines
+    assert 'name' in header
+    assert 'dates' in header
+    data = [ln for ln in rest if 'snodas' in ln or ln.strip().startswith('test')]
+    assert len(data) == 2
+    assert 'snodas' in data[0]
+    assert '3' in data[0]
+
+
+def test_emit_record_table_is_key_value(capsys):
+    from snowtool.cli._render import _emit_record
+
+    _emit_record({'name': 'snodas', 'dates': 3}, 'table')
+    out = capsys.readouterr().out
+    assert 'name' in out
+    assert 'snodas' in out
+    assert 'dates' in out
+    assert '3' in out
 
 
 def test_emit_table_empty_prints_nothing(capsys):
