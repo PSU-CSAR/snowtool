@@ -2,9 +2,9 @@
 
 Every command resolves datasets, calls a builder in
 :mod:`snowtool.snowdb.diagnostics` (where the scan logic lives and is unit
-tested), and renders. Findings-style reports (completeness, missing-files,
-pourpoint-coverage, aoi-health) print only problems -- empty output means clean,
-which is what :command:`snowdb validate` rolls up.
+tested), and renders. The findings-style reports (completeness, missing-files,
+pourpoint-coverage, aoi-health) have moved to :command:`doctor`, which rolls
+them up into uniform finding rows with an exit-1-on-findings contract.
 """
 
 from __future__ import annotations
@@ -57,103 +57,6 @@ def coverage(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
                 ),
             },
         )
-    _emit(rows, fmt)
-
-
-@report.command('completeness')
-@dataset_option
-@click.option('--start', type=DATE, default=None, help='Only dates on/after this.')
-@click.option('--end', type=DATE, default=None, help='Only dates on/before this.')
-@format_option
-@config_option
-@pass_snowdb
-def completeness(
-    snowdb: SnowDb,
-    dataset_names: tuple[str, ...],
-    start: date | None,
-    end: date | None,
-    fmt: str,
-) -> None:
-    """Ingested dates that are missing one or more of a dataset's variables."""
-    rows = []
-    for ds in resolve_datasets(snowdb, dataset_names):
-        for finding in diagnostics.completeness_report(ds, start=start, end=end):
-            rows.append(
-                {
-                    'dataset': finding.name,
-                    'date': finding.date.isoformat(),
-                    'missing': ', '.join(finding.missing),
-                },
-            )
-    _emit(rows, fmt)
-
-
-@report.command('missing-files')
-@dataset_option
-@format_option
-@config_option
-@pass_snowdb
-def missing_files(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
-    """Datasets missing an expected artifact (dem/area/cogs/aoi-rasters)."""
-    rows = []
-    for ds in resolve_datasets(snowdb, dataset_names):
-        missing = diagnostics.missing_artifacts(ds)
-        if missing:
-            rows.append({'dataset': ds.spec.name, 'missing': ', '.join(missing)})
-    _emit(rows, fmt)
-
-
-@report.command('pourpoint-coverage')
-@dataset_option
-@format_option
-@config_option
-@pass_snowdb
-def pourpoint_coverage(
-    snowdb: SnowDb,
-    dataset_names: tuple[str, ...],
-    fmt: str,
-) -> None:
-    """Raster mismatches and pourpoints a dataset's grid only partially covers."""
-    rows: list[dict[str, str]] = []
-    for ds in resolve_datasets(snowdb, dataset_names):
-        result = diagnostics.pourpoint_coverage_report(snowdb, ds)
-        rows.extend(
-            {'dataset': result.name, 'triplet': triplet, 'issue': 'no raster'}
-            for triplet in result.unrasterized
-        )
-        rows.extend(
-            {'dataset': result.name, 'triplet': triplet, 'issue': 'orphan raster'}
-            for triplet in result.orphan_rasters
-        )
-        rows.extend(
-            {'dataset': result.name, 'triplet': triplet, 'issue': 'partial coverage'}
-            for triplet in result.partial
-        )
-        rows.extend(
-            {'dataset': result.name, 'triplet': triplet, 'issue': 'no coverage'}
-            for triplet in result.uncovered
-        )
-    _emit(rows, fmt)
-
-
-@report.command('aoi-health')
-@dataset_option
-@format_option
-@config_option
-@pass_snowdb
-def aoi_health(snowdb: SnowDb, dataset_names: tuple[str, ...], fmt: str) -> None:
-    """AOI rasters that won't read cleanly (missing tile-bbox tag / unreadable)."""
-    rows = []
-    for ds in resolve_datasets(snowdb, dataset_names):
-        for finding in diagnostics.aoi_health_report(ds):
-            if not finding.ok:
-                rows.append(
-                    {
-                        'dataset': finding.name,
-                        'triplet': finding.triplet,
-                        'issue': finding.issue,
-                    },
-                )
     _emit(rows, fmt)
 
 
