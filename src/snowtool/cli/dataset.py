@@ -240,50 +240,29 @@ def create_dataset(
     link are preserved). To force-rebuild AOI rasters regardless, use
     ``pourpoint rasterize --all --rebuild -d NAME``.
     """
-    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
-    from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.datasets import DATASET_TEMPLATES
-    from snowtool.snowdb.spec import DatasetSpec
 
     if template not in DATASET_TEMPLATES:
         known = ', '.join(sorted(DATASET_TEMPLATES))
         raise click.ClickException(
             f'No such template: {template!r}. Known templates: {known}.',
         )
-    config = DATASET_TEMPLATES[template]
-    spec = DatasetSpec.from_config(config, name)
-    ds = Dataset(
-        spec,
-        manager.db.dataset_dir(name, config),
-        manager.db.zone_layer_providers.values(),
-    )
-
-    # Stage the dataset config beside its data so `stage_dataset` can build from
-    # it and `register_dataset` can link it. Idempotent overwrite.
-    ds.path.mkdir(parents=True, exist_ok=True)
-    config_path = ds.path / DATASET_CONFIG_FILENAME
-    config.save(config_path)
 
     try:
-        staged = manager.stage_dataset(name, config_path, progress=RichProgress())
+        created = manager.create_dataset(
+            name,
+            DATASET_TEMPLATES[template],
+            progress=RichProgress(),
+        )
     except (ValueError, FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
 
-    if staged.created:
-        click.echo(f'created dataset {name} at {staged.dataset.path}')
+    if created.staged.created:
+        click.echo(f'created dataset {name} at {created.staged.dataset.path}')
     else:
         click.echo(f'dataset {name} already created')
 
-    # Ensure the staged dataset is registered (inactive). An existing
-    # registration -- whatever its link or active state -- is left untouched so
-    # an idempotent re-create never deactivates or relinks a live dataset.
-    if name not in manager.db.registered:
-        manager.register_dataset(
-            name,
-            config_path,
-            coverage=staged.coverage,
-            active=False,
-        )
+    if created.registered:
         click.echo(
             f'registered {name} (inactive; generate zones with '
             f"'dataset generate-zones {name}', activate with "

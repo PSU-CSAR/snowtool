@@ -27,6 +27,7 @@ from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
+    DATASET_CONFIG_FILENAME,
     DatasetConfig,
     PathDatasetLink,
     RootConfig,
@@ -116,6 +117,24 @@ class StagedDataset:
     created: bool
     rasterized: AOIRasterizeResult
     coverage: dict[types.StationTriplet, Coverage]
+
+
+@dataclass(frozen=True)
+class CreatedDataset:
+    """The product of :meth:`SnowDbManager.create_dataset`: the full stamp-a-new-
+    dataset lifecycle in one result.
+
+    ``staged`` is the :class:`StagedDataset` from the staging pass (its
+    ``dataset.path`` is the on-disk directory, ``created`` whether staging built
+    the skeleton). ``registered`` is whether *this* call added the root-config
+    registration -- ``False`` when the name was already registered and its link
+    was deliberately left untouched (see :meth:`create_dataset`), so a caller can
+    render the "registered ... (inactive)" follow-up guidance only when it
+    actually happened.
+    """
+
+    staged: StagedDataset
+    registered: bool
 
 
 class SnowDbManager:
@@ -458,6 +477,54 @@ class SnowDbManager:
             rasterized=rasterized,
             coverage=coverage,
         )
+
+    def create_dataset(
+        self: Self,
+        name: str,
+        config: DatasetConfig,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> CreatedDataset:
+        """Stamp a brand-new dataset ``name`` from ``config``: stage it, then
+        register it inactive -- the whole lifecycle the ``dataset create`` command
+        used to orchestrate step-by-step in the CLI.
+
+        Resolves the dataset's data directory the way a later ``SnowDb.open`` will
+        (:meth:`~snowtool.snowdb.db.SnowDb.dataset_dir`), writes ``config`` beside
+        its data as ``data/<name>/dataset.json`` so :meth:`stage_dataset` can build
+        from it and :meth:`register_dataset` can link it, stages every artifact
+        (skeleton, AOI rasters, coverage -- but never zone layers; those are the
+        separate :meth:`generate_zone_layers_for` pass), and registers the staged
+        dataset. Converge-by-default like ingest and staging: the directory mkdir
+        and the config write are idempotent overwrites, and staging rebuilds an AOI
+        raster only when its provenance tag reads stale.
+
+        The one real invariant it enforces: an existing registration is *never*
+        clobbered. Registration happens only when ``name`` is not already in the
+        root config -- so a re-create of a live dataset never deactivates it or
+        relinks its config out from under readers (its ``active`` state and link
+        survive verbatim). A fresh registration is committed *inactive*
+        (``active=False``) with the staged coverage folded into the index, so the
+        dataset exists (manageable by name) but stays invisible to readers until an
+        explicit :meth:`set_dataset_active`. Returns a :class:`CreatedDataset`
+        carrying the staging result and whether this call registered the dataset.
+        """
+        directory = self.db.dataset_dir(name, config)
+        directory.mkdir(parents=True, exist_ok=True)
+        config_path = directory / DATASET_CONFIG_FILENAME
+        config.save(config_path)
+
+        staged = self.stage_dataset(name, config_path, progress=progress)
+
+        registered = name not in self.db.registered
+        if registered:
+            self.register_dataset(
+                name,
+                config_path,
+                coverage=staged.coverage,
+                active=False,
+            )
+        return CreatedDataset(staged=staged, registered=registered)
 
     def rasterize_aoi(
         self: Self,
