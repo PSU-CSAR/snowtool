@@ -19,6 +19,7 @@ import rasterio
 
 from click.testing import CliRunner
 
+from snowtool.cli import _console
 from snowtool.cli._context import CliContext
 from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
@@ -31,6 +32,13 @@ from ..conftest import (
     write_uniform_landcover,
     write_uniform_terrain,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_console():
+    """Root-option invocations (e.g. --quiet) mutate the module-global console pair."""
+    yield
+    _console.configure()
 
 
 @pytest.fixture
