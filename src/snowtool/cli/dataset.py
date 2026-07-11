@@ -413,6 +413,7 @@ def _resolve_managed_dataset(manager: SnowDbManager, token: str):
     is_flag=True,
     help='Rebuild dates even when the stored source hash already matches.',
 )
+@format_option
 @config_option
 @pass_manager
 def ingest_dataset(
@@ -420,6 +421,7 @@ def ingest_dataset(
     name: str,
     source: Path,
     force: bool,
+    fmt: str,
 ) -> None:
     """Ingest a single SOURCE into dataset NAME.
 
@@ -438,7 +440,7 @@ def ingest_dataset(
     -- ingest is a management op, so reader visibility is irrelevant (the point
     of the register/activate split is populating a dataset *before* serving
     it). Converge-by-default: a date whose COGs already carry the same source
-    hash is left untouched (reported ``up to date``); a re-release under the
+    hash is left untouched (reported ``up-to-date``); a re-release under the
     same filename with different bytes rebuilds. ``--force`` rebuilds every
     date regardless.
     """
@@ -451,10 +453,25 @@ def ingest_dataset(
         )
     except (FileExistsError, SnowtoolError) as e:
         raise click.ClickException(str(e)) from e
-    for ingested in result.ingested:
-        click.echo(f'ingested {name} {ingested.isoformat()} from {source}')
-    for skipped in result.skipped:
-        click.echo(f'up to date {name} {skipped.isoformat()} from {source}')
+
+    rows = [
+        {
+            'dataset': name,
+            'date': d.isoformat(),
+            'action': 'ingested',
+            'source': str(source),
+        }
+        for d in result.ingested
+    ] + [
+        {
+            'dataset': name,
+            'date': d.isoformat(),
+            'action': 'up-to-date',
+            'source': str(source),
+        }
+        for d in result.skipped
+    ]
+    _emit(rows, fmt)
 
 
 @dataset.command('generate-zones')
