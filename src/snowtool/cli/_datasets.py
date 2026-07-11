@@ -43,7 +43,7 @@ dataset_option = click.option(
     'dataset_names',
     multiple=True,
     help='Dataset to act on, active or not (repeatable; default: every '
-    'registered dataset, except `snowdb validate` which defaults to active).',
+    'registered dataset, except `doctor` which defaults to active).',
 )
 
 
@@ -90,7 +90,7 @@ def resolve_datasets(
     default pool is every *registered* dataset -- the diagnostics/management
     surface (reports, AOI rasterization) treats active and inactive datasets
     identically -- unless ``include_inactive=False`` narrows it to the active
-    set (``snowdb validate``'s default, so a half-built staged dataset does not
+    set (``doctor``'s default, so a half-built staged dataset does not
     fail the CI gate).
     """
     if not names:

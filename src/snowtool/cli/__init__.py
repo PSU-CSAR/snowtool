@@ -16,6 +16,7 @@ from snowtool import __version__
 from snowtool.cli._context import CliContext
 from snowtool.cli.api import api
 from snowtool.cli.dataset import dataset
+from snowtool.cli.doctor import doctor
 from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.query import query
 from snowtool.cli.report import report
@@ -54,6 +55,7 @@ def cli(ctx: click.Context, color: str, quiet: bool) -> None:
 
 cli.add_command(snowdb)
 cli.add_command(dataset)
+cli.add_command(doctor)
 cli.add_command(pourpoint)
 cli.add_command(report)
 cli.add_command(query)
