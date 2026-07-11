@@ -36,7 +36,7 @@ from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.variables import DatasetVariable
 
-# The conventional filename ``snowdb init`` writes the root config to, and the
+# The conventional filename ``snowtool init`` writes the root config to, and the
 # name :meth:`SnowDb.open` looks for when handed a root *directory*. This is the
 # one "magic path" the system has; everything else is reached from it.
 CONFIG_FILENAME = 'snowdb_conf.json'

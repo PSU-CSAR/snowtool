@@ -254,7 +254,7 @@ class SnowDb:
         config file itself. The config is *required*: a root without one is not a
         snowdb this version understands, so this raises
         :class:`~snowtool.exceptions.SnowDbConfigError` pointing at ``snowtool
-        snowdb init`` (the deliberate no-backwards-compat call -- there is no
+        init`` (the deliberate no-backwards-compat call -- there is no
         lenient un-initialized read path). The I/O half of construction: it reads +
         parses the root config, then hands it to the constructor.
         """

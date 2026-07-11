@@ -8,7 +8,7 @@ database*, not any one dataset: one source bins into every grid in a single pass
 
 * :class:`AnnualNLCD` -- the default. Downloads the MRLC Annual NLCD land-cover
   bundle once (a single national GeoTIFF), caches the extracted raster, and reads it
-  locally, so ``snowdb init`` and the ``dataset`` commands build land cover out of
+  locally, so ``snowtool init`` and the ``dataset`` commands build land cover out of
   the box.
 * :class:`LocalFile` -- an NLCD raster the operator already has on disk.
 
