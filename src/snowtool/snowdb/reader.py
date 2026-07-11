@@ -102,7 +102,7 @@ class SnowDbReader:
     ) -> ZonalStats:
         """Compute zonal statistics for one AOI over one dataset.
 
-        The shared read seam behind the ``query stats`` CLI command and the HTTP
+        The shared read seam behind the ``stats`` CLI command and the HTTP
         stats routes: it guards coverage, loads the burned AOI raster, resolves the
         requested variables, builds the raster collection for ``query``, and runs
         the crossed-zone reduction over the reader's cache. ``variable_keys``
