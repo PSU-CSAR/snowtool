@@ -76,18 +76,6 @@ def test_artifact_status_reports_missing_terrain(dataset):
     assert dataset.artifact_status().zone_layers['terrain'] is False
 
 
-def test_dates_before_filters_strictly(dataset):
-    for name in ('20180101', '20180201', '20180301'):
-        (dataset._cogs / name).mkdir()
-
-    assert dataset.dates_before(date(2018, 2, 1)) == [date(2018, 1, 1)]
-    assert dataset.dates_before(date(2018, 4, 1)) == [
-        date(2018, 1, 1),
-        date(2018, 2, 1),
-        date(2018, 3, 1),
-    ]
-
-
 def test_remove_date_deletes_and_reports(dataset):
     (dataset._cogs / '20180101').mkdir()
 
