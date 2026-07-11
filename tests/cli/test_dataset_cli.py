@@ -422,13 +422,26 @@ def test_ingest_delegates_to_spec_ingester(
 
     result = runner.invoke(
         cli,
-        ['dataset', 'ingest', 'test', str(source_dem)],
+        ['dataset', 'ingest', 'test', str(source_dem), '--format', 'json'],
         obj=CliContext(config=tmp_path),
     )
 
     assert result.exit_code == 0, result.output
-    assert 'ingested test 2020-01-01' in result.output
-    assert 'ingested test 2020-01-02' in result.output
+    rows = json.loads(result.stdout)
+    assert rows == [
+        {
+            'dataset': 'test',
+            'date': '2020-01-01',
+            'action': 'ingested',
+            'source': str(source_dem),
+        },
+        {
+            'dataset': 'test',
+            'date': '2020-01-02',
+            'action': 'ingested',
+            'source': str(source_dem),
+        },
+    ]
     assert len(fake.calls) == 1
 
 
@@ -461,21 +474,33 @@ def test_ingest_converges_and_force_reingests(
     register_dataset_config(manager, 'test', config)
     converge = runner.invoke(
         cli,
-        ['dataset', 'ingest', 'test', str(source_dem)],
+        ['dataset', 'ingest', 'test', str(source_dem), '--format', 'json'],
         obj=CliContext(config=tmp_path),
     )
     assert converge.exit_code == 0, converge.output
-    assert 'up to date test 2020-01-01' in converge.output
-    assert 'ingested test' not in converge.output
+    assert json.loads(converge.stdout) == [
+        {
+            'dataset': 'test',
+            'date': '2020-01-01',
+            'action': 'up-to-date',
+            'source': str(source_dem),
+        },
+    ]
 
     forced = runner.invoke(
         cli,
-        ['dataset', 'ingest', 'test', '--force', str(source_dem)],
+        ['dataset', 'ingest', 'test', '--force', str(source_dem), '--format', 'json'],
         obj=CliContext(config=tmp_path),
     )
     assert forced.exit_code == 0, forced.output
-    assert 'ingested test 2020-01-01' in forced.output
-    assert 'up to date' not in forced.output
+    assert json.loads(forced.stdout) == [
+        {
+            'dataset': 'test',
+            'date': '2020-01-01',
+            'action': 'ingested',
+            'source': str(source_dem),
+        },
+    ]
     assert fake.forces == [False, True]
 
 
@@ -502,12 +527,19 @@ def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
 
     result = runner.invoke(
         cli,
-        ['dataset', 'ingest', 'test', str(src_dir)],
+        ['dataset', 'ingest', 'test', str(src_dir), '--format', 'json'],
         obj=CliContext(config=tmp_path),
     )
 
     assert result.exit_code == 0, result.output
-    assert 'ingested test 2020-01-01' in result.output
+    assert json.loads(result.stdout) == [
+        {
+            'dataset': 'test',
+            'date': '2020-01-01',
+            'action': 'ingested',
+            'source': str(src_dir),
+        },
+    ]
     assert fake.sources == [src_dir]
 
 
@@ -565,11 +597,18 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
 
     ingested = runner.invoke(
         cli,
-        ['dataset', 'ingest', 'test', str(source_dem)],
+        ['dataset', 'ingest', 'test', str(source_dem), '--format', 'json'],
         obj=ctx(),
     )
     assert ingested.exit_code == 0, ingested.output
-    assert 'ingested test 2020-01-01' in ingested.output
+    assert json.loads(ingested.stdout) == [
+        {
+            'dataset': 'test',
+            'date': '2020-01-01',
+            'action': 'ingested',
+            'source': str(source_dem),
+        },
+    ]
 
     refused = runner.invoke(cli, ['stats', 'test', '12345:MT:USGS'], obj=ctx())
     assert refused.exit_code != 0
