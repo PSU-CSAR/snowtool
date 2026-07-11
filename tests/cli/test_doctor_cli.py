@@ -7,7 +7,6 @@ import numpy
 import rasterio
 
 from snowtool.cli import cli
-from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
@@ -20,15 +19,14 @@ def _doctor(runner, cli_obj, *args):
     return runner.invoke(cli, ['doctor', '--format', 'json', *args], obj=cli_obj)
 
 
-def _create(runner, cli_obj, source_dem, initialized_root):
+def _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset):
     """Stage the synthetic dataset, then generate its zone layers explicitly.
 
     'test' is registered directly (not via a template), so staging goes
     straight through the manager method the CLI's ``dataset create`` calls --
     ``create`` itself now only stamps a brand-new dataset from ``--template``.
     """
-    config_path = initialized_root / 'data' / 'test' / DATASET_CONFIG_FILENAME
-    cli_obj.manager.stage_dataset('test', config_path)
+    stage_test_dataset(cli_obj, initialized_root)
     generated = runner.invoke(
         cli,
         ['dataset', 'generate-zones', 'test', '--source', 'terrain', str(source_dem)],
@@ -55,8 +53,9 @@ def test_clean_db_exits_zero_with_empty_findings(
     cli_obj,
     source_dem,
     initialized_root,
+    stage_test_dataset,
 ):
-    _create(runner, cli_obj, source_dem, initialized_root)
+    _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
 
     result = _doctor(runner, cli_obj)
 
@@ -109,8 +108,9 @@ def test_pourpoints_check_flags_unrasterized(
     source_dem,
     initialized_root,
     pourpoint_geojson,
+    stage_test_dataset,
 ):
-    _create(runner, cli_obj, source_dem, initialized_root)
+    _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
     shutil.copy(
         pourpoint_geojson,
         initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
@@ -130,8 +130,9 @@ def test_pourpoints_check_clean_when_rasterized(
     source_dem,
     initialized_root,
     pourpoint_geojson,
+    stage_test_dataset,
 ):
-    _create(runner, cli_obj, source_dem, initialized_root)
+    _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
     # The pourpoint must be registered (not just rasterized), or the raster
     # counts as an orphan against the registry.
     shutil.copy(
@@ -185,8 +186,9 @@ def test_rolls_up_dates_and_pourpoint_findings(
     source_dem,
     initialized_root,
     pourpoint_geojson,
+    stage_test_dataset,
 ):
-    _create(runner, cli_obj, source_dem, initialized_root)
+    _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
     # A date dir with no variables (dates finding).
     (initialized_root / 'data' / 'test' / 'cogs' / '20180101').mkdir(parents=True)
     # A pourpoint with no AOI raster (pourpoints finding).
@@ -235,10 +237,11 @@ def test_files_check_flags_stale_zone_layer_format(
     cli_obj,
     source_dem,
     initialized_root,
+    stage_test_dataset,
 ):
     # Re-stamp the built terrain set with an old format version (what an artifact
     # from before a format bump would carry) -> doctor flags it for a rebuild.
-    _create(runner, cli_obj, source_dem, initialized_root)
+    _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
     elevation = initialized_root / 'data' / 'test' / 'terrain' / ELEVATION.filename
     with rasterio.open(
         elevation,

@@ -20,7 +20,7 @@ import rasterio
 from click.testing import CliRunner
 
 from snowtool.cli._context import CliContext
-from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
+from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.zones.landcover import LandCoverProvider
@@ -49,6 +49,23 @@ def initialized_root(tmp_path, spec):
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
     return tmp_path
+
+
+@pytest.fixture
+def stage_test_dataset():
+    """Stage the already-registered 'test' dataset (skeleton + AOI rasters).
+
+    ``dataset create`` now only stamps a *new* dataset from ``--template``, so
+    staging the synthetic 'test' dataset (registered directly by
+    ``initialized_root``, not via a template) goes straight through the same
+    manager method the CLI command calls.
+    """
+
+    def _stage(cli_obj, initialized_root):
+        config_path = initialized_root / 'data' / 'test' / DATASET_CONFIG_FILENAME
+        return cli_obj.manager.stage_dataset('test', config_path)
+
+    return _stage
 
 
 def _target_crs(target):
