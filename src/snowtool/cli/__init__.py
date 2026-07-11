@@ -23,10 +23,27 @@ from snowtool.cli.snowdb import snowdb
 from snowtool.cli.windows import windows
 
 
-@click.group()
+@click.group(context_settings={'auto_envvar_prefix': 'SNOWTOOL'})
 @click.version_option(__version__, '--version', prog_name='snowtool')
+@click.option(
+    '--color',
+    type=click.Choice(['auto', 'always', 'never']),
+    default='auto',
+    help='Colorize output (auto: only on a TTY; NO_COLOR is honored).',
+)
+@click.option(
+    '--quiet',
+    '-q',
+    is_flag=True,
+    default=False,
+    help='Suppress progress bars and status messages (stderr); data output '
+    'is unaffected.',
+)
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, color: str, quiet: bool) -> None:
+    from snowtool.cli import _console
+
+    _console.configure(color=color, quiet=quiet)
     # Seed the per-invocation CliContext (unless a test injected one carrying
     # synthetic specs). --config is a per-command option (see config_option), so a
     # command that opens a snowdb sets its config here via that option's callback.
