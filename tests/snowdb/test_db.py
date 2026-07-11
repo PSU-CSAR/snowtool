@@ -473,6 +473,45 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
 
 
+def test_create_dataset_stages_and_registers_inactive(tmp_path, spec):
+    # create_dataset owns the whole stamp-a-new-dataset lifecycle: resolve the
+    # directory, write the config, stage, register inactive.
+    SnowDbManager.initialize(tmp_path)
+    manager = SnowDbManager.open(tmp_path)
+
+    result = manager.create_dataset('test', config_from_spec(spec))
+
+    assert result.staged.created is True
+    assert result.registered is True
+    assert result.staged.dataset.path == tmp_path / 'data' / 'test'
+    # The config was written beside its data ...
+    assert (tmp_path / 'data' / 'test' / DATASET_CONFIG_FILENAME).is_file()
+    # ... and it was registered inactive: it exists but readers ignore it.
+    config = RootConfig.load(tmp_path / CONFIG_FILENAME)
+    assert config.datasets['test'].active is False
+    assert list(SnowDb.open(tmp_path)) == []
+
+
+def test_create_dataset_reregister_preserves_active_link(tmp_path, spec):
+    # The one real invariant: an existing registration is never clobbered. Once a
+    # dataset is active, a re-create leaves its link and active flag untouched and
+    # reports registered=False. A fresh manager per call mirrors the CLI (each
+    # process reopens the root config).
+    SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+
+    first = SnowDbManager.open(tmp_path).create_dataset('test', config)
+    assert first.registered is True
+
+    SnowDbManager.open(tmp_path).set_dataset_active('test', True)
+
+    second = SnowDbManager.open(tmp_path).create_dataset('test', config)
+    assert second.registered is False
+    assert second.staged.created is False
+    # The active flag survives the re-create verbatim.
+    assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets['test'].active is True
+
+
 def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):
     # The token partition is syntactic: a separator/.json token is a path (the
     # catalog is never consulted); a bare token is a NAME resolved only from the
