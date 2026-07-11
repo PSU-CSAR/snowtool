@@ -10,7 +10,11 @@ required-option validation, and the clean non-Windows guards (genuinely
 exercised here, since this suite runs on macOS/Linux).
 """
 
+import sys
+
 from pathlib import Path, PureWindowsPath
+
+import pytest
 
 from click.testing import CliRunner
 
@@ -207,6 +211,18 @@ def test_windows_help_lists_iis_and_add_to_path():
     assert result.exit_code == 0
     assert 'iis' in result.output
     assert 'add-to-path' in result.output
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='windows group is visible on win32')
+def test_windows_group_is_hidden_but_still_reachable_off_platform():
+    # Genuinely exercised: this suite runs on macOS/Linux, so the group is
+    # actually hidden here rather than being simulated.
+    root_help = CliRunner().invoke(cli, ['--help'])
+    assert root_help.exit_code == 0
+    assert 'windows' not in root_help.output
+
+    group_help = CliRunner().invoke(cli, ['windows', '--help'])
+    assert group_help.exit_code == 0
 
 
 def test_add_to_path_fails_cleanly_on_non_windows():

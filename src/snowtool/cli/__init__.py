@@ -1,13 +1,34 @@
 """The ``snowtool`` CLI: a thin shell over the snowdb Python API.
 
-The root ``cli`` group seeds a :class:`CliContext` on ``ctx.obj``; subcommand
-groups live in sibling modules and are registered here. Commands that open a
-snowdb take the shared ``config_option`` (``--config``) rather than a root flag,
-so a command that needs no database (``api serve``, ``--version``) carries none.
-Command bodies stay thin -- they resolve a SnowDb (via
-:func:`snowtool.cli._context.pass_snowdb`), call a domain method, and render with
-:func:`snowtool.cli._render._emit`. New logic belongs on ``SnowDb``/``Dataset``
-or in ``snowdb/diagnostics.py``, not in click callbacks.
+The root ``cli`` group seeds a :class:`CliContext` on ``ctx.obj`` and carries
+``--color``/``--quiet`` (each with an env-var fallback via
+``auto_envvar_prefix='SNOWTOOL'``); everything else is a command or group
+registered here:
+
+- ``init``, ``status``, ``doctor``, ``stats`` -- top-level, single-purpose
+  commands (``init``/``status`` manage the snowdb itself; ``doctor`` runs the
+  four health checks -- grid, dates, files, pourpoints -- and exits 1 on any
+  finding; ``stats DATASET TRIPLET`` is the analyst-facing crossed zonal-stats
+  query, taking an OGC ``--dates``/``--years`` interval).
+- ``dataset`` -- list/info/dates/values/create/register/activate/deactivate/
+  ingest/generate-zones/remove-date.
+- ``pourpoint`` -- import/sync/list/show/dump/reindex/remove/rasterize.
+- ``api`` -- ``serve``, the read-only HTTP API.
+- ``windows`` -- Windows-only admin commands; hidden (not disabled) unless
+  running on ``win32``.
+
+Commands that open a snowdb take the shared ``config_option`` (``--config``)
+rather than a root flag, so a command that needs no database (``api serve``,
+``--version``) carries none. Output goes through a pair of rich consoles in
+``_console.py`` -- stdout for data, stderr for progress/status -- so piping a
+command's stdout never mixes in status noise; write commands additionally
+accept ``--format json`` to emit machine-readable rows instead of prose, and
+destructive commands (``dataset remove-date``, ``pourpoint remove``) gate on
+``confirm_destructive`` (``_confirm.py``) unless ``--yes`` is passed. Command
+bodies stay thin -- they resolve a SnowDb (via
+:func:`snowtool.cli._context.pass_snowdb`), call a domain method, and render
+with :func:`snowtool.cli._render._emit`. New logic belongs on
+``SnowDb``/``Dataset`` or in ``snowdb/diagnostics.py``, not in click callbacks.
 """
 
 import click

@@ -36,10 +36,11 @@ export SNOWTOOL_SNOWDB_CONFIG=/path/to/snowdb/snowdb_conf.json
 
 ## Usage
 
-The CLI is organized into command groups (`snowdb`, `dataset`, `pourpoint`,
-`query`, `report`, `api`, `windows`); run `snowtool --help` or `snowtool
-<group> --help` for details. Serve the read-only HTTP API with
-`uvicorn snowtool.api.app:get_app --factory` (or `snowtool api serve`).
+The CLI has top-level commands (`init`, `status`, `doctor`, `stats`) and
+command groups (`dataset`, `pourpoint`, `api`, `windows`); run `snowtool
+--help` or `snowtool <command|group> --help` for details. Serve the read-only
+HTTP API with `uvicorn snowtool.api.app:get_app --factory` (or `snowtool api
+serve`).
 
 See the [documentation](https://psu-csar.github.io/snowtool/) for full
 usage, deployment (including Windows/IIS), and generated CLI, HTTP API, and

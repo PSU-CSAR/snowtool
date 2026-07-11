@@ -28,7 +28,7 @@ dataset is fully populated before anything serves it.
 ## 1. Initialize an empty snowdb
 
 ```console
-snowtool snowdb init /srv/snowdb
+snowtool init /srv/snowdb
 export SNOWTOOL_SNOWDB_CONFIG=/srv/snowdb
 ```
 
@@ -154,18 +154,18 @@ coverage when it staged the grid and folded it into the index at registration,
 so nothing needs reindexing here.
 
 For a dataset built *out of tree* (its config and data living outside this
-snowdb), `dataset add NAME CONFIG_PATH` is the escape hatch that registers an
-external config — also inactive, activated the same way. Because `add` skips
-staging, pourpoint coverage for that dataset reads as `none` until you run
-`snowtool pourpoint reindex`.
+snowdb), `dataset register NAME CONFIG_PATH` is the escape hatch that
+registers an external config — also inactive, activated the same way. Because
+`register` skips staging, pourpoint coverage for that dataset reads as `none`
+until you run `snowtool pourpoint reindex`.
 
 ## 7. Validate and start the API
 
 Check the database, then confirm the API app builds before serving:
 
 ```console
-snowtool snowdb status      # per-dataset artifacts, date span, health
-snowtool snowdb validate    # rolls up health checks; non-zero exit on failure
+snowtool status             # per-dataset artifacts, date span, health
+snowtool doctor             # rolls up health checks; non-zero exit on failure
 snowtool api serve --check  # validate settings + that the app imports, then exit
 ```
 

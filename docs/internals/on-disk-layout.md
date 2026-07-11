@@ -12,7 +12,7 @@ staleness are [provenance](provenance.md).
 
 ## The tree
 
-A snowdb laid out by `snowtool snowdb init` and populated with one
+A snowdb laid out by `snowtool init` and populated with one
 path-linked dataset looks like this:
 
 ```text
@@ -37,7 +37,7 @@ path-linked dataset looks like this:
 ```
 
 The only fixed name in the whole system is `snowdb_conf.json`
-(`CONFIG_FILENAME` in `snowdb/config.py`): it is what `snowdb init` writes
+(`CONFIG_FILENAME` in `snowdb/config.py`): it is what `snowtool init` writes
 and what `SnowDb.open` looks for when handed a directory. Everything else
 is reached by *following the config* rather than by assuming a path, so
 almost every location here is a default the root config could override.
