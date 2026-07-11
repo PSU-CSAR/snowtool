@@ -118,21 +118,120 @@ def test_dates_filters_by_range(runner, cli_obj, initialized_root, grid):
     assert '2018-04-27' not in result.output
 
 
-def test_dates_gaps_reports_gap(runner, cli_obj, initialized_root):
+def test_dates_missing_lists_gap_with_explicit_range(runner, cli_obj, initialized_root):
     cogs = initialized_root / 'data' / 'test' / 'cogs'
     for name in ('20180101', '20180103'):
         (cogs / name).mkdir(parents=True)
 
     result = runner.invoke(
         cli,
-        ['dataset', 'dates', 'test', '--gaps', '--format', 'json'],
+        [
+            'dataset',
+            'dates',
+            'test',
+            '--missing',
+            '--start',
+            '20180101',
+            '--end',
+            '20180104',
+            '--format',
+            'json',
+        ],
         obj=cli_obj,
     )
 
-    row = json.loads(result.output)
-    assert row['dates'] == 2
-    assert row['gaps'] == 1
-    assert row['gap_ranges'] == '2018-01-02..2018-01-02'
+    assert result.exit_code == 0, result.output
+    assert _json(result) == [{'date': '2018-01-02'}, {'date': '2018-01-04'}]
+
+
+def test_dates_missing_defaults_start_to_first_ingested(
+    runner,
+    cli_obj,
+    initialized_root,
+):
+    cogs = initialized_root / 'data' / 'test' / 'cogs'
+    for name in ('20180101', '20180103'):
+        (cogs / name).mkdir(parents=True)
+
+    result = runner.invoke(
+        cli,
+        [
+            'dataset',
+            'dates',
+            'test',
+            '--missing',
+            '--end',
+            '20180103',
+            '--format',
+            'json',
+        ],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _json(result) == [{'date': '2018-01-02'}]
+
+
+def test_dates_missing_empty_when_contiguous(runner, cli_obj, initialized_root):
+    cogs = initialized_root / 'data' / 'test' / 'cogs'
+    for name in ('20180101', '20180102', '20180103'):
+        (cogs / name).mkdir(parents=True)
+
+    result = runner.invoke(
+        cli,
+        [
+            'dataset',
+            'dates',
+            'test',
+            '--missing',
+            '--start',
+            '20180101',
+            '--end',
+            '20180103',
+            '--format',
+            'json',
+        ],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _json(result) == []
+
+
+def test_dates_missing_start_after_end_is_empty(runner, cli_obj, initialized_root):
+    cogs = initialized_root / 'data' / 'test' / 'cogs'
+    (cogs / '20180101').mkdir(parents=True)
+
+    result = runner.invoke(
+        cli,
+        [
+            'dataset',
+            'dates',
+            'test',
+            '--missing',
+            '--start',
+            '20180105',
+            '--end',
+            '20180101',
+            '--format',
+            'json',
+        ],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _json(result) == []
+
+
+def test_dates_missing_no_dates_no_start_errors(runner, cli_obj, initialized_root):
+    result = runner.invoke(
+        cli,
+        ['dataset', 'dates', 'test', '--missing', '--end', '20180101'],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code != 0
+    assert 'no ingested dates' in result.output
 
 
 def test_values_without_dates_errors(runner, cli_obj):
