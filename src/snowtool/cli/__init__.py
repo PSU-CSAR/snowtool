@@ -18,8 +18,6 @@ from snowtool.cli.api import api
 from snowtool.cli.dataset import dataset
 from snowtool.cli.doctor import doctor
 from snowtool.cli.pourpoint import pourpoint
-from snowtool.cli.query import query
-from snowtool.cli.report import report
 from snowtool.cli.snowdb import init_snowdb, status
 from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
@@ -58,8 +56,6 @@ cli.add_command(status)
 cli.add_command(dataset)
 cli.add_command(doctor)
 cli.add_command(pourpoint)
-cli.add_command(report)
-cli.add_command(query)
 cli.add_command(stats)
 cli.add_command(api)
 cli.add_command(windows)
