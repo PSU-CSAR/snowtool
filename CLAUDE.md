@@ -15,7 +15,7 @@ ruff check --fix && ruff format    # lint + format (also run by the commit hooks
 env MYPYPATH=src mypy --explicit-package-bases src   # type check
 prek run --all-files               # commit hooks (pre-commit-compatible runner): ruff + mypy + file hygiene
 uvicorn snowtool.api.app:get_app --factory --reload   # dev API server (no module-level app; CONTRIBUTING.md is stale)
-snowtool --root <db> ...           # the CLI (entrypoint: snowtool.__main__:cli)
+snowtool -C <config> ...           # the CLI (entrypoint: snowtool.__main__:cli)
 ```
 
 - Python **3.14+**. Single package: `src/snowtool`. Version is git-tag-derived (hatch-vcs) — don't hand-edit `__version__.py`.
@@ -24,7 +24,7 @@ snowtool --root <db> ...           # the CLI (entrypoint: snowtool.__main__:cli)
 
 ## Architecture
 
-A **snowdb** is an on-disk directory (`pourpoints/` + `data/<dataset>/` + a root `snowdb_conf.json`) holding multiple gridded snow datasets, queried per basin. A **pourpoint** is the catalog entity (`snowdb/pourpoint.py`): a station triplet + outflow point with an *optional* delineated upstream basin polygon. The basin polygon — not the pourpoint — is what gets burned into a per-dataset **AOI raster** for queries, so "AOI" survives only in that raster machinery (`AOIRaster`, `SNOWTOOL_AOI_HASH`, `rasterize_aoi`); everything record-side (storage, index, CLI `pourpoint` group, API `/pourpoints`) is "pourpoint." The code splits cleanly into a domain core (`snowdb/`), a thin CLI shell (`cli/`), and a FastAPI read API (`api/`). All three sit on the same `SnowDb`/`Dataset` objects.
+A **snowdb** is an on-disk directory (`pourpoints/` + `data/<dataset>/` + a root `snowdb_conf.json`) holding multiple gridded snow datasets, queried per basin. A **pourpoint** is the catalog entity (`snowdb/pourpoint.py`): a station triplet + outflow point with an *optional* delineated upstream basin polygon. The basin polygon — not the pourpoint — is what gets burned into a per-dataset **AOI raster** for queries, so "AOI" survives only in that raster machinery (`AOIRaster`, `SNOWTOOL_AOI_HASH`, `rasterize_aoi`); everything record-side (storage, index, CLI `pourpoint` group, API `/pourpoints`) is "pourpoint." The code splits cleanly into a domain core (`snowdb/`), a thin CLI shell (`cli/` — top-level `init`/`status`/`doctor`/`stats` commands beside the `dataset`/`pourpoint`/`api`/`windows` groups), and a FastAPI read API (`api/`). All three sit on the same `SnowDb`/`Dataset` objects.
 
 **Read vs. write split.** `SnowDb` (`snowdb/db.py`) is the read/query surface; `SnowDbManager` (`snowdb/manager.py`) is the admin/write surface that wraps it (`manager.db`). The CLI's `pass_snowdb`/`pass_manager` decorators pick the right one. Command bodies stay thin — new logic belongs on `SnowDb`/`Dataset` or in `snowdb/diagnostics.py`, never in click callbacks.
 

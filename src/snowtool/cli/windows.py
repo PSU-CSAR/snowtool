@@ -30,7 +30,7 @@ from snowtool.cli._windows_common import require_admin, require_windows
 from snowtool.cli.iis import iis
 
 
-@click.group()
+@click.group(hidden=sys.platform != 'win32')
 def windows() -> None:
     """Windows-only admin commands (IIS deployment, all-users PATH setup)."""
 

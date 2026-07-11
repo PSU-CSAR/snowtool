@@ -156,7 +156,7 @@ class PathDatasetLink(BaseModel):
     (query/API), not existence: an inactive dataset is still registered -- resolved
     by name for management (ingest, zone generation, health checks) -- but the
     read surface skips it. Defaults ``True`` so a bare hand-written link just
-    works; ``dataset create``/``add`` register inactive and ``dataset activate``
+    works; ``dataset create``/``register`` register inactive and ``dataset activate``
     flips the flag.
     """
 

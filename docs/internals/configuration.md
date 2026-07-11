@@ -23,11 +23,11 @@ with, are covered in [A snowdb on disk](on-disk-layout.md).
 `snowdb_conf.json` and is the source of truth for what datasets exist and
 where the pourpoint catalog lives.
 
-`created_at` is the UTC timestamp stamped when `snowdb init` created the
+`created_at` is the UTC timestamp stamped when `snowtool init` created the
 root; it is informational.
 
 `datasets` maps a dataset *name* to its **link** — the registration of one
-dataset. The map is empty on a fresh snowdb; `dataset create`/`add`
+dataset. The map is empty on a fresh snowdb; `dataset create`/`register`
 register into it and `dataset activate`/`deactivate` toggle entries. This
 map, plus each link's `active` flag, is the whole answer to "what datasets
 does this snowdb have, and which does it serve." Links are detailed below.
@@ -78,7 +78,7 @@ for inline for a small, self-contained, or programmatically built snowdb.
 The `active` flag gates **visibility to readers**, not existence. An
 inactive dataset is still registered — resolved by name for management
 (ingest, zone generation, health checks) — but the query CLI and the API
-skip it. `dataset create`/`add` register a dataset **inactive** so it can
+skip it. `dataset create`/`register` register a dataset **inactive** so it can
 be fully staged and populated before anything serves it, and `dataset
 activate` flips the flag. A bare hand-written link omits `active` and
 defaults to `True`, so a config authored by hand just works. The

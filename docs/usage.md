@@ -1,18 +1,20 @@
 # Usage
 
-The CLI is organized into command groups. Run `snowtool --help` or
-`snowtool <group> --help` for details, and see the
-[CLI reference](reference/cli.md) for the full, generated command listing.
+The CLI has a handful of top-level commands plus a few command groups. Run
+`snowtool --help` or `snowtool <command|group> --help` for details, and see
+the [CLI reference](reference/cli.md) for the full, generated command
+listing.
 
-| Group | Purpose |
+| Command / group | Purpose |
 | --- | --- |
-| `snowdb` | Create and manage the snow database. |
-| `dataset` | Register and ingest gridded snow datasets. |
+| `init` | Create an empty snowdb. |
+| `status` | Overview of every registered dataset: active flag, artifacts, date span. |
+| `doctor` | Run health checks (grid, dates, files, pourpoints) and exit 1 on any finding. |
+| `stats` | Crossed zonal statistics for one pourpoint/dataset, with an OGC `--dates`/`--years` interval. |
+| `dataset` | Register, ingest, and inspect gridded snow datasets. |
 | `pourpoint` | Manage pourpoints and their delineated basins. |
-| `query` | Zonal statistics and date listings over a snowdb. |
-| `report` | Read-only diagnostics and health reports. |
 | `api` | Run the read-only HTTP API server. |
-| `windows` | Windows-only admin (IIS deployment, all-users PATH). |
+| `windows` | Windows-only admin (IIS deployment, all-users PATH); hidden unless running on Windows. |
 
 Set [`SNOWTOOL_SNOWDB_CONFIG`](configuration.md) (or pass `--config`) so the
 database-backed groups know which snowdb to open.
