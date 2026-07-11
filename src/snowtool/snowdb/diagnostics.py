@@ -239,20 +239,19 @@ def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> PourpointCove
 
 
 @dataclass(frozen=True)
-class AoiRasterHealth:
-    """The health of one burned AOI raster (opened to check its metadata)."""
+class AoiRasterIssue:
+    """A burned AOI raster that failed to open cleanly, or reads as empty."""
 
     name: str
     triplet: str
-    ok: bool
-    issue: str | None  # None when healthy
+    issue: str
 
 
-def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
-    """Open each AOI raster and classify any that won't read cleanly."""
+def aoi_health_report(dataset: Dataset) -> list[AoiRasterIssue]:
+    """Open each AOI raster and report any that won't read cleanly."""
     from snowtool.snowdb.aoi_raster import AOIRaster
 
-    findings: list[AoiRasterHealth] = []
+    findings: list[AoiRasterIssue] = []
     for path in dataset.aoi_raster_paths():
         triplet = triplet_naming.stem_to_triplet(path.stem)
         issue: str | None = None
@@ -270,9 +269,8 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterHealth]:
             # outside the grid, so it would contribute no pixels to any query.
             if not aoi_raster.array.any():
                 issue = 'empty AOI (does not overlap the grid)'
-        findings.append(
-            AoiRasterHealth(dataset.spec.name, triplet, issue is None, issue),
-        )
+        if issue is not None:
+            findings.append(AoiRasterIssue(dataset.spec.name, triplet, issue))
     return findings
 
 

@@ -91,11 +91,10 @@ def _check_pourpoints(snowdb: SnowDb, ds: Dataset) -> list[_Finding]:
         )
         for triplet in triplets
     ]
-    for health in diagnostics.aoi_health_report(ds):
-        if health.ok:
-            continue
-        assert health.issue is not None  # noqa: S101 - ok=False always carries an issue
-        findings.append(_finding('pourpoints', name, health.triplet, health.issue))
+    findings.extend(
+        _finding('pourpoints', name, issue.triplet, issue.issue)
+        for issue in diagnostics.aoi_health_report(ds)
+    )
     return findings
 
 
