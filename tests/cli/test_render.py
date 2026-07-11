@@ -66,6 +66,18 @@ def test_emit_table_empty_prints_nothing(capsys):
     assert capsys.readouterr().out == ''
 
 
+def test_emit_table_does_not_wrap_wide_rows_on_non_terminal(capsys):
+    # pytest capture is non-terminal, matching piped/redirected CI output --
+    # exactly where a wrapped value (e.g. '20240101' -> '20240\n101') would
+    # break parsing. Long values across many columns must survive intact.
+    row = {f'col{i:02d}': f'value-{i:02d}-abcdefghijklmnop' for i in range(12)}
+    _emit([row], 'table')
+    output = capsys.readouterr().out
+
+    for value in row.values():
+        assert value in output
+
+
 @pytest.mark.parametrize(
     ('value', 'expected'),
     [

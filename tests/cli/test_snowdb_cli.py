@@ -39,4 +39,8 @@ def test_status_table_smoke(runner, cli_obj):
     result = runner.invoke(cli, ['snowdb', 'status'], obj=cli_obj)
 
     assert result.exit_code == 0
-    assert result.output.strip() != ''
+    lines = [ln for ln in result.output.splitlines() if ln.strip()]
+    header, *rows = lines
+    assert 'dataset' in header
+    assert 'active' in header
+    assert any('test' in ln for ln in rows)
