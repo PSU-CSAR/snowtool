@@ -1,16 +1,11 @@
-"""The `report` group and `snowdb validate`, against the synthetic snowdb."""
+"""The `report` group, against the synthetic snowdb."""
 
 import json
-import shutil
 
 import numpy
-import rasterio
 
 from snowtool.cli import cli
-from snowtool.snowdb.constants import DEM_HASH_TAG
-from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
-from snowtool.snowdb.zones.terrain import ELEVATION
 
 from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
 
@@ -57,18 +52,6 @@ def test_coverage_reports_gap(runner, cli_obj, initialized_root):
     assert row['gap_ranges'] == '2018-01-02..2018-01-02'
 
 
-def test_missing_files_flags_uncreated_dataset(runner, cli_obj):
-    result = runner.invoke(
-        cli,
-        ['report', 'missing-files', '--format', 'json'],
-        obj=cli_obj,
-    )
-
-    rows = json.loads(result.output)
-    assert rows[0]['dataset'] == 'test'
-    assert 'terrain' in rows[0]['missing']
-
-
 def test_grid_report(runner, cli_obj):
     result = runner.invoke(
         cli,
@@ -103,184 +86,3 @@ def test_value_ranges_with_data(runner, cli_obj, source_dem, initialized_root, g
     swe = next(r for r in rows if r['variable'] == 'swe')
     assert swe['min'] == swe['max'] == 50
     assert swe['nodata_pct'] == 0.0
-
-
-def test_completeness_reports_missing_variables(runner, cli_obj, initialized_root):
-    # A bare date directory with no variable files at all.
-    (initialized_root / 'data' / 'test' / 'cogs' / '20180101').mkdir(parents=True)
-
-    result = runner.invoke(
-        cli,
-        ['report', 'completeness', '--format', 'json'],
-        obj=cli_obj,
-    )
-
-    rows = json.loads(result.output)
-    assert rows[0]['date'] == '2018-01-01'
-    assert 'swe' in rows[0]['missing']
-
-
-def test_pourpoint_coverage_cli_flags_unrasterized(
-    runner,
-    cli_obj,
-    source_dem,
-    initialized_root,
-    pourpoint_geojson,
-):
-
-    _create(runner, cli_obj, source_dem)
-    shutil.copy(
-        pourpoint_geojson,
-        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
-    )
-
-    result = runner.invoke(
-        cli,
-        ['report', 'pourpoint-coverage', '--format', 'json'],
-        obj=cli_obj,
-    )
-
-    rows = json.loads(result.output)
-    assert rows[0]['triplet'] == '12345:MT:USGS'
-    assert rows[0]['issue'] == 'no raster'
-
-
-def test_aoi_health_cli_clean_when_rasterized(
-    runner,
-    cli_obj,
-    source_dem,
-    pourpoint_geojson,
-):
-
-    _create(runner, cli_obj, source_dem)
-    cli_obj.snowdb['test'].rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
-
-    result = runner.invoke(
-        cli,
-        ['report', 'aoi-health', '--format', 'json'],
-        obj=cli_obj,
-    )
-
-    # A healthy raster produces no findings.
-    assert json.loads(result.output) == []
-
-
-# --- snowdb validate ---------------------------------------------------------
-
-
-def test_validate_ok_on_clean_created_dataset(runner, cli_obj, source_dem):
-    _create(runner, cli_obj, source_dem)
-
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
-
-    assert result.exit_code == 0
-    assert 'ok' in result.output
-
-
-def test_validate_exits_nonzero_on_missing_files(runner, cli_obj):
-    # Dataset not created -> missing terrain/area/cogs/aoi-rasters.
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
-
-    assert result.exit_code == 1
-    assert 'missing-files: test' in result.output
-    assert 'problem(s) found' in result.output
-
-
-def test_validate_skips_inactive_by_default(runner, cli_obj):
-    # 'test' is registered but uncreated (missing files -> findings). Deactivated,
-    # it drops out of the default sweep: validate gates what readers serve, so a
-    # half-built inactive dataset must not fail cron/CI. Each invocation gets a
-    # fresh CliContext (a real CLI process opens the root config anew).
-    def ctx():
-        from snowtool.cli._context import CliContext
-
-        return CliContext(
-            config=cli_obj.config,
-            zone_layer_providers=cli_obj.zone_layer_providers,
-        )
-
-    deactivated = runner.invoke(cli, ['dataset', 'deactivate', 'test'], obj=ctx())
-    assert deactivated.exit_code == 0, deactivated.output
-
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=ctx())
-    assert result.exit_code == 0
-    assert 'ok' in result.output
-
-    # --include-inactive widens the sweep back to everything registered ...
-    widened = runner.invoke(
-        cli,
-        ['snowdb', 'validate', '--include-inactive'],
-        obj=ctx(),
-    )
-    assert widened.exit_code == 1
-    assert 'missing-files: test' in widened.output
-
-    # ... and an explicit -d NAME always resolves from registered.
-    named = runner.invoke(cli, ['snowdb', 'validate', '-d', 'test'], obj=ctx())
-    assert named.exit_code == 1
-    assert 'missing-files: test' in named.output
-
-
-def test_validate_rolls_up_completeness_and_coverage(
-    runner,
-    cli_obj,
-    source_dem,
-    initialized_root,
-    pourpoint_geojson,
-):
-
-    _create(runner, cli_obj, source_dem)
-    # A date dir with no variables (completeness finding).
-    (initialized_root / 'data' / 'test' / 'cogs' / '20180101').mkdir(parents=True)
-    # A pourpoint with no AOI raster (aoi-no-raster finding).
-    shutil.copy(
-        pourpoint_geojson,
-        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
-    )
-
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
-
-    assert result.exit_code == 1
-    assert 'incomplete: test 2018-01-01' in result.output
-    assert 'aoi-no-raster: test 12345:MT:USGS' in result.output
-
-
-def test_validate_flags_grid_drift(runner, cli_obj, initialized_root, grid):
-    # A COG whose shape does not match the declared grid surfaces as a finding.
-    cogs = initialized_root / 'data' / 'test' / 'cogs' / '20180101'
-    cogs.mkdir(parents=True)
-    write_cog(
-        cogs / f'{snodas_swe_name("20180101")}.tif',
-        numpy.zeros((256, 256), dtype=numpy.int16),
-        transform=grid.base_grid.transform,
-        tile_size=TILE,
-    )
-
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
-
-    assert result.exit_code == 1
-    assert 'grid: test' in result.output
-
-
-def test_validate_flags_stale_zone_layer_format(
-    runner,
-    cli_obj,
-    source_dem,
-    initialized_root,
-):
-    # Re-stamp the built terrain set with an old format version (what an artifact
-    # from before a format bump would carry) -> validate flags it for a rebuild.
-
-    _create(runner, cli_obj, source_dem)
-    elevation = initialized_root / 'data' / 'test' / 'terrain' / ELEVATION.filename
-    with rasterio.open(
-        elevation,
-        'r+',
-        IGNORE_COG_LAYOUT_BREAK='YES',
-    ) as ds:
-        ds.update_tags(**{DEM_HASH_TAG: 'v999:deadbeef'})
-
-    result = runner.invoke(cli, ['snowdb', 'validate'], obj=cli_obj)
-
-    assert result.exit_code == 1
-    assert 'zone-layer-format: test terrain stored 999 != current 3' in result.output

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._context import CliContext, config_option, pass_snowdb
-from snowtool.cli._datasets import dataset_option, resolve_datasets
 from snowtool.cli._render import FORMATS, _emit
 
 if TYPE_CHECKING:
@@ -55,72 +54,6 @@ def snowdb_status(snowdb: SnowDb, fmt: str) -> None:
         )
         rows.append(row)
     _emit(rows, fmt)
-
-
-@snowdb.command('validate')
-@dataset_option
-@click.option(
-    '--include-inactive',
-    is_flag=True,
-    help='Also validate registered-but-inactive datasets (default: active only).',
-)
-@config_option
-@pass_snowdb
-def snowdb_validate(
-    snowdb: SnowDb,
-    dataset_names: tuple[str, ...],
-    include_inactive: bool,
-) -> None:
-    """Roll up the read-only health checks; exit non-zero if any problem is found.
-
-    Aggregates completeness, missing-files, pourpoint-coverage, and aoi-health
-    across the selected datasets. By default it validates what readers serve
-    (the *active* datasets), so a half-built staged dataset does not fail the
-    cron/CI gate; ``--include-inactive`` widens the sweep to everything
-    registered (staged or deactivated datasets too). An explicit ``-d`` NAME
-    always resolves from everything registered. Prints one line per problem and
-    exits 1 when there are any.
-    """
-    from snowtool.snowdb import diagnostics
-
-    findings: list[str] = []
-    for ds in resolve_datasets(
-        snowdb,
-        dataset_names,
-        include_inactive=include_inactive,
-    ):
-        name = ds.spec.name
-        findings.extend(
-            f'grid: {name}: {issue}' for issue in diagnostics.grid_validation_report(ds)
-        )
-        for inc in diagnostics.completeness_report(ds):
-            missing_vars = ', '.join(inc.missing)
-            findings.append(
-                f'incomplete: {name} {inc.date.isoformat()} missing {missing_vars}',
-            )
-        missing = diagnostics.missing_artifacts(ds)
-        if missing:
-            findings.append(f'missing-files: {name}: {", ".join(missing)}')
-        for fmt in diagnostics.stale_format_zone_layers(ds):
-            findings.append(
-                f'zone-layer-format: {name} {fmt.provider} '
-                f'stored {fmt.stored} != current {fmt.expected}',
-            )
-        coverage = diagnostics.pourpoint_coverage_report(snowdb, ds)
-        findings.extend(f'aoi-no-raster: {name} {t}' for t in coverage.unrasterized)
-        findings.extend(f'aoi-orphan: {name} {t}' for t in coverage.orphan_rasters)
-        findings.extend(f'pourpoint-partial: {name} {t}' for t in coverage.partial)
-        findings.extend(f'pourpoint-uncovered: {name} {t}' for t in coverage.uncovered)
-        for health in diagnostics.aoi_health_report(ds):
-            if not health.ok:
-                findings.append(f'aoi-health: {name} {health.triplet}: {health.issue}')
-
-    for finding in findings:
-        click.echo(finding)
-    if findings:
-        click.echo(f'{len(findings)} problem(s) found')
-        raise SystemExit(1)
-    click.echo('ok: no problems found')
 
 
 @snowdb.command('init')
