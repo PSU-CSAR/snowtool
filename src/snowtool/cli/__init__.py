@@ -34,12 +34,13 @@ with :func:`snowtool.cli._render._emit`. New logic belongs on
 import click
 
 from snowtool import __version__
+from snowtool.cli import _console
 from snowtool.cli._context import CliContext
 from snowtool.cli.api import api
 from snowtool.cli.dataset import dataset
 from snowtool.cli.doctor import doctor
 from snowtool.cli.pourpoint import pourpoint
-from snowtool.cli.snowdb import init_snowdb, status
+from snowtool.cli.root import init_snowdb, status
 from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
 
@@ -62,8 +63,6 @@ from snowtool.cli.windows import windows
 )
 @click.pass_context
 def cli(ctx: click.Context, color: str, quiet: bool) -> None:
-    from snowtool.cli import _console
-
     _console.configure(color=color, quiet=quiet)
     # Seed the per-invocation CliContext (unless a test injected one carrying
     # synthetic specs). --config is a per-command option (see config_option), so a

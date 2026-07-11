@@ -25,6 +25,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
+from snowtool.cli import _console
 from snowtool.snowdb.progress import NULL_PROGRESS
 
 if TYPE_CHECKING:
@@ -68,8 +69,6 @@ class RichProgress:
         *,
         total: int | None = None,
     ) -> Iterator[ProgressTask]:
-        from snowtool.cli import _console
-
         console = self._console if self._console is not None else _console.err()
         label = f'{self._prefix}{label}'
         if not console.is_terminal:
