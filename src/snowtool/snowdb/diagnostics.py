@@ -74,7 +74,7 @@ def dataset_status(dataset: Dataset) -> DatasetStatus:
     )
 
 
-# --- report builders (read-only; the `report`/`validate` commands render these) -
+# --- report builders (read-only; the `dataset`/`doctor` commands render these) --
 
 
 @dataclass(frozen=True)
@@ -379,7 +379,7 @@ def _transforms_close(a: Affine, b: Affine) -> bool:
 
 
 def grid_validation_report(dataset: Dataset) -> list[str]:
-    """Cheap declaration-vs-reality checks for ``snowdb validate``.
+    """Cheap declaration-vs-reality checks for ``snowtool doctor``.
 
     Returns a list of human-readable problems (empty == consistent):
 

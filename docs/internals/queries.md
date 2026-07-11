@@ -5,7 +5,7 @@ A query is the one thing a snowdb exists to answer: pick a **pourpoint**, a
 axes**, and the engine reduces each date's per-variable raster over the basin,
 stratified by the crossed zones. The whole computation lands in one method,
 `SnowDbReader.zonal_stats` (`snowdb/reader.py`) — the shared read seam behind
-both the CLI `query stats` command and the API's per-dataset stats endpoints
+both the CLI `stats` command and the API's per-dataset stats endpoints
 (see the [architecture](architecture.md) overview). It guards coverage, loads
 the burned AOI raster, resolves the requested variables, builds the raster
 collection for the query's dates, and hands all of it to
@@ -154,7 +154,7 @@ columns: a banded or threshold axis expands to two typed, unit-bearing columns,
 a categorical axis to one; then `area_m2` and the variable stats. A no-data cell
 renders as an empty CSV field, never the literal `nan`.
 
-At the CLI, `query stats --format json` emits the `dump()` models and the CSV
+At the CLI, `stats --format json` emits the `dump()` models and the CSV
 format streams `dump_to_csv`. The API wraps `dump()` in a `StatsResponse`
 envelope (`api/models/stats.py`) — the pourpoint, the echoed query, HATEOAS
 links, and the `results` list — or streams the same CSV, chosen by content

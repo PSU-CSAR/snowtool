@@ -295,7 +295,7 @@ class SnowDb:
             zones.update(available_zones(dataset.providers.values()))
         return zones
 
-    # --- global pourpoint query helpers (drive the pourpoint/report commands) ---
+    # --- global pourpoint query helpers (drive the pourpoint commands) ---
 
     def pourpoint_paths(self: Self) -> list[Path]:
         """The per-pourpoint record geojson under ``pourpoints/records/`` (sorted)."""

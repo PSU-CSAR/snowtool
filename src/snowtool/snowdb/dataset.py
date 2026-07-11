@@ -57,7 +57,7 @@ INGEST_FORMAT_VERSION = 1
 class DatasetArtifacts:
     """Which of a dataset's on-disk artifacts are present.
 
-    A read-only snapshot used by the diagnostics/report commands.
+    A read-only snapshot used by the ``dataset``/``doctor`` commands.
     ``zone_layers`` maps each configured zone-layer provider's name
     (``terrain``, ``landcover``, ...) to whether its complete set is present on
     disk.
