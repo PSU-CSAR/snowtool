@@ -23,7 +23,7 @@ from datetime import date
 import numpy
 import pytest
 
-from snowtool.snowdb.config import ZoneLayerParams
+from snowtool.snowdb.config import BandStepParams, ThresholdParams
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
@@ -375,8 +375,8 @@ def test_scheme_resolution_folds_dataset_defaults_then_explicit_override():
             tile_size=8,
         ),
         zones={
-            'terrain': {'elevation': ZoneLayerParams(band_step_ft=2000)},
-            'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},
+            'terrain': {'elevation': BandStepParams(band_step_ft=2000)},
+            'landcover': {'forest_cover': ThresholdParams(threshold_pct=50)},
         },
     )
     registry = available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)

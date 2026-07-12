@@ -29,7 +29,6 @@ from pydantic import (
     PrivateAttr,
     TypeAdapter,
     field_validator,
-    model_serializer,
 )
 
 from snowtool.snowdb.atomic import atomic_write_text
@@ -58,26 +57,63 @@ class ResourceModel(BaseModel):
     resource: str
 
 
-class ZoneLayerParams(BaseModel):
-    """The default query params for one zone layer, e.g. ``{"band_step_ft": 1000}``.
+class _ZoneParams(BaseModel):
+    """Base for the per-scheme zone-layer param models below.
 
-    One typed field per param a built-in scheme reads (a band width, a split
-    threshold); ``None`` means unset (the scheme falls back to its own default).
-    ``extra='forbid'`` so a typo'd/unknown param fails at config load rather than
-    being silently ignored, and unset (``None``) fields are omitted from the
-    serialized JSON so a stored block stays exactly ``{"band_step_ft": 1000}``.
+    Frozen value objects with ``extra='forbid'`` so a typo'd param fails at
+    config load. Each member carries exactly one *required* field; the field
+    name is what routes an on-disk block like ``{"band_step_ft": 1000}`` to its
+    member (no explicit tag), so members stay single-param and their field
+    names stay globally unique across members.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    band_step_ft: int | None = None
-    buckets: int | None = None
-    threshold_pct: float | None = None
-    entropy_threshold: float | None = None
 
-    @model_serializer
-    def _serialize(self: Self) -> dict[str, object]:
-        return {name: value for name, value in self if value is not None}
+class BandStepParams(_ZoneParams):
+    """Params for a banded axis: the band width (feet, for elevation)."""
+
+    band_step_ft: int = Field(gt=0)
+
+
+class BucketParams(_ZoneParams):
+    """Params for an even-bucketed axis: the number of buckets over its domain."""
+
+    buckets: int = Field(ge=1)
+
+
+class ThresholdParams(_ZoneParams):
+    """Params for a percent-threshold split axis (forest cover)."""
+
+    threshold_pct: float
+
+
+class EntropyThresholdParams(_ZoneParams):
+    """Params for the normalised aspect-entropy split axis."""
+
+    entropy_threshold: float
+
+
+# One zone layer's configured params, routed to exactly one member by its
+# single, globally-unique field name (``extra='forbid'`` + a required field
+# make the members disjoint, so no explicit tag is needed and the persisted
+# form stays exactly ``{"band_step_ft": 1000}``). A layer configured with the
+# *wrong* member (e.g. ``buckets`` for elevation) parses fine here -- the
+# layer->scheme mapping lives in the injected providers -- and is rejected by
+# ``ZoneScheme.configured`` with a ZoneParamsError when the layer is used.
+ZoneLayerParams = (
+    BandStepParams | BucketParams | ThresholdParams | EntropyThresholdParams
+)
+
+# Param field name -> its member model. The API override machinery reads a
+# param's declared type from here (see api/routers/_stats_params.py); the
+# threshold schemes look up their expected member by param_key.
+ZONE_PARAM_MODELS: dict[str, type[_ZoneParams]] = {
+    'band_step_ft': BandStepParams,
+    'buckets': BucketParams,
+    'threshold_pct': ThresholdParams,
+    'entropy_threshold': EntropyThresholdParams,
+}
 
 
 class DatasetConfig(ResourceModel):
@@ -94,16 +130,17 @@ class DatasetConfig(ResourceModel):
 
     ``zones`` maps a zone-layer provider (``terrain``, ``landcover``) to its layers
     and each layer's default query params, e.g.
-    ``{"terrain": {"elevation": {"band_step_ft": 1000}},
-       "landcover": {"forest_cover": {"threshold_pct": 50}}}``. A provider's
-    presence enables it for the dataset; absence means no such zone layer.
+    ``{"terrain": {"elevation": {"band_step_ft": 1000}, "aspect": null}}`` -- a
+    layer mapped to ``null`` is enabled with no params (a categorical axis). A
+    provider's presence enables it for the dataset; absence means no such zone
+    layer.
     """
 
     resource: Literal['snowtool.dataset/v1'] = 'snowtool.dataset/v1'
     grid: GridParams
     variables: dict[str, DatasetVariable]
     ingester: str | None = None
-    zones: dict[str, dict[str, ZoneLayerParams]] = Field(default_factory=dict)
+    zones: dict[str, dict[str, ZoneLayerParams | None]] = Field(default_factory=dict)
     # The region this dataset actually serves, as a GeoJSON geometry in the grid
     # CRS (e.g. a MODIS block minus a never-ingested tile); omitted means the whole
     # grid extent. Modeled with geojson-pydantic; the geometry math converts it to

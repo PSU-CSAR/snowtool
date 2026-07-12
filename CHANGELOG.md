@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Changed
 
+- **Breaking:** dataset-config zone params parse to per-scheme models
+  (`band_step_ft`, `buckets`, `threshold_pct`, `entropy_threshold` are mutually
+  exclusive per layer); a param attached to a layer whose scheme does not take
+  it is now a `ZoneParamsError` instead of being silently ignored, and a layer
+  enabled with no params is stored as `null` rather than `{}`.
+
 ### Removed
 
 ### Fixed

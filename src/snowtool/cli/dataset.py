@@ -86,7 +86,10 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
         'n_tiles': grid_details.n_tiles,
         'extent': list(grid_details.extent),
         'zones': {
-            provider: {layer: params.model_dump() for layer, params in layers.items()}
+            provider: {
+                layer: params.model_dump() if params is not None else None
+                for layer, params in layers.items()
+            }
             for provider, layers in spec.zones.items()
         },
         'elevation_bracket_m': f'{MIN_ELEVATION_M} .. {MAX_ELEVATION_M}',

@@ -122,15 +122,20 @@ read-only/derived dataset with no ingest. The name is the dataset *kind*
 [ingest](ingest.md).
 
 `zones` maps a zone-layer provider to its layers to each layer's default
-query params: `{provider: {layer: ZoneLayerParams}}`. A provider's
+query params: `{provider: {layer: ZoneLayerParams | None}}`. A provider's
 *presence* enables it for the dataset (its layers are generated and
-served); its absence means the dataset has no such zone layer. A
-`ZoneLayerParams` block holds only the typed knobs a built-in scheme reads
-— `band_step_ft`, `band_step_pct`, `threshold_pct`, `entropy_threshold` —
-and is `extra='forbid'`, so a mistyped or unknown param fails at config
-load rather than being silently ignored. Unset knobs are omitted from the
-stored JSON, so a block stays exactly `{"band_step_ft": 1000}`. The zoning
-framework and what each knob does is [zones](zones.md).
+served); its absence means the dataset has no such zone layer.
+`ZoneLayerParams` is a union of four single-field, `extra='forbid'` models
+— `BandStepParams` (`band_step_ft`), `BucketParams` (`buckets`),
+`ThresholdParams` (`threshold_pct`), `EntropyThresholdParams`
+(`entropy_threshold`) — so a block parses to exactly one member by its
+field name, and a mistyped or unknown param fails at config load rather
+than being silently ignored. A layer enabled with no params (a
+categorical axis, e.g. `terrain.aspect`) is stored as `null`, not `{}`; a
+param attached to a layer whose scheme doesn't take it (e.g. `buckets` for
+elevation) parses fine here but raises `ZoneParamsError` at query time,
+when `ZoneScheme.configured` folds it into the layer's actual scheme. The
+zoning framework and what each knob does is [zones](zones.md).
 
 `footprint` is an optional GeoJSON geometry, in the grid's CRS, giving the
 region the dataset actually *serves* — for example a MODIS block minus a
