@@ -47,7 +47,7 @@ almost every location here is a default the root config could override.
 `snowdb_conf.json` is the system's single entry point. Handed one path,
 `SnowDb` (`snowdb/db.py`) resolves everything else — the datasets, the
 pourpoint index and records — from it. It is a small `RootConfig`
-(`snowdb/config.py`) written and read only through `snowtool`: `snowdb
+(`snowdb/config.py`) written and read only through `snowtool`: `snowtool
 init` creates it, and the `dataset` command group edits its `datasets`
 map. It is pure source of truth — the record of *which datasets exist* and
 *which readers serve* — and carries no derived data, so it is never
@@ -179,8 +179,8 @@ and migration, never an in-place reinterpretation of the old one. No
 entity's version constrains another's, and there is deliberately no global
 snowdb version number. A `TypeAdapter` union (`load_entity`) routes any
 file off disk to exactly one model by its `resource` string, so a file can
-be loaded without knowing its kind up front. Migration exists only to lift
-a developer's own pre-rework directories forward; see
+be loaded without knowing its kind up front. This is a greenfield store —
+every resource starts at `v1` and there is no migration machinery; see
 [provenance](provenance.md) for how the same versioned-hash idea tags
 derived artifacts.
 
