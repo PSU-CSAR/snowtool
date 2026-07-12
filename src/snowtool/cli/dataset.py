@@ -15,9 +15,9 @@ import click
 from snowtool.cli._confirm import confirm_destructive
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
+from snowtool.cli._dates import DATE
 from snowtool.cli._progress import RichProgress
-from snowtool.cli._render import DATE, _emit, _emit_record
-from snowtool.exceptions import SnowtoolError
+from snowtool.cli._render import _emit, _emit_record
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
 if TYPE_CHECKING:
@@ -65,7 +65,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
     from snowtool.snowdb.diagnostics import dataset_status, grid_report
 
-    ds = get_dataset(snowdb, name, include_inactive=True)
+    ds = get_dataset(snowdb, name)
     spec = ds.spec
     grid = spec.grid_params
     status = dataset_status(ds)
@@ -140,18 +140,11 @@ def dataset_dates(
     """
     from snowtool.snowdb import diagnostics
 
-    ds = get_dataset(snowdb, name, include_inactive=True)
+    ds = get_dataset(snowdb, name)
     if missing:
-        try:
-            dates = diagnostics.missing_dates(ds, start=start, end=end)
-        except ValueError as e:
-            raise click.ClickException(str(e)) from e
+        dates = diagnostics.missing_dates(ds, start=start, end=end)
     else:
-        dates = [
-            d
-            for d in ds.available_dates()
-            if (start is None or d >= start) and (end is None or d <= end)
-        ]
+        dates = ds.available_dates(start=start, end=end)
     _emit([{'date': d.isoformat()} for d in dates], fmt)
 
 
@@ -176,7 +169,7 @@ def dataset_values(
     """Per-variable min/max/mean (unit-scaled) and nodata % for one date."""
     from snowtool.snowdb import diagnostics
 
-    ds = get_dataset(snowdb, name, include_inactive=True)
+    ds = get_dataset(snowdb, name)
     if on_date is None:
         dates = ds.available_dates()
         if not dates:
@@ -242,14 +235,11 @@ def create_dataset(
             f'No such template: {template!r}. Known templates: {known}.',
         )
 
-    try:
-        created = manager.create_dataset(
-            name,
-            DATASET_TEMPLATES[template],
-            progress=RichProgress(),
-        )
-    except (ValueError, FileExistsError, SnowtoolError) as e:
-        raise click.ClickException(str(e)) from e
+    created = manager.create_dataset(
+        name,
+        DATASET_TEMPLATES[template],
+        progress=RichProgress(),
+    )
 
     if created.staged.created:
         click.echo(f'created dataset {name} at {created.staged.dataset.path}')
@@ -262,19 +252,6 @@ def create_dataset(
             f"'dataset generate-zones {name}', activate with "
             f"'dataset activate {name}')",
         )
-
-
-def _resolve_source_overrides(
-    snowdb: SnowDb,
-    sources: tuple[tuple[str, Path], ...],
-) -> dict[str, Path]:
-    """Validate ``--source PROVIDER PATH`` pairs into a ``{provider: path}`` map."""
-    overrides: dict[str, Path] = {}
-    for provider_name, path in sources:
-        if provider_name not in snowdb.zone_layer_providers:
-            raise click.ClickException(f'No such zone-layer provider: {provider_name}')
-        overrides[provider_name] = Path(path)
-    return overrides
 
 
 @dataset.command('register')
@@ -334,10 +311,7 @@ def activate_dataset(manager: SnowDbManager, name: str) -> None:
     manageable by name (ingest, generate-zones, diagnostics) while inactive, and
     stays so either way. Idempotent.
     """
-    try:
-        manager.set_dataset_active(name, True)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
+    manager.set_dataset_active(name, True)
     # Activation never needs a reindex: `dataset create` folds coverage into the
     # index at registration. The one exception (`dataset register`, which skips
     # staging) prints its own reindex guidance at registration time.
@@ -354,25 +328,8 @@ def deactivate_dataset(manager: SnowDbManager, name: str) -> None:
     The dataset stays registered and fully manageable by name (ingest,
     generate-zones, diagnostics) -- only reader visibility changes. Idempotent.
     """
-    try:
-        manager.set_dataset_active(name, False)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
+    manager.set_dataset_active(name, False)
     click.echo(f'deactivated {name} (restart the API to pick it up)')
-
-
-def _resolve_managed_dataset(manager: SnowDbManager, token: str):
-    """Resolve a management-surface dataset token, CLI-cleanly.
-
-    Wraps :meth:`SnowDbManager.resolve_dataset` (a bare token is a *registered*
-    NAME -- active or not; a token with a path separator or a ``.json`` suffix
-    is a dataset config file path), converting its :class:`ValueError` to a
-    :class:`click.ClickException`.
-    """
-    try:
-        return manager.resolve_dataset(token)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
 
 
 @dataset.command('ingest')
@@ -417,15 +374,12 @@ def ingest_dataset(
     same filename with different bytes rebuilds. ``--force`` rebuilds every
     date regardless.
     """
-    ds = _resolve_managed_dataset(manager, name)
-    try:
-        result = ds.ingest(
-            source,
-            force=force,
-            progress=RichProgress(prefix=f'{name} ingest: '),
-        )
-    except (FileExistsError, SnowtoolError) as e:
-        raise click.ClickException(str(e)) from e
+    ds = manager.resolve_dataset(name)
+    result = ds.ingest(
+        source,
+        force=force,
+        progress=RichProgress(prefix=f'{name} ingest: '),
+    )
 
     rows = [
         {
@@ -502,22 +456,17 @@ def generate_zones(
     time. ``--source PROVIDER PATH`` supplies a local file for a provider instead
     of its default source. Always rebuilds, overwriting existing layers.
     """
-    overrides = _resolve_source_overrides(manager.db, sources)
-
-    try:
-        datasets = [manager.resolve_dataset(name) for name in names]
-        generated = manager.generate_zone_layers_for(
-            datasets,
-            provider_names=provider_names or None,
-            source_overrides=overrides,
-            force=True,
-            options=GenerationOptions(workers=workers, block_size=block_size),
-            progress_factory=lambda provider_name: RichProgress(
-                prefix=f'{provider_name}: ',
-            ),
-        )
-    except (ValueError, FileExistsError, SnowtoolError) as e:
-        raise click.ClickException(str(e)) from e
+    datasets = [manager.resolve_dataset(name) for name in names]
+    generated = manager.generate_zone_layers_for(
+        datasets,
+        provider_names=provider_names or None,
+        source_overrides=dict(sources),
+        force=True,
+        options=GenerationOptions(workers=workers, block_size=block_size),
+        progress_factory=lambda provider_name: RichProgress(
+            prefix=f'{provider_name}: ',
+        ),
+    )
     for provider_name, hashes in generated.items():
         for ds_name in hashes:
             click.echo(f'generated {provider_name} for {ds_name}')
@@ -541,7 +490,7 @@ def remove_date(
 
     NAME is a registered dataset name (active or not) or a dataset config path.
     """
-    ds = _resolve_managed_dataset(manager, name)
+    ds = manager.resolve_dataset(name)
     iso = removal_date.isoformat()
 
     if dry_run:

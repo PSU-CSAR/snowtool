@@ -53,15 +53,15 @@ def get_dataset(
     snowdb: SnowDb,
     name: str,
     *,
-    include_inactive: bool = False,
+    include_inactive: bool = True,
 ) -> Dataset:
     """Resolve a dataset by name, or raise a clean CLI error listing the options.
 
-    By default only *active* datasets resolve (matching what the API serves);
-    a registered-but-inactive name gets a pointed "activate it" error instead
-    of a generic miss. ``include_inactive`` widens the lookup to everything
-    registered -- the management/diagnostics surface, where activation is
-    irrelevant.
+    By default anything *registered* resolves -- the management/diagnostics
+    surface, where activation is irrelevant. ``include_inactive=False`` narrows
+    the lookup to active datasets (matching what the API serves; ``stats`` is
+    the one reader-surface caller); a registered-but-inactive name then gets a
+    pointed "activate it" error instead of a generic miss.
     """
     if include_inactive and name in snowdb.registered:
         return snowdb.registered[name]
@@ -98,4 +98,4 @@ def resolve_datasets(
     if not names:
         pool = snowdb.registered if include_inactive else snowdb.datasets
         return [pool[name] for name in sorted(pool)]
-    return [get_dataset(snowdb, name, include_inactive=True) for name in names]
+    return [get_dataset(snowdb, name) for name in names]
