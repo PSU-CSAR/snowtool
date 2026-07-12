@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self, assert_never
 
 from gazebo.link import Link
 from gazebo.rels import Rel
 from pydantic import BaseModel, Field
 
 from snowtool.snowdb.zones.zone_layer import available_zones
+from snowtool.snowdb.zones.zoning import (
+    BandedZoneDescription,
+    BucketedZoneDescription,
+    CategoricalZoneDescription,
+    ThresholdZoneDescription,
+)
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
@@ -30,45 +36,99 @@ class ZoneClassInfo(BaseModel):
     label: str = Field(examples=['N'])
 
 
-class ZoneInfo(BaseModel):
-    """A stratifiable zone layer of a dataset and how to override its scheme.
+class BandedZoneInfo(BaseModel):
+    """A banded zone axis: overridable band width over a covered numeric range.
 
-    ``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme
-    kind. An overridable layer advertises its ``param`` (the override query param
-    is ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a
-    banded/bucketed layer also advertises its covered ``min``/``max`` range; a
-    categorical layer instead advertises its ``classes`` (and has no ``param``).
+    ``key`` is the value the ``zone`` query param accepts; the override query
+    param is ``'<key>.<param>'`` (likewise the other overridable kinds below).
     """
 
+    kind: Literal['banded'] = 'banded'
     key: str = Field(examples=['terrain.elevation'])
-    kind: str = Field(examples=['banded'])
-    param: str | None = Field(default=None, examples=['band_step_ft'])
-    default: float | int | None = Field(default=None, examples=[1000])
-    unit: str | None = Field(default=None, examples=['ft'])
-    # The axis' covered range (banded/bucketed); None for a threshold split or a
-    # categorical axis.
-    min: float | int | None = Field(default=None, examples=[-1000])
-    max: float | int | None = Field(default=None, examples=[15000])
-    classes: list[ZoneClassInfo] | None = Field(default=None)
+    param: str = Field(examples=['band_step_ft'])
+    default: int = Field(examples=[1000])
+    unit: str = Field(examples=['ft'])
+    min: int | float = Field(examples=[-1000])
+    max: int | float = Field(examples=[15000])
+
+
+class BucketedZoneInfo(BaseModel):
+    """An even-bucketed dimensionless axis: overridable bucket count."""
+
+    kind: Literal['bucketed'] = 'bucketed'
+    key: str = Field(examples=['terrain.northness'])
+    param: str = Field(examples=['buckets'])
+    default: int = Field(examples=[4])
+    min: int | float = Field(examples=[-1])
+    max: int | float = Field(examples=[1])
+
+
+class ThresholdZoneInfo(BaseModel):
+    """A threshold-split axis: overridable split point within its measured range."""
+
+    kind: Literal['threshold'] = 'threshold'
+    key: str = Field(examples=['landcover.forest_cover'])
+    param: str = Field(examples=['threshold_pct'])
+    default: float = Field(examples=[50.0])
+    unit: str = Field(examples=['%'])
+    min: int | float = Field(examples=[0])
+    max: int | float = Field(examples=[100])
+
+
+class CategoricalZoneInfo(BaseModel):
+    """A categorical axis: fixed classes, no override param."""
+
+    kind: Literal['categorical'] = 'categorical'
+    key: str = Field(examples=['terrain.aspect'])
+    classes: list[ZoneClassInfo]
+
+
+# A stratifiable zone layer, discriminated on the scheme ``kind`` -- so the
+# OpenAPI schema states the real per-kind contract (``classes`` exists iff
+# categorical, ``param``/``default`` iff overridable) instead of advertising
+# every field as nullable.
+ZoneInfo = Annotated[
+    BandedZoneInfo | BucketedZoneInfo | ThresholdZoneInfo | CategoricalZoneInfo,
+    Field(discriminator='kind'),
+]
 
 
 def _zone_info(key: str, available: AvailableZone) -> ZoneInfo:
-    """Build a :class:`ZoneInfo` from a registry entry's scheme ``describe()``."""
+    """Build the per-kind :data:`ZoneInfo` member from a scheme's ``describe()``."""
     desc = available.scheme.describe()
-    return ZoneInfo(
-        key=key,
-        kind=desc.kind,
-        param=desc.param_key,
-        default=desc.default,
-        unit=desc.unit,
-        min=desc.min,
-        max=desc.max,
-        classes=(
-            [ZoneClassInfo(key=c.key, label=c.label) for c in desc.classes]
-            if desc.classes is not None
-            else None
-        ),
-    )
+    match desc:
+        case BandedZoneDescription():
+            return BandedZoneInfo(
+                key=key,
+                param=desc.param_key,
+                default=desc.default,
+                unit=desc.unit,
+                min=desc.min,
+                max=desc.max,
+            )
+        case BucketedZoneDescription():
+            return BucketedZoneInfo(
+                key=key,
+                param=desc.param_key,
+                default=desc.default,
+                min=desc.min,
+                max=desc.max,
+            )
+        case ThresholdZoneDescription():
+            return ThresholdZoneInfo(
+                key=key,
+                param=desc.param_key,
+                default=desc.default,
+                unit=desc.unit,
+                min=desc.min,
+                max=desc.max,
+            )
+        case CategoricalZoneDescription():
+            return CategoricalZoneInfo(
+                key=key,
+                classes=[ZoneClassInfo(key=c.key, label=c.label) for c in desc.classes],
+            )
+    assert_never(desc)
 
 
 class GridInfo(BaseModel):
@@ -98,7 +158,11 @@ def _stats_links(name: str, zones: list[ZoneInfo]) -> list[Link]:
     ``<key>.<param>`` override field -- so a client can build a stats query from the
     dataset resource alone.
     """
-    overrides = [f'{zone.key}.{zone.param}' for zone in zones if zone.param]
+    overrides = [
+        f'{zone.key}.{zone.param}'
+        for zone in zones
+        if not isinstance(zone, CategoricalZoneInfo)
+    ]
     shared = ['zone', 'variable', *overrides, 'allow_partial', 'f']
     return [
         Link.to_route(

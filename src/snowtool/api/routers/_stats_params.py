@@ -47,6 +47,7 @@ from pydantic import BaseModel, Field, create_model, model_validator
 from snowtool.snowdb.config import ZONE_PARAM_MODELS
 from snowtool.snowdb.zonal_stats import ZoneSelection
 from snowtool.snowdb.zones.zone_layer import available_zones
+from snowtool.snowdb.zones.zoning import CategoricalZoneDescription
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -115,7 +116,7 @@ class _Override(NamedTuple):
     field_name: str
     alias: str
     param_key: str
-    default: int | float | None
+    default: int | float
     unit: str | None
     kind: str
 
@@ -176,24 +177,26 @@ def _override_fields(registry: Mapping[str, AvailableZone]) -> dict[str, _Overri
     """Overridable layer key -> its :class:`_Override` (field name, alias, param key,
     scheme default, unit).
 
-    An overridable layer is one whose scheme ``describe()`` names a ``param_key``
-    (categorical layers name none). The alias is ``'<layer_key>.<param_key>'`` (the
-    dotted query name); the field name is its sanitized, valid-identifier form. The
-    scheme's own ``default`` becomes the (non-nullable) field default and example.
+    Every non-categorical description advertises a ``param_key`` (the kinds are
+    a closed union, so overridability is the *type*, not a null check). The
+    alias is ``'<layer_key>.<param_key>'`` (the dotted query name); the field
+    name is its sanitized, valid-identifier form. The scheme's own ``default``
+    becomes the field default and example.
     """
     fields: dict[str, _Override] = {}
     for key in sorted(registry):
         desc = registry[key].scheme.describe()
-        if desc.param_key is not None:
-            alias = f'{key}.{desc.param_key}'
-            fields[key] = _Override(
-                _sanitize(alias),
-                alias,
-                desc.param_key,
-                desc.default,
-                desc.unit,
-                desc.kind,
-            )
+        if isinstance(desc, CategoricalZoneDescription):
+            continue  # takes no override param
+        alias = f'{key}.{desc.param_key}'
+        fields[key] = _Override(
+            _sanitize(alias),
+            alias,
+            desc.param_key,
+            desc.default,
+            desc.unit,
+            desc.kind,
+        )
     return fields
 
 
@@ -263,7 +266,7 @@ def _base_fields(
         # non-nullable (int vs float, per member).
         annotation = _param_annotation(ov.param_key)
         unit = f' {ov.unit}' if ov.unit else ''
-        noun = _OVERRIDE_NOUN.get(ov.kind, 'scheme param')
+        noun = _OVERRIDE_NOUN[ov.kind]
         fields[ov.field_name] = (
             annotation,
             Field(

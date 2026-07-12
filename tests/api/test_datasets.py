@@ -103,21 +103,21 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
         1000,
         'ft',
     )
-    assert elevation['classes'] is None
+    assert 'classes' not in elevation
     # Its covered band range (the -100..4500 m bracket in feet, aligned to 1000 ft).
     assert (elevation['min'], elevation['max']) == (-1000, 15000)
 
     # Aspect-orientation components: bucketed (dimensionless [-1, 1]), overridable by
-    # an integer bucket count, default 4, no unit, covering the [-1, 1] range.
+    # an integer bucket count, default 4, covering the [-1, 1] range; no unit field.
     for key in ('terrain.northness', 'terrain.eastness'):
         assert (
             zones[key]['kind'],
             zones[key]['param'],
             zones[key]['default'],
-            zones[key]['unit'],
             zones[key]['min'],
             zones[key]['max'],
-        ) == ('bucketed', 'buckets', 4, None, -1, 1)
+        ) == ('bucketed', 'buckets', 4, -1, 1)
+        assert 'unit' not in zones[key]
 
     # Threshold layers carry their own params and advertise the range their split sits
     # within: forest cover 0..100 %, normalised aspect entropy 0..1.
@@ -138,8 +138,8 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
     # Categorical aspect: no override param, but advertises its class keys/labels.
     aspect = zones['terrain.aspect']
     assert aspect['kind'] == 'categorical'
-    assert aspect['param'] is None
-    assert aspect['default'] is None
+    assert 'param' not in aspect
+    assert 'default' not in aspect
     assert [c['key'] for c in aspect['classes']] == ['N', 'E', 'S', 'W', 'flat']
 
 

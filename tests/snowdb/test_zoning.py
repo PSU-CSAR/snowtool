@@ -33,14 +33,17 @@ from snowtool.snowdb.zones.zone_layer import (
 )
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 from snowtool.snowdb.zones.zoning import (
+    BandedZoneDescription,
     BandedZoning,
     BandZone,
+    BucketedZoneDescription,
+    CategoricalZoneDescription,
     CategoricalZoning,
     ClassZone,
     EvenBucketZoning,
+    ThresholdZoneDescription,
     ThresholdZoning,
     ZoneClassDescription,
-    ZoneDescription,
 )
 
 from ..conftest import make_manager, make_snowdb
@@ -120,12 +123,10 @@ def test_banded_describe_reports_param_default_and_unit():
         value_scale=M_TO_FT,
         layer_nodata=ELEVATION_NODATA,
     )
-    assert scheme.describe() == ZoneDescription(
-        kind='banded',
+    assert scheme.describe() == BandedZoneDescription(
         param_key='band_step_ft',
         default=1000,
         unit='ft',
-        classes=None,
         # The covered band range: [0, 1000), [1000, 2000), [2000, 3000) (the last is
         # the closed-top boundary band), so 0..3000.
         min=0,
@@ -181,6 +182,18 @@ def test_aspect_component_bucket_count_is_overridable():
     assert scheme.param_key == 'buckets'
 
 
+def test_bucketed_describe_reports_count_and_range():
+    scheme = NORTHNESS.zoning
+    assert isinstance(scheme, EvenBucketZoning)
+    assert scheme.describe() == BucketedZoneDescription(
+        param_key='buckets',
+        default=4,
+        min=-1,
+        max=1,
+    )
+    assert scheme.describe().unit is None  # dimensionless axis
+
+
 # --- CategoricalZoning -------------------------------------------------------
 
 
@@ -203,11 +216,7 @@ def test_categorical_zones_are_the_class_list_in_order():
 def test_categorical_describe_has_no_param_and_lists_classes():
     scheme = ASPECT_MAJORITY.zoning
     assert isinstance(scheme, CategoricalZoning)
-    assert scheme.describe() == ZoneDescription(
-        kind='categorical',
-        param_key=None,
-        default=None,
-        unit=None,
+    assert scheme.describe() == CategoricalZoneDescription(
         classes=(
             ZoneClassDescription(key='N', label='N'),
             ZoneClassDescription(key='E', label='E'),
@@ -288,12 +297,10 @@ def test_threshold_describe_reports_param_default_and_unit():
         below_label='unforested',
         above_label='forested',
     )
-    assert scheme.describe() == ZoneDescription(
-        kind='threshold',
+    assert scheme.describe() == ThresholdZoneDescription(
         param_key='threshold_pct',
         default=40,
         unit='%',
-        classes=None,
         min=0,
         max=100,
     )
