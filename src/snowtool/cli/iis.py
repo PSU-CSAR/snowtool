@@ -28,6 +28,7 @@ from pathlib import Path
 import click
 
 from snowtool.cli._iis.provisioning import (
+    base_python_root,
     install_args,
     remove_args,
     run_powershell,
@@ -153,6 +154,7 @@ def install(
             site_name=site_name,
             physical_path=directory,
             venv_path=venv_root(Path(sys.executable)),
+            base_python_path=base_python_root(sys.prefix, sys.base_prefix),
             snowdb_path=snowdb_root(snowdb_config),
             hostname=hostname,
             port=port,
@@ -168,21 +170,41 @@ def install(
 @iis.command('remove')
 @click.argument('directory', type=click.Path(path_type=Path))
 @click.option(
+    '--config',
+    '-C',
+    'snowdb_config',
+    required=True,
+    envvar='SNOWTOOL_SNOWDB_CONFIG',
+    type=click.Path(path_type=Path),
+    help='Snowdb config the site was installed with (defaults to the '
+    "SNOWTOOL_SNOWDB_CONFIG env var). Its directory's app-pool permission "
+    'grant is removed.',
+)
+@click.option(
     '--site-name',
     default=None,
     help='IIS site/app-pool name (defaults to the install directory name).',
 )
-def remove(directory: Path, site_name: str | None) -> None:
+def remove(directory: Path, snowdb_config: Path, site_name: str | None) -> None:
     """Remove the IIS site + app pool installed at DIRECTORY.
 
-    Leaves DIRECTORY itself in place (it may hold logs) but deletes its
-    web.config.
+    Also strips the app-pool account's permission grants from the venv, the
+    snowdb directory, and DIRECTORY. Leaves DIRECTORY itself in place (it
+    may hold logs) but deletes its web.config.
     """
     require_windows()
     site_name = _resolve_site_name(directory, site_name)
 
     click.echo(f'Removing IIS site {site_name!r}...')
-    run_powershell(remove_args(site_name=site_name))
+    run_powershell(
+        remove_args(
+            site_name=site_name,
+            venv_path=venv_root(Path(sys.executable)),
+            base_python_path=base_python_root(sys.prefix, sys.base_prefix),
+            snowdb_path=snowdb_root(snowdb_config),
+            physical_path=directory,
+        ),
+    )
 
     web_config = directory / 'web.config'
     if web_config.exists():
