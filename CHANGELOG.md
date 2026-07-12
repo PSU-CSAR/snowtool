@@ -17,6 +17,53 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.2.1] - 2026-07-12
+
+### Added
+
+- `windows iis remove` strips the app-pool account's permission grants from
+  the venv, its base interpreter, the snowdb directory, and the site
+  directory, making it a proper inverse of `install` (the grants name the
+  pool's virtual account, whose SID derives from the pool name alone — left
+  behind, they would silently re-attach to any future same-named pool).
+- `windows iis install` grants the app-pool identity read+execute on the
+  uv-managed Python interpreter backing the tool venv (`sys.base_prefix`);
+  without it the site's child process dies at startup with "Access is
+  denied" whenever the interpreter lives in the installing user's profile.
+
+### Changed
+
+- **Breaking:** `windows iis remove` requires `--config` (or
+  `SNOWTOOL_SNOWDB_CONFIG`) to locate the snowdb grant it removes.
+- The install-for-all-users instructions (docs and the `add-to-path`
+  guidance message) also set `UV_PYTHON_INSTALL_DIR`, keeping the
+  interpreter backing the tool venv out of the installing user's profile.
+- The IIS docs require IISAdministration ≥ 1.1.0.0 (Windows Server 2016's
+  inbox 1.0.0.0 lacks `New-IISSite -Protocol`/`-CertificateThumbPrint`).
+- The IIS permission grants apply the inheritable ACE at each tree root
+  instead of rewriting every file's ACL (`icacls` without `/T`).
+
+### Fixed
+
+- `windows iis install` and `remove` work end-to-end; the provisioning
+  scripts were broken since their introduction:
+  - App-pool creation/removal use `New-WebAppPool`/`Remove-WebAppPool`
+    (WebAdministration, now imported explicitly) — the previously called
+    `New-IISAppPool`/`Remove-IISAppPool` do not exist in any module.
+  - Re-runs converge instead of throwing duplicate-collection-entry errors:
+    pool creation is existence-guarded and the site is dropped and
+    recreated (`-Force` makes neither `New-WebAppPool` nor `New-IISSite`
+    idempotent).
+  - An https site without `--cert-thumbprint` is created through the raw
+    ServerManager API, since `New-IISSite` refuses a certificate-less https
+    binding; the certificate is then bound manually afterward, as already
+    documented.
+  - The shared ServerManager is refreshed after the WebAdministration pool
+    writes and before site-level settings, fixing "file has changed on
+    disk" commit failures on fresh installs and a NullReferenceException
+    when re-binding the site's app pool.
+  - Existence probes no longer leak spurious "does not exist" warnings.
+
 ## [v0.2.0] - 2026-07-12
 
 ### Added
@@ -90,6 +137,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...HEAD
+[v0.2.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/PSU-CSAR/snowtool/releases/tag/v0.2.0
 [v0.1.0]: https://github.com/PSU-CSAR/snowtool/releases/tag/v0.1.0
