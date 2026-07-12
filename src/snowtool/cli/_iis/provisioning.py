@@ -42,6 +42,18 @@ def venv_root(python_exe: Path) -> Path:
     return python_exe.parent.parent
 
 
+def base_python_root(prefix: str, base_prefix: str) -> Path | None:
+    """The base interpreter install backing a venv, or ``None`` outside one.
+
+    On Windows a uv venv's ``python.exe`` is a trampoline onto the base
+    interpreter recorded in ``pyvenv.cfg`` -- which for uv-managed pythons
+    defaults to the installing user's profile -- so the app-pool account
+    needs read+execute there too, not just on the venv. Call with
+    ``sys.prefix``/``sys.base_prefix``.
+    """
+    return Path(base_prefix) if base_prefix != prefix else None
+
+
 def snowdb_root(snowdb_config: Path) -> Path:
     """The snowdb root directory for ``snowdb_config`` (file-or-directory).
 
@@ -57,6 +69,7 @@ def install_args(
     site_name: str,
     physical_path: Path,
     venv_path: Path,
+    base_python_path: Path | None,
     snowdb_path: Path,
     hostname: str,
     port: int,
@@ -91,6 +104,8 @@ def install_args(
         '-RecycleTime',
         recycle_time,
     ]
+    if base_python_path is not None:
+        args += ['-BasePythonPath', str(base_python_path)]
     if cert_thumbprint:
         args += ['-CertThumbprint', cert_thumbprint]
     if access_log_dir is not None:
@@ -98,9 +113,20 @@ def install_args(
     return args
 
 
-def remove_args(*, site_name: str) -> list[str]:
-    """The ``powershell`` argv that tears down the app pool + site."""
-    return [
+def remove_args(
+    *,
+    site_name: str,
+    venv_path: Path,
+    base_python_path: Path | None,
+    snowdb_path: Path,
+    physical_path: Path,
+) -> list[str]:
+    """The ``powershell`` argv that tears down the app pool + site.
+
+    The paths are where ``install_args``'s script granted the app-pool
+    account permissions; the remove script strips those grants again.
+    """
+    args = [
         'powershell',
         '-NoProfile',
         '-NonInteractive',
@@ -110,7 +136,16 @@ def remove_args(*, site_name: str) -> list[str]:
         str(_script_path(_REMOVE_SCRIPT)),
         '-SiteName',
         site_name,
+        '-VenvPath',
+        str(venv_path),
+        '-SnowdbPath',
+        str(snowdb_path),
+        '-PhysicalPath',
+        str(physical_path),
     ]
+    if base_python_path is not None:
+        args += ['-BasePythonPath', str(base_python_path)]
+    return args
 
 
 def run_powershell(
