@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import numpy
 
+from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.provenance import versioned_hash
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ def require_absent_layers(
             if (target.directory / layer.filename).is_file()
         ]
         if existing:
-            raise FileExistsError(
+            raise ArtifactExistsError(
                 f'Could not generate {kind} for {target.name}: '
                 f'{target.directory} already has {", ".join(existing)}. '
                 'Remove and try again or use force=True.',

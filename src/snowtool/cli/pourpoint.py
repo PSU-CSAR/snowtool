@@ -25,11 +25,6 @@ from snowtool.cli._datasets import (
 )
 from snowtool.cli._progress import RichProgress
 from snowtool.cli._render import _emit, _emit_record
-from snowtool.exceptions import (
-    PourpointPruneDestinationRequiredError,
-    RemoteSourceError,
-    SnowtoolError,
-)
 from snowtool.snowdb.pourpoint_remote import materialize_dir, materialize_file
 
 if TYPE_CHECKING:
@@ -82,8 +77,6 @@ def import_pourpoint(manager: SnowDbManager, src: str, dry_run: bool) -> None:
                 dry_run=dry_run,
                 progress=RichProgress(),
             )
-    except RemoteSourceError as e:
-        raise click.ClickException(str(e)) from e
     except IsADirectoryError as e:
         raise click.ClickException(
             f'import takes a single file; use `pourpoint sync` for a directory: {src}',
@@ -130,10 +123,6 @@ def sync_pourpoints(
                 dry_run=dry_run,
                 progress=RichProgress(),
             )
-    except PourpointPruneDestinationRequiredError as e:
-        raise click.ClickException(str(e)) from e
-    except RemoteSourceError as e:
-        raise click.ClickException(str(e)) from e
     except (FileNotFoundError, NotADirectoryError) as e:
         raise click.ClickException(f'pourpoint sync requires a directory: {src}') from e
 
@@ -174,10 +163,7 @@ def list_pourpoints(snowdb: SnowDb, fmt: str) -> None:
 def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
     """Show a stored pourpoint's details (from its record geojson)."""
     index = snowdb.pourpoint_index()
-    try:
-        pp = snowdb.load_pourpoint(triplet, index=index)
-    except FileNotFoundError as e:
-        raise click.ClickException(str(e)) from e
+    pp = snowdb.load_pourpoint(triplet, index=index)
 
     # area_meters and geometry_hash are cached on the index entry (computed at
     # reindex); read them rather than recomputing from the basin polygon.
@@ -210,10 +196,7 @@ def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
 @pass_snowdb
 def dump_pourpoint(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
     """Copy a stored pourpoint's record geojson out to OUTPUT_DIR (round-trip)."""
-    try:
-        dest = snowdb.dump_pourpoint(triplet, output_dir)
-    except FileNotFoundError as e:
-        raise click.ClickException(str(e)) from e
+    dest = snowdb.dump_pourpoint(triplet, output_dir)
     click.echo(f'dumped {triplet} to {dest}')
 
 
@@ -291,23 +274,17 @@ def rasterize_aois(
     # The guard above leaves exactly one branch live; testing ``triplet`` directly
     # (truthy => a non-empty str, excluding None) narrows it for the typed load.
     if triplet:
-        try:
-            pourpoints = [manager.db.load_pourpoint(triplet)]
-        except FileNotFoundError as e:
-            raise click.ClickException(str(e)) from e
+        pourpoints = [manager.db.load_pourpoint(triplet)]
     else:
         pourpoints = list(manager.db.pourpoints())
 
     datasets = resolve_datasets(manager.db, dataset_names)
-    try:
-        result = manager.rasterize_aois(
-            pourpoints,
-            datasets,
-            rebuild=rebuild,
-            progress=RichProgress(),
-        )
-    except (FileNotFoundError, SnowtoolError) as e:
-        raise click.ClickException(str(e)) from e
+    result = manager.rasterize_aois(
+        pourpoints,
+        datasets,
+        rebuild=rebuild,
+        progress=RichProgress(),
+    )
 
     rows = [
         {'triplet': t, 'dataset': ds_name, 'action': action}

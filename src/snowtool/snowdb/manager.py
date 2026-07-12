@@ -20,8 +20,11 @@ from typing import TYPE_CHECKING, Self
 from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
+    InvalidDatasetNameError,
     PourpointPruneDestinationRequiredError,
     SnowDbConfigError,
+    UnknownDatasetError,
+    UnknownZoneLayerProviderError,
 )
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_copy
@@ -260,7 +263,7 @@ class SnowDbManager:
         path) is rejected up front -- registration is the single choke point.
         """
         if '/' in name or '\\' in name or name.endswith('.json'):
-            raise ValueError(
+            raise InvalidDatasetNameError(
                 f'Invalid dataset name {name!r}: a name must not contain a '
                 "path separator or end with '.json' (it must be usable as a "
                 'bare dataset token and a directory name).',
@@ -297,9 +300,10 @@ class SnowDbManager:
         The activation half of the register/activate split: registration says a
         dataset exists; this flips whether readers serve it. The config write is
         the commit point (atomic, like registration), and a running API server
-        still needs a restart to see the change. Raises :class:`ValueError` for a
-        name the root config does not register. Idempotent -- setting the current
-        state re-saves harmlessly.
+        still needs a restart to see the change. Raises
+        :class:`~snowtool.exceptions.UnknownDatasetError` for a name the root
+        config does not register. Idempotent -- setting the current state
+        re-saves harmlessly.
         """
         config = self._read_root_config()
         config_path = self.db.config_path
@@ -307,7 +311,7 @@ class SnowDbManager:
             raise SnowDbConfigError(self.db.root)
         if name not in config.datasets:
             registered = ', '.join(sorted(config.datasets)) or '(none)'
-            raise ValueError(
+            raise UnknownDatasetError(
                 f'No registered dataset {name!r}. Registered datasets: {registered}.',
             )
         config.datasets[name].active = active
@@ -365,12 +369,13 @@ class SnowDbManager:
         never shadow each other: a token containing a path separator or ending
         in ``.json`` is a PATH; anything else is a NAME. A path token never
         consults the catalog -- it must be an existing dataset config file
-        (its NAME taken from the parent directory), else :class:`ValueError`.
-        A name token never touches the filesystem -- it resolves only against
-        the root config's registered datasets (active or not: management ops
-        -- ingest, zone generation, diagnostics -- never care about reader
-        visibility); an unregistered name raises :class:`ValueError`. To
-        target an unregistered (staged) config, pass its path.
+        (its NAME taken from the parent directory), else
+        :class:`~snowtool.exceptions.UnknownDatasetError`. A name token never
+        touches the filesystem -- it resolves only against the root config's
+        registered datasets (active or not: management ops -- ingest, zone
+        generation, diagnostics -- never care about reader visibility); an
+        unregistered name raises the same error. To target an unregistered
+        (staged) config, pass its path.
         """
         is_path = (
             '/' in token or '\\' in token or os.sep in token or token.endswith('.json')
@@ -378,12 +383,12 @@ class SnowDbManager:
         if is_path:
             path = Path(token)
             if not path.is_file():
-                raise ValueError(f'No dataset config file at {path}.')
+                raise UnknownDatasetError(f'No dataset config file at {path}.')
             return self._build_staged_dataset(path.parent.name, path)
         if token in self.db.registered:
             return self.db.registered[token]
         registered = ', '.join(sorted(self.db.registered)) or '(none)'
-        raise ValueError(
+        raise UnknownDatasetError(
             f'No registered dataset {token!r}. Registered datasets: '
             f'{registered}. To target an unregistered dataset config, pass '
             "its path (e.g. './dataset.json' or 'data/x/dataset.json').",
@@ -608,10 +613,12 @@ class SnowDbManager:
         over the combined extent of every dataset that enables that provider -- so
         standing up N datasets that share a provider pays that provider's expensive
         source read *once*, not N times. ``provider_names`` limits the providers
-        (default: the union of every dataset's enabled providers); an unknown name
-        raises :class:`ValueError`. ``progress_factory`` builds a per-provider
-        reporter (default: silent). Returns ``{provider_name: {dataset_name: hash}}``,
-        with provider keys that targeted no dataset omitted.
+        (default: the union of every dataset's enabled providers); an unknown
+        name -- selected or overridden -- raises
+        :class:`~snowtool.exceptions.UnknownZoneLayerProviderError`.
+        ``progress_factory`` builds a per-provider reporter (default: silent).
+        Returns ``{provider_name: {dataset_name: hash}}``, with provider keys
+        that targeted no dataset omitted.
         """
         datasets = list(datasets)
         source_overrides = source_overrides or {}
@@ -620,9 +627,13 @@ class SnowDbManager:
             if provider_names is not None
             else tuple(dict.fromkeys(p for ds in datasets for p in ds.providers))
         )
-        for provider_name in selected:
+        # Override keys are validated alongside the selection so a typo'd
+        # ``--source PROVIDER PATH`` fails loudly instead of silently not applying.
+        for provider_name in (*selected, *source_overrides):
             if provider_name not in self.db.zone_layer_providers:
-                raise ValueError(f'No such zone-layer provider: {provider_name}')
+                raise UnknownZoneLayerProviderError(
+                    f'No such zone-layer provider: {provider_name}',
+                )
 
         results: dict[str, dict[str, str]] = {}
         for provider_name in selected:

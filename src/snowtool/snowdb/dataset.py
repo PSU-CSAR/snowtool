@@ -13,6 +13,7 @@ import rasterio
 from snowtool import types
 from snowtool.exceptions import (
     AOIRasterNotFoundError,
+    ArtifactExistsError,
     IncompleteDatasetDataError,
     SnowtoolError,
 )
@@ -153,7 +154,7 @@ class Dataset:
             self._aoi_rasters.mkdir(exist_ok=force)
             self._cogs.mkdir(exist_ok=force)
         except FileExistsError as e:
-            raise FileExistsError(
+            raise ArtifactExistsError(
                 f'Could not create {self.spec.name} dataset: {self.path} already '
                 'exists. Remove and try again or use `force=True`.',
             ) from e
@@ -241,7 +242,7 @@ class Dataset:
 
         path = self.aoi_raster_path_from_triplet(aoi.station_triplet)
         if not force and path.exists():
-            raise FileExistsError(
+            raise ArtifactExistsError(
                 f'Could not create AOI raster: {path} already exists. '
                 'Remove and try again or use `force=True`.',
             )
@@ -525,8 +526,17 @@ class Dataset:
         """The ``cogs/<YYYYMMDD>/`` directory for date ``d`` (may not exist)."""
         return self._cogs / self._format_date(d)
 
-    def available_dates(self: Self) -> list[date]:
-        """Every date with an ingested ``cogs/<YYYYMMDD>/`` directory, ascending."""
+    def available_dates(
+        self: Self,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[date]:
+        """Every date with an ingested ``cogs/<YYYYMMDD>/`` directory, ascending.
+
+        ``start``/``end`` bound the result inclusively; either may be omitted
+        for an open end.
+        """
         if not self._cogs.is_dir():
             return []
         dates = (
@@ -534,7 +544,13 @@ class Dataset:
             for child in self._cogs.iterdir()
             if child.is_dir()
         )
-        return sorted(d for d in dates if d is not None)
+        return sorted(
+            d
+            for d in dates
+            if d is not None
+            and (start is None or d >= start)
+            and (end is None or d <= end)
+        )
 
     def variable_path(
         self: Self,

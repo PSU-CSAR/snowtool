@@ -14,6 +14,8 @@ import rasterio
 
 from rasterio.crs import CRS
 
+from snowtool.exceptions import ArtifactExistsError
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import date
@@ -113,7 +115,7 @@ def write_cog_guarded(
     default. This keeps the guard message and that default in one place.
     """
     if not force and path.exists():
-        raise FileExistsError(
+        raise ArtifactExistsError(
             f'Unable to write COG: {path} already exists. '
             'Remove file and try again or use `force=True`.',
         )

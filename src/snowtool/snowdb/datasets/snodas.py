@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, ClassVar, Self
 
 import rasterio
 
-from snowtool.exceptions import SnowtoolError
+from snowtool.exceptions import IngestSourceError, SnowtoolError
 from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
 from snowtool.snowdb.ingest import IngestResult
 from snowtool.snowdb.progress import NULL_PROGRESS
@@ -211,13 +211,13 @@ class BaseFileInfo:
                 self.vcode,
             )
         except Exception as e:
-            raise ValueError('invalid value in SNODAS file name') from e
+            raise IngestSourceError('invalid value in SNODAS file name') from e
 
     @classmethod
     def _match(cls: type[Self], string: str):
         match = cls.regex.match(string)
         if not match:
-            raise ValueError('unable to parse SNODAS file path')
+            raise IngestSourceError('unable to parse SNODAS file path')
         return match
 
 
@@ -225,7 +225,7 @@ class SNODASInputRaster(BaseFileInfo):
     def __init__(self: Self, path: Path) -> None:
         super().__init__(path)
         if path.suffix not in HDR_EXTS:
-            raise ValueError(
+            raise IngestSourceError(
                 'SNODAS raster path must be to header file. '
                 f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
             )
