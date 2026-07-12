@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from snowtool.cli import cli
 from snowtool.cli._iis.provisioning import (
+    base_python_root,
     install_args,
     remove_args,
     run_powershell,
@@ -67,6 +68,7 @@ def test_user_specific_install_message_names_directory_and_reinstall_steps():
     assert r'C:\Users\alice\.local\bin' in message
     assert 'UV_TOOL_DIR' in message
     assert 'UV_TOOL_BIN_DIR' in message
+    assert 'UV_PYTHON_INSTALL_DIR' in message
     assert 'uv tool install snowtool' in message
 
 
@@ -124,11 +126,19 @@ def test_snowdb_root_resolves_a_config_file_to_its_parent(tmp_path):
     assert snowdb_root(config_file) == tmp_path
 
 
+def test_base_python_root_is_the_base_prefix_only_inside_a_venv():
+    base = '/uv/python/cpython-3.14'
+
+    assert base_python_root('/opt/tools/snowtool', base) == Path(base)
+    assert base_python_root(base, base) is None
+
+
 def test_install_args_builds_expected_powershell_invocation():
     args = install_args(
         site_name='snowtool',
         physical_path=Path('/inetpub/snowtool'),
         venv_path=Path('/opt/tools/snowtool'),
+        base_python_path=None,
         snowdb_path=Path('/data/snowdb'),
         hostname='snow.example.org',
         port=443,
@@ -153,15 +163,17 @@ def test_install_args_builds_expected_powershell_invocation():
     assert '/data/snowdb' in args
     assert '-Hostname' in args
     assert 'snow.example.org' in args
+    assert '-BasePythonPath' not in args
     assert '-CertThumbprint' not in args
     assert '-AccessLogDir' not in args
 
 
-def test_install_args_includes_cert_thumbprint_and_access_log_dir_when_given():
+def test_install_args_includes_optional_paths_and_thumbprint_when_given():
     args = install_args(
         site_name='snowtool',
         physical_path=Path('/inetpub/snowtool'),
         venv_path=Path('/opt/tools/snowtool'),
+        base_python_path=Path('/opt/uv/python/cpython-3.14'),
         snowdb_path=Path('/data/snowdb'),
         hostname='snow.example.org',
         port=443,
@@ -171,6 +183,8 @@ def test_install_args_includes_cert_thumbprint_and_access_log_dir_when_given():
         access_log_dir=Path('/var/log/snowtool'),
     )
 
+    assert '-BasePythonPath' in args
+    assert '/opt/uv/python/cpython-3.14' in args
     assert '-CertThumbprint' in args
     assert 'ABCDEF0123456789' in args
     assert '-AccessLogDir' in args
@@ -178,7 +192,13 @@ def test_install_args_includes_cert_thumbprint_and_access_log_dir_when_given():
 
 
 def test_remove_args_builds_expected_powershell_invocation():
-    args = remove_args(site_name='snowtool')
+    args = remove_args(
+        site_name='snowtool',
+        venv_path=Path('/opt/tools/snowtool'),
+        base_python_path=Path('/opt/uv/python/cpython-3.14'),
+        snowdb_path=Path('/data/snowdb'),
+        physical_path=Path('/inetpub/snowtool'),
+    )
 
     assert args[:6] == [
         'powershell',
@@ -189,7 +209,18 @@ def test_remove_args_builds_expected_powershell_invocation():
         '-File',
     ]
     assert args[6].endswith('remove_site.ps1')
-    assert args[-2:] == ['-SiteName', 'snowtool']
+    assert args[7:] == [
+        '-SiteName',
+        'snowtool',
+        '-VenvPath',
+        '/opt/tools/snowtool',
+        '-SnowdbPath',
+        '/data/snowdb',
+        '-PhysicalPath',
+        '/inetpub/snowtool',
+        '-BasePythonPath',
+        '/opt/uv/python/cpython-3.14',
+    ]
 
 
 def test_run_powershell_invokes_injected_runner_with_check_true():
@@ -302,7 +333,7 @@ def test_install_fails_cleanly_on_non_windows(tmp_path):
 def test_remove_fails_cleanly_on_non_windows(tmp_path):
     result = CliRunner().invoke(
         cli,
-        ['windows', 'iis', 'remove', str(tmp_path / 'site')],
+        ['windows', 'iis', 'remove', str(tmp_path / 'site'), '-C', str(tmp_path)],
     )
 
     assert result.exit_code != 0

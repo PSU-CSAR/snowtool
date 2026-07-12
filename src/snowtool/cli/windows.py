@@ -13,8 +13,11 @@ than under the installing admin's own profile (``uv tool install``'s
 default) -- otherwise every other user's PATH would point at a directory
 under an account they may not have access to. ``add-to-path`` refuses to
 proceed against a per-user install and prints how to reinstall with
-``UV_TOOL_DIR``/``UV_TOOL_BIN_DIR`` pointed at a shared location instead
-(see ``CONTRIBUTING.md``).
+``UV_TOOL_DIR``/``UV_TOOL_BIN_DIR``/``UV_PYTHON_INSTALL_DIR`` pointed at
+shared locations instead (see ``CONTRIBUTING.md``). The last of those
+covers the uv-managed interpreter the tool venv trampolines onto -- left
+per-user, the venv works only for the installing account even from a
+shared ``UV_TOOL_DIR``.
 """
 
 from __future__ import annotations

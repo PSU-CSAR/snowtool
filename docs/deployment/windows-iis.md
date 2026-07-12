@@ -17,7 +17,14 @@ IIS app-pool identity that runs the site):
     ```console
     setx /M UV_TOOL_DIR C:\ProgramData\uv\tools
     setx /M UV_TOOL_BIN_DIR C:\ProgramData\uv\bin
+    setx /M UV_PYTHON_INSTALL_DIR C:\ProgramData\uv\python
     ```
+
+    `UV_PYTHON_INSTALL_DIR` matters even though the tool itself lands in
+    `UV_TOOL_DIR`: a uv tool venv is a shim around a uv-*managed Python
+    interpreter* (see `home` in the venv's `pyvenv.cfg`), which uv otherwise
+    downloads into the installing user's profile — where other accounts,
+    including the site's app-pool identity, can't read it.
 
     `setx /M` sets these machine-wide; open a *new* elevated shell so they take
     effect, then install the tool:
@@ -25,6 +32,11 @@ IIS app-pool identity that runs the site):
     ```console
     uv tool install snowtool
     ```
+
+    If `snowtool` was installed before `UV_PYTHON_INSTALL_DIR` was set,
+    `uv tool install --reinstall snowtool` in a new elevated shell rebuilds
+    the venv against a machine-wide interpreter (the stray per-user one under
+    `%APPDATA%\uv\python` can then be deleted).
 
 2. Add the shared bin directory to the machine-wide PATH:
 
@@ -48,8 +60,11 @@ With `snowtool` installed (above), provision the IIS site that hosts the API.
 
 On the target Windows Server:
 
-- IIS with the **httpPlatformHandler** and **IISAdministration** modules
-  installed.
+- IIS with the **httpPlatformHandler** module installed, plus the
+  **IISAdministration** (version 1.1.0.0+) and **WebAdministration**
+  PowerShell modules. Windows Server 2019+ ships both; Server 2016's inbox
+  IISAdministration is 1.0.0.0 and must be updated first:
+  `Install-Module IISAdministration`.
 - An elevated (Administrator) PowerShell/shell to run the install commands.
 
 ### Provisioning the site
@@ -63,4 +78,6 @@ snowtool windows iis install C:\inetpub\snowtool --hostname snow.example.org --c
 directory is granted read+execute to the site's app-pool identity.
 
 Re-running `snowtool windows iis install` against an existing site updates it in
-place. Tear a site down with `snowtool windows iis remove`.
+place. Tear a site down with `snowtool windows iis remove` (it also takes
+`--config`, used to strip the app-pool identity's permission grant from the
+snowdb directory).
