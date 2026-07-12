@@ -22,7 +22,6 @@ from snowtool.cli import _console
 from snowtool.cli._context import config_option, pass_snowdb
 from snowtool.cli._datasets import get_dataset, nested_format_option
 from snowtool.cli._dates import parse_dates_query
-from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.zonal_stats import parse_zone_selection
 from snowtool.snowdb.zones.zone_layer import available_zones
 
@@ -99,20 +98,14 @@ def stats(
       snowtool stats snodas 13120:CO:SNTL --dates 04-01 --years 2018..2024 \\
           --zone terrain.elevation --format json
     """
-    dataset = get_dataset(snowdb, dataset_name)
-    try:
-        date_query = parse_dates_query(dates, years)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
+    dataset = get_dataset(snowdb, dataset_name, include_inactive=False)
+    date_query = parse_dates_query(dates, years)
 
     registry = available_zones(dataset.providers.values())
-    try:
-        # The CLI's ``LAYER[:override]`` string tokens converge on the same
-        # ``list[ZoneSelection]`` the API builds from pre-typed query fields (see
-        # ``api.routers._stats_params.selections``); only the input shape differs.
-        selections = [parse_zone_selection(token, registry) for token in zones]
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
+    # The CLI's ``LAYER[:override]`` string tokens converge on the same
+    # ``list[ZoneSelection]`` the API builds from pre-typed query fields (see
+    # ``api.routers._stats_params.selections``); only the input shape differs.
+    selections = [parse_zone_selection(token, registry) for token in zones]
 
     async def run() -> ZonalStats:
         # Build the reader inside the loop that will use it: the cache it owns is
@@ -129,11 +122,8 @@ def stats(
             allow_partial=allow_partial,
         )
 
-    try:
-        with _console.err().status(f'querying {dataset_name} for {triplet}...'):
-            result = asyncio.run(run())
-    except (FileNotFoundError, ValueError, SnowtoolError) as e:
-        raise click.ClickException(str(e)) from e
+    with _console.err().status(f'querying {dataset_name} for {triplet}...'):
+        result = asyncio.run(run())
 
     if fmt == 'json':
         click.echo(

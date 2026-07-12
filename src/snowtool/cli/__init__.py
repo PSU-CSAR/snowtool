@@ -29,6 +29,13 @@ bodies stay thin -- they resolve a SnowDb (via
 :func:`snowtool.cli._context.pass_snowdb`), call a domain method, and render
 with :func:`snowtool.cli._render._emit`. New logic belongs on
 ``SnowDb``/``Dataset`` or in ``snowdb/diagnostics.py``, not in click callbacks.
+
+Error handling is centralized: every operator-facing domain error is a
+:class:`~snowtool.exceptions.SnowtoolError`, and the root group maps that base
+to a clean ``ClickException`` for *every* command -- so command bodies carry no
+``try/except`` ceremony. A command adds its own ``except`` only to *tailor* a
+message (e.g. ``pourpoint import`` pointing a directory SRC at ``sync``);
+anything else that escapes is a bug and gets a traceback on purpose.
 """
 
 import click
@@ -43,9 +50,28 @@ from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.root import init_snowdb, status
 from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
+from snowtool.exceptions import SnowtoolError
 
 
-@click.group(context_settings={'auto_envvar_prefix': 'SNOWTOOL'})
+class _SnowtoolCli(click.Group):
+    """The root group, mapping domain errors to clean CLI errors centrally.
+
+    Every command runs inside this ``invoke``, so any
+    :class:`~snowtool.exceptions.SnowtoolError` -- the base of every
+    operator-facing domain error -- renders as one clean ``Error: ...`` line
+    (exit 1) instead of a traceback. Deliberately *only* that base: a bare
+    ``ValueError``/``OSError`` escaping the domain is a bug, and hiding it
+    behind a clean message would just bury the evidence.
+    """
+
+    def invoke(self, ctx: click.Context) -> object:
+        try:
+            return super().invoke(ctx)
+        except SnowtoolError as e:
+            raise click.ClickException(str(e)) from e
+
+
+@click.group(cls=_SnowtoolCli, context_settings={'auto_envvar_prefix': 'SNOWTOOL'})
 @click.version_option(__version__, '--version', prog_name='snowtool')
 @click.option(
     '--color',

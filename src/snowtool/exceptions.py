@@ -105,13 +105,62 @@ class AOIRasterNotFoundError(SnowtoolError, FileNotFoundError):
 
 
 class QueryParameterError(SnowtoolError, ValueError):
-    """Raised for an invalid query parameter (unknown variable/zone, runaway cross).
+    """Raised for an invalid parameter on a read surface (stats, diagnostics).
 
-    A *client* error in the stats/zonal query surface -- an unknown variable or zone
-    layer, an unparseable ``--zone`` override, or a crossed query exceeding
-    ``max_zone_cells``. Subclasses ``ValueError`` so existing ``except ValueError``
+    A *client* error in a parameterized query -- an unknown variable or zone
+    layer, an unparseable ``--zone`` override or ``--dates`` interval, a crossed
+    query exceeding ``max_zone_cells``, or a date-range request with no
+    inferable start. Subclasses ``ValueError`` so existing ``except ValueError``
     call sites (and the CLI) keep catching it, while the HTTP API maps *only* this
     type to 422 and lets a generic ``ValueError`` (a real bug) 500.
+    """
+
+
+class UnknownDatasetError(SnowtoolError, ValueError):
+    """Raised when a dataset token resolves to nothing actionable.
+
+    A management-surface *client* error: a name the root config does not
+    register (``resolve_dataset``, ``set_dataset_active``) or a path token with
+    no dataset config file behind it. Subclasses ``ValueError`` so existing
+    ``except ValueError`` call sites keep catching it.
+    """
+
+
+class InvalidDatasetNameError(SnowtoolError, ValueError):
+    """Raised when a dataset name cannot be used as a bare token/directory name.
+
+    Registration is the single choke point for names, so a name containing a
+    path separator or ending in ``.json`` (which ``resolve_dataset``'s syntactic
+    partition would read as a path) is rejected there with this type.
+    """
+
+
+class UnknownZoneLayerProviderError(SnowtoolError, ValueError):
+    """Raised when a zone-layer provider name matches no configured provider.
+
+    Covers both a ``--provider`` selection and a ``--source PROVIDER PATH``
+    override naming a provider the database does not configure.
+    """
+
+
+class ArtifactExistsError(SnowtoolError, FileExistsError):
+    """Raised when a write would clobber an existing derived artifact.
+
+    The shared refuse-to-overwrite guard (dataset skeletons, AOI rasters, zone
+    layers, ingested COGs): the artifact is already there and the caller did not
+    pass ``force``. Subclasses ``FileExistsError`` so existing ``except
+    FileExistsError`` call sites (e.g. the tolerate-already-staged path in
+    ``stage_dataset``) keep catching it.
+    """
+
+
+class IngestSourceError(SnowtoolError, ValueError):
+    """Raised when an ingest source artifact does not have the expected shape.
+
+    An operator-facing *input* error -- a file that is not the dataset's source
+    format (an unparseable SNODAS member name, a non-header raster path) --
+    distinct from :class:`ArtifactExistsError` (output already present) and from
+    a bare ``ValueError`` (a real bug).
     """
 
 

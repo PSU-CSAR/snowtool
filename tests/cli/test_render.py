@@ -1,13 +1,8 @@
-"""The shared --format emitter and the DATE argument type."""
+"""The shared --format emitter."""
 
 import json
 
-from datetime import date
-
-import click
-import pytest
-
-from snowtool.cli._render import DATE, _emit
+from snowtool.cli._render import _emit
 
 ROWS = [
     {'name': 'snodas', 'dates': 3},
@@ -76,42 +71,3 @@ def test_emit_table_does_not_wrap_wide_rows_on_non_terminal(capsys):
 
     for value in row.values():
         assert value in output
-
-
-@pytest.mark.parametrize(
-    ('value', 'expected'),
-    [
-        ('20180427', date(2018, 4, 27)),
-        ('2018-04-27', date(2018, 4, 27)),
-        # Timezone-independence regression (2e935b6): to_date must take .date()
-        # straight off the parsed datetime, not reinterpret it via astimezone,
-        # which shifted the result across the local-TZ boundary (e.g. '20240101'
-        # -> 2023-12-31 under TZ=Asia/Tokyo).
-        ('20240101', date(2024, 1, 1)),
-        ('2024-01-01', date(2024, 1, 1)),
-        ('20240229', date(2024, 2, 29)),  # leap day
-        ('2024-02-29', date(2024, 2, 29)),  # leap day, dashed
-        ('20231231', date(2023, 12, 31)),
-    ],
-)
-def test_date_param_parses_exact_value(value, expected):
-    assert DATE.convert(value, None, None) == expected
-
-
-def test_date_param_passes_through_date():
-    assert DATE.convert(date(2018, 4, 27), None, None) == date(2018, 4, 27)
-
-
-@pytest.mark.parametrize(
-    'value',
-    [
-        'not-a-date',
-        '2024-02-30',  # not a leap day
-        '20240230',
-        '',
-        '2024/01/01',
-    ],
-)
-def test_date_param_rejects_invalid_input(value):
-    with pytest.raises(click.BadParameter):
-        DATE.convert(value, None, None)

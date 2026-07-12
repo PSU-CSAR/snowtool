@@ -17,7 +17,7 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from snowtool.exceptions import IncompleteDatasetDataError
+from snowtool.exceptions import IncompleteDatasetDataError, QueryParameterError
 from snowtool.snowdb import triplet_naming
 
 if TYPE_CHECKING:
@@ -83,9 +83,9 @@ def missing_dates(
     """Every date absent from ``dataset`` within ``[start, end]`` (inclusive).
 
     ``start`` defaults to the dataset's first ingested date; ``end`` defaults to
-    today. Raises :class:`ValueError` if ``start`` is omitted and the dataset has
-    no ingested dates (there is no range start to infer). A ``start`` after
-    ``end`` yields an empty list rather than erroring.
+    today. Raises :class:`~snowtool.exceptions.QueryParameterError` if ``start``
+    is omitted and the dataset has no ingested dates (there is no range start to
+    infer). A ``start`` after ``end`` yields an empty list rather than erroring.
     """
     from datetime import date as date_cls
     from datetime import timedelta
@@ -93,7 +93,7 @@ def missing_dates(
     ingested = set(dataset.available_dates())
     if start is None:
         if not ingested:
-            raise ValueError(
+            raise QueryParameterError(
                 f'{dataset.spec.name} has no ingested dates; pass start explicitly',
             )
         start = min(ingested)

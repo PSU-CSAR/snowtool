@@ -92,21 +92,17 @@ def _inject[T, **P, R](
     """Wrap ``f`` so it receives ``build(ctx_obj)`` as its first argument.
 
     The shared scaffold behind :func:`pass_snowdb`/:func:`pass_manager`: it wraps
-    :func:`click.pass_obj`, builds the target from the :class:`CliContext` on
-    ``ctx.obj`` (lazily opening the database), and maps the
-    :class:`~snowtool.exceptions.SnowDbConfigError` that an un-initialized root
-    raises into a clean ``ClickException`` rather than a traceback.
+    :func:`click.pass_obj` and builds the target from the :class:`CliContext` on
+    ``ctx.obj`` (lazily opening the database). Errors need no handling here: the
+    :class:`~snowtool.exceptions.SnowDbConfigError` an un-initialized root raises
+    is a ``SnowtoolError``, which the root group maps to a clean
+    ``ClickException`` for every command.
     """
-    from snowtool.exceptions import SnowDbConfigError
 
     @click.pass_obj
     @functools.wraps(f)
     def wrapper(ctx_obj: CliContext, /, *args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            target = build(ctx_obj)
-        except SnowDbConfigError as e:
-            raise click.ClickException(str(e)) from e
-        return f(target, *args, **kwargs)
+        return f(build(ctx_obj), *args, **kwargs)
 
     return wrapper
 
