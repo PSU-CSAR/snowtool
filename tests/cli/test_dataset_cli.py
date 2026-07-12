@@ -86,6 +86,8 @@ def test_info_after_create(
     assert info['zone_layers']['terrain']['present'] is True
     assert info['zone_layers']['landcover']['present'] is True
     assert info['zone_layers']['landcover']['hash'] is not None
+    assert info['zones']['terrain']['aspect'] is None
+    assert info['zones']['terrain']['elevation'] == {'band_step_ft': 1000}
     assert info['is_geographic'] is True
     assert 'swe' in info['variables']
     # Grid details (formerly `report grid`), now folded into `info`.

@@ -117,11 +117,6 @@ ZoneDescription = (
     | ThresholdZoneDescription
     | CategoricalZoneDescription
 )
-# The kinds that advertise an override param (everything but categorical);
-# a runtime union, so ``isinstance(desc, OverridableZoneDescription)`` works.
-OverridableZoneDescription = (
-    BandedZoneDescription | BucketedZoneDescription | ThresholdZoneDescription
-)
 
 
 @dataclass(frozen=True)
