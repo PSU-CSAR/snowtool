@@ -68,6 +68,183 @@
         "title": "BandZoneRef",
         "type": "object"
       },
+      "BandedZoneInfo": {
+        "description": "A banded zone axis: overridable band width over a covered numeric range.\n\n``key`` is the value the ``zone`` query param accepts; the override query\nparam is ``'<key>.<param>'`` (likewise the other overridable kinds below).",
+        "properties": {
+          "default": {
+            "examples": [
+              1000
+            ],
+            "title": "Default",
+            "type": "integer"
+          },
+          "key": {
+            "examples": [
+              "terrain.elevation"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "banded",
+            "default": "banded",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              15000
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              -1000
+            ],
+            "title": "Min"
+          },
+          "param": {
+            "examples": [
+              "band_step_ft"
+            ],
+            "title": "Param",
+            "type": "string"
+          },
+          "unit": {
+            "examples": [
+              "ft"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "param",
+          "default",
+          "unit",
+          "min",
+          "max"
+        ],
+        "title": "BandedZoneInfo",
+        "type": "object"
+      },
+      "BucketedZoneInfo": {
+        "description": "An even-bucketed dimensionless axis: overridable bucket count.",
+        "properties": {
+          "default": {
+            "examples": [
+              4
+            ],
+            "title": "Default",
+            "type": "integer"
+          },
+          "key": {
+            "examples": [
+              "terrain.northness"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "bucketed",
+            "default": "bucketed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              1
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              -1
+            ],
+            "title": "Min"
+          },
+          "param": {
+            "examples": [
+              "buckets"
+            ],
+            "title": "Param",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "param",
+          "default",
+          "min",
+          "max"
+        ],
+        "title": "BucketedZoneInfo",
+        "type": "object"
+      },
+      "CategoricalZoneInfo": {
+        "description": "A categorical axis: fixed classes, no override param.",
+        "properties": {
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/ZoneClassInfo"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "key": {
+            "examples": [
+              "terrain.aspect"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "categorical",
+            "default": "categorical",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "classes"
+        ],
+        "title": "CategoricalZoneInfo",
+        "type": "object"
+      },
       "ClassZoneRef": {
         "description": "One crossed-zone axis that is a discrete class (its ``code`` + ``label``).",
         "properties": {
@@ -213,7 +390,29 @@
           },
           "zones": {
             "items": {
-              "$ref": "#/components/schemas/ZoneInfo"
+              "discriminator": {
+                "mapping": {
+                  "banded": "#/components/schemas/BandedZoneInfo",
+                  "bucketed": "#/components/schemas/BucketedZoneInfo",
+                  "categorical": "#/components/schemas/CategoricalZoneInfo",
+                  "threshold": "#/components/schemas/ThresholdZoneInfo"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/BandedZoneInfo"
+                },
+                {
+                  "$ref": "#/components/schemas/BucketedZoneInfo"
+                },
+                {
+                  "$ref": "#/components/schemas/ThresholdZoneInfo"
+                },
+                {
+                  "$ref": "#/components/schemas/CategoricalZoneInfo"
+                }
+              ]
             },
             "title": "Zones",
             "type": "array"
@@ -2435,6 +2634,83 @@
         "title": "Swann800mZonalStats",
         "type": "object"
       },
+      "ThresholdZoneInfo": {
+        "description": "A threshold-split axis: overridable split point within its measured range.",
+        "properties": {
+          "default": {
+            "examples": [
+              50.0
+            ],
+            "title": "Default",
+            "type": "number"
+          },
+          "key": {
+            "examples": [
+              "landcover.forest_cover"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "const": "threshold",
+            "default": "threshold",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              100
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "examples": [
+              0
+            ],
+            "title": "Min"
+          },
+          "param": {
+            "examples": [
+              "threshold_pct"
+            ],
+            "title": "Param",
+            "type": "string"
+          },
+          "unit": {
+            "examples": [
+              "%"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "param",
+          "default",
+          "unit",
+          "min",
+          "max"
+        ],
+        "title": "ThresholdZoneInfo",
+        "type": "object"
+      },
       "ThresholdZoneRef": {
         "description": "One crossed-zone axis that is a threshold split (forested vs unforested).\n\n``threshold`` (in ``unit``) is the split point as a real value; ``side`` is\n``'below'`` or ``'above'`` (at-or-above); ``label`` is the human name of the\nside (e.g. ``'forested'``).",
         "properties": {
@@ -2620,124 +2896,6 @@
           "label"
         ],
         "title": "ZoneClassInfo",
-        "type": "object"
-      },
-      "ZoneInfo": {
-        "description": "A stratifiable zone layer of a dataset and how to override its scheme.\n\n``key`` is the value the ``zone`` query param accepts; ``kind`` is the scheme\nkind. An overridable layer advertises its ``param`` (the override query param\nis ``'<key>.<param>'``), the scheme ``default`` for it, and the ``unit``; a\nbanded/bucketed layer also advertises its covered ``min``/``max`` range; a\ncategorical layer instead advertises its ``classes`` (and has no ``param``).",
-        "properties": {
-          "classes": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/ZoneClassInfo"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Classes"
-          },
-          "default": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              1000
-            ],
-            "title": "Default"
-          },
-          "key": {
-            "examples": [
-              "terrain.elevation"
-            ],
-            "title": "Key",
-            "type": "string"
-          },
-          "kind": {
-            "examples": [
-              "banded"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "max": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              15000
-            ],
-            "title": "Max"
-          },
-          "min": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              -1000
-            ],
-            "title": "Min"
-          },
-          "param": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              "band_step_ft"
-            ],
-            "title": "Param"
-          },
-          "unit": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              "ft"
-            ],
-            "title": "Unit"
-          }
-        },
-        "required": [
-          "key",
-          "kind"
-        ],
-        "title": "ZoneInfo",
         "type": "object"
       },
       "_StatsFormat": {
@@ -2982,15 +3140,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"
@@ -3191,15 +3349,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"
@@ -3426,15 +3584,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"
@@ -3635,15 +3793,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"
@@ -3870,15 +4028,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"
@@ -4079,15 +4237,15 @@
             }
           },
           {
-            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+            "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
             "in": "query",
             "name": "landcover.forest_cover.threshold_pct",
             "required": false,
             "schema": {
-              "default": 50,
-              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50 %). Applied only when that zone is also selected.",
+              "default": 50.0,
+              "description": "Override the split threshold for zone 'landcover.forest_cover' (default: 50.0 %). Applied only when that zone is also selected.",
               "examples": [
-                50
+                50.0
               ],
               "title": "Landcover.Forest Cover.Threshold Pct",
               "type": "number"

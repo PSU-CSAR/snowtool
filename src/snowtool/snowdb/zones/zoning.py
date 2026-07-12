@@ -60,28 +60,68 @@ class ZoneClassDescription:
 
 
 @dataclass(frozen=True)
-class ZoneDescription:
-    """A scheme's self-description: enough to advertise + accept an override.
+class BandedZoneDescription:
+    """Self-description of a banded axis: its override param, band width
+    default, unit, and covered range (first band's lower to last band's upper
+    edge). The switch-free surface the API discovery/query layers read instead
+    of ``isinstance``-ing a scheme (likewise the other kinds below)."""
 
-    The switch-free surface the API discovery/query layers read instead of
-    ``isinstance``-ing a scheme. ``kind`` is ``'banded'`` / ``'threshold'`` /
-    ``'categorical'``; ``param_key`` is the dataset/query param that overrides the
-    scheme (``None`` for a categorical axis, which takes none) and ``default`` its
-    configured default (band step / split threshold; ``None`` for categorical);
-    ``unit`` is the zone unit (``None`` for categorical); ``classes`` is the class
-    list for a categorical axis (``None`` otherwise). ``min``/``max`` are the axis'
-    covered range -- the first band's lower and the last band's upper edge for a
-    banded/bucketed axis (``None`` for a threshold split or categorical axis, which
-    have no numeric range).
-    """
+    kind: ClassVar[Literal['banded']] = 'banded'
+    param_key: str
+    default: int
+    unit: str
+    min: int | float
+    max: int | float
 
-    kind: str
-    param_key: str | None
-    default: int | float | None
-    unit: str | None
-    classes: tuple[ZoneClassDescription, ...] | None = None
-    min: int | float | None = None
-    max: int | float | None = None
+
+@dataclass(frozen=True)
+class BucketedZoneDescription:
+    """Self-description of an even-bucketed axis (dimensionless: no unit)."""
+
+    kind: ClassVar[Literal['bucketed']] = 'bucketed'
+    param_key: str
+    default: int
+    min: int | float
+    max: int | float
+    # Kept as an attribute so the overridable kinds share a uniform shape for
+    # consumers reading ``desc.unit``; a bucketed axis is always dimensionless.
+    unit: ClassVar[None] = None
+
+
+@dataclass(frozen=True)
+class ThresholdZoneDescription:
+    """Self-description of a threshold-split axis: param, split default, unit,
+    and the measured range the split sits within."""
+
+    kind: ClassVar[Literal['threshold']] = 'threshold'
+    param_key: str
+    default: float
+    unit: str
+    min: int | float
+    max: int | float
+
+
+@dataclass(frozen=True)
+class CategoricalZoneDescription:
+    """Self-description of a categorical axis: no override param, just classes."""
+
+    kind: ClassVar[Literal['categorical']] = 'categorical'
+    classes: tuple[ZoneClassDescription, ...]
+
+
+# What a scheme's describe() returns -- exactly one member per scheme kind, so
+# consumers match on the type instead of reading null-able fields off a bag.
+ZoneDescription = (
+    BandedZoneDescription
+    | BucketedZoneDescription
+    | ThresholdZoneDescription
+    | CategoricalZoneDescription
+)
+# The kinds that advertise an override param (everything but categorical);
+# a runtime union, so ``isinstance(desc, OverridableZoneDescription)`` works.
+OverridableZoneDescription = (
+    BandedZoneDescription | BucketedZoneDescription | ThresholdZoneDescription
+)
 
 
 @dataclass(frozen=True)
@@ -170,7 +210,7 @@ class ThresholdZone(Zone):
 
     threshold: float
     unit: str
-    side: str
+    side: Literal['below', 'above']
 
     def __str__(self: Self) -> str:
         return self.label
@@ -180,7 +220,7 @@ class ThresholdZone(Zone):
             layer=layer,
             threshold=self.threshold,
             unit=self.unit,
-            side=self.side,  # type: ignore[arg-type]
+            side=self.side,
             label=self.label,
         )
 
@@ -359,10 +399,9 @@ class BandedZoning(ZoneScheme):
                 f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
             ) from e
 
-    def describe(self: Self) -> ZoneDescription:
+    def describe(self: Self) -> BandedZoneDescription:
         bands = self.zones()
-        return ZoneDescription(
-            kind='banded',
+        return BandedZoneDescription(
             param_key=self.param_key,
             default=self.default_step,
             unit=self.unit,
@@ -448,13 +487,11 @@ class EvenBucketZoning(ZoneScheme):
                 f'zone {layer_key!r} bucket count must be an integer, got {raw!r}.',
             ) from e
 
-    def describe(self: Self) -> ZoneDescription:
+    def describe(self: Self) -> BucketedZoneDescription:
         bands = self.zones()
-        return ZoneDescription(
-            kind='bucketed',
+        return BucketedZoneDescription(
             param_key=self.param_key,
             default=self.default_buckets,
-            unit=None,
             min=bands[0].min,
             max=bands[-1].max,
         )
@@ -545,11 +582,10 @@ class ThresholdZoning(ZoneScheme):
                 f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
             ) from e
 
-    def describe(self: Self) -> ZoneDescription:
-        return ZoneDescription(
-            kind='threshold',
+    def describe(self: Self) -> ThresholdZoneDescription:
+        return ThresholdZoneDescription(
             param_key=self.param_key,
-            default=self.default_threshold,
+            default=float(self.default_threshold),
             unit=self.unit,
             min=_as_number(self.domain_min),
             max=_as_number(self.domain_max),
@@ -598,12 +634,8 @@ class CategoricalZoning(ZoneScheme):
     classes: tuple[ClassZone, ...]
     layer_nodata: int
 
-    def describe(self: Self) -> ZoneDescription:
-        return ZoneDescription(
-            kind='categorical',
-            param_key=None,
-            default=None,
-            unit=None,
+    def describe(self: Self) -> CategoricalZoneDescription:
+        return CategoricalZoneDescription(
             classes=tuple(
                 ZoneClassDescription(key=cls.key, label=cls.label)
                 for cls in self.classes
