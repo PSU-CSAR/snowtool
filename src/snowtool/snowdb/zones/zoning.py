@@ -27,12 +27,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import numpy
 import numpy.typing
 
-from snowtool.exceptions import QueryParameterError
+from snowtool.exceptions import QueryParameterError, ZoneParamsError
+from snowtool.snowdb.config import (
+    BandStepParams,
+    BucketParams,
+    EntropyThresholdParams,
+    ThresholdParams,
+)
 from snowtool.snowdb.zonal_stat_models import (
     BandZoneRef,
     ClassZoneRef,
@@ -227,14 +233,19 @@ class ZoneScheme(ABC):
         """
         raise NotImplementedError
 
-    def configured(self: Self, params: ZoneLayerParams) -> Self:
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
         """A copy of this scheme with the dataset's configured param applied.
 
-        Translates the human-facing param a dataset's ``zones`` block carries (e.g.
-        ``band_step_ft``, ``threshold_pct``) into a new configured instance. The
-        base scheme takes no params (so a categorical layer ignores any), so it
-        returns itself unchanged.
+        ``params`` arrives as the specific member model the config parsed to
+        (``None`` = unconfigured / no params). The base scheme takes none (a
+        categorical axis), so configured params are a config error -- the
+        member models make a misplaced param detectable instead of silently
+        ignorable.
         """
+        if params is not None:
+            raise ZoneParamsError(
+                f'this zone layer takes no params; got {type(params).__name__}',
+            )
         return self
 
     def with_override(self: Self, override: int | float) -> Self:
@@ -318,9 +329,8 @@ class BandedZoning(ZoneScheme):
     unit: str
     value_scale: float
     layer_nodata: float
-    # The key a dataset's zones block uses for this layer's band width (e.g.
-    # ``band_step_ft``); its value becomes the configured ``default_step``.
-    param_key: str = 'band_step_ft'
+    # The dataset/query param that configures this scheme's band width.
+    param_key: ClassVar[str] = 'band_step_ft'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_step, int) or self.default_step <= 0:
@@ -328,9 +338,15 @@ class BandedZoning(ZoneScheme):
                 f'band step must be a positive int, got {self.default_step!r}',
             )
 
-    def configured(self: Self, params: ZoneLayerParams) -> Self:
-        value = getattr(params, self.param_key)
-        return self if value is None else replace(self, default_step=value)
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
+        if not isinstance(params, BandStepParams):
+            raise ZoneParamsError(
+                f'a banded zone layer is configured by {self.param_key!r}; '
+                f'got {type(params).__name__}',
+            )
+        return replace(self, default_step=params.band_step_ft)
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_step=override)  # type: ignore[arg-type]
@@ -402,8 +418,8 @@ class EvenBucketZoning(ZoneScheme):
     domain_max: float
     default_buckets: int
     layer_nodata: float
-    # The key a dataset's zones block uses for this layer's bucket count.
-    param_key: str = 'buckets'
+    # The dataset/query param that configures this layer's bucket count.
+    param_key: ClassVar[str] = 'buckets'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_buckets, int) or self.default_buckets < 1:
@@ -411,9 +427,15 @@ class EvenBucketZoning(ZoneScheme):
                 f'bucket count must be a positive int, got {self.default_buckets!r}',
             )
 
-    def configured(self: Self, params: ZoneLayerParams) -> Self:
-        value = getattr(params, self.param_key)
-        return self if value is None else replace(self, default_buckets=value)
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
+        if not isinstance(params, BucketParams):
+            raise ZoneParamsError(
+                f'a bucketed zone layer is configured by {self.param_key!r}; '
+                f'got {type(params).__name__}',
+            )
+        return replace(self, default_buckets=params.buckets)
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_buckets=int(override))
@@ -493,13 +515,24 @@ class ThresholdZoning(ZoneScheme):
     layer_nodata: float
     below_label: str
     above_label: str
-    # The key a dataset's zones block uses for this layer's split point (e.g.
-    # ``threshold_pct``); its value becomes the configured ``default_threshold``.
-    param_key: str = 'threshold_pct'
+    # Which threshold param configures this split: forest cover uses
+    # ``threshold_pct``; normalised aspect entropy uses ``entropy_threshold``.
+    param_key: Literal['threshold_pct', 'entropy_threshold'] = 'threshold_pct'
 
-    def configured(self: Self, params: ZoneLayerParams) -> Self:
-        value = getattr(params, self.param_key)
-        return self if value is None else replace(self, default_threshold=value)
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
+        if self.param_key == 'threshold_pct' and isinstance(params, ThresholdParams):
+            return replace(self, default_threshold=params.threshold_pct)
+        if self.param_key == 'entropy_threshold' and isinstance(
+            params,
+            EntropyThresholdParams,
+        ):
+            return replace(self, default_threshold=params.entropy_threshold)
+        raise ZoneParamsError(
+            f'this threshold zone layer is configured by {self.param_key!r}; '
+            f'got {type(params).__name__}',
+        )
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_threshold=float(override))

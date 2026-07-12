@@ -106,18 +106,22 @@ source can never be exceeded by the resampled layer.
 
 ## Query parameters and overrides
 
-A structured scheme (banded, threshold) has one tunable parameter: a band width
-or a split point. Each layer's default comes from the dataset's config `zones`
-block — `band_step_ft` for elevation, `band_step_pct` for the orientation
-components, `threshold_pct` for forest cover, `entropy_threshold` for aspect
-entropy — folded into the scheme by `configured`; an unset param falls back to
-the scheme's own default. A single query can then override that default per axis
-with a `LAYER:override` token (the CLI `--zone` flag), parsed in
-`parse_zone_selection` (`snowdb/zonal_stats.py`): the token is delegated to the
-layer's own scheme, which types it (a banded axis parses an int band width, a
-threshold axis a float split point) or rejects it. A categorical axis takes no
-override — `parse_override` on the base scheme raises — so `terrain.aspect` is
-selected bare.
+A structured scheme (banded, bucketed, threshold) has one tunable parameter: a
+band width, a bucket count, or a split point. Each layer's default comes from
+the dataset's config `zones` block, where it parses to one of four
+single-field member models of the `ZoneLayerParams` union
+(`snowdb/config.py`) — `BandStepParams.band_step_ft` for elevation,
+`BucketParams.buckets` for the orientation components, `ThresholdParams.
+threshold_pct` for forest cover, `EntropyThresholdParams.entropy_threshold`
+for aspect entropy — folded into the scheme by `configured`; `None` (an
+unconfigured layer) falls back to the scheme's own default, and a param
+belonging to a different scheme raises `ZoneParamsError`. A single query can
+then override that default per axis with a `LAYER:override` token (the CLI
+`--zone` flag), parsed in `parse_zone_selection` (`snowdb/zonal_stats.py`):
+the token is delegated to the layer's own scheme, which types it (a banded
+axis parses an int band width, a threshold axis a float split point) or
+rejects it. A categorical axis takes no override — `parse_override` on the
+base scheme raises — so `terrain.aspect` is selected bare.
 
 ## The built-in layers
 

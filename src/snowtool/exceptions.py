@@ -116,6 +116,19 @@ class QueryParameterError(SnowtoolError, ValueError):
     """
 
 
+class ZoneParamsError(SnowtoolError, ValueError):
+    """Raised when a dataset's ``zones`` block configures a layer with params of
+    the wrong kind (e.g. ``buckets`` for the banded elevation axis).
+
+    Zone params parse to a *specific* member model at config load (an unknown
+    param name already fails there); this guards the remaining gap -- a
+    well-formed param attached to a layer whose scheme doesn't take it -- which
+    is only detectable once the layer's scheme is known. A dataset-config
+    (operator) error, deliberately not a :class:`QueryParameterError`: the API
+    must not report it as a client 422.
+    """
+
+
 class UnknownDatasetError(SnowtoolError, ValueError):
     """Raised when a dataset token resolves to nothing actionable.
 

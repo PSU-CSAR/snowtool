@@ -37,14 +37,14 @@ from __future__ import annotations
 
 import enum
 
-from typing import TYPE_CHECKING, Annotated, NamedTuple, Protocol, get_args
+from typing import TYPE_CHECKING, Annotated, NamedTuple, Protocol
 
 from fastapi import Query
 from gazebo.negotiation import FormatEnum, f_description
 from gazebo.params import DatetimeQuery
 from pydantic import BaseModel, Field, create_model, model_validator
 
-from snowtool.snowdb.config import ZoneLayerParams
+from snowtool.snowdb.config import ZONE_PARAM_MODELS
 from snowtool.snowdb.zonal_stats import ZoneSelection
 from snowtool.snowdb.zones.zone_layer import available_zones
 
@@ -136,15 +136,13 @@ def _sanitize(key: str) -> str:
     return ''.join(ch if ch.isalnum() else '_' for ch in key)
 
 
-def _non_optional(annotation: object) -> object:
-    """Strip ``None`` from an ``X | None`` annotation, keeping ``X`` (else as-is)."""
-    args = [a for a in get_args(annotation) if a is not type(None)]
-    return args[0] if len(args) == 1 else annotation
-
-
 def _param_annotation(param_key: str) -> object:
-    """The non-nullable type of a ``ZoneLayerParams`` override param."""
-    return _non_optional(ZoneLayerParams.model_fields[param_key].annotation)
+    """The declared type of a zone override param (``int`` or ``float``).
+
+    Read from the param's member model, where the field is required -- so the
+    annotation is already non-nullable.
+    """
+    return ZONE_PARAM_MODELS[param_key].model_fields[param_key].annotation
 
 
 def _zone_enum(name: str, registry: Mapping[str, AvailableZone]) -> type[enum.StrEnum]:
@@ -261,8 +259,8 @@ def _base_fields(
     for key, ov in override_fields.items():
         # Non-nullable, defaulted to the scheme's own default (shown as the example),
         # so the doc advertises a real value rather than an empty ``... | null`` box.
-        # The ``ZoneLayerParams`` annotation is optional (``int | None``); strip the
-        # ``None`` to keep int-vs-float but drop nullability.
+        # The member model's field is required, so the annotation is already
+        # non-nullable (int vs float, per member).
         annotation = _param_annotation(ov.param_key)
         unit = f' {ov.unit}' if ov.unit else ''
         noun = _OVERRIDE_NOUN.get(ov.kind, 'scheme param')

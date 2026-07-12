@@ -11,7 +11,7 @@ from typing import IO, TYPE_CHECKING, Self
 import numpy
 import numpy.typing
 
-from snowtool.exceptions import QueryParameterError
+from snowtool.exceptions import QueryParameterError, ZoneParamsError
 from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.raster import DataRaster
 from snowtool.snowdb.raster.collection import RasterCollection
@@ -334,9 +334,15 @@ class ZonalStats:
             # Fold the dataset's configured params for this layer into a configured
             # scheme, then apply the selection's explicit override (if any). After
             # this the scheme carries everything; zones()/assign() take no kwargs.
-            scheme = available.scheme.configured(
-                spec.zone_params(available.provider.name, available.layer.key),
-            )
+            try:
+                scheme = available.scheme.configured(
+                    spec.zone_params(available.provider.name, available.layer.key),
+                )
+            except ZoneParamsError as e:
+                raise ZoneParamsError(
+                    f'dataset {spec.name!r} zones'
+                    f'[{available.provider.name!r}][{available.layer.key!r}]: {e}',
+                ) from e
             if selection.override is not None:
                 scheme = scheme.with_override(selection.override)
             resolved.append((available, scheme))
