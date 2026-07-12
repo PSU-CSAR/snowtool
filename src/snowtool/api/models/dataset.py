@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
 
 from gazebo.link import Link
 from gazebo.rels import Rel
@@ -149,14 +149,30 @@ STATS_DATE_RANGE_REL = 'stats-date-range'
 STATS_DOY_REL = 'stats-doy'
 
 
-def _stats_links(name: str, zones: list[ZoneInfo]) -> list[Link]:
-    """Templated links to dataset ``name``'s two stats query endpoints.
+def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
+    """Every stratifiable zone of ``dataset`` as :data:`ZoneInfo`, sorted by key."""
+    registry = available_zones(dataset.providers.values())
+    return [_zone_info(key, registry[key]) for key in sorted(registry)]
 
-    The station triplet is an unbound RFC 6570 path variable (the dataset name is
-    already baked into the route) and the query params are a form-query expansion --
-    the shared zone/variable/negotiation params plus each overridable zone's
-    ``<key>.<param>`` override field -- so a client can build a stats query from the
-    dataset resource alone.
+
+def stats_links(
+    name: str,
+    zones: list[ZoneInfo],
+    *,
+    triplet: str | None = None,
+) -> list[Link]:
+    """Links to dataset ``name``'s two stats query endpoints.
+
+    Without ``triplet`` -- the dataset resource's form -- the station triplet is
+    an unbound RFC 6570 path variable (the dataset name is already baked into
+    the route). With a ``triplet`` -- the pourpoint resource's form -- it is
+    bound into the path, the titles are prefixed with the dataset name, and each
+    link carries a machine-readable ``dataset`` field (a pass-through extra on
+    gazebo's ``Link``), so a client holding several datasets' pairs selects one
+    deterministically by ``(rel, dataset)`` instead of parsing titles or hrefs.
+    Either way the query params are a form-query expansion: the shared
+    zone/variable/negotiation params plus each overridable zone's
+    ``<key>.<param>`` override field.
     """
     overrides = [
         f'{zone.key}.{zone.param}'
@@ -164,20 +180,28 @@ def _stats_links(name: str, zones: list[ZoneInfo]) -> list[Link]:
         if not isinstance(zone, CategoricalZoneInfo)
     ]
     shared = ['zone', 'variable', *overrides, 'allow_partial', 'f']
+    if triplet is None:
+        binding: dict[str, Any] = {'template': ['triplet']}
+        date_range_title = 'Date-range zonal statistics'
+        doy_title = 'Day-of-year zonal statistics'
+    else:
+        binding = {'path': {'triplet': triplet}, 'dataset': name}
+        date_range_title = f'{name} date-range zonal statistics'
+        doy_title = f'{name} day-of-year zonal statistics'
     return [
         Link.to_route(
             f'{name}_stats_date_range',
             rel=STATS_DATE_RANGE_REL,
-            title='Date-range zonal statistics',
-            template=['triplet'],
+            title=date_range_title,
             query_template=['datetime', *shared],
+            **binding,
         ),
         Link.to_route(
             f'{name}_stats_doy',
             rel=STATS_DOY_REL,
-            title='Day-of-year zonal statistics',
-            template=['triplet'],
+            title=doy_title,
             query_template=['month', 'day', 'start_year', 'end_year', *shared],
+            **binding,
         ),
     ]
 
@@ -193,8 +217,7 @@ class DatasetInfo(BaseModel):
     def from_dataset(cls, dataset: Dataset) -> Self:
         spec = dataset.spec
         grid_params = spec.grid_params
-        registry = available_zones(dataset.providers.values())
-        zones = [_zone_info(key, registry[key]) for key in sorted(registry)]
+        zones = dataset_zone_infos(dataset)
         return cls(
             name=spec.name,
             grid=GridInfo(
@@ -217,7 +240,7 @@ class DatasetInfo(BaseModel):
             links=[
                 Link.self_link(),
                 Link.root_link(),
-                *_stats_links(spec.name, zones),
+                *stats_links(spec.name, zones),
             ],
         )
 

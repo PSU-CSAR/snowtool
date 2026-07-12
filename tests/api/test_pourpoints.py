@@ -2,6 +2,8 @@
 
 import json
 
+from dataclasses import replace
+
 import pytest
 
 from fastapi.testclient import TestClient
@@ -13,8 +15,28 @@ from gazebo.testing import (
 )
 
 from snowtool.api.app import get_app
+from snowtool.api.models.pourpoint import _pourpoint_stats_links
+from snowtool.snowdb.coverage import Coverage
+from snowtool.snowdb.pourpoint import Pourpoint
 
 TRIPLET = '12345:MT:USGS'
+
+# The synthetic 'test' dataset's full stats query surface (DEFAULT_ZONES), as the
+# RFC 6570 form-query template its links advertise: shared params + each
+# overridable zone's <key>.<param>, in sorted-zone-key order.
+_DATE_RANGE_QUERY_TEMPLATE = (
+    '{?datetime,zone,variable,'
+    'landcover.forest_cover.threshold_pct,'
+    'terrain.aspect_entropy.entropy_threshold,'
+    'terrain.eastness.buckets,'
+    'terrain.elevation.band_step_ft,'
+    'terrain.northness.buckets,'
+    'allow_partial,f}'
+)
+_DOY_QUERY_TEMPLATE = _DATE_RANGE_QUERY_TEMPLATE.replace(
+    '{?datetime,',
+    '{?month,day,start_year,end_year,',
+)
 
 
 def _aoi_feature(triplet: str, west: float, south: float) -> dict:
@@ -151,6 +173,73 @@ def test_get_aoi_detail(synthetic_client) -> None:
     # Curated ids are present (null here -- the synthetic record has none).
     assert props['awdb_id'] is None
     assert props['usgs_id'] is None
+
+
+def test_detail_advertises_per_dataset_stats_links(synthetic_client) -> None:
+    body = synthetic_client.get(f'/pourpoints/{TRIPLET}').json()
+    stats = [
+        link
+        for link in body['links']
+        if link['rel'] in ('stats-date-range', 'stats-doy')
+    ]
+    # Exactly one (date-range, doy) pair for the one covered active dataset;
+    # (rel, dataset) selects a link deterministically.
+    assert len(stats) == 2
+    assert {(link['rel'], link['dataset']) for link in stats} == {
+        ('stats-date-range', 'test'),
+        ('stats-doy', 'test'),
+    }
+    by_rel = {link['rel']: link for link in stats}
+    date_range = by_rel['stats-date-range']
+    assert date_range['templated'] is True
+    assert date_range['title'] == 'test date-range zonal statistics'
+    # The triplet is bound into the path; only the query params stay templated.
+    assert date_range['href'].endswith(
+        f'/datasets/test/stats/{TRIPLET}/date-range{_DATE_RANGE_QUERY_TEMPLATE}',
+    )
+    doy = by_rel['stats-doy']
+    assert doy['templated'] is True
+    assert doy['title'] == 'test day-of-year zonal statistics'
+    assert doy['href'].endswith(
+        f'/datasets/test/stats/{TRIPLET}/doy{_DOY_QUERY_TEMPLATE}',
+    )
+
+
+def test_detail_stats_links_match_the_dataset_resource(synthetic_client) -> None:
+    # A pourpoint's bound link must equal the dataset resource's templated link
+    # with {triplet} expanded -- one test tying the two resources together so
+    # their advertised query surfaces cannot drift apart.
+    dataset_links = {
+        link['rel']: link
+        for link in synthetic_client.get('/datasets/test').json()['links']
+    }
+    detail_links = {
+        link['rel']: link
+        for link in synthetic_client.get(f'/pourpoints/{TRIPLET}').json()['links']
+        if link['rel'].startswith('stats-')
+    }
+    for rel in ('stats-date-range', 'stats-doy'):
+        expected = dataset_links[rel]['href'].replace('{triplet}', TRIPLET)
+        assert detail_links[rel]['href'] == expected
+
+
+def test_detail_stats_links_exclude_inactive_datasets(inactive_dataset_client) -> None:
+    # The inactive 'other' dataset serves no routes; its links must not appear
+    # (mirrors the coverage-filtering contract).
+    body = inactive_dataset_client.get(f'/pourpoints/{TRIPLET}').json()
+    stats = [link for link in body['links'] if link['rel'].startswith('stats-')]
+    assert {link['dataset'] for link in stats} == {'test'}
+    assert len(stats) == 2
+
+
+def test_stats_links_omitted_for_point_only_and_none_coverage(pourpoint_geojson):
+    pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
+    # A point-only pourpoint has no basin to query, so no stats affordance.
+    point_only = replace(pourpoint, polygon=None)
+    assert _pourpoint_stats_links(None, point_only, {'test': Coverage.FULL}) == []
+    # A dataset that cannot serve the basin (coverage none) contributes no pair
+    # -- such a query always 409s, so its link would advertise a dead end.
+    assert _pourpoint_stats_links(None, pourpoint, {'test': Coverage.NONE}) == []
 
 
 def test_list_basin_geometry_returns_polygons(synthetic_client) -> None:

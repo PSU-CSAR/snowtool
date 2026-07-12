@@ -31,6 +31,7 @@ from gazebo.pagination import paginate_offset
 from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
+from snowtool.api.models.dataset import dataset_zone_infos, stats_links
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
@@ -91,6 +92,35 @@ def _active_coverage(
     client cannot follow to ``/datasets/{name}`` or the stats routes.
     """
     return {name: cov for name, cov in entry.coverage.items() if name in active}
+
+
+def _pourpoint_stats_links(
+    snowdb: SnowDb,
+    pourpoint: Pourpoint,
+    coverage: dict[str, Coverage],
+) -> list[Link]:
+    """Stats links for every dataset that can actually serve this basin.
+
+    One (date-range, doy) pair per dataset in ``coverage`` (already filtered to
+    active datasets) whose coverage is FULL or PARTIAL -- a NONE dataset always
+    409s, so its link would advertise a dead end. Each pair binds the triplet
+    and carries the dataset name (see
+    :func:`snowtool.api.models.dataset.stats_links`). A point-only pourpoint
+    has no basin to query, so it gets none (defensive: such records are not
+    indexed, so the detail route cannot reach this today).
+    """
+    if pourpoint.polygon is None:
+        return []
+    return [
+        link
+        for name in sorted(coverage)
+        if coverage[name] is not Coverage.NONE
+        for link in stats_links(
+            name,
+            dataset_zone_infos(snowdb[name]),
+            triplet=pourpoint.station_triplet,
+        )
+    ]
 
 
 def _pourpoint_feature(
@@ -190,8 +220,12 @@ def build_pourpoint_detail(
     The basin polygon and the curated record fields come from the loaded
     ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
     values from ``entry`` (computed at reindex), not recomputed here -- coverage
-    filtered to ``snowdb``'s active datasets (see :func:`_active_coverage`).
+    filtered to ``snowdb``'s active datasets (see :func:`_active_coverage`). The
+    response also carries per-dataset stats links, one templated (date-range,
+    doy) pair per active dataset covering the basin (see
+    :func:`_pourpoint_stats_links`).
     """
+    coverage = _active_coverage(entry, snowdb.datasets)
     # The basin polygon passes straight through (see `_pourpoint_feature`); `None`
     # for a point-only pourpoint (GeoJSON allows a null geometry).
     return PourpointDetail(
@@ -201,7 +235,7 @@ def build_pourpoint_detail(
             name=pourpoint.name,
             area_meters=entry.area_meters,
             pourpoint=_point_coords(pourpoint.point),
-            coverage=_active_coverage(entry, snowdb.datasets),
+            coverage=coverage,
             awdb_id=pourpoint.awdb_id,
             usgs_id=pourpoint.usgs_id,
         ),
@@ -213,5 +247,6 @@ def build_pourpoint_detail(
                 rel=Rel.COLLECTION,
                 type=MediaType.GEOJSON,
             ),
+            *_pourpoint_stats_links(snowdb, pourpoint, coverage),
         ],
     )
