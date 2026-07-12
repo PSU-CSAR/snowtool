@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import hashlib
-import json
 
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 
 import shapely
 
 from geojson_pydantic import MultiPolygon, Point, Polygon
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 from pyproj import CRS, Geod, Transformer
 from shapely import Geometry
 from shapely.ops import transform as shapely_transform
@@ -22,7 +28,6 @@ from snowtool.exceptions import GeoJSONValidationError
 # A pourpoint's basin geometry: a single polygon or a multi-part basin,
 # discriminated on the GeoJSON ``type`` string (geojson-pydantic models).
 BasinGeometry = Annotated[Polygon | MultiPolygon, Field(discriminator='type')]
-_BASIN_ADAPTER: TypeAdapter[Polygon | MultiPolygon] = TypeAdapter(BasinGeometry)
 
 _WGS84 = CRS.from_epsg(4326)
 # Geodesic area on the WGS84 ellipsoid -- computes basin area straight from the
@@ -30,14 +35,90 @@ _WGS84 = CRS.from_epsg(4326)
 # (mixed/unknown units) and never have to pick a projected equal-area CRS.
 _GEOD = Geod(ellps='WGS84')
 
-# geojson type strings
-GEOM_COLLECTION = 'GeometryCollection'
-FEATURE = 'Feature'
-POINT = 'Point'
-POLYGON = 'Polygon'
-MULTIPOLYGON = 'MultiPolygon'
 
-POLYGON_TYPES = [POLYGON, MULTIPOLYGON]
+# A geometry a pourpoint source's GeometryCollection may hold, discriminated on
+# the GeoJSON ``type`` string so a stray member (a LineString, say) fails with
+# a precise error.
+_SourceGeometry = Annotated[
+    Point | Polygon | MultiPolygon,
+    Field(discriminator='type'),
+]
+
+
+class _SourceFeature(BaseModel):
+    """The point-only pourpoint source form: a GeoJSON ``Feature`` whose
+    geometry *must* be the outflow ``Point``.
+
+    ``extra='allow'`` tolerates foreign members (valid GeoJSON); ``id`` is the
+    station triplet, pattern-checked here at the parse boundary rather than
+    surfacing later as an index-build crash.
+    """
+
+    model_config = ConfigDict(extra='allow')
+
+    type: Literal['Feature']
+    id: types.StationTriplet
+    geometry: Point
+    properties: dict[str, Any]
+
+    @property
+    def point(self: Self) -> Point:
+        return self.geometry
+
+    @property
+    def polygon(self: Self) -> None:
+        return None
+
+
+class _SourceGeometryCollection(BaseModel):
+    """The basin-bearing source form: a ``GeometryCollection`` of exactly the
+    outflow ``Point`` plus the basin ``(Multi)Polygon`` (either order), with
+    the triplet ``id`` and ``properties`` as foreign members (the upstream
+    convention this importer accepts)."""
+
+    model_config = ConfigDict(extra='allow')
+
+    type: Literal['GeometryCollection']
+    id: types.StationTriplet
+    geometries: list[_SourceGeometry]
+    properties: dict[str, Any]
+
+    @model_validator(mode='after')
+    def _exactly_point_plus_basin(self: Self) -> Self:
+        if len(self.geometries) != 2:
+            raise ValueError(
+                'a pourpoint GeometryCollection must hold exactly two '
+                f'geometries (point + basin); got {len(self.geometries)}',
+            )
+        points = [g for g in self.geometries if isinstance(g, Point)]
+        if len(points) != 1:
+            raise ValueError(
+                'a pourpoint GeometryCollection must hold exactly one Point '
+                'and one (Multi)Polygon',
+            )
+        return self
+
+    @property
+    def point(self: Self) -> Point:
+        return next(g for g in self.geometries if isinstance(g, Point))
+
+    @property
+    def polygon(self: Self) -> Polygon | MultiPolygon:
+        return next(
+            g for g in self.geometries if isinstance(g, (Polygon, MultiPolygon))
+        )
+
+
+# A pourpoint source file, routed by its GeoJSON ``type``: the two accepted
+# envelope forms. Anything else (a FeatureCollection, a bare geometry, a JSON
+# array) is a discriminator error -> GeoJSONValidationError in from_geojson.
+_PourpointSource = Annotated[
+    _SourceFeature | _SourceGeometryCollection,
+    Field(discriminator='type'),
+]
+_SOURCE_ADAPTER: TypeAdapter[_SourceFeature | _SourceGeometryCollection] = TypeAdapter(
+    _PourpointSource,
+)
 
 
 @dataclass
@@ -58,7 +139,9 @@ class Pourpoint:
     # project's typed-modeling default: this is external, open-shaped data (an
     # arbitrary AWDB/USGS property bag), not a snowtool-defined schema, so only
     # the curated fields below (``awdb_id``/``usgs_id``) are pulled out as typed
-    # attributes. It is never round-tripped through validation, only carried.
+    # attributes. The source *envelope* (type/id/geometry shape) is typed via
+    # :data:`_PourpointSource`; this bag itself is carried through as-is, never
+    # round-tripped through validation.
     properties: dict[str, Any]
     station_triplet: types.StationTriplet
     name: str
@@ -71,84 +154,39 @@ class Pourpoint:
     def from_geojson(cls: type[Self], path: Path | str) -> Self:
         """Parse a pourpoint record, classifying *any* unreadable source as invalid.
 
-        The read + JSON parse live inside the conversion ``try`` so that garbage
-        bytes or malformed JSON surface as :class:`GeoJSONValidationError` -- the
-        same error a schema mismatch raises -- rather than a raw
-        ``JSONDecodeError``/``UnicodeDecodeError``. That keeps a single bad file in
-        a ``pourpoint import``/``sync`` batch landing in the ``invalid`` list
-        instead of aborting the whole run (``_classify_sources`` catches only
+        The whole read parses through the typed :data:`_PourpointSource` union,
+        so garbage bytes, malformed JSON, a wrong envelope ``type``, a
+        malformed station-triplet ``id``, a non-Point feature geometry, or a
+        mis-shaped GeometryCollection all surface as one
+        :class:`GeoJSONValidationError` -- keeping a single bad file in a
+        ``pourpoint import``/``sync`` batch in the ``invalid`` list instead of
+        aborting the run (``_classify_sources`` catches only
         :class:`GeoJSONValidationError`).
         """
         path = Path(path)
-
-        kwargs: dict[str, Any] = {}
         try:
-            geojson = json.loads(path.read_text())
-            if not isinstance(geojson, dict):
-                raise GeoJSONValidationError(
-                    'Pourpoint source is not a GeoJSON object.',
-                )
-            if geojson['type'] == FEATURE:
-                if geojson['geometry']['type'] != POINT:
-                    raise GeoJSONValidationError(
-                        'All pourpoints must have a point geometry.',
-                    )
-                kwargs['point'] = Point.model_validate(geojson['geometry'])
-            elif geojson['type'] == GEOM_COLLECTION:
-                kwargs.update(cls._parse_geometry_collection(geojson['geometries']))
-            else:
-                raise GeoJSONValidationError(
-                    f"Incompatible type '{geojson['type']}'",
-                )
-
-            properties = geojson['properties']
-            kwargs['properties'] = properties
-            kwargs['station_triplet'] = geojson['id']
-            kwargs['name'] = properties.get('nwccname') or properties['name']
-            kwargs['awdb_id'] = properties.get('awdb_id')
-            kwargs['usgs_id'] = properties.get('usgs_id')
-        except KeyError as e:
-            raise GeoJSONValidationError(
-                'Pourpoint missing required property',
-            ) from e
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise GeoJSONValidationError(
-                f'Pourpoint source is not readable geojson: {e}',
-            ) from e
+            source = _SOURCE_ADAPTER.validate_json(path.read_bytes())
         except ValidationError as e:
             raise GeoJSONValidationError(
-                f'Pourpoint geometry is invalid: {e}',
+                f'Pourpoint source is not a valid pourpoint geojson: {e}',
             ) from e
 
-        return cls(path=path, **kwargs)
-
-    @staticmethod
-    def _parse_geometry_collection(geoms: Any) -> dict[str, Any]:
-        """Pull the point (required) + basin polygon (required) out of the two-geom
-        ``GeometryCollection`` pourpoint form. Raises :class:`GeoJSONValidationError`
-        on the wrong count or a missing point/polygon geometry."""
-        if len(geoms) != 2:
+        properties = source.properties
+        name = properties.get('nwccname') or properties.get('name')
+        if not name:
             raise GeoJSONValidationError(
-                'Multi-geometry pourpoints cannot have more than two geometries',
+                "Pourpoint missing required property: 'nwccname' or 'name'",
             )
-        kwargs: dict[str, Any] = {}
-        if geoms[0]['type'] == POINT:
-            kwargs['point'] = Point.model_validate(geoms[0])
-        elif geoms[1]['type'] == POINT:
-            kwargs['point'] = Point.model_validate(geoms[1])
-        else:
-            raise GeoJSONValidationError(
-                'All pourpoints must have a point geometry.',
-            )
-        if geoms[0]['type'] in POLYGON_TYPES:
-            kwargs['polygon'] = _BASIN_ADAPTER.validate_python(geoms[0])
-        elif geoms[1]['type'] in POLYGON_TYPES:
-            kwargs['polygon'] = _BASIN_ADAPTER.validate_python(geoms[1])
-        else:
-            raise GeoJSONValidationError(
-                'Multi-geometry pourpoints must have one (Mutli)Polygon geometry',
-            )
-        return kwargs
+        return cls(
+            path=path,
+            properties=properties,
+            station_triplet=source.id,
+            name=name,
+            point=source.point,
+            polygon=source.polygon,
+            awdb_id=properties.get('awdb_id'),
+            usgs_id=properties.get('usgs_id'),
+        )
 
     # Pourpoints are treated as immutable after construction, so the derived
     # geometry/area/hash below are cached_property (computed once per instance;

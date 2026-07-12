@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - **Breaking (API):** a dataset's `zones` entries are a discriminated union on
   `kind`; fields that don't apply to a kind (e.g. `classes` on a banded axis,
   `param` on a categorical one) are now absent instead of `null`.
+- Pourpoint sources parse through typed GeoJSON envelope models: the station
+  triplet `id` is pattern-validated at import, a `Feature` source's geometry
+  must be a `Point`, a `GeometryCollection` must be exactly point + basin, and
+  a source with `null`/missing `properties` is classified invalid instead of
+  crashing the import batch.
 
 ### Removed
 
