@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   exclusive per layer); a param attached to a layer whose scheme does not take
   it is now a `ZoneParamsError` instead of being silently ignored, and a layer
   enabled with no params is stored as `null` rather than `{}`.
+- **Breaking (API):** a dataset's `zones` entries are a discriminated union on
+  `kind`; fields that don't apply to a kind (e.g. `classes` on a banded axis,
+  `param` on a categorical one) are now absent instead of `null`.
 
 ### Removed
 
