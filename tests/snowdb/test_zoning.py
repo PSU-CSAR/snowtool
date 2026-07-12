@@ -5,13 +5,20 @@ from itertools import pairwise
 import numpy
 import pytest
 
+from snowtool.exceptions import ZoneParamsError
 from snowtool.snowdb import diagnostics
-from snowtool.snowdb.config import ZoneLayerParams
+from snowtool.snowdb.config import (
+    BandStepParams,
+    BucketParams,
+    EntropyThresholdParams,
+    ThresholdParams,
+)
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.landcover import FOREST_COVER
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENT_NODATA,
+    ASPECT_ENTROPY,
     ASPECT_MAJORITY,
     EASTNESS,
     ELEVATION,
@@ -292,6 +299,39 @@ def test_threshold_describe_reports_param_default_and_unit():
     )
 
 
+@pytest.mark.parametrize(
+    ('layer', 'params'),
+    [
+        (ELEVATION, BucketParams(buckets=4)),
+        (NORTHNESS, BandStepParams(band_step_ft=1000)),
+        (FOREST_COVER, EntropyThresholdParams(entropy_threshold=0.5)),
+        (ASPECT_ENTROPY, ThresholdParams(threshold_pct=50)),
+        (ASPECT_MAJORITY, BandStepParams(band_step_ft=1000)),
+    ],
+)
+def test_configured_with_wrong_kind_of_params_raises(layer, params):
+    # A well-formed param attached to a layer whose scheme doesn't take it is a
+    # config error, not a silent no-op (the pre-union behavior).
+    with pytest.raises(ZoneParamsError):
+        layer.zoning.configured(params)
+
+
+def test_configured_applies_the_matching_member_params():
+    assert (
+        ELEVATION.zoning.configured(BandStepParams(band_step_ft=2000)).default_step
+        == 2000
+    )
+    assert NORTHNESS.zoning.configured(BucketParams(buckets=8)).default_buckets == 8
+    forest = FOREST_COVER.zoning.configured(ThresholdParams(threshold_pct=25))
+    assert forest.default_threshold == 25
+    entropy = ASPECT_ENTROPY.zoning.configured(
+        EntropyThresholdParams(entropy_threshold=0.7),
+    )
+    assert entropy.default_threshold == 0.7
+    # None = unconfigured: the scheme keeps its own defaults.
+    assert ELEVATION.zoning.configured(None) is ELEVATION.zoning
+
+
 # --- the registry ------------------------------------------------------------
 
 
@@ -340,7 +380,7 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
             rows=8,
             tile_size=8,
         ),
-        zones={'terrain': {'elevation': ZoneLayerParams(band_step_ft=1000)}},
+        zones={'terrain': {'elevation': BandStepParams(band_step_ft=1000)}},
     )
     manager = make_manager(tmp_path, [terrain_only])
     db = manager.db
@@ -399,7 +439,7 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
     # The dataset must *enable* the new provider (its zones block) for it to be
     # bound/served -- enablement is opt-in.
-    spec.zones = {**spec.zones, 'tiny': {'tier': ZoneLayerParams()}}
+    spec.zones = {**spec.zones, 'tiny': {'tier': None}}
     db = make_snowdb(tmp_path, [spec], zone_layer_providers=providers)
     ds = db['test']
 

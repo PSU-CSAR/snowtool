@@ -5,9 +5,12 @@ import pytest
 from pydantic import ValidationError
 
 from snowtool.snowdb.config import (
+    BandStepParams,
+    BucketParams,
     DatasetConfig,
+    EntropyThresholdParams,
     RootConfig,
-    ZoneLayerParams,
+    ThresholdParams,
     load_entity,
 )
 from snowtool.snowdb.datasets import (
@@ -167,15 +170,49 @@ def test_unknown_zone_param_is_rejected_at_config_load():
         )
 
 
-def test_zone_params_omit_none_fields_in_json():
+@pytest.mark.parametrize(
+    ('block', 'expected'),
+    [
+        ({'band_step_ft': 1000}, BandStepParams(band_step_ft=1000)),
+        ({'buckets': 4}, BucketParams(buckets=4)),
+        ({'threshold_pct': 50}, ThresholdParams(threshold_pct=50)),
+        ({'entropy_threshold': 0.5}, EntropyThresholdParams(entropy_threshold=0.5)),
+        (None, None),
+    ],
+)
+def test_zone_param_block_parses_to_its_member_model(block, expected):
+    # The single param field name routes an on-disk block to exactly one member
+    # model; null means "enabled, no params" (a categorical axis).
     config = DatasetConfig(
         grid=_grid_config(),
         variables={'swe': _swe_variable()},
-        zones={'terrain': {'elevation': ZoneLayerParams(band_step_ft=1000)}},
+        zones={'terrain': {'layer': block}},
+    )
+    assert config.zones['terrain']['layer'] == expected
+
+
+def test_zone_param_block_with_params_of_two_kinds_is_rejected():
+    # extra='forbid' on every member keeps the union disjoint: a block carrying
+    # two different schemes' params matches no member.
+    with pytest.raises(ValidationError):
+        DatasetConfig(
+            grid=_grid_config(),
+            variables={'swe': _swe_variable()},
+            zones={'terrain': {'elevation': {'band_step_ft': 1000, 'buckets': 4}}},
+        )
+
+
+def test_zone_params_serialize_as_their_single_field():
+    config = DatasetConfig(
+        grid=_grid_config(),
+        variables={'swe': _swe_variable()},
+        zones={
+            'terrain': {'elevation': BandStepParams(band_step_ft=1000), 'aspect': None},
+        },
     )
     text = config.model_dump_json()
     assert '"elevation":{"band_step_ft":1000}' in text
-    assert 'buckets' not in text  # unset params are omitted
+    assert '"aspect":null' in text
 
 
 def test_default_zones_enumerate_every_served_layer():
@@ -184,16 +221,14 @@ def test_default_zones_enumerate_every_served_layer():
     # param) and land cover's forest_cover.
     assert {
         'terrain': {
-            'elevation': ZoneLayerParams(band_step_ft=1000),
-            'aspect': ZoneLayerParams(),
-            'northness': ZoneLayerParams(buckets=4),
-            'eastness': ZoneLayerParams(buckets=4),
-            'aspect_entropy': ZoneLayerParams(entropy_threshold=0.5),
+            'elevation': BandStepParams(band_step_ft=1000),
+            'aspect': None,
+            'northness': BucketParams(buckets=4),
+            'eastness': BucketParams(buckets=4),
+            'aspect_entropy': EntropyThresholdParams(entropy_threshold=0.5),
         },
-        'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},
+        'landcover': {'forest_cover': ThresholdParams(threshold_pct=50)},
     } == DEFAULT_ZONES
-    # aspect carries no params -> serializes to an empty object.
-    assert DEFAULT_ZONES['terrain']['aspect'].model_dump() == {}
 
 
 def test_default_zones_round_trip_through_dataset_config(tmp_path):

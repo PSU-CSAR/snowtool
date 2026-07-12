@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING
 
 from pyproj import CRS
 
-from snowtool.snowdb.config import ZoneLayerParams
+from snowtool.snowdb.config import (
+    BandStepParams,
+    BucketParams,
+    EntropyThresholdParams,
+    ThresholdParams,
+    ZoneLayerParams,
+)
 from snowtool.snowdb.grid import GridParams, make_grid
 
 if TYPE_CHECKING:
@@ -41,26 +47,28 @@ __all__ = ['DEFAULT_ZONES', 'DatasetSpec', 'GridParams', 'ZoneConfig']
 
 
 # A dataset's zone configuration: provider name -> layer key -> the default
-# query params for that layer (a :class:`ZoneLayerParams`). A provider's presence
-# here *enables* it for the dataset (it is generated and served); absence means
-# the dataset has no such zone layer.
-ZoneConfig = dict[str, dict[str, ZoneLayerParams]]
+# query params for that layer (a :class:`ZoneLayerParams`, or ``None`` for a
+# layer enabled with no params). A provider's presence here *enables* it for the
+# dataset (it is generated and served); absence means the dataset has no such
+# zone layer.
+ZoneConfig = dict[str, dict[str, ZoneLayerParams | None]]
 
 # The zones every standard dataset enables: it enumerates every served layer
 # across the built-in providers (terrain's five, land cover's one), each with its
 # behaviour-preserving defaults (these values equal the scheme's own defaults --
 # 1000 ft elevation bands, 4 northness/eastness buckets, a 0.5 aspect-entropy
-# threshold, a 50% forest threshold; aspect is categorical and takes no param). A
-# dataset that wants a subset (or different params) overrides this.
+# threshold, a 50% forest threshold; aspect is categorical and maps to ``None``,
+# taking no param). A dataset that wants a subset (or different params)
+# overrides this.
 DEFAULT_ZONES: ZoneConfig = {
     'terrain': {
-        'elevation': ZoneLayerParams(band_step_ft=1000),
-        'aspect': ZoneLayerParams(),
-        'northness': ZoneLayerParams(buckets=4),
-        'eastness': ZoneLayerParams(buckets=4),
-        'aspect_entropy': ZoneLayerParams(entropy_threshold=0.5),
+        'elevation': BandStepParams(band_step_ft=1000),
+        'aspect': None,
+        'northness': BucketParams(buckets=4),
+        'eastness': BucketParams(buckets=4),
+        'aspect_entropy': EntropyThresholdParams(entropy_threshold=0.5),
     },
-    'landcover': {'forest_cover': ZoneLayerParams(threshold_pct=50)},
+    'landcover': {'forest_cover': ThresholdParams(threshold_pct=50)},
 }
 
 
@@ -103,13 +111,14 @@ class DatasetSpec:
         self: DatasetSpec,
         provider_name: str,
         layer_key: str,
-    ) -> ZoneLayerParams:
+    ) -> ZoneLayerParams | None:
         """The configured default query params for one zone layer.
 
-        An all-``None`` :class:`ZoneLayerParams` when the provider/layer is not
-        configured, so callers read params uniformly without a presence check.
+        ``None`` when the provider/layer is not configured, or is configured
+        with no params -- either way the scheme's own defaults apply, so
+        callers pass the result to :meth:`ZoneScheme.configured` uniformly.
         """
-        return self.zones.get(provider_name, {}).get(layer_key, ZoneLayerParams())
+        return self.zones.get(provider_name, {}).get(layer_key)
 
     @classmethod
     def from_config(
