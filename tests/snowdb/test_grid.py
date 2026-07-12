@@ -8,11 +8,18 @@ both the real grid and a tiny synthetic grid.
 import pytest
 
 from griffine import Point
+from pydantic import ValidationError
 from pyproj import Geod
 
 from snowtool.exceptions import GeometryOutsideGridError
 from snowtool.snowdb.datasets import SNODAS_SPEC
-from snowtool.snowdb.grid import bounding_tiles, grid_extent, make_grid, tiles_in_bbox
+from snowtool.snowdb.grid import (
+    GridParams,
+    bounding_tiles,
+    grid_extent,
+    make_grid,
+    tiles_in_bbox,
+)
 
 SNODAS_GRID = SNODAS_SPEC.grid
 _GP = SNODAS_SPEC.grid_params  # SNODAS_SPEC is the source of truth for these
@@ -197,6 +204,21 @@ def test_cell_area_matches_geodesic_reference(row: int) -> None:
         [maxy, maxy, miny, miny],
     )
     assert cell.area == pytest.approx(abs(reference))
+
+
+def test_grid_params_reject_an_unparseable_crs() -> None:
+    # 'crs' accepts an EPSG int or WKT/authority string, but must be something
+    # pyproj can parse -- fail at config load, not first grid build.
+    with pytest.raises(ValidationError, match='CRS'):
+        GridParams(
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=8,
+            rows=8,
+            tile_size=8,
+            crs='not-a-crs',
+        )
 
 
 # --- synthetic small grid (the testing workhorse) -----------------------------

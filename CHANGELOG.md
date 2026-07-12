@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
+- Dataset-config `dtype` and grid `crs` values are validated at config load
+  (numpy/pyproj must parse them) instead of failing at first raster read or
+  grid build.
+
 ### Changed
 
 - **Breaking:** dataset-config zone params parse to per-scheme models
