@@ -30,13 +30,13 @@ IIS app-pool identity that runs the site):
     effect, then install the tool:
 
     ```console
-    uv tool install snowtool
+    uv tool install snowtool --managed-python
     ```
 
-    If `snowtool` was installed before `UV_PYTHON_INSTALL_DIR` was set,
-    `uv tool install --reinstall snowtool` in a new elevated shell rebuilds
-    the venv against a machine-wide interpreter (the stray per-user one under
-    `%APPDATA%\uv\python` can then be deleted).
+    If `snowtool` was installed before `UV_PYTHON_INSTALL_DIR` was set, `uv
+    tool install --reinstall --managed-python snowtool` in a new elevated shell
+    rebuilds the venv against a machine-wide interpreter (the stray per-user
+    one under `%APPDATA%\uv\python` can then be deleted).
 
 2. Add the shared bin directory to the machine-wide PATH:
 
