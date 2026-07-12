@@ -46,15 +46,12 @@ git commit -m "message" --no-verify
 
 ## Testing
 
-Tests are run using `pytest`. Put `pytest` python modules and other resource in
-the `tests/` directory.
+Tests are run using `pytest`. Put `pytest` python modules and other resources
+in the `tests/` directory.
 
-Source the .env file. The app uses Pydantic BaseSettings, but has dotenv
-support disabled, so the environment variables must be set.
-
-```commandline
-. .env
-```
+No environment configuration is needed: the tests never read
+`SNOWTOOL_SNOWDB_CONFIG` — they build their own temporary snowdbs and settings
+objects directly.
 
 Run the tests:
 
@@ -103,4 +100,5 @@ uvicorn snowtool.api.app:get_app --factory --reload
 With the `uvicorn` defaults, the app should be accessible at
 `http://localhost:8000`.
 
-For deploying the tool (including Windows/IIS), see the README.
+For deploying the tool (including Windows/IIS), see the
+[documentation](https://psu-csar.github.io/snowtool/) (`docs/deployment/`).

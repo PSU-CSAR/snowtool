@@ -122,8 +122,8 @@ check runs in the ingest skip (`Dataset.write_date_cogs`); the format-version
 check surfaces in diagnostics. `stale_format_zone_layers` in
 `snowdb/diagnostics.py` compares each built zone-layer set's stamped format
 version (via `ZoneLayerSet.stored_format_version`) against the provider's
-current one and emits a `ZoneLayerFormat` finding for any mismatch, so `snowdb
-status`/`validate` flag a set that needs regenerating after a format bump.
+current one and emits a `ZoneLayerFormat` finding for any mismatch, so
+`snowtool doctor` flags a set that needs regenerating after a format bump.
 `aoi_health_report` separately catches an AOI raster missing its
 `SNOWTOOL_TILE_BBOX` tag and points at a rebuild.
 
