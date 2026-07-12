@@ -172,6 +172,78 @@ def test_sync_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run
     assert [p.name for p, _ in result.invalid] == ['bad.geojson']
 
 
+def _source(**overrides):
+    """A valid two-geometry pourpoint source, with per-test overrides."""
+    return {
+        'type': 'GeometryCollection',
+        'id': '12345:MT:USGS',
+        'geometries': [_POINT, _POLYGON],
+        'properties': {'name': 'Test Basin'},
+        **overrides,
+    }
+
+
+@pytest.mark.parametrize(
+    'source',
+    [
+        pytest.param(_source(id='not a triplet'), id='malformed-triplet'),
+        pytest.param(_source(id=12345), id='non-string-id'),
+        pytest.param(_source(geometries=[_POINT]), id='one-geometry'),
+        pytest.param(
+            _source(geometries=[_POINT, _POINT, _POLYGON]),
+            id='three-geometries',
+        ),
+        pytest.param(_source(geometries=[_POINT, _POINT]), id='two-points'),
+        pytest.param(_source(geometries=[_POLYGON, _POLYGON]), id='two-polygons'),
+        pytest.param(_source(properties=None), id='null-properties'),
+        pytest.param(_source(properties={'source': 'test'}), id='no-name'),
+        pytest.param(_source(type='FeatureCollection'), id='unsupported-type'),
+        pytest.param(
+            {
+                'type': 'Feature',
+                'id': '12345:MT:USGS',
+                'geometry': _POLYGON,
+                'properties': {'name': 'Test Basin'},
+            },
+            id='feature-with-polygon-geometry',
+        ),
+    ],
+)
+def test_from_geojson_rejects_structurally_invalid_sources(tmp_path, source):
+    # Every structural defect -- a bad triplet id, the wrong geometry count or
+    # kinds, null properties (which previously crashed the batch with an
+    # AttributeError), a missing name -- classifies as GeoJSONValidationError.
+    path = tmp_path / 'bad.geojson'
+    path.write_text(json.dumps(source))
+    with pytest.raises(GeoJSONValidationError):
+        Pourpoint.from_geojson(path)
+
+
+def test_from_geojson_parses_a_point_only_feature(tmp_path):
+    src = {
+        'type': 'Feature',
+        'id': '99999:MT:USGS',
+        'geometry': _POINT,
+        'properties': {'name': 'Point Only', 'awdb_id': '99999'},
+    }
+    path = tmp_path / 'point.geojson'
+    path.write_text(json.dumps(src))
+    pp = Pourpoint.from_geojson(path)
+    assert pp.station_triplet == '99999:MT:USGS'
+    assert pp.polygon is None
+    assert tuple(pp.point.coordinates[:2]) == (-119.45, 44.45)
+    assert pp.name == 'Point Only'
+    assert pp.awdb_id == '99999'
+    assert pp.properties == {'name': 'Point Only', 'awdb_id': '99999'}
+
+
+def test_from_geojson_prefers_nwccname_over_name(tmp_path):
+    src = _source(properties={'nwccname': 'NWCC Name', 'name': 'Other'})
+    path = tmp_path / 'pp.geojson'
+    path.write_text(json.dumps(src))
+    assert Pourpoint.from_geojson(path).name == 'NWCC Name'
+
+
 # --- sync --------------------------------------------------------------------
 
 
