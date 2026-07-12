@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   links, the served zone layers with their value ranges, and the served
   dataset names as an enum; malformed-query-parameter 400s carry a
   resolvable problem type.
+- API: a pourpoint's detail response advertises per-dataset templated stats
+  links (one date-range + day-of-year pair per active dataset covering the
+  basin), with the triplet bound into the path and a machine-readable
+  `dataset` key on each link.
 - Dataset-config `dtype` and grid `crs` values are validated at config load
   (numpy/pyproj must parse them) instead of failing at first raster read or
   grid build.
