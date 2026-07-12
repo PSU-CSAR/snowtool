@@ -13,7 +13,9 @@ import math
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import numpy
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Reducer(StrEnum):
@@ -62,6 +64,16 @@ class DatasetVariable(BaseModel):
     dtype: str  # numpy read dtype, e.g. 'int16', 'float32'
     nodata: float
     glob: str  # filename glob within a cogs/<YYYYMMDD>/ dir
+
+    @field_validator('dtype')
+    @classmethod
+    def _dtype_parses(cls: type[Self], value: str) -> str:
+        """Reject a dtype numpy cannot parse at config load, not first read."""
+        try:
+            numpy.dtype(value)
+        except TypeError as e:
+            raise ValueError(f'dtype {value!r} is not a numpy dtype') from e
+        return value
 
     @model_validator(mode='after')
     def _validate(self: Self) -> Self:

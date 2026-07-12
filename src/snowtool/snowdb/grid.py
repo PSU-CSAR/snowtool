@@ -16,7 +16,9 @@ from typing import NamedTuple
 
 from griffine import Affine, Grid
 from griffine.grid import AffineGridTile, TiledAffineGrid
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from pyproj import CRS
+from pyproj.exceptions import CRSError
 from rasterio.warp import transform_bounds
 
 from snowtool.exceptions import GeometryOutsideGridError
@@ -49,6 +51,20 @@ class GridParams(BaseModel):
     rows: int
     tile_size: int
     crs: int | str = 4326
+
+    @field_validator('crs')
+    @classmethod
+    def _crs_parses(cls: type[GridParams], value: int | str) -> int | str:
+        """Reject a CRS pyproj cannot parse at config load, not first grid build.
+
+        The value itself stays as authored (an EPSG int or WKT/authority
+        string -- it is the persisted form); only its parseability is checked.
+        """
+        try:
+            CRS.from_user_input(value)
+        except CRSError as e:
+            raise ValueError(f'not a parseable CRS: {value!r} ({e})') from e
+        return value
 
 
 def make_grid(

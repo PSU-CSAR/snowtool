@@ -144,6 +144,20 @@ def _swe_variable() -> DatasetVariable:
     )
 
 
+def test_dataset_variable_rejects_a_dtype_numpy_cannot_parse():
+    # A typo'd dtype ('flot32') otherwise validates and only fails at first
+    # raster read; parse it at config load instead.
+    with pytest.raises(ValidationError, match='dtype'):
+        DatasetVariable(
+            key='swe',
+            unit=Unit(name='mm', scale_factor=1),
+            reducer=Reducer.MEAN,
+            dtype='flot32',
+            nodata=-9999,
+            glob='*__swe.tif',
+        )
+
+
 def test_variable_key_is_injected_from_map_key_and_omitted_from_json():
     # The on-disk value carries no 'key'; it comes from the map key on load.
     config = DatasetConfig(grid=_grid_config(), variables={'swe': _swe_variable()})
