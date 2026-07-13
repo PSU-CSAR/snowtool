@@ -35,7 +35,7 @@ from snowtool.cli._iis.provisioning import (
     snowdb_root,
     venv_root,
 )
-from snowtool.cli._iis.web_config import render_web_config
+from snowtool.cli._iis.web_config import rasterio_data_env, render_web_config
 from snowtool.cli._windows_common import require_windows
 
 
@@ -136,7 +136,13 @@ def install(
 
     if not skip_config:
         web_config = directory / 'web.config'
-        web_config.write_text(render_web_config(Path(sys.executable), snowdb_config))
+        web_config.write_text(
+            render_web_config(
+                Path(sys.executable),
+                snowdb_config,
+                data_env=rasterio_data_env(),
+            ),
+        )
         click.echo(f'Wrote {web_config}')
 
     if protocol == 'https' and not cert_thumbprint:

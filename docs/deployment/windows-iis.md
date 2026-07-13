@@ -85,7 +85,11 @@ snowtool windows iis install C:\inetpub\snowtool --hostname snow.example.org --c
 
 `--config` is written into the site's `web.config` as the
 `SNOWTOOL_SNOWDB_CONFIG` environment variable the hosted process reads, and its
-directory is granted read+execute to the site's app-pool identity.
+directory is granted read+execute to the site's app-pool identity. The
+`web.config` also pins `GDAL_DATA`/`PROJ_DATA`/`PROJ_LIB` to the rasterio
+wheel's bundled data, so GDAL/PROJ environment variables set system-wide by
+other GIS software (PostGIS, ArcGIS, QGIS) can't point the hosted process at
+an incompatible data installation.
 
 Re-running `snowtool windows iis install` against an existing site updates it in
 place. Tear a site down with `snowtool windows iis remove` (it also takes

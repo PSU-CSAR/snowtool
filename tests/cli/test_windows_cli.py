@@ -27,7 +27,7 @@ from snowtool.cli._iis.provisioning import (
     snowdb_root,
     venv_root,
 )
-from snowtool.cli._iis.web_config import render_web_config
+from snowtool.cli._iis.web_config import rasterio_data_env, render_web_config
 from snowtool.cli._path_env import (
     append_entry,
     contains_entry,
@@ -108,6 +108,38 @@ def test_render_web_config_escapes_xml_significant_characters():
 
     assert '/opt/a &amp; b/python' in content
     assert '/opt/a & b/python' not in content
+
+
+def test_render_web_config_pins_data_env_vars():
+    content = render_web_config(
+        Path('/opt/snowtool/bin/python'),
+        Path('/etc/snowdb'),
+        data_env={
+            'GDAL_DATA': Path('/opt/rasterio/gdal_data'),
+            'PROJ_DATA': Path('/opt/rasterio/proj_data'),
+        },
+    )
+
+    assert (
+        '<environmentVariable name="GDAL_DATA" value="/opt/rasterio/gdal_data" />'
+        in content
+    )
+    assert (
+        '<environmentVariable name="PROJ_DATA" value="/opt/rasterio/proj_data" />'
+        in content
+    )
+
+
+def test_rasterio_data_env_pins_all_proj_spellings_to_the_wheel():
+    import rasterio
+
+    env = rasterio_data_env()
+    rasterio_package = Path(rasterio.__file__).parent
+
+    assert set(env) == {'GDAL_DATA', 'PROJ_DATA', 'PROJ_LIB'}
+    assert env['PROJ_DATA'] == env['PROJ_LIB'] == rasterio_package / 'proj_data'
+    assert env['GDAL_DATA'] == rasterio_package / 'gdal_data'
+    assert all(path.is_dir() for path in env.values())
 
 
 def test_venv_root_is_python_exe_grandparent():
