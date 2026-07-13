@@ -89,16 +89,17 @@ class SnowDb:
         self.pourpoint_records_path = self._resolve_path(config.pourpoint_records)
         self.pourpoint_index_path = self._resolve_path(config.pourpoint_index)
 
-        # Resolve every registered dataset (inline or referenced) into a spec and
-        # record where its data lives -- the `dataset_dir` rule reads and writes
-        # share. Inline uses the root + `data/<name>` convention; a referenced one
-        # defaults beside its own config file.
+        # Resolve every registered dataset (inline or referenced) into a spec,
+        # keeping each config with its resolution base so `bind_dataset` -- the
+        # one place a config's paths become a bound Dataset -- can resolve them.
+        # Inline uses the root (base None: the `data/<name>` convention); a
+        # referenced one resolves and defaults beside its own config file.
         specs: list[DatasetSpec] = []
-        self._dataset_paths: dict[str, Path] = {}
+        self._dataset_links: dict[str, tuple[DatasetConfig, Path | None]] = {}
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
                 dataset_config = link.dataset
-                self._dataset_paths[name] = self.dataset_dir(name, dataset_config)
+                base = None
             else:  # PathDatasetLink
                 resolved = self._resolve_path(link.path)
                 if not resolved.is_file():
@@ -118,12 +119,8 @@ class SnowDb:
                         f'dataset {name!r} link points at an unreadable config '
                         f'{resolved}: {e}',
                     ) from e
-                self._dataset_paths[name] = self.dataset_dir(
-                    name,
-                    dataset_config,
-                    base=resolved.parent,
-                    default=resolved.parent,
-                )
+                base = resolved.parent
+            self._dataset_links[name] = (dataset_config, base)
             specs.append(DatasetSpec.from_config(dataset_config, name))
 
         self._specs = self._index_specs(specs)
@@ -206,6 +203,47 @@ class SnowDb:
             location = default if default is not None else Path('data') / name
         return self._resolve_path(location, base)
 
+    def dataset_nodata_mask(
+        self: Self,
+        dataset_config: DatasetConfig,
+        *,
+        base: Path | None = None,
+    ) -> Path | None:
+        """Where ``dataset_config``'s nodata mask lives, or ``None``.
+
+        Resolved exactly like ``data_dir``: absolute -> anywhere; relative ->
+        against ``base`` (the root by default). There is no convention default:
+        no config entry means no mask.
+        """
+        if dataset_config.nodata_mask is None:
+            return None
+        return self._resolve_path(dataset_config.nodata_mask, base)
+
+    def bind_dataset(
+        self: Self,
+        name: str,
+        spec: DatasetSpec,
+        dataset_config: DatasetConfig,
+        *,
+        base: Path | None = None,
+    ) -> Dataset:
+        """Resolve ``dataset_config``'s paths and construct its :class:`Dataset`.
+
+        The single place a dataset config becomes a bound Dataset: the data
+        directory (:meth:`dataset_dir`) and the optional nodata mask
+        (:meth:`dataset_nodata_mask`) resolve against ``base`` -- ``None`` for
+        an inline dataset (the root, with the ``data/<name>`` convention), the
+        config file's own directory for a referenced one. The manager's
+        staged-dataset path shares this, so an unregistered config binds
+        exactly as a later ``SnowDb.open`` will bind it.
+        """
+        return Dataset(
+            spec,
+            self.dataset_dir(name, dataset_config, base=base, default=base),
+            self.zone_layer_providers.values(),
+            nodata_mask=self.dataset_nodata_mask(dataset_config, base=base),
+        )
+
     @staticmethod
     def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:
         indexed: dict[str, DatasetSpec] = {}
@@ -228,16 +266,11 @@ class SnowDb:
         return indexed
 
     def _bind_datasets(self: Self) -> dict[str, Dataset]:
-        return {
-            name: Dataset(
-                spec,
-                # The dataset's directory, resolved from its config's data_dir
-                # (or the convention) in __init__.
-                self._dataset_paths[name],
-                self.zone_layer_providers.values(),
-            )
-            for name, spec in self._specs.items()
-        }
+        datasets: dict[str, Dataset] = {}
+        for name, spec in self._specs.items():
+            dataset_config, base = self._dataset_links[name]
+            datasets[name] = self.bind_dataset(name, spec, dataset_config, base=base)
+        return datasets
 
     @classmethod
     def open(

@@ -152,6 +152,16 @@ class DatasetConfig(ResourceModel):
     # config, ``data/<name>/`` for an inline one). ponytail: a plain path, not a
     # typed source union -- add that when a second (e.g. remote) backend is real.
     data_dir: Path | None = None
+    # A single-band raster on the dataset's full grid marking its valid domain:
+    # pixels with value 0 (also the raster's nodata) can never report data (e.g.
+    # SNODAS open water) and are burned out of every AOI raster -- zero area
+    # weight, so stats areas count only pixels the dataset can actually report.
+    # Resolved like data_dir (absolute -> anywhere; relative -> against the
+    # config's own dir, the root for an inline dataset). Omitted means every grid
+    # pixel is in-domain. The mask file's hash rides in AOI provenance, so
+    # adding/changing/removing it makes existing AOI rasters read as stale (see
+    # Dataset.rasterize_aoi).
+    nodata_mask: Path | None = None
 
     @field_validator('variables', mode='before')
     @classmethod

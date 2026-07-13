@@ -82,9 +82,14 @@ class Dataset:
         spec: DatasetSpec,
         path: Path,
         providers: Iterable[ZoneLayerProvider] = DEFAULT_ZONE_LAYER_PROVIDERS,
+        *,
+        nodata_mask: Path | None = None,
     ) -> None:
         self.spec = spec
         self.path = path
+        # The dataset's valid-domain mask (config `nodata_mask`, resolved by the
+        # SnowDb); None means every grid pixel is in-domain.
+        self.nodata_mask = nodata_mask
         self._aoi_rasters = self.path / 'aoi-rasters'
         self._cogs = self.path / 'cogs'
         # One zone-layer set per provider this dataset *enables* (its config's
@@ -134,6 +139,8 @@ class Dataset:
         spec: DatasetSpec,
         path: Path,
         force: bool = False,
+        *,
+        nodata_mask: Path | None = None,
     ) -> Self:
         """Create the dataset's directory skeleton.
 
@@ -142,7 +149,7 @@ class Dataset:
         generation can share one source read across every dataset -- see
         :meth:`SnowDb.generate_zone_layers`).
         """
-        self = cls(spec, path)
+        self = cls(spec, path, nodata_mask=nodata_mask)
 
         try:
             # The dataset dir itself may already exist as an empty skeleton from

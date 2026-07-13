@@ -344,23 +344,17 @@ class SnowDbManager:
     ) -> Dataset:
         """Build a :class:`Dataset` from its config *directly*, bypassing the catalog.
 
-        Mirrors the path-link binding :class:`SnowDb` does at construction (config
-        location as the resolution base, ``data/<name>``-beside-config default), so
-        a not-yet-registered dataset gets the same directory a later ``SnowDb.open``
-        will resolve for it -- without appearing in ``self.db.datasets`` yet.
+        Binding goes through :meth:`SnowDb.bind_dataset` with the config's own
+        location as the resolution base (the same call a path link gets at
+        ``SnowDb.open``), so a not-yet-registered dataset resolves exactly as it
+        will once registered -- without appearing in ``self.db.datasets`` yet.
         """
         from snowtool.snowdb.spec import DatasetSpec
 
         resolved = Path(dataset_config_path).resolve()
         config = DatasetConfig.load(resolved)
         spec = DatasetSpec.from_config(config, name)
-        directory = self.db.dataset_dir(
-            name,
-            config,
-            base=resolved.parent,
-            default=resolved.parent,
-        )
-        return Dataset(spec, directory, self.db.zone_layer_providers.values())
+        return self.db.bind_dataset(name, spec, config, base=resolved.parent)
 
     def resolve_dataset(self: Self, token: str) -> Dataset:
         """Resolve a dataset NAME or a config path to a :class:`Dataset`.
