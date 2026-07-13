@@ -19,7 +19,7 @@ from rasterio.features import rasterize
 from rasterio.windows import Window
 
 from snowtool import types
-from snowtool.exceptions import IncompleteDatasetDataError, SnowtoolError
+from snowtool.exceptions import IncompleteDatasetDataError, NodataMaskError
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import PixelCoord, tile_base_origin, tiles_in_bbox
@@ -187,7 +187,7 @@ def _read_nodata_mask_window(
     """
     with rasterio.open(path) as ds:
         if ds.shape != (base_grid.rows, base_grid.cols):
-            raise SnowtoolError(
+            raise NodataMaskError(
                 f'nodata mask {path} shape {ds.shape} does not match the '
                 f'dataset grid ({base_grid.rows}, {base_grid.cols})',
             )

@@ -15,6 +15,7 @@ import rasterio
 
 from rasterio.crs import CRS
 
+from snowtool.exceptions import NodataMaskError
 from snowtool.snowdb.aoi_raster import aoi_provenance
 from snowtool.snowdb.config import (
     DATASET_CONFIG_FILENAME,
@@ -184,9 +185,15 @@ def test_mask_burns_zero_area_outside_domain(
     assert 0 < masked.array.sum() < unmasked.array.sum()
 
 
-def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
-    from snowtool.exceptions import SnowtoolError
+def test_missing_mask_file_raises_nodata_mask_error(tmp_path, spec, pourpoint_geojson):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    missing = tmp_path / 'missing-mask.tif'
+    ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=missing)
+    with pytest.raises(NodataMaskError, match='nodata_mask'):
+        ds.rasterize_aoi(pp)
 
+
+def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     bad = tmp_path / 'bad-mask.tif'
     array = numpy.ones((SIZE // 2, SIZE // 2), dtype=numpy.uint8)
@@ -205,7 +212,7 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
         dst.write(array, 1)
 
     ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
-    with pytest.raises(SnowtoolError, match='does not match the dataset grid'):
+    with pytest.raises(NodataMaskError, match='does not match the dataset grid'):
         ds.rasterize_aoi(pp)
 
 

@@ -16,6 +16,7 @@ from snowtool.exceptions import (
     AOIRasterNotFoundError,
     ArtifactExistsError,
     IncompleteDatasetDataError,
+    NodataMaskError,
     SnowtoolError,
 )
 from snowtool.snowdb import triplet_naming
@@ -136,6 +137,12 @@ class Dataset:
         """
         if self.nodata_mask is None:
             return None
+        if not self.nodata_mask.is_file():
+            raise NodataMaskError(
+                f'dataset {self.spec.name!r}: configured nodata_mask '
+                f'{self.nodata_mask} is missing; restore the file or remove '
+                'nodata_mask from the dataset config',
+            )
         return hash_files([self.nodata_mask])
 
     def validate(self: Self) -> Self:

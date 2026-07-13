@@ -282,7 +282,7 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterIssue]:
             # Burned to all-zero (no in-basin cell area): the AOI polygon falls
             # outside the grid, so it would contribute no pixels to any query.
             if not aoi_raster.array.any():
-                issue = 'empty AOI (does not overlap the grid)'
+                issue = 'empty AOI (does not overlap the grid, or is entirely masked)'
         if issue is not None:
             findings.append(AoiRasterIssue(dataset.spec.name, triplet, issue))
     return findings

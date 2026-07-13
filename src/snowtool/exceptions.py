@@ -129,6 +129,19 @@ class ZoneParamsError(SnowtoolError, ValueError):
     """
 
 
+class NodataMaskError(SnowtoolError):
+    """Raised when a dataset's configured nodata mask cannot be used.
+
+    A dataset-config (operator) error, like :class:`ZoneParamsError`: the
+    config's ``nodata_mask`` names a file that is missing, or the file's
+    raster shape does not match the dataset grid (the mask window is read by
+    pixel offsets, so a mismatched raster would silently misalign -- refuse it
+    instead). The fix is restoring/correcting the mask file or removing
+    ``nodata_mask`` from the dataset config, never issuing a different
+    request, so the API must not map it to a client error.
+    """
+
+
 class UnknownDatasetError(SnowtoolError, ValueError):
     """Raised when a dataset token resolves to nothing actionable.
 
