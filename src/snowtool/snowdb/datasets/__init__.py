@@ -13,6 +13,8 @@ module defines them.
 
 from __future__ import annotations
 
+from importlib import resources
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from snowtool.snowdb.config import DatasetConfig
@@ -81,6 +83,30 @@ DATASET_TEMPLATES: dict[str, DatasetConfig] = {
     spec.name: config_from_spec(spec) for spec in DEFAULT_DATASET_SPECS
 }
 
+# Packaged per-template nodata masks (template name -> filename in this
+# package). A template listed here stamps its mask into the created dataset
+# (`dataset create` copies it beside the dataset config and points the config's
+# `nodata_mask` at it). Masks are package data, not spec fields: a spec is the
+# path-independent definition, while a mask is a shipped artifact. Private:
+# `template_nodata_mask` is the lookup API.
+_DATASET_TEMPLATE_MASKS: dict[str, str] = {
+    'snodas': 'snodas-nodata-mask.tif',
+}
+
+
+def template_nodata_mask(name: str) -> Path | None:
+    """The packaged nodata-mask file for template ``name``, or ``None``.
+
+    Resolved through ``importlib.resources`` so it works from any install
+    layout; snowtool installs as a normal (unzipped) package, so the resource
+    is always a real filesystem path.
+    """
+    filename = _DATASET_TEMPLATE_MASKS.get(name)
+    if filename is None:
+        return None
+    return Path(str(resources.files(__package__) / filename))
+
+
 __all__ = [
     'DATASET_TEMPLATES',
     'DEFAULT_DATASET_SPECS',
@@ -96,4 +122,5 @@ __all__ = [
     'SnodasIngester',
     'SwannIngester',
     'config_from_spec',
+    'template_nodata_mask',
 ]

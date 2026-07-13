@@ -21,6 +21,7 @@ from snowtool.snowdb.config import (
     DatasetConfig,
 )
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import config_from_spec, template_nodata_mask
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.manager import SnowDbManager
@@ -206,3 +207,32 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
     ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
     with pytest.raises(SnowtoolError, match='does not match the dataset grid'):
         ds.rasterize_aoi(pp)
+
+
+def test_snodas_template_mask_is_packaged():
+    packaged = template_nodata_mask('snodas')
+    assert packaged is not None
+    assert packaged.is_file()
+    with rasterio.open(packaged) as ds:
+        assert ds.shape == (3351, 6935)
+        assert ds.nodata == 0
+    assert template_nodata_mask('swann-800m') is None
+
+
+def test_create_dataset_stamps_mask(tmp_path, spec, nodata_mask):
+    # create_dataset with a mask source: the file is copied beside the config,
+    # the written config references it, and a fresh SnowDb.open resolves it
+    # onto the Dataset (the full round trip a template stamp relies on).
+    root = tmp_path / 'db'
+    manager = SnowDbManager.initialize(root)
+    config = config_from_spec(spec)
+    manager.create_dataset('test', config, nodata_mask_source=nodata_mask)
+
+    dataset_dir = root / 'data' / 'test'
+    assert (dataset_dir / 'nodata-mask.tif').is_file()
+
+    saved = DatasetConfig.load(dataset_dir / DATASET_CONFIG_FILENAME)
+    assert saved.nodata_mask == Path('nodata-mask.tif')
+
+    db = SnowDb.open(root)
+    assert db.registered['test'].nodata_mask == dataset_dir / 'nodata-mask.tif'

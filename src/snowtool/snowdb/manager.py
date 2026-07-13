@@ -12,6 +12,7 @@ snowdb, not the other way around."
 from __future__ import annotations
 
 import os
+import shutil
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -482,6 +483,7 @@ class SnowDbManager:
         name: str,
         config: DatasetConfig,
         *,
+        nodata_mask_source: Path | None = None,
         progress: ProgressReporter = NULL_PROGRESS,
     ) -> CreatedDataset:
         """Stamp a brand-new dataset ``name`` from ``config``: stage it, then
@@ -496,7 +498,10 @@ class SnowDbManager:
         separate :meth:`generate_zone_layers_for` pass), and registers the staged
         dataset. Converge-by-default like ingest and staging: the directory mkdir
         and the config write are idempotent overwrites, and staging rebuilds an AOI
-        raster only when its provenance tag reads stale.
+        raster only when its provenance tag reads stale. When ``nodata_mask_source``
+        is given (e.g. a template's packaged mask), it is copied into the dataset
+        directory and ``config`` is updated to reference it before either is used,
+        so the first staging pass burns AOI rasters with the mask already applied.
 
         The one real invariant it enforces: an existing registration is *never*
         clobbered. Registration happens only when ``name`` is not already in the
@@ -510,6 +515,14 @@ class SnowDbManager:
         """
         directory = self.db.dataset_dir(name, config)
         directory.mkdir(parents=True, exist_ok=True)
+
+        if nodata_mask_source is not None:
+            # Materialize the mask beside the config and point the config at it
+            # (relative, so the dataset dir stays relocatable). Copied before
+            # staging so the very first AOI rasterize pass burns with the mask.
+            shutil.copyfile(nodata_mask_source, directory / 'nodata-mask.tif')
+            config = config.model_copy(update={'nodata_mask': Path('nodata-mask.tif')})
+
         config_path = directory / DATASET_CONFIG_FILENAME
         config.save(config_path)
 

@@ -230,7 +230,7 @@ def create_dataset(
     link are preserved). To force-rebuild AOI rasters regardless, use
     ``pourpoint rasterize --all --rebuild -d NAME``.
     """
-    from snowtool.snowdb.datasets import DATASET_TEMPLATES
+    from snowtool.snowdb.datasets import DATASET_TEMPLATES, template_nodata_mask
 
     if template not in DATASET_TEMPLATES:
         known = ', '.join(sorted(DATASET_TEMPLATES))
@@ -241,6 +241,7 @@ def create_dataset(
     created = manager.create_dataset(
         name,
         DATASET_TEMPLATES[template],
+        nodata_mask_source=template_nodata_mask(template),
         progress=RichProgress(),
     )
 
