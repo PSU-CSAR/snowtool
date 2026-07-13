@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
+- A compact zonal-stats representation: zones and variables are defined once and
+  each date's values are a bare `zones × variables` matrix (`null` for a zone with
+  no valid pixels), with `area_m2` hoisted into the zone definition. Available as
+  `snowtool stats --format json-compact` and a generic HTTP endpoint,
+  `GET /datasets/{dataset}/stats-compact/{triplet}/{date-range,doy}`, whose
+  response is one schema for every dataset. Zone selection uses `LAYER:PARAM=VALUE`
+  tokens (e.g. `terrain.elevation:band_step_ft=500`) shared by the CLI and API;
+  the dataset resource (`GET /datasets/{dataset}`) advertises the valid keys,
+  override params, and variables. The verbose per-date `json` form is unchanged.
+- **CLI change:** the `stats --zone` override syntax is now the explicit
+  `LAYER:PARAM=VALUE` (e.g. `terrain.elevation:band_step_ft=500`); the old
+  positional `LAYER:VALUE` form is no longer accepted.
+
 ### Changed
 
 ### Removed

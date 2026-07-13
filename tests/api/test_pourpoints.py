@@ -229,7 +229,8 @@ def test_detail_stats_links_exclude_inactive_datasets(inactive_dataset_client) -
     body = inactive_dataset_client.get(f'/pourpoints/{TRIPLET}').json()
     stats = [link for link in body['links'] if link['rel'].startswith('stats-')]
     assert {link['dataset'] for link in stats} == {'test'}
-    assert len(stats) == 2
+    # Two verbose (date-range, doy) + two compact (date-range, doy) per dataset.
+    assert len(stats) == 4
 
 
 def test_stats_links_omitted_for_point_only_and_none_coverage(pourpoint_geojson):

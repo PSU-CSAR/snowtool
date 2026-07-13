@@ -143,6 +143,22 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
     assert [c['key'] for c in aspect['classes']] == ['N', 'E', 'S', 'W', 'flat']
 
 
+def test_dataset_advertises_compact_stats_links(synthetic_client) -> None:
+    body = synthetic_client.get('/datasets/test').json()
+    rels = {link['rel'] for link in body['links']}
+    assert 'stats-compact-date-range' in rels
+    assert 'stats-compact-doy' in rels
+    compact = next(
+        link for link in body['links'] if link['rel'] == 'stats-compact-date-range'
+    )
+    # Templated triplet, generic query params (no per-layer overrides, no f).
+    assert '/datasets/test/stats-compact/' in compact['href']
+    assert '{triplet}' in compact['href']
+    assert compact['href'].endswith(
+        '{?datetime,zone,variable,allow_partial,include_empty_zones}',
+    )
+
+
 def test_get_unknown_dataset_returns_404(test_client) -> None:
     response = test_client.get('/datasets/nope')
     assert response.status_code == 404

@@ -148,6 +148,12 @@ class GridInfo(BaseModel):
 STATS_DATE_RANGE_REL = 'stats-date-range'
 STATS_DOY_REL = 'stats-doy'
 
+# Rels for the generic compact endpoint (Task 4): one route family across all
+# datasets, so the query template is the fixed generic shape -- no per-zone
+# override fields, no ``f`` negotiation (compact json is the only representation).
+STATS_COMPACT_DATE_RANGE_REL = 'stats-compact-date-range'
+STATS_COMPACT_DOY_REL = 'stats-compact-doy'
+
 
 def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
     """Every stratifiable zone of ``dataset`` as :data:`ZoneInfo`, sorted by key."""
@@ -188,6 +194,17 @@ def stats_links(
         binding = {'path': {'triplet': triplet}, 'dataset': name}
         date_range_title = f'{name} date-range zonal statistics'
         doy_title = f'{name} day-of-year zonal statistics'
+    compact_shared = ['zone', 'variable', 'allow_partial', 'include_empty_zones']
+    if triplet is None:
+        compact_binding: dict[str, Any] = {
+            'path': {'dataset': name},
+            'template': ['triplet'],
+        }
+    else:
+        compact_binding = {
+            'path': {'dataset': name, 'triplet': triplet},
+            'dataset': name,
+        }
     return [
         Link.to_route(
             f'{name}_stats_date_range',
@@ -202,6 +219,28 @@ def stats_links(
             title=doy_title,
             query_template=['month', 'day', 'start_year', 'end_year', *shared],
             **binding,
+        ),
+        Link.to_route(
+            'stats_compact_date_range',
+            rel=STATS_COMPACT_DATE_RANGE_REL,
+            title=(
+                'Compact date-range zonal statistics'
+                if triplet is None
+                else f'{name} compact date-range zonal statistics'
+            ),
+            query_template=['datetime', *compact_shared],
+            **compact_binding,
+        ),
+        Link.to_route(
+            'stats_compact_doy',
+            rel=STATS_COMPACT_DOY_REL,
+            title=(
+                'Compact day-of-year zonal statistics'
+                if triplet is None
+                else f'{name} compact day-of-year zonal statistics'
+            ),
+            query_template=['month', 'day', 'start_year', 'end_year', *compact_shared],
+            **compact_binding,
         ),
     ]
 
