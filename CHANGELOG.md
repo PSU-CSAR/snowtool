@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
+### Changed
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [v0.3.0] - 2026-07-13
+
+### Added
+
 - Datasets can declare an optional `nodata_mask` in their config: a
   single-band raster on the dataset's grid whose 0/nodata pixels can never
   report data (e.g. SNODAS open water). Masked pixels are burned out of AOI
@@ -164,7 +176,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...v0.3.0
 [v0.2.2]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/PSU-CSAR/snowtool/releases/tag/v0.2.0
