@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.2.2] - 2026-07-12
+
+### Added
+
+- The rendered `web.config` pins `GDAL_DATA`/`PROJ_DATA`/`PROJ_LIB` to the
+  rasterio wheel's bundled data directories, so the hosted process is
+  immune to ambient GDAL/PROJ environment variables (PostGIS, ArcGIS, and
+  QGIS installs commonly set them system-wide, and IIS worker processes
+  inherit them) pointing it at incompatible data from another installation.
+
 ## [v0.2.1] - 2026-07-12
 
 ### Added
@@ -30,11 +40,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   uv-managed Python interpreter backing the tool venv (`sys.base_prefix`);
   without it the site's child process dies at startup with "Access is
   denied" whenever the interpreter lives in the installing user's profile.
-- The rendered `web.config` pins `GDAL_DATA`/`PROJ_DATA`/`PROJ_LIB` to the
-  rasterio wheel's bundled data directories, so the hosted process is
-  immune to ambient GDAL/PROJ environment variables (PostGIS, ArcGIS, and
-  QGIS installs commonly set them system-wide, and IIS worker processes
-  inherit them) pointing it at incompatible data from another installation.
 
 ### Changed
 
@@ -144,7 +149,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...HEAD
+[v0.2.2]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/PSU-CSAR/snowtool/releases/tag/v0.2.0
 [v0.1.0]: https://github.com/PSU-CSAR/snowtool/releases/tag/v0.1.0
