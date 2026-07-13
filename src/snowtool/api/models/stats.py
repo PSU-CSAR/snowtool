@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 
+from datetime import date
 from typing import TYPE_CHECKING
 
 from fastapi.responses import StreamingResponse
@@ -25,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from snowtool import types
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery, PourPointQuery
+from snowtool.snowdb.zonal_stat_models import CompactStats, CompactZone, StatValue
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -66,6 +68,55 @@ class StatsResponse[T](BaseModel):
                     path={'triplet': triplet},
                 ),
                 *alternates,
+            ],
+        )
+
+
+class CompactStatsResponse(BaseModel):
+    """The compact zonal-stats envelope: pourpoint/query echo + the compact body.
+
+    Unlike :class:`StatsResponse`, this is a single generic model shared by every
+    dataset — the compact body carries no per-dataset field names — so it is not
+    parametrized per dataset.
+    """
+
+    pourpoint: types.StationTriplet
+    dataset: str = Field(examples=['snodas'])
+    query: PourPointQuery
+    zone_layers: list[str] = Field(examples=[['terrain.elevation']])
+    variables: list[str] = Field(examples=[['mean_swe_mm']])
+    zones: list[CompactZone]
+    results: dict[date, list[list[StatValue]]] = Field(
+        examples=[{'2008-12-14': [[42.7], [51.3]]}],
+    )
+    links: list[Link] = Field(default_factory=list)
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        triplet: types.StationTriplet,
+        dataset: str,
+        query: DateRangeQuery | DOYQuery,
+        stats: CompactStats,
+    ) -> CompactStatsResponse:
+        return cls(
+            pourpoint=triplet,
+            dataset=dataset,
+            query=query,
+            zone_layers=stats.zone_layers,
+            variables=stats.variables,
+            zones=stats.zones,
+            results=stats.results,
+            links=[
+                Link.self_link(),
+                Link.root_link(),
+                Link.to_route(
+                    'get_pourpoint',
+                    rel=Rel.UP,
+                    type=MediaType.GEOJSON,
+                    path={'triplet': triplet},
+                ),
             ],
         )
 

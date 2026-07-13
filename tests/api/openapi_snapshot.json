@@ -284,6 +284,183 @@
         "title": "ClassZoneRef",
         "type": "object"
       },
+      "CompactStatsResponse": {
+        "description": "The compact zonal-stats envelope: pourpoint/query echo + the compact body.\n\nUnlike :class:`StatsResponse`, this is a single generic model shared by every\ndataset \u2014 the compact body carries no per-dataset field names \u2014 so it is not\nparametrized per dataset.",
+        "properties": {
+          "dataset": {
+            "examples": [
+              "snodas"
+            ],
+            "title": "Dataset",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "pourpoint": {
+            "examples": [
+              "12354500:MT:USGS"
+            ],
+            "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+            "title": "Pourpoint",
+            "type": "string"
+          },
+          "query": {
+            "discriminator": {
+              "mapping": {
+                "DateRange": "#/components/schemas/DateRangeQuery",
+                "DayOfYear": "#/components/schemas/DOYQuery"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateRangeQuery"
+              },
+              {
+                "$ref": "#/components/schemas/DOYQuery"
+              }
+            ],
+            "title": "Query"
+          },
+          "results": {
+            "additionalProperties": {
+              "items": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "examples": [
+              {
+                "2008-12-14": [
+                  [
+                    42.7
+                  ],
+                  [
+                    51.3
+                  ]
+                ]
+              }
+            ],
+            "propertyNames": {
+              "format": "date"
+            },
+            "title": "Results",
+            "type": "object"
+          },
+          "variables": {
+            "examples": [
+              [
+                "mean_swe_mm"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          },
+          "zone_layers": {
+            "examples": [
+              [
+                "terrain.elevation"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Zone Layers",
+            "type": "array"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/CompactZone"
+            },
+            "title": "Zones",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pourpoint",
+          "dataset",
+          "query",
+          "zone_layers",
+          "variables",
+          "zones",
+          "results"
+        ],
+        "title": "CompactStatsResponse",
+        "type": "object"
+      },
+      "CompactZone": {
+        "description": "One crossed-zone cell in the compact form: its refs plus hoisted area.\n\n``area_m2`` is date-invariant (a property of the crossed-zone geometry), so it\nis stated once here rather than repeated per date as the verbose per-date model\ndoes.",
+        "properties": {
+          "area_m2": {
+            "examples": [
+              592891.69
+            ],
+            "minimum": 0.0,
+            "title": "Area M2",
+            "type": "number"
+          },
+          "zone": {
+            "examples": [
+              [
+                {
+                  "kind": "band",
+                  "layer": "terrain.elevation",
+                  "max": 7000,
+                  "min": 6000,
+                  "unit": "ft"
+                }
+              ]
+            ],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "band": "#/components/schemas/BandZoneRef",
+                  "class": "#/components/schemas/ClassZoneRef",
+                  "threshold": "#/components/schemas/ThresholdZoneRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/BandZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ClassZoneRef"
+                },
+                {
+                  "$ref": "#/components/schemas/ThresholdZoneRef"
+                }
+              ]
+            },
+            "title": "Zone",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone",
+          "area_m2"
+        ],
+        "title": "CompactZone",
+        "type": "object"
+      },
       "ConformanceDeclaration": {
         "description": "OGC API Common conformance declaration (``GET /conformance``).",
         "properties": {
@@ -4423,6 +4600,294 @@
         "summary": "Get Dataset",
         "tags": [
           "datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset}/stats-compact/{triplet}/date-range": {
+      "get": {
+        "operationId": "stats_compact_date_range_datasets__dataset__stats_compact__triplet__date_range_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "title": "Dataset",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See GET /datasets/{dataset} for the valid layer keys, override params, and variables. Default: whole basin.",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "description": "Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See GET /datasets/{dataset} for the valid layer keys, override params, and variables. Default: whole basin.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Permit a basin only partially covered by the dataset grid (default false: a partially-covered basin is a 409). A wholly off-grid basin always 409s.",
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid (default false: a partially-covered basin is a 409). A wholly off-grid basin always 409s.",
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all values null). By default these empty combinations are dropped. No effect on a whole-basin query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all values null). By default these empty combinations are dropped. No effect on a whole-basin query.",
+              "title": "Include Empty Zones",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+            "in": "query",
+            "name": "datetime",
+            "required": false,
+            "schema": {
+              "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+              "example": "2018-01-01/2018-06-30",
+              "examples": [
+                "2018-01-01/2018-06-30",
+                "2018-04-27",
+                "2018-01-01/..",
+                "../2018-06-30"
+              ],
+              "title": "Datetime",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stats Compact Date Range",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/datasets/{dataset}/stats-compact/{triplet}/doy": {
+      "get": {
+        "operationId": "stats_compact_doy_datasets__dataset__stats_compact__triplet__doy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "title": "Dataset",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See GET /datasets/{dataset} for the valid layer keys, override params, and variables. Default: whole basin.",
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "description": "Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See GET /datasets/{dataset} for the valid layer keys, override params, and variables. Default: whole basin.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Zone",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Permit a basin only partially covered by the dataset grid (default false: a partially-covered basin is a 409). A wholly off-grid basin always 409s.",
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Permit a basin only partially covered by the dataset grid (default false: a partially-covered basin is a 409). A wholly off-grid basin always 409s.",
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Include crossed zones that no AOI pixel falls in (0 area, all values null). By default these empty combinations are dropped. No effect on a whole-basin query.",
+            "in": "query",
+            "name": "include_empty_zones",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include crossed zones that no AOI pixel falls in (0 area, all values null). By default these empty combinations are dropped. No effect on a whole-basin query.",
+              "title": "Include Empty Zones",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "examples": [
+                4
+              ],
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "examples": [
+                27
+              ],
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "examples": [
+                2018
+              ],
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "examples": [
+                2018
+              ],
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stats Compact Doy",
+        "tags": [
+          "stats"
         ]
       }
     },

@@ -35,6 +35,7 @@ from .routers.pourpoints import router as pourpoints_router
 from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
 from .routers.stats import build_stats_router
+from .routers.stats_compact import router as stats_compact_router
 from .tags import Tags
 
 
@@ -98,5 +99,6 @@ def get_app(
     app.include_router(pourpoints_router)
     for name in catalog.datasets:
         app.include_router(build_stats_router(catalog[name]))
+    app.include_router(stats_compact_router)
 
     return app
