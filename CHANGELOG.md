@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   uv-managed Python interpreter backing the tool venv (`sys.base_prefix`);
   without it the site's child process dies at startup with "Access is
   denied" whenever the interpreter lives in the installing user's profile.
+- The rendered `web.config` pins `GDAL_DATA`/`PROJ_DATA`/`PROJ_LIB` to the
+  rasterio wheel's bundled data directories, so the hosted process is
+  immune to ambient GDAL/PROJ environment variables (PostGIS, ArcGIS, and
+  QGIS installs commonly set them system-wide, and IIS worker processes
+  inherit them) pointing it at incompatible data from another installation.
 
 ### Changed
 
