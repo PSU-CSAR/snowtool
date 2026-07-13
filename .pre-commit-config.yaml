@@ -51,3 +51,5 @@ repos:
         types_or: [python, pyi]
         args: ["--ignore-missing-imports", "--scripts-are-modules", "--explicit-package-bases"]
         require_serial: true
+        # one-off analysis scripts, not part of the typed package
+        exclude: ^api-comparison/

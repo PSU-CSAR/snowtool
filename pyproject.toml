@@ -75,7 +75,8 @@ select = [
     'W',
 
 ]
-exclude = ['docs/**/*']
+# api-comparison holds one-off analysis scripts (PEP-723, prints are the output)
+exclude = ['docs/**/*', 'api-comparison/**/*']
 
 [tool.ruff.lint.per-file-ignores]
 '__init__.py' = ['E402']

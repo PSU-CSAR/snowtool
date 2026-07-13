@@ -1,0 +1,135 @@
+
+============================================================================
+06093200:MT:USGS
+============================================================================
+
+[areas]  (reference = geodesic area of shared source polygon)
+  source polygon (geodesic)                  827.90 km2            of source
+  NWIS published drainage                    396.27 km2     47.86% of source
+  old API pourpoint area_meters              827.90 km2    100.00% of source
+  old API zonal-stats band sum               827.79 km2     99.99% of source
+  new API served polygon (geodesic)          341.99 km2     41.31% of source
+  new API pourpoint area_meters              341.99 km2     41.31% of source
+  new API stats area_m2                      338.95 km2     40.94% of source
+
+[polygon identity]
+  new served polygon vs source: 41.31%
+  new stats area vs new served polygon: 99.11%
+  old area_meters vs source: 100.00%
+  old zonal band-sum vs source: 99.99%
+
+[internal consistency]
+  new: sum(band areas) vs whole-basin area: max rel diff 0.00e+00 over 366 dates
+  new: weighted band mean vs whole-basin mean: max rel diff 0.00e+00 over 249 dates
+  old: SQL swe (as mm) / zonal weighted mean: median ratio 3.540 (n=250, min 0.012, max 11.937)
+
+[date coverage over WY2024]
+  old SQL     366 dates,   0 missing
+  old zonal   366 dates,   0 missing
+  new basic   366 dates,   0 missing
+  new zonal   366 dates,   0 missing
+
+[band areas, km2]  (2023-10-01; old polygon vs new polygon)
+  band ft               old        new  new/old
+  3000-4000            1.71       0.00    0.000
+  4000-5000          336.35      77.32    0.230
+  5000-6000          282.32     100.93    0.358
+  6000-7000          150.91     126.84    0.841
+  7000-8000           52.51      33.85    0.645
+  8000-9000            3.99       0.00    0.000
+
+[cross-API whole-basin mean SWE]  new / old-zonal ratio: median 1.825 (n=238, p10 1.366, p90 2.822)
+  (note: computed over different polygons if identity check failed)
+
+  wrote out/comparison-06093200.csv
+
+============================================================================
+06078600:MT:USGS
+============================================================================
+
+[areas]  (reference = geodesic area of shared source polygon)
+  source polygon (geodesic)                  669.81 km2            of source
+  NWIS published drainage                       nan km2       nan% of source
+  old API pourpoint area_meters              669.81 km2    100.00% of source
+  old API zonal-stats band sum               669.01 km2     99.88% of source
+  new API served polygon (geodesic)        1,426.71 km2    213.00% of source
+  new API pourpoint area_meters            1,426.71 km2    213.00% of source
+  new API stats area_m2                    1,426.55 km2    212.98% of source
+
+[polygon identity]
+  new served polygon vs source: 213.00%
+  new stats area vs new served polygon: 99.99%
+  old area_meters vs source: 100.00%
+  old zonal band-sum vs source: 99.88%
+
+[internal consistency]
+  new: sum(band areas) vs whole-basin area: max rel diff 0.00e+00 over 366 dates
+  new: weighted band mean vs whole-basin mean: max rel diff 2.16e-16 over 265 dates
+  old: SQL swe (as mm) / zonal weighted mean: median ratio 0.819 (n=255, min 0.007, max 4.373)
+
+[date coverage over WY2024]
+  old SQL     366 dates,   0 missing
+  old zonal   366 dates,   0 missing
+  new basic   366 dates,   0 missing
+  new zonal   366 dates,   0 missing
+
+[band areas, km2]  (2023-10-01; old polygon vs new polygon)
+  band ft               old        new  new/old
+  4000-5000            8.11      25.53    3.147
+  5000-6000          201.28     381.51    1.895
+  6000-7000          263.01     582.45    2.215
+  7000-8000          181.57     409.76    2.257
+  8000-9000           15.04      27.29    1.814
+
+[cross-API whole-basin mean SWE]  new / old-zonal ratio: median 0.891 (n=252, p10 0.667, p90 0.942)
+  (note: computed over different polygons if identity check failed)
+
+  wrote out/comparison-06078600.csv
+
+============================================================================
+14191000:OR:USGS
+============================================================================
+
+[areas]  (reference = geodesic area of shared source polygon)
+  source polygon (geodesic)               19,109.37 km2            of source
+  NWIS published drainage                 18,855.11 km2     98.67% of source
+  old API pourpoint area_meters           19,109.37 km2    100.00% of source
+  old API zonal-stats band sum            19,094.47 km2     99.92% of source
+  new API served polygon (geodesic)       19,109.38 km2    100.00% of source
+  new API pourpoint area_meters           19,109.38 km2    100.00% of source
+  new API stats area_m2                   19,111.98 km2    100.01% of source
+
+[polygon identity]
+  new served polygon vs source: 100.00%
+  new stats area vs new served polygon: 100.01%
+  old area_meters vs source: 100.00%
+  old zonal band-sum vs source: 99.92%
+
+[internal consistency]
+  new: sum(band areas) vs whole-basin area: max rel diff 0.00e+00 over 366 dates
+  new: weighted band mean vs whole-basin mean: max rel diff 6.71e-03 over 306 dates
+  old: SQL swe (as mm) / zonal weighted mean: median ratio 1.058 (n=269, min 0.001, max 2.811)
+
+[date coverage over WY2024]
+  old SQL     366 dates,   0 missing
+  old zonal   366 dates,   0 missing
+  new basic   366 dates,   0 missing
+  new zonal   366 dates,   0 missing
+
+[band areas, km2]  (2023-10-01; old polygon vs new polygon)
+  band ft               old        new  new/old
+  0-1000            6636.21    6667.78    1.005
+  1000-2000         3567.72    3528.14    0.989
+  2000-3000         3296.15    3260.06    0.989
+  3000-4000         2788.81    2738.47    0.982
+  4000-5000         1730.80    1728.55    0.999
+  5000-6000          909.49     982.94    1.081
+  6000-7000          133.18     161.58    1.213
+  7000-8000           24.72      30.88    1.249
+  8000-9000            7.41      10.50    1.417
+  9000-10000           0.00       3.08      n/a
+
+[cross-API whole-basin mean SWE]  new / old-zonal ratio: median 0.998 (n=260, p10 0.997, p90 0.999)
+  (note: computed over different polygons if identity check failed)
+
+  wrote out/comparison-14191000.csv

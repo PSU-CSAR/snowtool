@@ -1,0 +1,75 @@
+
+============================================================================
+2023-12-01
+============================================================================
+
+06093200:MT:USGS
+  independent, reference polygon  area     828.44 km2 (valid     828.44)  mean SWE    13.68 mm
+  independent, new-API polygon    area     338.95 km2 (valid     338.95)  mean SWE    26.85 mm
+  old API zonal (ref polygon)      area     827.79 km2                          mean SWE    13.68 mm
+  old API SQL (ref polygon)                                                     swe    50.18 mm
+  new API stats (new polygon)      area     338.95 km2                          mean SWE    26.85 mm
+
+06078600:MT:USGS
+  independent, reference polygon  area     669.44 km2 (valid     669.44)  mean SWE    27.95 mm
+  independent, new-API polygon    area   1,426.55 km2 (valid   1,426.55)  mean SWE    17.76 mm
+  old API zonal (ref polygon)      area     669.01 km2                          mean SWE    27.96 mm
+  old API SQL (ref polygon)                                                     swe     6.74 mm
+  new API stats (new polygon)      area   1,426.55 km2                          mean SWE    17.76 mm
+
+14191000:OR:USGS
+  independent, reference polygon  area  19,111.98 km2 (valid  19,090.90)  mean SWE     4.00 mm
+  independent, new-API polygon    area  19,111.98 km2 (valid  19,090.90)  mean SWE     4.00 mm
+  old API zonal (ref polygon)      area  19,094.47 km2                          mean SWE     4.01 mm
+  old API SQL (ref polygon)                                                     swe     5.58 mm
+  new API stats (new polygon)      area  19,111.98 km2                          mean SWE     4.00 mm
+
+============================================================================
+2024-03-15
+============================================================================
+
+06093200:MT:USGS
+  independent, reference polygon  area     828.44 km2 (valid     828.44)  mean SWE    92.08 mm
+  independent, new-API polygon    area     338.95 km2 (valid     338.95)  mean SWE   147.65 mm
+  old API zonal (ref polygon)      area     827.79 km2                          mean SWE    92.10 mm
+  old API SQL (ref polygon)                                                     swe   245.52 mm
+  new API stats (new polygon)      area     338.95 km2                          mean SWE   147.65 mm
+
+06078600:MT:USGS
+  independent, reference polygon  area     669.44 km2 (valid     669.44)  mean SWE   233.58 mm
+  independent, new-API polygon    area   1,426.55 km2 (valid   1,426.55)  mean SWE   219.35 mm
+  old API zonal (ref polygon)      area     669.01 km2                          mean SWE   233.58 mm
+  old API SQL (ref polygon)                                                     swe   215.64 mm
+  new API stats (new polygon)      area   1,426.55 km2                          mean SWE   219.35 mm
+
+14191000:OR:USGS
+  independent, reference polygon  area  19,111.98 km2 (valid  19,090.90)  mean SWE   143.88 mm
+  independent, new-API polygon    area  19,111.98 km2 (valid  19,090.90)  mean SWE   143.88 mm
+  old API zonal (ref polygon)      area  19,094.47 km2                          mean SWE   144.08 mm
+  old API SQL (ref polygon)                                                     swe   172.71 mm
+  new API stats (new polygon)      area  19,111.98 km2                          mean SWE   143.88 mm
+
+============================================================================
+2024-05-15
+============================================================================
+
+06093200:MT:USGS
+  independent, reference polygon  area     828.44 km2 (valid     828.44)  mean SWE    41.75 mm
+  independent, new-API polygon    area     338.95 km2 (valid     338.95)  mean SWE    79.89 mm
+  old API zonal (ref polygon)      area     827.79 km2                          mean SWE    41.77 mm
+  old API SQL (ref polygon)                                                     swe   186.29 mm
+  new API stats (new polygon)      area     338.95 km2                          mean SWE    79.89 mm
+
+06078600:MT:USGS
+  independent, reference polygon  area     669.44 km2 (valid     669.44)  mean SWE   249.56 mm
+  independent, new-API polygon    area   1,426.55 km2 (valid   1,426.55)  mean SWE   227.09 mm
+  old API zonal (ref polygon)      area     669.01 km2                          mean SWE   249.54 mm
+  old API SQL (ref polygon)                                                     swe   219.66 mm
+  new API stats (new polygon)      area   1,426.55 km2                          mean SWE   227.09 mm
+
+14191000:OR:USGS
+  independent, reference polygon  area  19,111.98 km2 (valid  19,090.90)  mean SWE    77.25 mm
+  independent, new-API polygon    area  19,111.98 km2 (valid  19,090.90)  mean SWE    77.25 mm
+  old API zonal (ref polygon)      area  19,094.47 km2                          mean SWE    77.45 mm
+  old API SQL (ref polygon)                                                     swe    62.33 mm
+  new API stats (new polygon)      area  19,111.98 km2                          mean SWE    77.25 mm
