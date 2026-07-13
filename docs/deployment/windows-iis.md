@@ -18,6 +18,7 @@ IIS app-pool identity that runs the site):
     setx /M UV_TOOL_DIR C:\ProgramData\uv\tools
     setx /M UV_TOOL_BIN_DIR C:\ProgramData\uv\bin
     setx /M UV_PYTHON_INSTALL_DIR C:\ProgramData\uv\python
+    setx /M UV_LINK_MODE copy
     ```
 
     `UV_PYTHON_INSTALL_DIR` matters even though the tool itself lands in
@@ -25,6 +26,15 @@ IIS app-pool identity that runs the site):
     interpreter* (see `home` in the venv's `pyvenv.cfg`), which uv otherwise
     downloads into the installing user's profile — where other accounts,
     including the site's app-pool identity, can't read it.
+
+    `UV_LINK_MODE=copy` matters because uv otherwise installs packages by
+    *hardlinking* files out of its per-user cache — and NTFS ACLs belong to
+    the file, not the path, so those files stay readable only by the
+    installing user even though they sit under `C:\ProgramData`. (The
+    symptom is subtle: `uv` byte-compiles on install and `.pyc` files are
+    created fresh with shared-readable ACLs, so pure-Python imports work for
+    other accounts while binary extensions fail with `ImportError: DLL load
+    failed ...: Access is denied`.)
 
     `setx /M` sets these machine-wide; open a *new* elevated shell so they take
     effect, then install the tool:

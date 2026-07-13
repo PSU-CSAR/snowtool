@@ -58,11 +58,15 @@ def user_specific_install_message(directory: Path, users_root: PureWindowsPath) 
         '  setx /M UV_TOOL_DIR C:\\ProgramData\\uv\\tools\n'
         '  setx /M UV_TOOL_BIN_DIR C:\\ProgramData\\uv\\bin\n'
         '  setx /M UV_PYTHON_INSTALL_DIR C:\\ProgramData\\uv\\python\n'
+        '  setx /M UV_LINK_MODE copy\n'
         '  <start a new elevated shell so the env vars take effect>\n'
         '  uv tool install snowtool\n\n'
         'UV_PYTHON_INSTALL_DIR keeps the Python interpreter backing the '
         "tool venv out of the installing user's profile, where other "
-        'accounts (like an IIS app pool) cannot read it.\n\n'
+        'accounts (like an IIS app pool) cannot read it. UV_LINK_MODE=copy '
+        'keeps installed files from being hardlinks into the per-user uv '
+        'cache, which stay locked to the installing user no matter where '
+        'they appear to live.\n\n'
         'Then re-run `snowtool windows add-to-path`.'
     )
 

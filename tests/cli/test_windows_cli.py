@@ -69,6 +69,7 @@ def test_user_specific_install_message_names_directory_and_reinstall_steps():
     assert 'UV_TOOL_DIR' in message
     assert 'UV_TOOL_BIN_DIR' in message
     assert 'UV_PYTHON_INSTALL_DIR' in message
+    assert 'UV_LINK_MODE' in message
     assert 'uv tool install snowtool' in message
 
 
