@@ -137,6 +137,16 @@ def stats(
             ),
         )
         return
+    if fmt == 'json-compact':
+        click.echo(
+            json.dumps(
+                result.dump_compact(
+                    include_empty_zones=include_empty_zones,
+                ).model_dump(mode='json'),
+                indent=2,
+            ),
+        )
+        return
     buffer = io.StringIO()
     result.dump_to_csv(buffer, include_empty_zones=include_empty_zones)
     click.echo(buffer.getvalue(), nl=False)

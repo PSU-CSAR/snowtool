@@ -33,9 +33,10 @@ format_option = click.option(
 nested_format_option = click.option(
     '--format',
     'fmt',
-    type=click.Choice(('csv', 'json')),
+    type=click.Choice(('csv', 'json', 'json-compact')),
     default='csv',
-    help='Output format (the zonal output is nested, so no table form).',
+    help='Output format (the zonal output is nested, so no table form). '
+    "'json' is the verbose per-date form; 'json-compact' is the normalized form.",
 )
 
 dataset_option = click.option(

@@ -87,6 +87,62 @@ def test_stats_whole_basin_json(runner, cli_obj, populated_root):
     assert cell['area_m2'] > 0
 
 
+def test_stats_whole_basin_json_compact(runner, cli_obj, populated_root):
+    result = runner.invoke(
+        cli,
+        [
+            'stats',
+            'test',
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
+            '--variable',
+            'swe',
+            '--format',
+            'json-compact',
+        ],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    # Bare compact body (no envelope): zones/variables once, date -> matrix.
+    assert payload['zone_layers'] == []
+    assert payload['variables'] == ['mean_swe_mm']
+    (zone,) = payload['zones']
+    assert zone['zone'] == []
+    assert zone['area_m2'] > 0
+    (matrix,) = payload['results'].values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
+
+
+def test_stats_json_compact_elevation_override(runner, cli_obj, populated_root):
+    result = runner.invoke(
+        cli,
+        [
+            'stats',
+            'test',
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
+            '--variable',
+            'swe',
+            '--zone',
+            'terrain.elevation:band_step_ft=2000',
+            '--format',
+            'json-compact',
+        ],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload['zone_layers'] == ['terrain.elevation']
+    # 2000 ft bands: the 2000-4000 ft band holds the uniform 1000 m (~3281 ft) basin.
+    populated = [z for z in payload['zones'] if z['area_m2'] > 0]
+    (zone,) = populated
+    (ref,) = zone['zone']
+    assert (ref['min'], ref['max']) == (2000, 4000)
+
+
 def test_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
