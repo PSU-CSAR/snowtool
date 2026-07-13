@@ -513,6 +513,7 @@ def test_aoi_raster_hash_matches_aoi(db, pourpoint_geojson):
     # not the bare geometry hash.
     assert db['test'].aoi_raster_hash('12345:MT:USGS') == aoi_provenance(
         aoi.geometry_hash,
+        None,
     )
     assert db['test'].aoi_raster_is_current(aoi)
 

@@ -170,15 +170,25 @@ def _window_cell_areas(
     return numpy.broadcast_to(row_areas[:, numpy.newaxis], (height, width))
 
 
-def aoi_provenance(geometry_hash: str) -> str:
+def aoi_provenance(geometry_hash: str, nodata_mask_hash: str | None) -> str:
     """The versioned tag an AOI raster is stamped with and checked against.
 
-    Combines the AOI's pure geometry digest with the burned-raster format version
-    (see :func:`~snowtool.snowdb.provenance.versioned_hash`), so a format change
-    invalidates every existing raster through the same equality check that catches
-    a geometry change.
+    Combines the AOI's pure geometry digest -- plus the dataset's nodata-mask
+    file digest, when one is configured -- with the burned-raster format version
+    (see :func:`~snowtool.snowdb.provenance.versioned_hash`). A geometry change,
+    a mask add/change/remove, or a format bump all invalidate existing rasters
+    through the same equality check. An explicit ``None`` (a maskless dataset)
+    keeps the digest identical to the pre-mask form, so those datasets never
+    see a spurious rebuild. Required rather than defaulted: a call site that
+    forgot the mask hash would compute maskless provenance *silently* --
+    exactly the staleness bug this tag exists to catch.
     """
-    return versioned_hash(AOI_RASTER_FORMAT_VERSION, geometry_hash)
+    digest = (
+        geometry_hash
+        if nodata_mask_hash is None
+        else f'{geometry_hash}+{nodata_mask_hash}'
+    )
+    return versioned_hash(AOI_RASTER_FORMAT_VERSION, digest)
 
 
 def write_aoi_raster(

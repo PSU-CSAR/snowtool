@@ -5,6 +5,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from fnmatch import fnmatch
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -24,6 +25,7 @@ from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.progress import NULL_PROGRESS
+from snowtool.snowdb.provenance import hash_files
 from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
@@ -123,6 +125,18 @@ class Dataset:
         # from the spec's single parsed CRS (not re-parsed from grid_params) so
         # the pyproj and rasterio sides can never disagree.
         return rasterio.crs.CRS.from_user_input(self.spec.crs)
+
+    @cached_property
+    def nodata_mask_hash(self: Self) -> str | None:
+        """sha256 of the configured nodata-mask file; ``None`` with no mask.
+
+        Cached per instance so a convergence loop over hundreds of pourpoints
+        hashes the file once, not once per AOI. Management ops build short-lived
+        Datasets, so a swapped mask file is picked up by the next run.
+        """
+        if self.nodata_mask is None:
+            return None
+        return hash_files([self.nodata_mask])
 
     def validate(self: Self) -> Self:
         if not self.path.exists():
@@ -273,7 +287,7 @@ class Dataset:
             ul_tile,
             br_tile,
             tile_size=self.spec.grid_params.tile_size,
-            provenance=aoi_provenance(aoi.geometry_hash),
+            provenance=aoi_provenance(aoi.geometry_hash, self.nodata_mask_hash),
             base_grid=self.grid.base_grid,
             cell_area=cell_area,
         )
@@ -304,6 +318,7 @@ class Dataset:
         """
         return self.aoi_raster_hash(aoi.station_triplet) == aoi_provenance(
             aoi.geometry_hash,
+            self.nodata_mask_hash,
         )
 
     def rasterize_aoi_if_needed(

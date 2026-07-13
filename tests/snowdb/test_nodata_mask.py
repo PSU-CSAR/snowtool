@@ -15,6 +15,7 @@ import rasterio
 
 from rasterio.crs import CRS
 
+from snowtool.snowdb.aoi_raster import aoi_provenance
 from snowtool.snowdb.config import (
     DATASET_CONFIG_FILENAME,
     DatasetConfig,
@@ -23,6 +24,7 @@ from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.pourpoint import Pourpoint
 
 from ..conftest import ORIGIN_X, ORIGIN_Y, PX, SIZE, TILE
 
@@ -114,3 +116,42 @@ def test_snowdb_resolves_nodata_mask_against_dataset_config_dir(
 def test_dataset_without_mask_has_none(tmp_path, spec):
     ds = Dataset.create(spec, tmp_path / 'db')
     assert ds.nodata_mask is None
+
+
+def test_aoi_provenance_unchanged_without_mask():
+    # Maskless tags must not change: existing AOI rasters stay current and
+    # AOI_RASTER_FORMAT_VERSION stays 1.
+    assert aoi_provenance('abc', None) == 'v1:abc'
+    assert aoi_provenance('abc', 'def') == 'v1:abc+def'
+
+
+def test_mask_add_change_remove_marks_aoi_stale(
+    tmp_path,
+    spec,
+    grid,
+    pourpoint_geojson,
+    nodata_mask,
+):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    root = tmp_path / 'db'
+
+    unmasked = Dataset.create(spec, root)
+    unmasked.rasterize_aoi(pp)
+    assert unmasked.aoi_raster_is_current(pp)
+
+    # Adding a mask: the same on-disk raster reads as stale.
+    masked = Dataset(spec, root, nodata_mask=nodata_mask)
+    assert not masked.aoi_raster_is_current(pp)
+    assert masked.rasterize_aoi_if_needed(pp)
+    assert masked.aoi_raster_is_current(pp)
+
+    # The rebuilt raster is stale again from a maskless dataset's view...
+    assert not Dataset(spec, root).aoi_raster_is_current(pp)
+
+    # ...and from a dataset whose mask bytes changed. (Fresh instance: the
+    # hash is cached per Dataset instance.)
+    write_mask(nodata_mask, grid, valid_through_col=99)
+    changed = Dataset(spec, root, nodata_mask=nodata_mask)
+    assert not changed.aoi_raster_is_current(pp)
+    assert changed.rasterize_aoi_if_needed(pp)
+    assert changed.aoi_raster_is_current(pp)
