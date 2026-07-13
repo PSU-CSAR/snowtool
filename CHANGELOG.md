@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - The SNODAS template ships its fixed water/off-domain mask (139 KB, derived
   from the SWE nodata footprint) as package data; `dataset create --template
   snodas` stamps it into the new dataset automatically.
+- The SWANN 800m template ships its fixed off-domain mask (85 KB, derived from
+  the SWE `!= -999` footprint — the CONUS land domain is ~54% of the grid
+  rectangle, the rest permanent nodata) as package data; `dataset create
+  --template swann-800m` stamps it in automatically, exactly as SNODAS does.
+  **Live databases:** re-run `dataset create --template swann-800m <name>` on
+  an existing SWANN dataset to converge — `create` is idempotent: it overwrites
+  the mask, preserves the registration and active state, and re-burns only the
+  AOI rasters the added mask marks stale. Basins with out-of-domain pixels then
+  report the smaller in-domain area. INSTARR needs
+  no such mask: its nodata is per-date/per-variable (cloud and snow-property
+  gaps), not a fixed domain, and its one static gap (the empty MODIS corner)
+  is already handled by the dataset `footprint`.
 
 ### Changed
 

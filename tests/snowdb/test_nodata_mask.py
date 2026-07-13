@@ -216,14 +216,22 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
         ds.rasterize_aoi(pp)
 
 
-def test_snodas_template_mask_is_packaged():
-    packaged = template_nodata_mask('snodas')
+@pytest.mark.parametrize(
+    ('template', 'shape'),
+    [
+        ('snodas', (3351, 6935)),
+        ('swann-800m', (3105, 7025)),
+    ],
+)
+def test_template_mask_is_packaged(template, shape):
+    packaged = template_nodata_mask(template)
     assert packaged is not None
     assert packaged.is_file()
     with rasterio.open(packaged) as ds:
-        assert ds.shape == (3351, 6935)
+        assert ds.shape == shape
         assert ds.nodata == 0
-    assert template_nodata_mask('swann-800m') is None
+    # A template with no packaged mask returns None.
+    assert template_nodata_mask('instarr') is None
 
 
 def test_create_dataset_stamps_mask(tmp_path, spec, nodata_mask):

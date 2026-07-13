@@ -91,6 +91,7 @@ DATASET_TEMPLATES: dict[str, DatasetConfig] = {
 # `template_nodata_mask` is the lookup API.
 _DATASET_TEMPLATE_MASKS: dict[str, str] = {
     'snodas': 'snodas-nodata-mask.tif',
+    'swann-800m': 'swann-nodata-mask.tif',
 }
 
 
