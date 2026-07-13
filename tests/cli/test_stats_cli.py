@@ -147,7 +147,7 @@ def test_stats_csv_include_empty_zones(runner, cli_obj, populated_root):
 
 def test_stats_threshold_zone_override(runner, cli_obj, populated_root):
     # The synthetic forest layer is 100%; a threshold above 100 flips the basin to
-    # "unforested", proving the --zone LAYER:override syntax reaches the scheme.
+    # "unforested", proving the --zone LAYER:PARAM=VALUE syntax reaches the scheme.
     result = runner.invoke(
         cli,
         [
@@ -159,7 +159,7 @@ def test_stats_threshold_zone_override(runner, cli_obj, populated_root):
             '--variable',
             'swe',
             '--zone',
-            'landcover.forest_cover:100.5',
+            'landcover.forest_cover:threshold_pct=100.5',
             '--format',
             'json',
         ],

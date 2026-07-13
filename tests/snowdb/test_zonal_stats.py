@@ -437,9 +437,12 @@ def _registry():
     ('token', 'expected'),
     [
         ('terrain.elevation', ZoneSelection('terrain.elevation')),
-        ('terrain.elevation:500', ZoneSelection('terrain.elevation', override=500)),
         (
-            'landcover.forest_cover:40',
+            'terrain.elevation:band_step_ft=500',
+            ZoneSelection('terrain.elevation', override=500),
+        ),
+        (
+            'landcover.forest_cover:threshold_pct=40',
             ZoneSelection('landcover.forest_cover', override=40.0),
         ),
     ],
@@ -452,8 +455,10 @@ def test_parse_zone_selection_valid(token, expected):
     ('token', 'match'),
     [
         ('terrain.nope', 'Unknown zone layer'),
-        ('terrain.aspect:5', 'takes no override'),
-        ('terrain.elevation:x', 'band step must be an integer'),
+        ('terrain.aspect:band_step_ft=5', 'takes no override'),
+        ('terrain.elevation:500', 'expected .*=.*'),
+        ('terrain.elevation:nope=500', "its override is 'band_step_ft'"),
+        ('terrain.elevation:band_step_ft=x', 'band step must be an integer'),
     ],
 )
 def test_parse_zone_selection_invalid(token, match):

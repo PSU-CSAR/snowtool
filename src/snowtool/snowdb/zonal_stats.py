@@ -17,7 +17,7 @@ from snowtool.snowdb.raster import DataRaster
 from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
 from snowtool.snowdb.zones.zone_layer import available_zones
-from snowtool.snowdb.zones.zoning import Zone
+from snowtool.snowdb.zones.zoning import CategoricalZoneDescription, Zone
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -69,21 +69,40 @@ def parse_zone_selection(
     token: str,
     registry: Mapping[str, AvailableZone],
 ) -> ZoneSelection:
-    """Parse a ``LAYER[:override]`` token into a :class:`ZoneSelection`.
+    """Parse a ``LAYER[:PARAM=VALUE]`` token into a :class:`ZoneSelection`.
 
-    ``LAYER`` is a registry key (``'<provider>.<layer.key>'``); an optional
-    ``:override`` sets the axis' scheme param. The token is delegated to the
-    layer's scheme (:meth:`ZoneScheme.parse_override`), which types it (a band
-    step, a split threshold) or rejects it (a categorical axis takes none).
-    Backs the CLI ``--zone`` flag; raises a clean error (listing the choices) on
-    an unknown layer.
+    ``LAYER`` is a registry key (``'<provider>.<layer.key>'``). With no ``:`` the
+    layer takes its scheme default. ``:PARAM=VALUE`` overrides the layer's single
+    scheme parameter, where ``PARAM`` is exactly the override key the dataset
+    resource advertises for that layer (e.g. ``terrain.elevation:band_step_ft=500``);
+    the value is delegated to the layer's scheme (:meth:`ZoneScheme.parse_override`),
+    which types it. Backs the CLI ``--zone`` flag and the API's ``zone`` query
+    tokens; raises a clean :class:`QueryParameterError` on an unknown layer, a
+    malformed override, an unknown ``PARAM``, or an override on a categorical layer.
     """
-    layer_key, sep, raw = token.partition(':')
+    layer_key, sep, rest = token.partition(':')
     available = registry.get(layer_key)
     if available is None:
         raise _unknown_layer(layer_key, registry)
     if not sep:
         return ZoneSelection(layer_key)
+
+    param, eq, raw = rest.partition('=')
+    if not eq:
+        raise QueryParameterError(
+            f'Malformed zone override {token!r}; expected LAYER:PARAM=VALUE, '
+            f'e.g. terrain.elevation:band_step_ft=500.',
+        )
+    desc = available.scheme.describe()
+    if isinstance(desc, CategoricalZoneDescription):
+        raise QueryParameterError(
+            f'Zone layer {layer_key!r} is categorical and takes no override.',
+        )
+    if param != desc.param_key:
+        raise QueryParameterError(
+            f'Unknown override {param!r} for {layer_key!r}; its override is '
+            f'{desc.param_key!r} (e.g. {layer_key}:{desc.param_key}=<value>).',
+        )
     return ZoneSelection(layer_key, available.scheme.parse_override(layer_key, raw))
 
 

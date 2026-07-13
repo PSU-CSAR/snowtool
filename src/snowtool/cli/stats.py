@@ -50,7 +50,8 @@ if TYPE_CHECKING:
     multiple=True,
     help=(
         'Stratify by a zone layer (repeatable; default: whole basin). '
-        'LAYER[:override], e.g. terrain.elevation:500 or landcover.forest_cover:40.'
+        'LAYER[:PARAM=VALUE], e.g. terrain.elevation:band_step_ft=500 or '
+        'landcover.forest_cover:threshold_pct=40.'
     ),
 )
 @click.option(
@@ -102,7 +103,7 @@ def stats(
     date_query = parse_dates_query(dates, years)
 
     registry = available_zones(dataset.providers.values())
-    # The CLI's ``LAYER[:override]`` string tokens converge on the same
+    # The CLI's ``LAYER[:PARAM=VALUE]`` string tokens converge on the same
     # ``list[ZoneSelection]`` the API builds from pre-typed query fields (see
     # ``api.routers._stats_params.selections``); only the input shape differs.
     selections = [parse_zone_selection(token, registry) for token in zones]
