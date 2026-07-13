@@ -37,7 +37,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `SNOWTOOL_SNOWDB_CONFIG`) to locate the snowdb grant it removes.
 - The install-for-all-users instructions (docs and the `add-to-path`
   guidance message) also set `UV_PYTHON_INSTALL_DIR`, keeping the
-  interpreter backing the tool venv out of the installing user's profile.
+  interpreter backing the tool venv out of the installing user's profile,
+  and `UV_LINK_MODE=copy`, since hardlinks into uv's per-user cache carry
+  the cache's user-only ACLs regardless of where they are linked.
 - The IIS docs require IISAdministration ≥ 1.1.0.0 (Windows Server 2016's
   inbox 1.0.0.0 lacks `New-IISSite -Protocol`/`-CertificateThumbPrint`).
 - The IIS permission grants apply the inheritable ACE at each tree root
