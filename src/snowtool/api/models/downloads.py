@@ -49,8 +49,8 @@ class INSTARRUrls(BaseUrl):
             download_url = cls.BASE_URL.format(
                 tile=tile,
                 year=target_date.year,
-                month=target_date.month,
-                day=target_date.day,
+                month=f'{target_date.month:02d}',
+                day=f'{target_date.day}',
             )
             dest = cls._build_dest(
                 'instarr',
@@ -94,8 +94,8 @@ class SWANNUrl(BaseUrl):
         wy = cls._water_year(target_date)
         download_url = cls.BASE_URL.format(
             year=wy,
-            month=target_date.month,
-            day=target_date.day,
+            month=f'{target_date.month:02d}',
+            day=f'{target_date.day:02d}',
             qualifier=qualifier,
         )
         return cls(
@@ -140,12 +140,12 @@ class SNODASUrl(BaseUrl):
     BASE_DEST: ClassVar[str] = '/d/projects/gisdata/snodas/in_db/masked/{import_path}/'
 
     @classmethod
-    def _for_date(cls, target_date: date):
+    def _for_date(cls, target_date: date) -> SNODASUrl:
         download_url = cls.BASE_URL.format(
             year=target_date.year,
-            month=target_date.month,
+            month=f'{target_date.month:02d}',
             month_abbr=calendar.month_abbr[target_date.month],
-            day=target_date.day,
+            day=f'{target_date.day:02d}',
         )
         dest = Path(
             cls.BASE_DEST.format(

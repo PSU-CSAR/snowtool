@@ -1,10 +1,11 @@
 import sqlite3
+import warnings
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-from snowtool.exceptions import LedgerError
+from snowtool.exceptions import LedgerWarning
 
 
 @dataclass
@@ -31,6 +32,9 @@ class Ledger:
             conn (sqlite3.Connection): Connection to the ledger file
         Outputs:
             None
+
+        Raises:
+            LedgerWarning
         """
         try:
             with sqlite3.connect(cls.BASE_LEDGER_PATH) as conn:
@@ -50,7 +54,11 @@ class Ledger:
                 """,
                 )
         except sqlite3.Error as e:
-            raise LedgerError from e
+            warnings.warn(
+                f'Error in instantiating ledger: {e}',
+                LedgerWarning,
+                stacklevel=2,
+            )
         finally:
             conn.close()
 
@@ -86,7 +94,7 @@ class Ledger:
                     (
                         source,
                         result.url,
-                        result.dest,
+                        str(result.dest),
                         qualifier,
                         result.status,
                         result.detail,
@@ -94,16 +102,18 @@ class Ledger:
                 )
                 conn.commit()
             except sqlite3.Error as e:
-                raise LedgerError from e
-            finally:
-                conn.close()
+                warnings.warn(
+                    f'Could not write ledger record for {result.url}: {e}',
+                    LedgerWarning,
+                    stacklevel=2,
+                )
 
     @classmethod
     def _get_records(
         cls,
-        source: str,
+        source: str = '',
         update: bool = False,
-    ) -> list:
+    ) -> list[tuple]:
         """
         _get_records will retrieve records
         from the ledger
@@ -112,9 +122,6 @@ class Ledger:
             source (str): Data Source to isolate
             update (bool): Used for updating SWANN datasets with the
                            more stable version of the record
-
-        Raises:
-            APIError: _description_
         """
 
         if source == 'swann' and update:
@@ -136,23 +143,37 @@ class Ledger:
                 cursor.execute(stmt)
                 return cursor.fetchall()
             except sqlite3.Error as e:
-                raise LedgerError from e
-            finally:
-                conn.close()
+                warnings.warn(
+                    f'Could not retrieve record(s): {e}',
+                    LedgerWarning,
+                    stacklevel=2,
+                )
+                return []
 
     @classmethod
-    def _clean_records(cls) -> None:
+    def _clean_records(
+        cls,
+        url: str | None = None,
+    ) -> None:
+        """
+        _clean_records will clear the ledger if a missing file
+        has been successfully downloaded or if a file has been retried
+        at least 5 times and still fails
+
+        Args:
+            url (str): url to remove from record
+        """
         with sqlite3.connect(cls.BASE_LEDGER_PATH) as conn:
             try:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    DELETE FROM ledger
-                    WHERE attempts >= 5
-                    """,
-                )
+                if url:
+                    cursor.execute('DELETE FROM ledger WHERE url = ?', (url,))
+                else:
+                    cursor.execute('DELETE FROM ledger WHERE attempts >= 5')
                 conn.commit()
             except sqlite3.Error as e:
-                raise LedgerError from e
-            finally:
-                conn.close()
+                warnings.warn(
+                    f'Could not remove record(s): {e}',
+                    LedgerWarning,
+                    stacklevel=2,
+                )

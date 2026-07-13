@@ -260,19 +260,11 @@ class PourpointPruneDestinationRequiredError(SnowtoolError):
         )
 
 
-class LedgerError(SNODASError):
+class LedgerWarning(SNODASWarning):
     """
     Raised when accessing the ledger for tracking failed download attempts fails
-    """
-
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
-
-
-class DownloadError(SNODASError):
-    """
-    Raised when a Download request for a data file results
-    in an internal server error
+    No need for it to be an error I think, just say "Hey writing to the ledger failed"
+    And move on with download attempt
     """
 
     def __init__(self, *args: object) -> None:
