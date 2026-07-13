@@ -155,3 +155,54 @@ def test_mask_add_change_remove_marks_aoi_stale(
     assert not changed.aoi_raster_is_current(pp)
     assert changed.rasterize_aoi_if_needed(pp)
     assert changed.aoi_raster_is_current(pp)
+
+
+def test_mask_burns_zero_area_outside_domain(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+    nodata_mask,
+):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    unmasked = Dataset.create(spec, tmp_path / 'plain').rasterize_aoi(pp)
+    masked = Dataset.create(
+        spec,
+        tmp_path / 'masked',
+        nodata_mask=nodata_mask,
+    ).rasterize_aoi(pp)
+
+    # Same polygon, same grid -> same tile window; the polygon sits in tile
+    # (0, 0), so window col == grid col. The mask zeroes every grid col >=
+    # MASK_BOUNDARY_COL; the masked burn must equal the unmasked burn with
+    # those columns zeroed, and nothing else may differ.
+    expected = unmasked.array.copy()
+    expected[:, MASK_BOUNDARY_COL:] = 0
+    numpy.testing.assert_array_equal(masked.array, expected)
+
+    # The cut is real on both sides: area strictly between 0 and the full burn.
+    assert 0 < masked.array.sum() < unmasked.array.sum()
+
+
+def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
+    from snowtool.exceptions import SnowtoolError
+
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    bad = tmp_path / 'bad-mask.tif'
+    array = numpy.ones((SIZE // 2, SIZE // 2), dtype=numpy.uint8)
+    with rasterio.open(
+        bad,
+        'w',
+        driver='GTiff',
+        height=SIZE // 2,
+        width=SIZE // 2,
+        count=1,
+        dtype='uint8',
+        crs=CRS.from_epsg(4326),
+        transform=grid.base_grid.transform,
+        nodata=0,
+    ) as dst:
+        dst.write(array, 1)
+
+    ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
+    with pytest.raises(SnowtoolError, match='does not match the dataset grid'):
+        ds.rasterize_aoi(pp)

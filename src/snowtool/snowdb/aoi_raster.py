@@ -16,9 +16,10 @@ import numpy.typing
 import rasterio
 
 from rasterio.features import rasterize
+from rasterio.windows import Window
 
 from snowtool import types
-from snowtool.exceptions import IncompleteDatasetDataError
+from snowtool.exceptions import IncompleteDatasetDataError, SnowtoolError
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import PixelCoord, tile_base_origin, tiles_in_bbox
@@ -170,6 +171,30 @@ def _window_cell_areas(
     return numpy.broadcast_to(row_areas[:, numpy.newaxis], (height, width))
 
 
+def _read_nodata_mask_window(
+    path: Path,
+    base_grid: AffineGrid,
+    start: PixelCoord,
+    height: int,
+    width: int,
+) -> numpy.typing.NDArray[numpy.bool_]:
+    """The dataset nodata mask's AOI window as a boolean (True = in-domain).
+
+    The mask is a single-band raster on the dataset's *full* grid whose 0
+    (= nodata) pixels can never report data; anything nonzero is in-domain.
+    Its shape must match the grid exactly -- the window is read by pixel
+    offsets, so a mismatched raster would silently misalign; refuse it instead.
+    """
+    with rasterio.open(path) as ds:
+        if ds.shape != (base_grid.rows, base_grid.cols):
+            raise SnowtoolError(
+                f'nodata mask {path} shape {ds.shape} does not match the '
+                f'dataset grid ({base_grid.rows}, {base_grid.cols})',
+            )
+        band = ds.read(1, window=Window(start.col, start.row, width, height))
+    return band != 0
+
+
 def aoi_provenance(geometry_hash: str, nodata_mask_hash: str | None) -> str:
     """The versioned tag an AOI raster is stamped with and checked against.
 
@@ -202,6 +227,7 @@ def write_aoi_raster(
     *,
     base_grid: AffineGrid,
     cell_area: float | None,
+    nodata_mask: Path | None = None,
 ) -> None:
     """Burn ``geometry`` to a per-pixel cell-area AOI COG over its tile-bbox window.
 
@@ -211,11 +237,17 @@ def write_aoi_raster(
     projected grid, or ``None`` on a geographic grid (per-row geodesic area is
     computed from ``base_grid``).
 
-    ``provenance`` is the versioned AOI tag (see :func:`aoi_provenance`): the AOI
-    geometry digest plus the burned-raster format version. Its only AOI-side
-    provenance axis is the geometry (``SNOWTOOL_AOI_HASH``); the cell areas are a pure
-    function of the fixed grid, and elevation/terrain are read live at query time, so
-    a terrain rebuild never invalidates an AOI raster.
+    ``provenance`` is the versioned AOI tag (``SNOWTOOL_AOI_HASH``) and must be
+    :func:`aoi_provenance` of the AOI's geometry digest and the file digest of
+    the same ``nodata_mask`` passed here -- the caller keeps the two in sync
+    (see ``Dataset.rasterize_aoi``). Geometry and mask are the raster's only
+    provenance axes: the cell areas are a pure function of the fixed grid, and
+    elevation/terrain are read live at query time, so a terrain rebuild never
+    invalidates an AOI raster.
+
+    ``nodata_mask`` is the dataset's optional valid-domain raster (see
+    ``DatasetConfig.nodata_mask``): its 0/nodata pixels are burned out of the
+    AOI (zero area weight).
     """
     start = tile_base_origin(start_tile)
     end_origin = tile_base_origin(end_tile)
@@ -234,6 +266,18 @@ def write_aoi_raster(
         out_shape=(height, width),
         transform=transform,
     )
+    if nodata_mask is not None:
+        # Pixels outside the dataset's valid domain (e.g. SNODAS open water)
+        # get zero area weight: they are excluded from stats areas exactly as
+        # they are excluded from the means, so band stats recombine to
+        # whole-basin stats.
+        aoi_mask &= _read_nodata_mask_window(
+            nodata_mask,
+            base_grid,
+            start,
+            height,
+            width,
+        )
     areas = _window_cell_areas(base_grid, start.row, height, width, cell_area)
     aoi_area = numpy.where(aoi_mask, areas, numpy.float32(0)).astype(numpy.float32)
 

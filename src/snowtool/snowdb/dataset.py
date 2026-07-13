@@ -290,6 +290,7 @@ class Dataset:
             provenance=aoi_provenance(aoi.geometry_hash, self.nodata_mask_hash),
             base_grid=self.grid.base_grid,
             cell_area=cell_area,
+            nodata_mask=self.nodata_mask,
         )
 
         return AOIRaster.open(path, self.grid)
