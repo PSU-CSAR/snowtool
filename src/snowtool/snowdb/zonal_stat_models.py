@@ -150,3 +150,47 @@ def build_zonal_stats_model(
         zone_layers=(list[str], Field(..., examples=[['terrain.elevation']])),
         zones=(list[stat_model], ...),  # type: ignore[valid-type]
     )
+
+
+class CompactZone(BaseModel):
+    """One crossed-zone cell in the compact form: its refs plus hoisted area.
+
+    ``area_m2`` is date-invariant (a property of the crossed-zone geometry), so it
+    is stated once here rather than repeated per date as the verbose per-date model
+    does.
+    """
+
+    zone: list[ZoneRef] = Field(
+        ...,
+        examples=[
+            [
+                {
+                    'kind': 'band',
+                    'layer': 'terrain.elevation',
+                    'min': 6000,
+                    'max': 7000,
+                    'unit': 'ft',
+                },
+            ],
+        ],
+    )
+    area_m2: Annotated[float, Field(ge=0)] = Field(..., examples=[592891.69])
+
+
+class CompactStats(BaseModel):
+    """The normalized compact zonal-stats body, generic across every dataset.
+
+    Zones and variables are defined once; ``results`` maps each date to a bare
+    ``zones x variables`` matrix (outer index aligns to ``zones``, inner to
+    ``variables``). A ``null`` is a variable with no valid pixels that date (or an
+    empty zone). Variables are string ``stat_name``\\ s, so this body carries no
+    per-dataset field names and needs no generated model.
+    """
+
+    zone_layers: list[str] = Field(..., examples=[['terrain.elevation']])
+    variables: list[str] = Field(..., examples=[['mean_swe_mm']])
+    zones: list[CompactZone]
+    results: dict[date, list[list[StatValue]]] = Field(
+        ...,
+        examples=[{'2008-12-14': [[42.7], [51.3]]}],
+    )

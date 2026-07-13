@@ -116,6 +116,41 @@ def test_zonal_stats(dataset, pourpoint_geojson, swe_cog):
     assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
+def test_dump_compact_whole_basin(dataset, pourpoint_geojson, swe_cog):
+    aoi_raster, stats = _crossed_stats(dataset, pourpoint_geojson, [])
+    compact = stats.dump_compact()
+
+    assert compact.zone_layers == []
+    assert compact.variables == ['mean_swe_mm']
+    # Whole basin: one cell with an empty zone ref list and the basin area.
+    (zone,) = compact.zones
+    assert zone.zone == []
+    assert zone.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
+    # One ingested date -> one matrix row (one zone) x one variable, = SWE_VALUE.
+    (matrix,) = compact.results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
+
+
+def test_dump_compact_empty_zone_is_null(dataset, pourpoint_geojson, swe_cog):
+    _, stats = _crossed_stats(
+        dataset,
+        pourpoint_geojson,
+        [ZoneSelection('terrain.elevation')],
+    )
+    compact = stats.dump_compact(include_empty_zones=True)
+    # 16 elevation bands, only 3000-4000 ft populated; the empty bands are 0-area
+    # with a null variable value.
+    assert len(compact.zones) == 16
+    populated = [i for i, z in enumerate(compact.zones) if z.area_m2 > 0]
+    assert len(populated) == 1
+    (matrix,) = compact.results.values()
+    for i, row in enumerate(matrix):
+        if i in populated:
+            assert row == [pytest.approx(SWE_VALUE)]
+        else:
+            assert row == [None]
+
+
 def _crossed_stats(dataset, pourpoint_geojson, selections, *, max_zone_cells=10_000):
     """Run ZonalStats over the synthetic SWE COG crossed by ``selections``."""
     aoi = Pourpoint.from_geojson(pourpoint_geojson)

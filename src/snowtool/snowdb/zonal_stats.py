@@ -6,7 +6,7 @@ import math
 
 from dataclasses import dataclass
 from datetime import date
-from typing import IO, TYPE_CHECKING, Self
+from typing import IO, TYPE_CHECKING, Self, cast
 
 import numpy
 import numpy.typing
@@ -16,6 +16,7 @@ from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.raster import DataRaster
 from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.variables import DatasetVariable, Reducer
+from snowtool.snowdb.zonal_stat_models import CompactStats, CompactZone
 from snowtool.snowdb.zones.zone_layer import available_zones
 from snowtool.snowdb.zones.zoning import CategoricalZoneDescription, Zone
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.raster.tiff_cache import TiffCache
     from snowtool.snowdb.spec import DatasetSpec
+    from snowtool.snowdb.zonal_stat_models import ZoneRef
     from snowtool.snowdb.zones.zone_layer import AvailableZone
     from snowtool.snowdb.zones.zoning import ZoneScheme
 
@@ -263,6 +265,51 @@ class ZonalStats:
                 ),
             )
         return stats
+
+    def dump_compact(
+        self: Self,
+        *,
+        include_empty_zones: bool = False,
+    ) -> CompactStats:
+        """The normalized compact body (zones/variables once, date -> matrix).
+
+        Shares :meth:`_zone_stats` and :meth:`_emitted_cells` with :meth:`dump` /
+        :meth:`dump_to_csv`, so values are byte-identical. ``area_m2`` is
+        date-invariant, so it is read once per zone (from the first date) and
+        hoisted into the zone definition. With no dates the matrix is empty and no
+        area is available, so ``zones`` is empty too (mirroring ``dump``'s empty
+        output); ``zone_layers`` and ``variables`` are always reported.
+        """
+        self.validate()
+        cells = list(self._cells_index)
+        variables = [variable.stat_name for variable in self._variables_index]
+        emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
+
+        zones: list[CompactZone] = []
+        results: dict[date, list[list[float | None]]] = {}
+        if self._array.shape[0] > 0:
+            for cell_idx in emitted:
+                zones.append(
+                    CompactZone(
+                        zone=cast(
+                            'list[ZoneRef]',
+                            self._zone_refs(self.zone_layers, cells[cell_idx]),
+                        ),
+                        area_m2=self._zone_stats(0, cell_idx)['area_m2'],
+                    ),
+                )
+            for date_, date_idx in self._dates_index.items():
+                results[date_] = [
+                    [self._zone_stats(date_idx, cell_idx)[name] for name in variables]
+                    for cell_idx in emitted
+                ]
+
+        return CompactStats(
+            zone_layers=list(self.zone_layers),
+            variables=variables,
+            zones=zones,
+            results=results,
+        )
 
     def _axis_kinds(self: Self) -> tuple[Zone, ...]:
         """A sample zone per axis, to type the CSV columns (header + row layout).
