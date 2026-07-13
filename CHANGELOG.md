@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Added
 
+- Datasets can declare an optional `nodata_mask` in their config: a
+  single-band raster on the dataset's grid whose 0/nodata pixels can never
+  report data (e.g. SNODAS open water). Masked pixels are burned out of AOI
+  rasters (zero area weight), so stats `area_m2` counts only pixels the
+  dataset can actually report and per-band means recombine exactly to
+  whole-basin means. The mask file's hash rides in AOI provenance
+  (`SNOWTOOL_AOI_HASH`), so adding, changing, or removing a mask marks the
+  dataset's AOI rasters stale — run `snowtool pourpoint rasterize` to
+  converge. **Live databases:** configuring a mask changes reported basin
+  areas for basins containing out-of-domain pixels (they shrink by the
+  masked area); maskless datasets are unaffected (no rebuild).
+- The SNODAS template ships its fixed water/off-domain mask (139 KB, derived
+  from the SWE nodata footprint) as package data; `dataset create --template
+  snodas` stamps it into the new dataset automatically.
+
 ### Changed
 
 ### Removed
