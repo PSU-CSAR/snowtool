@@ -116,11 +116,11 @@ orientation components, `ThresholdParams.threshold_pct` for forest cover,
 the scheme by `configured`; `None` (an unconfigured layer) falls back to the
 scheme's own default, and a param belonging to a different scheme raises
 `ZoneParamsError`. A single query can then override that default per axis with
-a `LAYER:override` token (the CLI `--zone` flag), parsed in
-`parse_zone_selection` (`snowdb/zonal_stats.py`):
-the token is delegated to the layer's own scheme, which types it (a banded
-axis parses an int band width, a threshold axis a float split point) or
-rejects it. A categorical axis takes no override — `parse_override` on the
+a `LAYER:PARAM=VALUE` token (the CLI `--zone` flag), parsed in
+`parse_zone_selection` (`snowdb/zonal_stats.py`): `PARAM` names the axis' one
+scheme parameter (e.g. `terrain.elevation:band_step_ft=500`), and the value is
+delegated to the layer's own scheme, which types it (a banded axis parses an
+int band width, a threshold axis a float split point) or rejects it. A categorical axis takes no override — `parse_override` on the
 base scheme raises — so `terrain.aspect` is selected bare.
 
 ## The built-in layers

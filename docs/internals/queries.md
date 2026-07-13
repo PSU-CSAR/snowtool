@@ -43,12 +43,13 @@ but no data exists there for this variable and date.
 ## Zone axes and the crossed index
 
 Each stratification axis is a `ZoneSelection`: a zone-layer registry key plus an
-optional scheme override, parsed from a `LAYER[:override]` token by
+optional scheme override, parsed from a `LAYER[:PARAM=VALUE]` token by
 `parse_zone_selection`. The key is `'<provider>.<layer.key>'` —
 `terrain.elevation`, `terrain.aspect`, `landcover.forest_cover` — and the
-optional override is the axis' one scheme parameter (a band step for a banded
-layer, a split threshold for a threshold layer; a categorical axis takes none,
-and a token for one is a clean error). An empty selection means no
+optional override names the axis' one scheme parameter explicitly (e.g.
+`terrain.elevation:band_step_ft=500` for a banded layer, or
+`landcover.forest_cover:threshold_pct=40` for a threshold layer; a categorical
+axis takes none, and a token for one is a clean error). An empty selection means no
 stratification at all: a single whole-basin cell per date.
 
 The zone layers themselves are read *live* at query time — each selected layer
