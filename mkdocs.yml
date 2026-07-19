@@ -73,6 +73,7 @@ nav:
       - Generating zone layers: internals/zone-generation.md
       - Datasets and ingest: internals/ingest.md
       - The query engine: internals/queries.md
+      - Stats parameters and output formats: internals/stats.md
   - Deployment:
       - Windows / IIS: deployment/windows-iis.md
   - Reference:
