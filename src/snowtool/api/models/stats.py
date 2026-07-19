@@ -1,15 +1,14 @@
 """The zonal-stats response envelope and the CSV streaming helper.
 
-The JSON response is a thin per-dataset envelope -- the pourpoint ref, the echoed query,
-HATEOAS links, and ``results``: a list of the dataset's *generated* per-date model
-(:attr:`DatasetSpec.zonal_stats_model`). Parametrizing the generic
-:class:`StatsResponse` with that model (``StatsResponse[spec.zonal_stats_model]``)
-gives each dataset a precise OpenAPI schema, which is exactly what the
-``model_prefix`` uniqueness check in ``db._index_specs`` protects.
+The JSON response is a single generic envelope (:class:`CompactStatsResponse`),
+shared by every dataset: the pourpoint ref, the echoed query, HATEOAS links, and a
+compact body (zone layers / variables / zones defined once, values positional) so
+there are no per-dataset field names and one OpenAPI schema covers them all.
 
 Content is negotiated (``?f=`` / ``Accept``): ``csv`` streams
-:meth:`ZonalStats.dump_to_csv` with a ``Content-Disposition`` filename from the
-query's ``csv_name``; the JSON envelope carries an ``alternate`` link to the CSV.
+:meth:`ZonalStats.dump_to_csv` via :func:`stats_csv_response` with a
+``Content-Disposition`` filename from the query's ``csv_name``; the JSON envelope
+carries an ``alternate`` link to the CSV.
 """
 
 from __future__ import annotations
@@ -34,50 +33,11 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zonal_stats import ZonalStats
 
 
-class StatsResponse[T](BaseModel):
-    """A per-dataset zonal-stats envelope: pourpoint/query echo + results + links."""
-
-    pourpoint: types.StationTriplet
-    dataset: str = Field(examples=['snodas'])
-    query: PourPointQuery
-    results: list[T]
-    links: list[Link] = Field(default_factory=list)
-
-    @classmethod
-    def build(
-        cls,
-        *,
-        triplet: types.StationTriplet,
-        dataset: str,
-        query: DateRangeQuery | DOYQuery,
-        results: list[T],
-        alternates: Sequence[Link] = (),
-    ) -> StatsResponse[T]:
-        return cls(
-            pourpoint=triplet,
-            dataset=dataset,
-            query=query,
-            results=results,
-            links=[
-                Link.self_link(),
-                Link.root_link(),
-                Link.to_route(
-                    'get_pourpoint',
-                    rel=Rel.UP,
-                    type=MediaType.GEOJSON,
-                    path={'triplet': triplet},
-                ),
-                *alternates,
-            ],
-        )
-
-
 class CompactStatsResponse(BaseModel):
     """The compact zonal-stats envelope: pourpoint/query echo + the compact body.
 
-    Unlike :class:`StatsResponse`, this is a single generic model shared by every
-    dataset — the compact body carries no per-dataset field names — so it is not
-    parametrized per dataset.
+    A single generic model shared by every dataset — the compact body carries no
+    per-dataset field names — so it is not parametrized per dataset.
     """
 
     pourpoint: types.StationTriplet
@@ -99,6 +59,7 @@ class CompactStatsResponse(BaseModel):
         dataset: str,
         query: DateRangeQuery | DOYQuery,
         stats: CompactStats,
+        alternates: Sequence[Link] = (),
     ) -> CompactStatsResponse:
         return cls(
             pourpoint=triplet,
@@ -117,6 +78,7 @@ class CompactStatsResponse(BaseModel):
                     type=MediaType.GEOJSON,
                     path={'triplet': triplet},
                 ),
+                *alternates,
             ],
         )
 

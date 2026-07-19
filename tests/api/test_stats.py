@@ -1,9 +1,10 @@
-"""API tests for the per-dataset zonal-stats routes over a synthetic snowdb.
+"""API tests for the canonical generic zonal-stats endpoint over a synthetic snowdb.
 
 The synthetic ``test`` dataset is uniform (SWE 50, elevation 1000 m -> the
 3000-4000 ft band, forest 100%), so whole-basin and crossed-zone results are
-hand-computable -- mirroring the reader/CLI stats tests one HTTP layer up. Date
-selection uses the OGC ``datetime`` interval; json vs csv is content-negotiated
+hand-computable -- mirroring the reader/CLI stats tests one HTTP layer up. One
+generic route with ``{dataset}`` a path param; zone selection uses
+``LAYER:PARAM=VALUE`` tokens. JSON (the compact body) vs csv is content-negotiated
 (``?f=`` / ``Accept``).
 """
 
@@ -21,7 +22,7 @@ BASE = f'/datasets/test/stats/{TRIPLET}'
 DAY = '2018-04-27/2018-04-27'
 
 
-def test_date_range_whole_basin_json(synthetic_client) -> None:
+def test_date_range_whole_basin_compact(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'swe'},
@@ -30,36 +31,35 @@ def test_date_range_whole_basin_json(synthetic_client) -> None:
     body = response.json()
     assert body['pourpoint'] == TRIPLET
     assert body['dataset'] == 'test'
-    (result,) = body['results']
-    # No zone -> whole basin: no zone axes, one cell with an empty zone.
-    assert result['zone_layers'] == []
-    (cell,) = result['zones']
-    assert cell['zone'] == []
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
-    assert cell['area_m2'] > 0
+    assert body['zone_layers'] == []
+    assert body['variables'] == ['mean_swe_mm']
+    (zone,) = body['zones']
+    assert zone['zone'] == []
+    assert zone['area_m2'] > 0
+    (matrix,) = body['results'].values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
     # The JSON view advertises the CSV alternate.
     assert_has_link(body, 'alternate', type='text/csv')
 
 
-def test_date_range_elevation_zone(synthetic_client) -> None:
+def test_elevation_override_token(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
-        params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.elevation'},
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'zone': 'terrain.elevation:band_step_ft=2000',
+        },
     )
     assert response.status_code == 200
-    (result,) = response.json()['results']
-    assert result['zone_layers'] == ['terrain.elevation']
-    # 16 elevation bands cross the AOI but only (3000-4000 ft) is populated; the 15
-    # empty (0-area) bands are dropped by default, leaving that single cell.
-    (cell,) = result['zones']
-    (ref,) = cell['zone']
-    assert (ref['layer'], ref['min'], ref['max']) == ('terrain.elevation', 3000, 4000)
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    body = response.json()
+    assert body['zone_layers'] == ['terrain.elevation']
+    (zone,) = [z for z in body['zones'] if z['area_m2'] > 0]
+    (ref,) = zone['zone']
+    assert (ref['min'], ref['max']) == (2000, 4000)
 
 
-def test_date_range_elevation_zone_include_empty(synthetic_client) -> None:
-    # include_empty_zones=true opts back into the full crossed product: all 16 bands,
-    # 15 of them empty (0 area, null mean).
+def test_include_empty_zones(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={
@@ -70,13 +70,13 @@ def test_date_range_elevation_zone_include_empty(synthetic_client) -> None:
         },
     )
     assert response.status_code == 200
-    (result,) = response.json()['results']
-    cells = result['zones']
-    assert len(cells) == 16
-    assert sum(1 for c in cells if c['area_m2'] > 0) == 1
+    body = response.json()
+    assert len(body['zones']) == 16
+    (matrix,) = body['results'].values()
+    assert sum(1 for row in matrix if row == [None]) == 15
 
 
-def test_day_of_year_json(synthetic_client) -> None:
+def test_day_of_year_compact(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/doy',
         params={
@@ -88,9 +88,8 @@ def test_day_of_year_json(synthetic_client) -> None:
         },
     )
     assert response.status_code == 200
-    (result,) = response.json()['results']
-    (cell,) = result['zones']
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    (matrix,) = response.json()['results'].values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_csv_via_format_key(synthetic_client) -> None:
@@ -132,7 +131,8 @@ def test_absent_datetime_returns_all_dates(synthetic_client) -> None:
     assert response.status_code == 200
     results = response.json()['results']
     assert len(results) == 1
-    assert results[0]['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    (matrix,) = results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_open_ended_interval_selects_available(synthetic_client) -> None:
@@ -142,8 +142,8 @@ def test_open_ended_interval_selects_available(synthetic_client) -> None:
         params={'datetime': '2018-01-01/..', 'variable': 'swe'},
     )
     assert response.status_code == 200
-    (result,) = response.json()['results']
-    assert result['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    (matrix,) = response.json()['results'].values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_interval_outside_data_returns_empty(synthetic_client) -> None:
@@ -153,7 +153,7 @@ def test_interval_outside_data_returns_empty(synthetic_client) -> None:
         params={'datetime': '2099-01-01/2099-12-31', 'variable': 'swe'},
     )
     assert response.status_code == 200
-    assert response.json()['results'] == []
+    assert response.json()['results'] == {}
 
 
 def test_malformed_datetime_returns_400(synthetic_client) -> None:
@@ -172,113 +172,30 @@ def test_unknown_format_returns_400(synthetic_client) -> None:
     assert_problem(response, status=400)
 
 
-def test_unknown_variable_returns_400(synthetic_client) -> None:
-    # ``variable`` is a per-dataset enum now, so an unknown value is rejected at the
-    # schema layer -- a malformed query parameter, a 400 (like ``zone``).
+def test_bad_zone_token_returns_422(synthetic_client) -> None:
+    # ``zone`` tokens are parsed by the handler against the dataset's registry, so a
+    # malformed token is a well-formed-but-unprocessable query -- a 422.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={'datetime': DAY, 'zone': 'terrain.elevation:500'},
+    )
+    assert_problem(response, status=422)
+
+
+def test_unknown_variable_returns_422(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': DAY, 'variable': 'nope'},
     )
-    assert_problem(response, status=400)
+    assert_problem(response, status=422)
 
 
-def test_unknown_zone_returns_400(synthetic_client) -> None:
-    # ``zone`` is a per-dataset enum now, so an unknown value is rejected at the
-    # schema layer before the handler runs -- a malformed *query* parameter, which
-    # gazebo reports as a 400 (OGC client error), like a bad datetime/format. Being
-    # repeatable, its error loc is ('query', 'zone', <index>); the cited ``parameter``
-    # must be the name, not the list index.
+def test_unknown_dataset_returns_404(synthetic_client) -> None:
     response = synthetic_client.get(
-        f'{BASE}/date-range',
-        params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.nope'},
+        f'/datasets/nope/stats/{TRIPLET}/date-range',
+        params={'datetime': DAY},
     )
-    body = assert_problem(
-        response,
-        type='/problems/malformed-query-parameter',
-        status=400,
-    )
-    assert body['parameter'] == 'zone'
-
-
-def test_elevation_band_step_override_changes_band_count(synthetic_client) -> None:
-    # A coarser band step is supplied via the typed, per-layer override query param
-    # ``terrain.elevation.band_step_ft``. The default (1000 ft) yields 16 bands (see
-    # test_date_range_elevation_zone); 2000 ft yields 9, and the SWE now lands in the
-    # 2000-4000 ft band rather than 3000-4000. include_empty_zones keeps the empty
-    # bands so the band *count* (the thing under test) is observable.
-    response = synthetic_client.get(
-        f'{BASE}/date-range',
-        params={
-            'datetime': DAY,
-            'variable': 'swe',
-            'zone': 'terrain.elevation',
-            'terrain.elevation.band_step_ft': 2000,
-            'include_empty_zones': 'true',
-        },
-    )
-    assert response.status_code == 200
-    (result,) = response.json()['results']
-    cells = result['zones']
-    assert len(cells) == 9
-    (cell,) = [c for c in cells if c['area_m2'] > 0]
-    (ref,) = cell['zone']
-    assert (ref['min'], ref['max']) == (2000, 4000)
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
-
-
-def test_override_wrong_type_returns_400(synthetic_client) -> None:
-    # band_step_ft is typed int; a non-int is a malformed query parameter, which
-    # gazebo reports as a 400 (OGC client error).
-    response = synthetic_client.get(
-        f'{BASE}/date-range',
-        params={
-            'datetime': DAY,
-            'variable': 'swe',
-            'zone': 'terrain.elevation',
-            'terrain.elevation.band_step_ft': 'wide',
-        },
-    )
-    assert_problem(response, status=400)
-
-
-def test_orphan_override_changed_from_default_rejected(synthetic_client) -> None:
-    # An override moved off its default for a layer not in the selected ``zone`` list
-    # can't take effect. It is rejected by the query model's validator, so -- like an
-    # unknown zone or a wrong-typed override -- it is a malformed query parameter,
-    # which gazebo reports as a 400 (not the 422 for well-formed-but-unprocessable
-    # queries) carrying our resolvable ``malformed-query-parameter`` type. Here no zone
-    # is selected, so the elevation override is orphaned. Being a cross-field model
-    # validator (loc ('query',)), it cites no single ``parameter``.
-    response = synthetic_client.get(
-        f'{BASE}/date-range',
-        params={
-            'datetime': DAY,
-            'variable': 'swe',
-            'terrain.elevation.band_step_ft': 2000,
-        },
-    )
-    body = assert_problem(
-        response,
-        type='/problems/malformed-query-parameter',
-        status=400,
-    )
-    assert 'parameter' not in body
-
-
-def test_orphan_override_at_default_is_noop(synthetic_client) -> None:
-    # An orphan override left *at* the scheme default is a genuine no-op (selecting
-    # the default is equivalent to not overriding), so it does not error.
-    response = synthetic_client.get(
-        f'{BASE}/date-range',
-        params={
-            'datetime': DAY,
-            'variable': 'swe',
-            'terrain.elevation.band_step_ft': 1000,
-        },
-    )
-    assert response.status_code == 200
-    (result,) = response.json()['results']
-    assert result['zones'][0]['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    assert_problem(response, status=404)
 
 
 def test_unknown_aoi_returns_404(synthetic_client) -> None:

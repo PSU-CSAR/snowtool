@@ -1,9 +1,10 @@
 """The OpenAPI document must build for the real multi-dataset surface.
 
-The per-dataset stats routes are typed by each dataset's *generated*
-``zonal_stats_model`` envelope. A bad generated schema would 500 ``/openapi.json``
-(and ``/docs``) without touching the data routes, so the happy-path API tests
-would miss it -- this asserts the document renders for the built-in datasets.
+The stats routes are one generic router (``{dataset}`` a path param) typed by the
+single generic :class:`CompactStatsResponse` envelope. A bad schema would 500
+``/openapi.json`` (and ``/docs``) without touching the data routes, so the
+happy-path API tests would miss it -- this asserts the document renders for the
+built-in datasets.
 """
 
 
@@ -12,16 +13,13 @@ def test_openapi_builds_for_builtin_datasets(test_client) -> None:
     assert response.status_code == 200
     doc = response.json()
 
-    # The per-dataset stats routes are present...
+    # The one generic stats route family is present (not per-dataset).
     paths = doc['paths']
-    assert '/datasets/snodas/stats/{triplet}/date-range' in paths
-    assert '/datasets/snodas/stats/{triplet}/doy' in paths
+    assert '/datasets/{dataset}/stats/{triplet}/date-range' in paths
+    assert '/datasets/{dataset}/stats/{triplet}/doy' in paths
 
-    # ...and each dataset's generated zonal-stats model surfaces as a real schema
-    # (the model_prefix uniqueness check makes these names distinct per dataset).
+    # A single generic response schema types every dataset's stats -- no per-dataset
+    # generated ZonalStat* models.
     schemas = doc['components']['schemas']
-    zonal_models = {name for name in schemas if 'ZonalStat' in name}
-    assert any(name.startswith('Snodas') for name in zonal_models)
-    # All three built-ins contribute a distinct prefix.
-    prefixes = {name.split('ZonalStat')[0] for name in zonal_models}
-    assert len(prefixes) >= 3
+    assert 'CompactStatsResponse' in schemas
+    assert not any('ZonalStat' in name for name in schemas)

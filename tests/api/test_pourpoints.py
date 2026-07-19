@@ -21,17 +21,10 @@ from snowtool.snowdb.pourpoint import Pourpoint
 
 TRIPLET = '12345:MT:USGS'
 
-# The synthetic 'test' dataset's full stats query surface (DEFAULT_ZONES), as the
-# RFC 6570 form-query template its links advertise: shared params + each
-# overridable zone's <key>.<param>, in sorted-zone-key order.
+# The generic stats query surface, as the RFC 6570 form-query template its links
+# advertise: the shared params only (no per-zone <key>.<param> override fields).
 _DATE_RANGE_QUERY_TEMPLATE = (
-    '{?datetime,zone,variable,'
-    'landcover.forest_cover.threshold_pct,'
-    'terrain.aspect_entropy.entropy_threshold,'
-    'terrain.eastness.buckets,'
-    'terrain.elevation.band_step_ft,'
-    'terrain.northness.buckets,'
-    'allow_partial,f}'
+    '{?datetime,zone,variable,allow_partial,include_empty_zones,f}'
 )
 _DOY_QUERY_TEMPLATE = _DATE_RANGE_QUERY_TEMPLATE.replace(
     '{?datetime,',
@@ -229,8 +222,8 @@ def test_detail_stats_links_exclude_inactive_datasets(inactive_dataset_client) -
     body = inactive_dataset_client.get(f'/pourpoints/{TRIPLET}').json()
     stats = [link for link in body['links'] if link['rel'].startswith('stats-')]
     assert {link['dataset'] for link in stats} == {'test'}
-    # Two verbose (date-range, doy) + two compact (date-range, doy) per dataset.
-    assert len(stats) == 4
+    # One (date-range, doy) pair per covered active dataset.
+    assert len(stats) == 2
 
 
 def test_stats_links_omitted_for_point_only_and_none_coverage(pourpoint_geojson):

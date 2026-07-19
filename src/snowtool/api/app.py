@@ -5,9 +5,8 @@ root and registers it -- with :class:`Settings` and the app-scoped
 :class:`SnowDbReader` -- as gazebo providers. Catalog-only routes (``/``,
 ``/datasets``, ``/pourpoints``) inject ``SnowDb``; the stats routes inject
 ``SnowDbReader`` (its loop-affine COG cache is born in the app's event loop at
-lifespan). The per-dataset stats routers are registered by looping the catalog's
-datasets, so each dataset's generated response model surfaces a precise OpenAPI
-schema.
+lifespan). The stats routes are one generic router (``{dataset}`` a path param)
+serving a single generic response schema, injected with ``SnowDbReader``.
 
 There is no module-level ``app``: the ASGI server builds it via the factory
 (``uvicorn snowtool.api.app:get_app --factory``), so importing this module has no
@@ -34,8 +33,7 @@ from .routers.datasets import router as datasets_router
 from .routers.pourpoints import router as pourpoints_router
 from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
-from .routers.stats import build_stats_router
-from .routers.stats_compact import router as stats_compact_router
+from .routers.stats import router as stats_router
 from .tags import Tags
 
 
@@ -67,8 +65,8 @@ def get_app(
         logger = logging.getLogger(__name__)
 
     # One immutable catalog for the app's lifetime: used directly to enumerate
-    # datasets (and register per-dataset stats routes) and registered as the
-    # app-scoped SnowDb provider so routes inject the same instance.
+    # datasets and registered as the app-scoped SnowDb provider so routes inject
+    # the same instance.
     catalog = SnowDb.open(settings.snowdb_config)
 
     providers = Providers()
@@ -97,8 +95,6 @@ def get_app(
     app.include_router(root_router)
     app.include_router(datasets_router)
     app.include_router(pourpoints_router)
-    for name in catalog.datasets:
-        app.include_router(build_stats_router(catalog[name]))
-    app.include_router(stats_compact_router)
+    app.include_router(stats_router)
 
     return app

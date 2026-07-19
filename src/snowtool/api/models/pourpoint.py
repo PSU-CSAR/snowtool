@@ -31,7 +31,7 @@ from gazebo.pagination import paginate_offset
 from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
-from snowtool.api.models.dataset import dataset_zone_infos, stats_links
+from snowtool.api.models.dataset import stats_links
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
@@ -115,11 +115,7 @@ def _pourpoint_stats_links(
         link
         for name in sorted(coverage)
         if coverage[name] is not Coverage.NONE
-        for link in stats_links(
-            name,
-            dataset_zone_infos(snowdb[name]),
-            triplet=pourpoint.station_triplet,
-        )
+        for link in stats_links(name, triplet=pourpoint.station_triplet)
     ]
 
 

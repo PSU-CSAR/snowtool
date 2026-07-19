@@ -148,12 +148,6 @@ class GridInfo(BaseModel):
 STATS_DATE_RANGE_REL = 'stats-date-range'
 STATS_DOY_REL = 'stats-doy'
 
-# Rels for the generic compact endpoint (Task 4): one route family across all
-# datasets, so the query template is the fixed generic shape -- no per-zone
-# override fields, no ``f`` negotiation (compact json is the only representation).
-STATS_COMPACT_DATE_RANGE_REL = 'stats-compact-date-range'
-STATS_COMPACT_DOY_REL = 'stats-compact-doy'
-
 
 def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
     """Every stratifiable zone of ``dataset`` as :data:`ZoneInfo`, sorted by key."""
@@ -161,86 +155,40 @@ def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
     return [_zone_info(key, registry[key]) for key in sorted(registry)]
 
 
-def stats_links(
-    name: str,
-    zones: list[ZoneInfo],
-    *,
-    triplet: str | None = None,
-) -> list[Link]:
+def stats_links(name: str, *, triplet: str | None = None) -> list[Link]:
     """Links to dataset ``name``'s two stats query endpoints.
 
     Without ``triplet`` -- the dataset resource's form -- the station triplet is
-    an unbound RFC 6570 path variable (the dataset name is already baked into
-    the route). With a ``triplet`` -- the pourpoint resource's form -- it is
-    bound into the path, the titles are prefixed with the dataset name, and each
-    link carries a machine-readable ``dataset`` field (a pass-through extra on
-    gazebo's ``Link``), so a client holding several datasets' pairs selects one
-    deterministically by ``(rel, dataset)`` instead of parsing titles or hrefs.
-    Either way the query params are a form-query expansion: the shared
-    zone/variable/negotiation params plus each overridable zone's
-    ``<key>.<param>`` override field.
+    an unbound RFC 6570 path variable. With a ``triplet`` -- the pourpoint
+    resource's form -- it is bound into the path, titles are dataset-prefixed, and
+    each link carries a machine-readable ``dataset`` field so a client holding
+    several datasets' pairs selects one by ``(rel, dataset)``. The query params are
+    the generic form-query expansion (no per-zone override fields; ``f`` negotiates
+    json/csv).
     """
-    overrides = [
-        f'{zone.key}.{zone.param}'
-        for zone in zones
-        if not isinstance(zone, CategoricalZoneInfo)
-    ]
-    shared = ['zone', 'variable', *overrides, 'allow_partial', 'f']
+    shared = ['zone', 'variable', 'allow_partial', 'include_empty_zones', 'f']
     if triplet is None:
-        binding: dict[str, Any] = {'template': ['triplet']}
+        binding: dict[str, Any] = {'path': {'dataset': name}, 'template': ['triplet']}
         date_range_title = 'Date-range zonal statistics'
         doy_title = 'Day-of-year zonal statistics'
     else:
-        binding = {'path': {'triplet': triplet}, 'dataset': name}
+        binding = {'path': {'dataset': name, 'triplet': triplet}, 'dataset': name}
         date_range_title = f'{name} date-range zonal statistics'
         doy_title = f'{name} day-of-year zonal statistics'
-    compact_shared = ['zone', 'variable', 'allow_partial', 'include_empty_zones']
-    if triplet is None:
-        compact_binding: dict[str, Any] = {
-            'path': {'dataset': name},
-            'template': ['triplet'],
-        }
-    else:
-        compact_binding = {
-            'path': {'dataset': name, 'triplet': triplet},
-            'dataset': name,
-        }
     return [
         Link.to_route(
-            f'{name}_stats_date_range',
+            'stats_date_range',
             rel=STATS_DATE_RANGE_REL,
             title=date_range_title,
             query_template=['datetime', *shared],
             **binding,
         ),
         Link.to_route(
-            f'{name}_stats_doy',
+            'stats_doy',
             rel=STATS_DOY_REL,
             title=doy_title,
             query_template=['month', 'day', 'start_year', 'end_year', *shared],
             **binding,
-        ),
-        Link.to_route(
-            'stats_compact_date_range',
-            rel=STATS_COMPACT_DATE_RANGE_REL,
-            title=(
-                'Compact date-range zonal statistics'
-                if triplet is None
-                else f'{name} compact date-range zonal statistics'
-            ),
-            query_template=['datetime', *compact_shared],
-            **compact_binding,
-        ),
-        Link.to_route(
-            'stats_compact_doy',
-            rel=STATS_COMPACT_DOY_REL,
-            title=(
-                'Compact day-of-year zonal statistics'
-                if triplet is None
-                else f'{name} compact day-of-year zonal statistics'
-            ),
-            query_template=['month', 'day', 'start_year', 'end_year', *compact_shared],
-            **compact_binding,
         ),
     ]
 
@@ -279,7 +227,7 @@ class DatasetInfo(BaseModel):
             links=[
                 Link.self_link(),
                 Link.root_link(),
-                *stats_links(spec.name, zones),
+                *stats_links(spec.name),
             ],
         )
 

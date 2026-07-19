@@ -56,17 +56,17 @@ def test_get_dataset_info(snodas_client) -> None:
 def test_get_dataset_info_advertises_templated_stats_links(snodas_client) -> None:
     # The dataset resource advertises templated links to its two stats query
     # endpoints, so a client can build a query from the dataset alone: the triplet is
-    # an unbound path var and the query params (incl. each overridable zone's
-    # ``<key>.<param>`` field) are an RFC 6570 form-query expansion.
+    # an unbound path var and the generic query params are an RFC 6570 form-query
+    # expansion (no per-zone override fields; ``f`` negotiates json/csv).
     body = snodas_client.get('/datasets/snodas').json()
     links = {link['rel']: link for link in body['links']}
 
     date_range = links['stats-date-range']
     assert date_range['templated'] is True
     assert '/datasets/snodas/stats/{triplet}/date-range{?' in date_range['href']
-    assert 'datetime' in date_range['href']
-    # a per-dataset override param rides in the query template
-    assert 'terrain.elevation.band_step_ft' in date_range['href']
+    assert date_range['href'].endswith(
+        '{?datetime,zone,variable,allow_partial,include_empty_zones,f}',
+    )
 
     doy = links['stats-doy']
     assert doy['templated'] is True
@@ -143,19 +143,19 @@ def test_get_dataset_info_advertises_zones(snodas_client) -> None:
     assert [c['key'] for c in aspect['classes']] == ['N', 'E', 'S', 'W', 'flat']
 
 
-def test_dataset_advertises_compact_stats_links(synthetic_client) -> None:
+def test_dataset_advertises_canonical_stats_links(synthetic_client) -> None:
     body = synthetic_client.get('/datasets/test').json()
     rels = {link['rel'] for link in body['links']}
-    assert 'stats-compact-date-range' in rels
-    assert 'stats-compact-doy' in rels
-    compact = next(
-        link for link in body['links'] if link['rel'] == 'stats-compact-date-range'
+    assert 'stats-date-range' in rels
+    assert 'stats-doy' in rels
+    date_range = next(
+        link for link in body['links'] if link['rel'] == 'stats-date-range'
     )
-    # Templated triplet, generic query params (no per-layer overrides, no f).
-    assert '/datasets/test/stats-compact/' in compact['href']
-    assert '{triplet}' in compact['href']
-    assert compact['href'].endswith(
-        '{?datetime,zone,variable,allow_partial,include_empty_zones}',
+    # Templated triplet, generic query params (no per-layer overrides; ``f``).
+    assert '/datasets/test/stats/' in date_range['href']
+    assert '{triplet}' in date_range['href']
+    assert date_range['href'].endswith(
+        '{?datetime,zone,variable,allow_partial,include_empty_zones,f}',
     )
 
 
