@@ -60,7 +60,7 @@ def populated_root(initialized_root, pourpoint_geojson):
     return initialized_root
 
 
-def test_stats_whole_basin_json_is_compact_and_minified(
+def test_stats_whole_basin_json_is_pretty(
     runner,
     cli_obj,
     populated_root,
@@ -71,9 +71,10 @@ def test_stats_whole_basin_json_is_compact_and_minified(
         obj=cli_obj,
     )
     assert result.exit_code == 0, result.output
-    # Default format is now json (compact body), and non-TTY output is minified.
-    assert '\n' not in result.output.strip()
-    assert ', ' not in result.output  # minified separators, no spaces
+    # Default format is json (the compact body), always pretty-printed (indent=2),
+    # regardless of TTY -- pipe through `jq -c` for a minified rendering.
+    assert '\n' in result.output.strip()
+    assert '  "zone_layers"' in result.output  # two-space indentation
     payload = json.loads(result.output)
     assert payload['zone_layers'] == []
     assert payload['variables'] == ['mean_swe_mm']
