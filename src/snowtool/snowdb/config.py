@@ -105,14 +105,6 @@ ZoneLayerParams = (
     BandStepParams | BucketParams | ThresholdParams | EntropyThresholdParams
 )
 
-# Param field name -> its member model.
-ZONE_PARAM_MODELS: dict[str, type[_ZoneParams]] = {
-    'band_step_ft': BandStepParams,
-    'buckets': BucketParams,
-    'threshold_pct': ThresholdParams,
-    'entropy_threshold': EntropyThresholdParams,
-}
-
 
 class DatasetConfig(ResourceModel):
     """A self-describing dataset definition (``snowtool.dataset/v1``).
