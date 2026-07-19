@@ -9,7 +9,8 @@ keeps them honest. The sibling pages drill into the pieces named here — the
 [on-disk layout](on-disk-layout.md), the [configuration surface](configuration.md),
 [provenance and staleness](provenance.md), [pourpoints and AOI rasters](pourpoints.md),
 the [zone-layer framework](zones.md) and its [generation engines](zone-generation.md),
-[ingest](ingest.md), and the [query engine](queries.md).
+[ingest](ingest.md), the [query engine](queries.md), and the
+[stats surface and output formats](stats.md).
 
 ## Three surfaces, one core
 
