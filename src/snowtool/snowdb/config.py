@@ -105,9 +105,7 @@ ZoneLayerParams = (
     BandStepParams | BucketParams | ThresholdParams | EntropyThresholdParams
 )
 
-# Param field name -> its member model. The API override machinery reads a
-# param's declared type from here (see api/routers/_stats_params.py); the
-# threshold schemes look up their expected member by param_key.
+# Param field name -> its member model.
 ZONE_PARAM_MODELS: dict[str, type[_ZoneParams]] = {
     'band_step_ft': BandStepParams,
     'buckets': BucketParams,

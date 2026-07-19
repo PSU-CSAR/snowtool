@@ -237,7 +237,7 @@ class ZoneScheme(ABC):
       scheme instance (the base scheme, e.g. categorical, takes no params and
       returns itself).
     * :meth:`with_override` then folds in an explicit per-query override value
-      (the CLI/API ``LAYER:override`` token, already typed by
+      (the CLI/API ``LAYER:PARAM=VALUE`` token, already typed by
       :meth:`parse_override`).
 
     After resolution, :meth:`zones` enumerates the scheme's zones in ordinal order

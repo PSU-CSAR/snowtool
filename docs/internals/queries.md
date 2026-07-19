@@ -5,7 +5,7 @@ A query is the one thing a snowdb exists to answer: pick a **pourpoint**, a
 axes**, and the engine reduces each date's per-variable raster over the basin,
 stratified by the crossed zones. The whole computation lands in one method,
 `SnowDbReader.zonal_stats` (`snowdb/reader.py`) — the shared read seam behind
-both the CLI `stats` command and the API's per-dataset stats endpoints
+both the CLI `stats` command and the API's generic stats endpoint
 (see the [architecture](architecture.md) overview). It guards coverage, loads
 the burned AOI raster, resolves the requested variables, builds the raster
 collection for the query's dates, and hands all of it to
@@ -137,30 +137,35 @@ variables. An empty cell — no selected pixels — is `nan`, set explicitly so 
 no-data TOTAL reads null rather than a spurious `0`. Two serializers share that
 array.
 
-`dump()` builds the JSON structure from the per-dataset models generated in
-`snowdb/zonal_stat_models.py`. Each date is one `…ZonalStats` object carrying
-the `date`, the echoed `zone_layers`, and a flat list of `…ZonalStat` cells. A
-cell
-is self-describing: a `zone` array of one `ZoneRef` per crossed axis
-(`BandZoneRef`, `ClassZoneRef`, or `ThresholdZoneRef`, discriminated on `kind`),
-plus `area_m2` and one field per variable named `<reducer>_<key>_<unit>` (e.g.
-`mean_swe_mm`). The variable fields are typed `StatValue`, which normalizes a
-no-valid-pixels `nan` to JSON `null` at construction, so the payload is always
-valid JSON. A whole-basin query is a cell with an empty `zone` array; crossing
-more axes lengthens each cell's `zone` without changing the schema, and the list
-flattens 1:1 to CSV.
+`dump_compact()` (`snowdb/zonal_stats.py`) builds `CompactStats`
+(`snowdb/zonal_stat_models.py`), the one normalized JSON structure shared by
+every dataset: `zone_layers` and `variables` are named once, `zones` is the
+list of emitted crossed-zone cells (each a `zone` array of one `ZoneRef` per
+crossed axis — `BandZoneRef`, `ClassZoneRef`, or `ThresholdZoneRef`,
+discriminated on `kind` — plus the cell's date-invariant `area_m2`), and
+`results` maps each date to a bare `zones × variables` matrix (outer index
+aligns to `zones`, inner to `variables`). A matrix entry is `StatValue`, which
+normalizes a no-valid-pixels `nan` to JSON `null` at construction, so the
+payload is always valid JSON. A whole-basin query is the single cell with an
+empty `zone` array; crossing more axes adds cells and lengthens each cell's
+`zone` tuple without changing the schema.
 
-`dump_to_csv()` writes one row per (date, cell). Each axis describes its own
-columns: a banded or threshold axis expands to two typed, unit-bearing columns,
-a categorical axis to one; then `area_m2` and the variable stats. A no-data cell
-renders as an empty CSV field, never the literal `nan`.
+`dump_to_csv()` writes one row per (date, emitted cell), sharing
+`_zone_stats`/`_emitted_cells` with `dump_compact()` so the two are
+byte-identical. Each axis describes its own columns: a banded or threshold
+axis expands to two typed, unit-bearing columns, a categorical axis to one;
+then `area_m2` and the variable stats. A no-data cell renders as an empty CSV
+field, never the literal `nan`.
 
-At the CLI, `stats --format json` emits the `dump()` models and the CSV
-format streams `dump_to_csv`. The API wraps `dump()` in a `StatsResponse`
-envelope (`api/models/stats.py`) — the pourpoint, the echoed query, HATEOAS
-links, and the `results` list — or streams the same CSV, chosen by content
-negotiation. The exact endpoints are the
-[HTTP API reference](../reference/http-api.html)'s to document.
+At the CLI, `stats --format json` (the default) emits `dump_compact()`'s
+model, minified unless stdout is a TTY (then pretty-printed); `--format csv`
+streams `dump_to_csv`. The API wraps `dump_compact()` in a
+`CompactStatsResponse` envelope (`api/models/stats.py`) — the pourpoint, the
+echoed query, HATEOAS links, and the compact body — on one generic endpoint,
+`GET /datasets/{dataset}/stats/{triplet}/{date-range,doy}`, or streams the
+same CSV via `?f=csv` / `Accept: text/csv` content negotiation. The exact
+endpoints are the [HTTP API reference](../reference/http-api.html)'s to
+document.
 
 ## Edge cases worth knowing
 

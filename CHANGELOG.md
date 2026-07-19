@@ -24,7 +24,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Changed
 
+- **Breaking (stats output):** `json` zonal-stats output is now the compact,
+  normalized body (zones and variables defined once; each date a
+  `zones × variables` matrix; `area_m2` hoisted; `null` for empty zones). The
+  HTTP stats API is now a single generic endpoint,
+  `GET /datasets/{dataset}/stats/{triplet}/{date-range,doy}`, with `{dataset}` a
+  path parameter; CSV is still available via `?f=csv` / `Accept: text/csv`. The
+  CLI `stats` command now defaults to `--format json` and prints minified JSON
+  unless stdout is a TTY (then it pretty-prints).
+- **Breaking (error codes):** on the HTTP stats endpoint, an unknown/invalid
+  `zone` or `variable` value is now a `422` (raised by the shared zone-selection
+  parser) rather than the previous `400` (schema-level enum rejection on the
+  old per-dataset query model).
+
 ### Removed
+
+- The verbose per-date zonal-stats JSON representation and its per-dataset
+  response schemas, the CLI `--format json-compact` value (folded into `json`),
+  and the per-dataset stats query-parameter compiler. Zone selection is the
+  `LAYER:PARAM=VALUE` token grammar everywhere.
 
 ### Fixed
 

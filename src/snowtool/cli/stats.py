@@ -104,9 +104,10 @@ def stats(
     date_query = parse_dates_query(dates, years)
 
     registry = available_zones(dataset.providers.values())
-    # The CLI's ``LAYER[:PARAM=VALUE]`` string tokens converge on the same
-    # ``list[ZoneSelection]`` the API builds from pre-typed query fields (see
-    # ``api.routers._stats_params.selections``); only the input shape differs.
+    # The CLI's ``LAYER[:PARAM=VALUE]`` string tokens and the HTTP API's ``zone``
+    # query params both parse through :func:`parse_zone_selection` into the same
+    # ``list[ZoneSelection]`` (see ``api.routers.stats._run``); only the input
+    # shape differs.
     selections = [parse_zone_selection(token, registry) for token in zones]
 
     async def run() -> ZonalStats:
