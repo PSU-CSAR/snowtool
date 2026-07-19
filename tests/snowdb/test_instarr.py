@@ -42,7 +42,6 @@ def test_spec_is_native_modis_sinusoidal():
     assert spec.is_geographic is False
     assert spec.cell_area == pytest.approx(463.3127165693847**2)
     assert spec.ingester is not None
-    assert spec.model_prefix == 'Instarr'
 
 
 def test_all_nine_variables():

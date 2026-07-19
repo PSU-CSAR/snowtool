@@ -80,28 +80,6 @@ def test_crs_is_the_single_parsed_grid_crs():
     assert spec.crs is spec.crs  # cached
 
 
-def _named_spec(name: str) -> DatasetSpec:
-    return DatasetSpec(
-        name=name,
-        grid_params=GridParams(
-            origin_x=-120.0,
-            origin_y=45.0,
-            px_size=0.01,
-            cols=8,
-            rows=8,
-            tile_size=8,
-        ),
-    )
-
-
-def test_model_prefix_camelcases_and_collapses_separators():
-    assert _named_spec('snodas').model_prefix == 'Snodas'
-    # Case and -/_ differences collapse to the same prefix (why SnowDb guards
-    # against such name collisions).
-    assert _named_spec('foo-bar').model_prefix == 'FooBar'
-    assert _named_spec('foo_bar').model_prefix == 'FooBar'
-
-
 def test_grid_is_built_from_params():
     spec = _geographic_spec()
     assert spec.grid.size == (2, 2)

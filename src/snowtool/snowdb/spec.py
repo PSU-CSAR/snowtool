@@ -215,16 +215,3 @@ class DatasetSpec:
         planar_area = abs(self.grid.base_grid[0, 0].area)
         meters_per_unit = self.crs.axis_info[0].unit_conversion_factor
         return planar_area * meters_per_unit**2
-
-    @cached_property
-    def model_prefix(self) -> str:
-        """CamelCase-sanitized form of this dataset's name (e.g. ``snodas`` ->
-        ``Snodas``, ``foo-bar`` -> ``FooBar``).
-
-        Names that differ only by case or ``-``/``_`` collapse to the same
-        prefix, so SnowDb enforces prefix uniqueness across its specs to catch
-        a sanitized-name collision between datasets (see
-        :meth:`~snowtool.snowdb.db.SnowDb._index_specs`)."""
-        return ''.join(
-            part.capitalize() for part in self.name.replace('-', '_').split('_')
-        )

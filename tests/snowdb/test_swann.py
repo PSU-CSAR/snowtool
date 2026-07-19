@@ -42,8 +42,6 @@ def test_spec_grid_matches_product_file():
     # NAD83 is geographic -> AOI rasters burn per-row geodesic cell area.
     assert spec.is_geographic is True
     assert spec.ingester is not None
-    # Distinct response-model prefix -> no OpenAPI schema collision with snodas.
-    assert spec.model_prefix == 'Swann800m'
 
 
 def test_variables():

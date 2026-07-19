@@ -238,13 +238,6 @@ def test_duplicate_spec_names_rejected():
         SnowDb._index_specs([_spec('snodas'), _spec('snodas')])
 
 
-def test_specs_colliding_on_model_name_rejected(tmp_path):
-    # 'foo-bar' and 'foo_bar' are distinct dataset names but both sanitize to the
-    # same model_prefix 'FooBar', which would collide in the OpenAPI schema.
-    with pytest.raises(ValueError, match='sanitize to the same name'):
-        make_snowdb(tmp_path, [_spec('foo-bar'), _spec('foo_bar')])
-
-
 def test_rasterize_aoi_burns_every_active_dataset(
     tmp_path,
     spec,
