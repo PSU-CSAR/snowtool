@@ -23,3 +23,14 @@ def test_openapi_builds_for_builtin_datasets(test_client) -> None:
     schemas = doc['components']['schemas']
     assert 'CompactStatsResponse' in schemas
     assert not any('ZonalStat' in name for name in schemas)
+
+    # Content negotiation is documented from the format enum: the 200 advertises
+    # both the JSON envelope (owned by the response model) and the streamed CSV.
+    content = paths['/datasets/{dataset}/stats/{triplet}/date-range']['get'][
+        'responses'
+    ]['200']['content']
+    assert set(content) == {'application/json', 'text/csv'}
+    assert content['application/json']['schema']['$ref'].endswith(
+        'CompactStatsResponse',
+    )
+    assert content['text/csv']['schema'] == {'type': 'string'}

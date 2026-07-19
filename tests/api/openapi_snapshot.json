@@ -2601,6 +2601,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/CompactStatsResponse"
                 }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -2781,6 +2786,11 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CompactStatsResponse"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
                 }
               }
             },

@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from gazebo.ext.fastapi import GazeboRouter
 from gazebo.negotiation import FormatEnum, alternate_links, f_description, negotiate
 from gazebo.params import DatetimeQuery
+from gazebo.rels import MediaType
 from pydantic import BaseModel, Field, ValidationError
 
 from snowtool import types
@@ -48,6 +49,12 @@ class _StatsFormat(FormatEnum):
 
 
 REPRESENTATIONS = _StatsFormat.representations()
+
+# Document every negotiated media type on the route's 200, from the same enum that
+# drives ``?f=``/``Accept`` -- one source of truth. ``application/json`` is omitted
+# so the ``response_model`` keeps owning it (its ``$ref`` is preserved); the streamed
+# ``text/csv`` gets a string-body schema.
+_STATS_RESPONSES = _StatsFormat.openapi_responses(schemas={MediaType.JSON: None})
 
 router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/stats')
 
@@ -162,6 +169,7 @@ async def _run(
     '/{triplet}/date-range',
     name='stats_date_range',
     response_model=CompactStatsResponse,
+    responses=_STATS_RESPONSES,
     tags=[Tags.STATS],
 )
 async def stats_date_range(
@@ -185,6 +193,7 @@ async def stats_date_range(
     '/{triplet}/doy',
     name='stats_doy',
     response_model=CompactStatsResponse,
+    responses=_STATS_RESPONSES,
     tags=[Tags.STATS],
 )
 async def stats_doy(
