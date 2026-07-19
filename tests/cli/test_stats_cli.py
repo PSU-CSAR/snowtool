@@ -60,52 +60,21 @@ def populated_root(initialized_root, pourpoint_geojson):
     return initialized_root
 
 
-def test_stats_whole_basin_json(runner, cli_obj, populated_root):
+def test_stats_whole_basin_json_is_compact_and_minified(
+    runner,
+    cli_obj,
+    populated_root,
+):
     result = runner.invoke(
         cli,
-        [
-            'stats',
-            'test',
-            TRIPLET,
-            '--dates',
-            f'{DATE}/{DATE}',
-            '--variable',
-            'swe',
-            '--format',
-            'json',
-        ],
+        ['stats', 'test', TRIPLET, '--dates', f'{DATE}/{DATE}', '--variable', 'swe'],
         obj=cli_obj,
     )
     assert result.exit_code == 0, result.output
+    # Default format is now json (compact body), and non-TTY output is minified.
+    assert '\n' not in result.output.strip()
+    assert ', ' not in result.output  # minified separators, no spaces
     payload = json.loads(result.output)
-    assert len(payload) == 1
-    # No --zone -> whole basin: no zone axes, one cell with an empty zone list.
-    assert payload[0]['zone_layers'] == []
-    (cell,) = payload[0]['zones']
-    assert cell['zone'] == []
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
-    assert cell['area_m2'] > 0
-
-
-def test_stats_whole_basin_json_compact(runner, cli_obj, populated_root):
-    result = runner.invoke(
-        cli,
-        [
-            'stats',
-            'test',
-            TRIPLET,
-            '--dates',
-            f'{DATE}/{DATE}',
-            '--variable',
-            'swe',
-            '--format',
-            'json-compact',
-        ],
-        obj=cli_obj,
-    )
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    # Bare compact body (no envelope): zones/variables once, date -> matrix.
     assert payload['zone_layers'] == []
     assert payload['variables'] == ['mean_swe_mm']
     (zone,) = payload['zones']
@@ -115,7 +84,7 @@ def test_stats_whole_basin_json_compact(runner, cli_obj, populated_root):
     assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
-def test_stats_json_compact_elevation_override(runner, cli_obj, populated_root):
+def test_stats_json_elevation_override(runner, cli_obj, populated_root):
     result = runner.invoke(
         cli,
         [
@@ -129,18 +98,34 @@ def test_stats_json_compact_elevation_override(runner, cli_obj, populated_root):
             '--zone',
             'terrain.elevation:band_step_ft=2000',
             '--format',
-            'json-compact',
+            'json',
         ],
         obj=cli_obj,
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload['zone_layers'] == ['terrain.elevation']
-    # 2000 ft bands: the 2000-4000 ft band holds the uniform 1000 m (~3281 ft) basin.
-    populated = [z for z in payload['zones'] if z['area_m2'] > 0]
-    (zone,) = populated
+    (zone,) = [z for z in payload['zones'] if z['area_m2'] > 0]
     (ref,) = zone['zone']
     assert (ref['min'], ref['max']) == (2000, 4000)
+
+
+def test_stats_json_compact_value_is_rejected(runner, cli_obj, populated_root):
+    # json-compact was folded into json; it is no longer a valid choice.
+    result = runner.invoke(
+        cli,
+        [
+            'stats',
+            'test',
+            TRIPLET,
+            '--dates',
+            f'{DATE}/{DATE}',
+            '--format',
+            'json-compact',
+        ],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 2  # click Choice rejection
 
 
 def test_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):
@@ -223,9 +208,9 @@ def test_stats_threshold_zone_override(runner, cli_obj, populated_root):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    populated = [c for c in payload[0]['zones'] if c['area_m2'] > 0]
-    (cell,) = populated
-    (ref,) = cell['zone']
+    populated = [z for z in payload['zones'] if z['area_m2'] > 0]
+    (zone,) = populated
+    (ref,) = zone['zone']
     assert ref['layer'] == 'landcover.forest_cover'
     assert ref['side'] == 'below'
     assert ref['label'] == 'unforested'
@@ -253,8 +238,8 @@ def test_stats_day_of_year_mode(runner, cli_obj, populated_root):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    (cell,) = payload[0]['zones']
-    assert cell['mean_swe_mm'] == pytest.approx(SWE_VALUE)
+    (matrix,) = payload['results'].values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_stats_rejects_bad_dates(runner, cli_obj, populated_root):

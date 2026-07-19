@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import sys
 
 from typing import TYPE_CHECKING
 
@@ -127,25 +128,15 @@ def stats(
         result = asyncio.run(run())
 
     if fmt == 'json':
-        click.echo(
-            json.dumps(
-                [
-                    model.model_dump(mode='json')
-                    for model in result.dump(include_empty_zones=include_empty_zones)
-                ],
-                indent=2,
-            ),
-        )
-        return
-    if fmt == 'json-compact':
-        click.echo(
-            json.dumps(
-                result.dump_compact(
-                    include_empty_zones=include_empty_zones,
-                ).model_dump(mode='json'),
-                indent=2,
-            ),
-        )
+        payload = result.dump_compact(
+            include_empty_zones=include_empty_zones,
+        ).model_dump(mode='json')
+        # Pretty-print for a human at a terminal; minify when piped/redirected
+        # (jq/git convention). CliRunner and pipelines are non-TTY -> minified.
+        if sys.stdout.isatty():
+            click.echo(json.dumps(payload, indent=2))
+        else:
+            click.echo(json.dumps(payload, separators=(',', ':')))
         return
     buffer = io.StringIO()
     result.dump_to_csv(buffer, include_empty_zones=include_empty_zones)

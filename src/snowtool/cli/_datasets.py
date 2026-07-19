@@ -29,14 +29,14 @@ format_option = click.option(
 )
 
 # The same --format flag for commands whose output is nested (e.g. `stats`):
-# there is no table form, so the choice is restricted to the two flat serializations.
+# there is no table form, so the choice is the two flat serializations. ``json``
+# is the compact/normalized stats body (see ZonalStats.dump_compact).
 nested_format_option = click.option(
     '--format',
     'fmt',
-    type=click.Choice(('csv', 'json', 'json-compact')),
-    default='csv',
-    help='Output format (the zonal output is nested, so no table form). '
-    "'json' is the verbose per-date form; 'json-compact' is the normalized form.",
+    type=click.Choice(('csv', 'json')),
+    default='json',
+    help='Output format (json = compact stats body; csv = flat rows).',
 )
 
 dataset_option = click.option(
