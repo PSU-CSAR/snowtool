@@ -15,6 +15,40 @@ Both front ends sit on the same seam, `SnowDbReader.zonal_stats`
 There is exactly one JSON shape and one CSV shape, identical whether they come out
 of the CLI or the API.
 
+## At a glance
+
+The same query — `snodas` at one date, stratified by elevation into two populated
+1000 ft bands, reporting mean SWE — in both formats.
+
+Compact JSON (the bare CLI body; over HTTP this is wrapped in an envelope):
+
+```json
+{
+  "zone_layers": ["terrain.elevation"],
+  "variables": ["mean_swe_mm"],
+  "zones": [
+    {"zone": [{"kind": "band", "layer": "terrain.elevation",
+               "min": 6000, "max": 7000, "unit": "ft"}], "area_m2": 592891.69},
+    {"zone": [{"kind": "band", "layer": "terrain.elevation",
+               "min": 7000, "max": 8000, "unit": "ft"}], "area_m2": 811233.44}
+  ],
+  "results": {"2008-12-14": [[42.7], [51.3]]}
+}
+```
+
+CSV — the same result, one row per (date, cell):
+
+```csv
+date,terrain.elevation_min_ft,terrain.elevation_max_ft,area_m2,mean_swe_mm
+2008-12-14,6000,7000,592891.69,42.7
+2008-12-14,7000,8000,811233.44,51.3
+```
+
+The correspondence: JSON's two `zones` are CSV's two rows, and
+`results["2008-12-14"][i]` is the value row for `zones[i]` (here one variable, so
+one number each). The sections below expand each format across multiple dates,
+variables, and axis kinds.
+
 ## Asking for zones: the `LAYER:PARAM=VALUE` token
 
 A query stratifies by zero or more **zone axes**. Each axis is a single string
