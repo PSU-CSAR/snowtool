@@ -191,7 +191,7 @@ class ZonalStats:
 
     def _zone_stats(self: Self, date_idx: int, cell_idx: int) -> dict[str, float]:
         """The scaled per-cell stat values (``area_m2`` + each variable) for one
-        (date, cell) -- the single source the JSON (:meth:`dump`) and CSV
+        (date, cell) -- the single source the JSON (:meth:`dump_compact`) and CSV
         (:meth:`dump_to_csv`) serializers share, so both apply the same unit
         scaling and ``float`` coercion. The keys are ordered ``area_m2`` first
         then the variables in ``_variables_index`` order. A cell with no valid
@@ -236,36 +236,6 @@ class ZonalStats:
         areas = self._array[0, :, 0]
         return [idx for idx in all_cells if areas[idx] > 0]
 
-    def dump(self: Self, *, include_empty_zones: bool = False) -> list[BaseModel]:
-        self.validate()
-        stat_model = self.spec.zonal_stat_model
-        stats_model = self.spec.zonal_stats_model
-        cells = list(self._cells_index)
-        emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
-        # Zone refs depend only on the cell, not the date; build them once (one
-        # pydantic validation per emitted cell) and reuse across every date.
-        cell_refs = {
-            cell_idx: self._zone_refs(self.zone_layers, cells[cell_idx])
-            for cell_idx in emitted
-        }
-        stats: list[BaseModel] = []
-        for date_, date_idx in self._dates_index.items():
-            zones = [
-                stat_model(
-                    zone=cell_refs[cell_idx],
-                    **self._zone_stats(date_idx, cell_idx),
-                )
-                for cell_idx in emitted
-            ]
-            stats.append(
-                stats_model(
-                    date=date_,
-                    zone_layers=list(self.zone_layers),
-                    zones=zones,
-                ),
-            )
-        return stats
-
     def dump_compact(
         self: Self,
         *,
@@ -273,12 +243,12 @@ class ZonalStats:
     ) -> CompactStats:
         """The normalized compact body (zones/variables once, date -> matrix).
 
-        Shares :meth:`_zone_stats` and :meth:`_emitted_cells` with :meth:`dump` /
+        Shares :meth:`_zone_stats` and :meth:`_emitted_cells` with
         :meth:`dump_to_csv`, so values are byte-identical. ``area_m2`` is
         date-invariant, so it is read once per zone (from the first date) and
         hoisted into the zone definition. With no dates the matrix is empty and no
-        area is available, so ``zones`` is empty too (mirroring ``dump``'s empty
-        output); ``zone_layers`` and ``variables`` are always reported.
+        area is available, so ``zones`` is empty too; ``zone_layers`` and
+        ``variables`` are always reported.
         """
         self.validate()
         cells = list(self._cells_index)
@@ -353,8 +323,8 @@ class ZonalStats:
         for date_, date_idx in self._dates_index.items():
             for cell_idx in emitted:
                 row: list[str] = [date_.isoformat(), *cell_columns[cell_idx]]
-                # Empty cell for a no-data reduction (nan), matching dump()'s JSON
-                # null -- never the literal 'nan'.
+                # Empty cell for a no-data reduction (nan), matching dump_compact's
+                # JSON null -- never the literal 'nan'.
                 row.extend(
                     '' if math.isnan(value) else str(value)
                     for value in self._zone_stats(date_idx, cell_idx).values()

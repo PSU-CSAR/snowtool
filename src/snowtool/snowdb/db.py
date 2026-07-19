@@ -247,9 +247,9 @@ class SnowDb:
     @staticmethod
     def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:
         indexed: dict[str, DatasetSpec] = {}
-        # Generated response-model names come from spec.model_prefix, and names
+        # spec.model_prefix sanitizes a dataset name to CamelCase, and names
         # that differ only by case or -/_ collapse to the same prefix. Reject
-        # such collisions here so two datasets can't share an OpenAPI schema name.
+        # such collisions here so two datasets can't share a sanitized name.
         prefixes: dict[str, str] = {}
         for spec in specs:
             if spec.name in indexed:
@@ -257,7 +257,7 @@ class SnowDb:
             if spec.model_prefix in prefixes:
                 raise ValueError(
                     f'Dataset specs {prefixes[spec.model_prefix]!r} and '
-                    f'{spec.name!r} generate the same response-model name '
+                    f'{spec.name!r} sanitize to the same name '
                     f'{spec.model_prefix!r} (their names differ only by case or '
                     '-/_ separators). Rename one.',
                 )

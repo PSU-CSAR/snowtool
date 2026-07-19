@@ -44,14 +44,14 @@ def test_reader_whole_basin_zonal_stats(reader):
     stats = asyncio.run(
         reader.zonal_stats(TRIPLET, 'test', QUERY, variable_keys=['swe']),
     )
-    dumped = stats.dump()
-    assert len(dumped) == 1
+    compact = stats.dump_compact()
     # No zone selection -> whole basin: no zone axes, one cell with an empty zone.
-    assert dumped[0].zone_layers == []
-    (cell,) = dumped[0].zones
-    assert cell.zone == []
-    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
-    assert cell.area_m2 > 0
+    assert compact.zone_layers == []
+    (zone,) = compact.zones
+    assert zone.zone == []
+    assert zone.area_m2 > 0
+    (matrix,) = compact.results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_reader_unknown_variable_is_clean_error(reader):

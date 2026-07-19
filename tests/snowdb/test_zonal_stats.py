@@ -23,10 +23,13 @@ from datetime import date
 import numpy
 import pytest
 
+from pydantic import ValidationError
+
 from snowtool.snowdb.config import BandStepParams, ThresholdParams
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
+from snowtool.snowdb.zonal_stat_models import CompactZone
 from snowtool.snowdb.zonal_stats import (
     Result,
     ZonalStats,
@@ -613,17 +616,24 @@ def _two_band_stats() -> ZonalStats:
     )
 
 
-def test_dump_drops_empty_zones_by_default():
+def test_compact_zone_area_must_be_non_negative():
+    # Ported from the deleted generated-model tests: CompactZone keeps the same
+    # area_m2 >= 0 constraint the per-dataset model used to carry.
+    with pytest.raises(ValidationError):
+        CompactZone(zone=[], area_m2=-1.0)
+
+
+def test_dump_compact_drops_empty_zones_by_default():
     # The empty (0-area) high band is dropped; only the populated band survives.
-    (day,) = _two_band_stats().dump()
-    (zone,) = day.zones
+    compact = _two_band_stats().dump_compact()
+    (zone,) = compact.zones
     assert zone.area_m2 == 10.0
 
 
-def test_dump_keeps_empty_zones_when_requested():
+def test_dump_compact_keeps_empty_zones_when_requested():
     # Opting in restores the full crossed product, empty cells included.
-    (day,) = _two_band_stats().dump(include_empty_zones=True)
-    assert [zone.area_m2 for zone in day.zones] == [10.0, 0.0]
+    compact = _two_band_stats().dump_compact(include_empty_zones=True)
+    assert [zone.area_m2 for zone in compact.zones] == [10.0, 0.0]
 
 
 def test_dump_to_csv_drops_empty_zones_by_default():
@@ -644,7 +654,7 @@ def test_dump_to_csv_keeps_empty_zones_when_requested():
     ]
 
 
-def test_whole_basin_cell_is_never_dropped():
+def test_dump_compact_whole_basin_cell_is_never_dropped():
     # The K=0 (unstratified) cell always has area and must survive the default filter.
     variable = _variable(Reducer.MEAN)
     stats = ZonalStats(
@@ -655,6 +665,6 @@ def test_whole_basin_cell_is_never_dropped():
         (_DUMP_DAY,),
         Result(date=_DUMP_DAY, zone=(), variable=variable, value=5.0, area=100.0),
     )
-    (day,) = stats.dump()
-    (zone,) = day.zones
+    compact = stats.dump_compact()
+    (zone,) = compact.zones
     assert zone.area_m2 == 100.0

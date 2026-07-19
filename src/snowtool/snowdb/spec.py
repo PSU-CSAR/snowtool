@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from geojson_pydantic.geometries import Geometry
-    from pydantic import BaseModel
 
     from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.coverage import CoverageDomain
@@ -219,27 +218,13 @@ class DatasetSpec:
 
     @cached_property
     def model_prefix(self) -> str:
-        """CamelCase prefix for this dataset's generated response models
-        (e.g. ``snodas`` -> ``Snodas`` -> ``SnodasZonalStat``).
+        """CamelCase-sanitized form of this dataset's name (e.g. ``snodas`` ->
+        ``Snodas``, ``foo-bar`` -> ``FooBar``).
 
         Names that differ only by case or ``-``/``_`` collapse to the same
-        prefix (``foo-bar`` and ``foo_bar`` both -> ``FooBar``), so SnowDb
-        enforces prefix uniqueness across its specs to avoid OpenAPI
-        schema-name collisions between datasets."""
+        prefix, so SnowDb enforces prefix uniqueness across its specs to catch
+        a sanitized-name collision between datasets (see
+        :meth:`~snowtool.snowdb.db.SnowDb._index_specs`)."""
         return ''.join(
             part.capitalize() for part in self.name.replace('-', '_').split('_')
         )
-
-    @cached_property
-    def zonal_stat_model(self) -> type[BaseModel]:
-        """The generated per-elevation-band response model for this dataset."""
-        from snowtool.snowdb.zonal_stat_models import build_zonal_stat_model
-
-        return build_zonal_stat_model(self)
-
-    @cached_property
-    def zonal_stats_model(self) -> type[BaseModel]:
-        """The generated per-date response model (a ``date`` plus its zones)."""
-        from snowtool.snowdb.zonal_stat_models import build_zonal_stats_model
-
-        return build_zonal_stats_model(self, self.zonal_stat_model)

@@ -239,9 +239,9 @@ def test_duplicate_spec_names_rejected():
 
 
 def test_specs_colliding_on_model_name_rejected(tmp_path):
-    # 'foo-bar' and 'foo_bar' are distinct dataset names but both generate the
-    # response-model prefix 'FooBar', which would collide in the OpenAPI schema.
-    with pytest.raises(ValueError, match='same response-model name'):
+    # 'foo-bar' and 'foo_bar' are distinct dataset names but both sanitize to the
+    # same model_prefix 'FooBar', which would collide in the OpenAPI schema.
+    with pytest.raises(ValueError, match='sanitize to the same name'):
         make_snowdb(tmp_path, [_spec('foo-bar'), _spec('foo_bar')])
 
 
@@ -469,8 +469,9 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
             variable_keys=['swe'],
         ),
     )
-    (cell,) = stats.dump()[0].zones
-    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
+    compact = stats.dump_compact()
+    (matrix,) = compact.results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
 def test_create_dataset_stages_and_registers_inactive(tmp_path, spec):

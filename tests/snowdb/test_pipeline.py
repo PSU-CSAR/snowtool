@@ -76,46 +76,6 @@ def test_aoi_raster_reopen_roundtrips_tiles(dataset, pourpoint_geojson):
     assert reopened.origin == written.origin
 
 
-def test_zonal_stats(dataset, pourpoint_geojson, swe_cog):
-    aoi = Pourpoint.from_geojson(pourpoint_geojson)
-    aoi_raster = dataset.rasterize_aoi(aoi)
-
-    swe = dataset.spec.variables['swe']
-    collection = RasterCollection.from_variables_query(
-        query=QUERY,
-        variables={swe},
-        dataset=dataset,
-    )
-
-    async def run():
-        # one cache, one event loop for the whole read path
-        cache = TiffCache(maxsize=8)
-        # No zone selection -> a whole-basin reduction: a single cell per date
-        # whose zone tuple is empty (the K=0 crossed-index case).
-        return await ZonalStats.calculate(
-            aoi_raster,
-            collection,
-            cache,
-            dataset,
-        )
-
-    stats = asyncio.run(run())
-    dumped = stats.dump()
-    assert len(dumped) == 1
-    # No stratification -> no zone axes, exactly one whole-basin cell.
-    assert dumped[0].zone_layers == []
-    (cell,) = dumped[0].zones
-    assert cell.zone == []
-    # The reduction runs in float64 now (results stored float64, not float32), so a
-    # uniform field's area-weighted mean carries the ~1e-8 rounding of the geodesic
-    # per-row weighting rather than the float32-truncated exact value.
-    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
-
-    # area equals the summed geodesic area of the in-AOI pixels -- which the AOI
-    # raster now carries directly (cell area inside, 0 outside), so its full sum.
-    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
-
-
 def test_dump_compact_whole_basin(dataset, pourpoint_geojson, swe_cog):
     aoi_raster, stats = _crossed_stats(dataset, pourpoint_geojson, [])
     compact = stats.dump_compact()
@@ -218,15 +178,15 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(
     # 16 elevation bands x 2 forest classes (forested/unforested) = 32 crossed cells,
     # but the uniform synthetic AOI populates just one. By default the 31 empty
     # (0-area) combinations are dropped; include_empty_zones restores the full product.
-    full = stats.dump(include_empty_zones=True)
-    assert len(full[0].zones) == 32
+    full = stats.dump_compact(include_empty_zones=True)
+    assert len(full.zones) == 32
 
-    dumped = stats.dump()
-    assert dumped[0].zone_layers == ['terrain.elevation', 'landcover.forest_cover']
-    (cell,) = dumped[0].zones
-    assert cell.area_m2 > 0
+    compact = stats.dump_compact()
+    assert compact.zone_layers == ['terrain.elevation', 'landcover.forest_cover']
+    (zone,) = compact.zones
+    assert zone.area_m2 > 0
 
-    elev_ref, forest_ref = cell.zone
+    elev_ref, forest_ref = zone.zone
     assert (elev_ref.layer, elev_ref.min, elev_ref.max) == (
         'terrain.elevation',
         3000,
@@ -238,9 +198,10 @@ def test_zonal_stats_crosses_elevation_and_forest_cover(
     assert forest_ref.unit == '%'
     assert forest_ref.side == 'above'
     assert forest_ref.label == 'forested'
-    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
+    (matrix,) = compact.results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
 
-    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
+    assert zone.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def test_zonal_stats_forest_threshold_is_overridable(
@@ -255,8 +216,9 @@ def test_zonal_stats_forest_threshold_is_overridable(
         pourpoint_geojson,
         [ZoneSelection('landcover.forest_cover', override=100.5)],
     )
-    (cell,) = [c for c in stats.dump()[0].zones if c.area_m2 > 0]
-    (forest_ref,) = cell.zone
+    compact = stats.dump_compact()
+    (zone,) = [z for z in compact.zones if z.area_m2 > 0]
+    (forest_ref,) = zone.zone
     assert forest_ref.side == 'below'
     assert forest_ref.label == 'unforested'
     assert forest_ref.threshold == 100.5
@@ -275,9 +237,9 @@ def test_zonal_stats_crosses_elevation_and_categorical_aspect(
         [ZoneSelection('terrain.elevation'), ZoneSelection('terrain.aspect')],
     )
 
-    dumped = stats.dump()
-    assert dumped[0].zone_layers == ['terrain.elevation', 'terrain.aspect']
-    with_data = [c for c in dumped[0].zones if c.area_m2 > 0]
+    compact = stats.dump_compact()
+    assert compact.zone_layers == ['terrain.elevation', 'terrain.aspect']
+    with_data = [z for z in compact.zones if z.area_m2 > 0]
     assert len(with_data) == 1
     elev_ref, aspect_ref = with_data[0].zone
     assert elev_ref.min == 3000
@@ -302,20 +264,21 @@ def test_zonal_stats_crosses_northness_band(dataset, pourpoint_geojson, swe_cog)
 
     # Four even buckets over [-1, 1]: [-1,-0.5),[-0.5,0),[0,0.5),[0.5,1]; only the
     # last is populated, so the default drops the other three empty buckets.
-    assert len(stats.dump(include_empty_zones=True)[0].zones) == 4
+    assert len(stats.dump_compact(include_empty_zones=True).zones) == 4
 
-    dumped = stats.dump()
-    assert dumped[0].zone_layers == ['terrain.northness']
-    (cell,) = dumped[0].zones
-    (north_ref,) = cell.zone
+    compact = stats.dump_compact()
+    assert compact.zone_layers == ['terrain.northness']
+    (zone,) = compact.zones
+    (north_ref,) = zone.zone
     assert (north_ref.layer, north_ref.min, north_ref.max, north_ref.unit) == (
         'terrain.northness',
         0.5,
         1,
         None,
     )
-    assert cell.mean_swe_mm == pytest.approx(SWE_VALUE)
-    assert cell.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
+    (matrix,) = compact.results.values()
+    assert matrix == [[pytest.approx(SWE_VALUE)]]
+    assert zone.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
 
 
 def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):
