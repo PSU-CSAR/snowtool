@@ -278,7 +278,7 @@ class InstarrIngester:
             stem, collection, version = self._distilled_stem(tile_matches)
             # Filesystem-visible provenance is the distilled stem; the COG tags
             # carry the full record, including the exact contributing tiles.
-            source_files = ' '.join(sorted(p.name for p in tile_paths))
+            files_tag = ' '.join(sorted(p.name for p in tile_paths))
 
             def build_rasters(
                 source_hash: str,
@@ -287,7 +287,7 @@ class InstarrIngester:
                 stem: str = stem,
                 collection: str = collection,
                 version: str = version,
-                source_files: str = source_files,
+                files_tag: str = files_tag,
                 ingest_date: date = ingest_date,
             ) -> list[WritableRaster]:
                 return [
@@ -302,7 +302,7 @@ class InstarrIngester:
                             dataset=dataset.spec.name,
                             date=ingest_date,
                             variable=variable.key,
-                            files=source_files,
+                            files=files_tag,
                             source_hash=source_hash,
                             extra={
                                 'SOURCE_COLLECTION': collection,

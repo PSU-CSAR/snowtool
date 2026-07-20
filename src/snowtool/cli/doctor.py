@@ -29,8 +29,7 @@ from snowtool.snowdb import diagnostics
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-
-type _Finding = dict[str, str]
+    from snowtool.snowdb.diagnostics import _Finding
 
 
 @click.command('doctor')

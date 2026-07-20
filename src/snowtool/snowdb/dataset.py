@@ -318,15 +318,15 @@ class Dataset:
         with rasterio.open(path) as ds:
             return ds.tags().get(AOI_HASH_TAG)
 
-    def aoi_raster_is_current(self: Self, aoi: Pourpoint) -> bool:
-        """Whether a burned AOI raster exists AND matches ``aoi``'s geometry AND
-        the current burned-raster format version.
+    def aoi_raster_is_current(self: Self, pourpoint: Pourpoint) -> bool:
+        """Whether a burned AOI raster exists AND matches ``pourpoint``'s geometry
+        AND the current burned-raster format version.
 
         ``False`` means missing or stale (changed geometry *or* an old format
         version) -- either way :meth:`rasterize_aoi` should (re)build it.
         """
-        return self.aoi_raster_hash(aoi.station_triplet) == aoi_provenance(
-            aoi.geometry_hash,
+        return self.aoi_raster_hash(pourpoint.station_triplet) == aoi_provenance(
+            pourpoint.geometry_hash,
             self.nodata_mask_hash,
         )
 

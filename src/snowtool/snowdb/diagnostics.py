@@ -396,8 +396,9 @@ class DatasetInfoReport:
     :func:`grid_report` (grid geometry) rather than flat-copying their fields,
     alongside the spec-level fields (variables, zone config, active flag) and
     per-provider zone-layer presence/provenance -- one scan each, no duplicated
-    filesystem walks. :meth:`to_record` flattens both back out for the CLI, so
-    a new field on either nested report needs adding in exactly one place here.
+    filesystem walks. :meth:`to_record` flattens both back out for the CLI by
+    hand-listing every key, so a new field on either nested report needs
+    adding here *and* in :meth:`to_record`.
     ``grid.cell_area_m2`` is ``None`` on a geographic grid (per-pixel area
     raster, see :class:`GridReport`); ``min_elevation_m``/``max_elevation_m``
     are the shared elevation bracket

@@ -263,6 +263,9 @@ def write_aoi_raster(
             f'nodata_mask_hash={nodata_mask_hash!r})',
         )
     start_tile, end_tile = bounding_tiles(grid, geometry.bounds)
+    # Re-parsing grid.crs (rather than threading Dataset.grid_crs through) is
+    # safe here: DatasetSpec.crs is the single source both grid.crs and
+    # Dataset.grid_crs are derived from, so the two parses can never disagree.
     crs = rasterio.crs.CRS.from_user_input(grid.crs)
     base_grid = grid.base_grid
     tile_size = grid.tile_rows

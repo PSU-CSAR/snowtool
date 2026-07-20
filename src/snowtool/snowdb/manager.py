@@ -301,7 +301,7 @@ class SnowDbManager(PourpointOpsMixin):
             except ValueError as e:
                 raise SnowDbConfigError(
                     self.db.root,
-                    f'Not a usable dataset config ({dataset_config_path}): {e}',
+                    f'{dataset_config_path} is not a usable dataset config: {e}',
                 ) from e
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when

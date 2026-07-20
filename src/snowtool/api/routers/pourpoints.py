@@ -4,8 +4,8 @@ Both reads come off the catalog. ``GET /pourpoints`` pages over the persisted in
 (optionally ``bbox``-filtered on the point); its ``geometry`` param picks the
 feature geometry -- ``point`` (default) straight from the index, or ``basin``, which
 loads each page record's polygon and so defaults to a smaller page. ``GET
-/pourpoints/{triplet}`` reads the stored record and always returns the basin (point
-fallback), with coverage pulled from the index. A missing record raises
+/pourpoints/{triplet}`` reads the stored record and always returns the basin,
+with coverage pulled from the index. A missing record raises
 :class:`PourpointNotFoundError` -> 404 via the registered domain handler.
 """
 
