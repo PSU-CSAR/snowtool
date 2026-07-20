@@ -267,11 +267,11 @@ class SnowDbManager:
 
         For a ``path`` link that already exists on disk, the config it points at
         is parsed and resolved (:meth:`~snowtool.snowdb.spec.DatasetSpec.from_config`)
-        before anything is written, so no caller can register a link that a reader
-        would later fail to open; a malformed or unresolvable config raises
-        :class:`~snowtool.exceptions.SnowDbConfigError` (mirroring how
-        :meth:`SnowDb.open` wraps an unreadable linked config). A path that does
-        not exist yet is accepted as-is and only surfaces as the existing
+        before anything is written, so a caller cannot commit a link to a config
+        that exists but fails to parse or resolve; a malformed or unresolvable
+        config raises :class:`~snowtool.exceptions.SnowDbConfigError` (mirroring
+        how :meth:`SnowDb.open` wraps an unreadable linked config). A link to a
+        *missing* path is still committed as-is and only surfaces as the existing
         "dangling link" error when a reader opens the database.
         """
         if '/' in name or '\\' in name or name.endswith('.json'):
@@ -287,6 +287,9 @@ class SnowDbManager:
         if config_path is None:  # pragma: no cover - _read_root_config guarantees it
             raise SnowDbConfigError(self.db.root)
         dataset_config_path = Path(dataset_config_path).resolve()
+        # A missing path is deliberately not validated here: it defers to the
+        # existing dangling-link error at SnowDb.open() time, preserving the
+        # documented contract that register commits the link, not the target.
         if dataset_config_path.is_file():
             try:
                 dataset_config = DatasetConfig.load(dataset_config_path)
