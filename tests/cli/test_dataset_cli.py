@@ -93,6 +93,18 @@ def test_info_after_create(
     # Grid details (formerly `report grid`), now folded into `info`.
     assert info['rows'] == 512
     assert info['n_tiles'] == 4
+    # Typed, machine-stable fields: null (not the prose 'varies (geographic)')
+    # for a geographic grid's cell area, and two numeric fields (not a prose
+    # 'MIN .. MAX' string) for the elevation bracket.
+    assert info['cell_area_m2'] is None
+    assert info['min_elevation_m'] == -100.0
+    assert info['max_elevation_m'] == 4500.0
+    assert 'elevation_bracket_m' not in info
+
+    table = runner.invoke(cli, ['dataset', 'info', 'test'], obj=cli_obj)
+    assert table.exit_code == 0, table.output
+    assert 'varies (geographic)' in table.output
+    assert '-100.0 .. 4500.0' in table.output
 
 
 # --- dates / values ------------------------------------------------------------

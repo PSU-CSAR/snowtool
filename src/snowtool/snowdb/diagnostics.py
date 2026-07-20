@@ -372,6 +372,98 @@ def grid_report(dataset: Dataset) -> GridReport:
     )
 
 
+@dataclass(frozen=True)
+class DatasetInfoReport:
+    """Everything ``dataset info`` reports about one dataset, typed and flat.
+
+    Composes :func:`dataset_status` (on-disk presence/artifacts/date span) and
+    :func:`grid_report` (grid geometry) with the spec-level fields (variables,
+    zone config, active flag) and per-provider zone-layer presence/provenance --
+    one scan each, no duplicated filesystem walks. ``cell_area_m2`` is ``None``
+    on a geographic grid (per-pixel area raster, see :class:`GridReport`);
+    ``min_elevation_m``/``max_elevation_m`` are the shared elevation bracket
+    (:data:`~snowtool.snowdb.constants.MIN_ELEVATION_M` /
+    :data:`~snowtool.snowdb.constants.MAX_ELEVATION_M`) that elevation banding
+    zones across, not a per-dataset measurement.
+    """
+
+    name: str
+    active: bool
+    present: bool
+    crs: str
+    is_geographic: bool
+    rows: int
+    cols: int
+    tile_size: int
+    cell_area_m2: float | None
+    px_size: float
+    n_tiles: int
+    extent: Extent
+    zones: dict[str, dict[str, dict | None]]
+    min_elevation_m: float
+    max_elevation_m: float
+    variables: tuple[str, ...]
+    zone_layers: dict[str, dict[str, object]]  # provider -> {present, hash}
+    cogs: bool
+    aoi_rasters: bool
+    date_count: int
+    first_date: date | None
+    last_date: date | None
+
+
+def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
+    """Assemble a :class:`DatasetInfoReport` for ``dataset info``.
+
+    Composes :func:`dataset_status` and :func:`grid_report` rather than
+    re-scanning the dataset -- this is the one place their fields are merged
+    with the spec-derived ones (variables, zone config, per-provider zone-layer
+    hashes) that neither builder carries.
+    """
+    from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
+
+    spec = dataset.spec
+    status = dataset_status(dataset)
+    grid = grid_report(dataset)
+    artifacts = status.artifacts
+
+    return DatasetInfoReport(
+        name=spec.name,
+        active=spec.name in snowdb.datasets,
+        present=status.present,
+        crs=grid.crs,
+        is_geographic=grid.is_geographic,
+        rows=grid.rows,
+        cols=grid.cols,
+        tile_size=grid.tile_size,
+        cell_area_m2=grid.cell_area_m2,
+        px_size=grid.px_size,
+        n_tiles=grid.n_tiles,
+        extent=grid.extent,
+        zones={
+            provider: {
+                layer: params.model_dump() if params is not None else None
+                for layer, params in layers.items()
+            }
+            for provider, layers in spec.zones.items()
+        },
+        min_elevation_m=MIN_ELEVATION_M,
+        max_elevation_m=MAX_ELEVATION_M,
+        variables=tuple(sorted(spec.variables)),
+        zone_layers={
+            name: {
+                'present': artifacts.zone_layers[name],
+                'hash': dataset.zones[name].provenance_hash(),
+            }
+            for name in dataset.zones
+        },
+        cogs=artifacts.cogs,
+        aoi_rasters=artifacts.aoi_rasters,
+        date_count=status.date_count,
+        first_date=status.first_date,
+        last_date=status.last_date,
+    )
+
+
 def _first_present_cog(dataset: Dataset) -> Path | None:
     """The first variable COG present on disk (scanning dates ascending)."""
     for d in dataset.available_dates():

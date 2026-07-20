@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `zone` or `variable` value is now a `422` (raised by the shared zone-selection
   parser) rather than the previous `400` (schema-level enum rejection on the
   old per-dataset query model).
+- **Breaking (`dataset info` output):** the `json`/`csv` forms are now typed
+  and machine-stable: `cell_area_m2` is `null` (not the prose string
+  `"varies (geographic)"`) on a geographic grid, and the elevation bracket is
+  the two numeric fields `min_elevation_m`/`max_elevation_m` (not the prose
+  `elevation_bracket_m` string). The `table` form is unchanged.
 
 ### Removed
 

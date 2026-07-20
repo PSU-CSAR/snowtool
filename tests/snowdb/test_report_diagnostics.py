@@ -21,7 +21,7 @@ from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.zones.landcover import FOREST_COVER
 from snowtool.snowdb.zones.terrain import ELEVATION
 
-from ..conftest import make_snowdb, snodas_swe_name
+from ..conftest import make_snowdb, snodas_swe_name, write_landcover, write_terrain
 from .conftest import TILE
 
 
@@ -314,6 +314,48 @@ def test_grid_report(dataset):
     left, _bottom, _right, top = result.extent
     assert left == -120.0
     assert top == 45.0
+
+
+def test_dataset_info_report(tmp_path, spec):
+    # A SnowDb-bound dataset (not the bare `dataset` fixture): `active` reads off
+    # `snowdb.datasets`, so the report needs the two objects wired together the
+    # way `dataset info` resolves them.
+    db = make_snowdb(tmp_path, [spec])
+    ds = db['test']
+    write_terrain(ds)
+    write_landcover(ds)
+
+    result = diagnostics.dataset_info_report(db, ds)
+
+    assert result.name == 'test'
+    assert result.active is True
+    assert result.present is True
+    assert result.is_geographic is True
+    assert result.cell_area_m2 is None  # geographic grid -> per-pixel area raster
+    assert result.rows == result.cols == 512
+    assert result.n_tiles == 4
+    assert result.min_elevation_m == -100.0
+    assert result.max_elevation_m == 4500.0
+    assert result.variables == (
+        'average_temp',
+        'depth',
+        'precip_liquid',
+        'precip_solid',
+        'runoff',
+        'sublimation',
+        'sublimation_blowing',
+        'swe',
+    )
+    assert result.zone_layers['terrain']['present'] is True
+    assert result.zone_layers['landcover']['present'] is True
+    assert result.zone_layers['terrain']['hash'] is not None
+    assert result.zones['terrain']['aspect'] is None
+    assert result.zones['terrain']['elevation'] == {'band_step_ft': 1000}
+    assert result.cogs is False  # no dates ingested
+    assert result.aoi_rasters is False
+    assert result.date_count == 0
+    assert result.first_date is None
+    assert result.last_date is None
 
 
 # --- grid validation ---------------------------------------------------------

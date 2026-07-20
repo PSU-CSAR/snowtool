@@ -61,54 +61,34 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
 
     Resolves any *registered* dataset -- an inactive one is still inspectable
     (its ``active`` field says whether readers serve it).
+
+    ``cell_area_m2`` is ``null`` on a geographic grid (json/csv) -- the table
+    form shows ``varies (geographic)`` instead. Likewise the elevation bracket
+    is the two numeric fields ``min_elevation_m``/``max_elevation_m`` in
+    json/csv, rendered as ``MIN .. MAX`` prose in the table.
     """
-    from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
-    from snowtool.snowdb.diagnostics import dataset_status, grid_report
+    from dataclasses import asdict
+
+    from snowtool.snowdb.diagnostics import dataset_info_report
 
     ds = get_dataset(snowdb, name)
-    spec = ds.spec
-    grid = spec.grid_params
-    status = dataset_status(ds)
-    grid_details = grid_report(ds)
-    artifacts = status.artifacts
+    report = dataset_info_report(snowdb, ds)
 
-    record = {
-        'name': spec.name,
-        'active': name in snowdb.datasets,
-        'present': status.present,
-        'crs': str(grid.crs),
-        'is_geographic': spec.is_geographic,
-        'rows': grid.rows,
-        'cols': grid.cols,
-        'tile_size': grid.tile_size,
-        'cell_area_m2': 'varies (geographic)' if spec.is_geographic else spec.cell_area,
-        'px_size': grid_details.px_size,
-        'n_tiles': grid_details.n_tiles,
-        'extent': list(grid_details.extent),
-        'zones': {
-            provider: {
-                layer: params.model_dump() if params is not None else None
-                for layer, params in layers.items()
-            }
-            for provider, layers in spec.zones.items()
-        },
-        'elevation_bracket_m': f'{MIN_ELEVATION_M} .. {MAX_ELEVATION_M}',
-        'variables': sorted(spec.variables),
-        # One entry per configured zone-layer provider: whether its set is present
-        # and the provenance hash it was generated with.
-        'zone_layers': {
-            name: {
-                'present': artifacts.zone_layers[name],
-                'hash': ds.zones[name].provenance_hash(),
-            }
-            for name in ds.zones
-        },
-        'cogs': artifacts.cogs,
-        'aoi_rasters': artifacts.aoi_rasters,
-        'dates': status.date_count,
-        'first_date': status.first_date.isoformat() if status.first_date else None,
-        'last_date': status.last_date.isoformat() if status.last_date else None,
-    }
+    record = asdict(report)
+    record['extent'] = list(report.extent)
+    record['variables'] = list(report.variables)
+    record['dates'] = record.pop('date_count')
+    record['first_date'] = report.first_date.isoformat() if report.first_date else None
+    record['last_date'] = report.last_date.isoformat() if report.last_date else None
+    if fmt == 'table':
+        # Prose forms belong to the table only -- json/csv keep the typed fields
+        # (`cell_area_m2: float | None`, numeric `min/max_elevation_m`).
+        if report.cell_area_m2 is None:
+            record['cell_area_m2'] = 'varies (geographic)'
+        record['elevation_bracket_m'] = (
+            f'{report.min_elevation_m} .. {report.max_elevation_m}'
+        )
+        del record['min_elevation_m'], record['max_elevation_m']
     _emit_record(record, fmt)
 
 
