@@ -30,8 +30,6 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from pathlib import Path
 
-    import numpy
-
     from griffine.grid import TiledAffineGrid
 
     from snowtool.snowdb.grid import Bounds
@@ -44,18 +42,12 @@ class GenerationOptions:
 
     A single typed value object threaded from the caller through the provider to
     its engine, in place of an untyped option bag. Only terrain consumes these
-    today (block-level parallelism + the orientation-mean slope weighting); a
-    provider ignores any field it does not use, and ``None`` defers to the engine's
-    own default.
+    today (block-level parallelism); a provider ignores any field it does not
+    use, and ``None`` defers to the engine's own default.
     """
 
     workers: int | None = None
     block_size: int | None = None
-    # Terrain only: weight each cell's cos/sin aspect-orientation mean by
-    # sin(slope), so steep pixels dominate the mean direction. ``False`` (the
-    # default) counts every non-flat pixel once. A real, caller-settable option --
-    # replaces the former hardcoded ``COSSIN_SLOPE_WEIGHTED`` module constant.
-    cossin_slope_weighted: bool = False
 
 
 @dataclass(frozen=True)
@@ -131,7 +123,7 @@ class ZoneLayerSet:
         """The layers that are not present on disk (the report selection)."""
         return [layer for layer in self.layers if not self.layer_path(layer).is_file()]
 
-    def raster(self: Self, layer: ZoneLayer) -> TiledRaster[numpy.generic]:
+    def raster(self: Self, layer: ZoneLayer) -> TiledRaster:
         """A tiled COG reader for ``layer`` (for query-time reads)."""
         return TiledRaster(self.layer_path(layer))
 

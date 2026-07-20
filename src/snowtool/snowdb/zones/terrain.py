@@ -83,7 +83,6 @@ if TYPE_CHECKING:
             work_resolution: float | None = ...,
             workers: int | None = ...,
             block_size: int | None = ...,
-            cossin_slope_weighted: bool = ...,
             force: bool = ...,
             progress: ProgressReporter = ...,
         ) -> dict[str, str]: ...
@@ -276,8 +275,7 @@ class TerrainProvider(ZoneLayerProvider):
         """Stream the DEM ``source`` once, binning terrain into every target.
 
         ``options`` carries the engine's block-level parallelism knobs
-        (``workers``, ``block_size``) and the orientation-mean slope weighting
-        (``cossin_slope_weighted``); the DEM source supplies the projected work
+        (``workers``, ``block_size``); the DEM source supplies the projected work
         grid (``work_crs``/``work_resolution``). ``progress`` reports the engine's
         per-block reprojection.
         """
@@ -300,7 +298,6 @@ class TerrainProvider(ZoneLayerProvider):
                 work_resolution=source.work_resolution,
                 workers=options.workers,
                 block_size=options.block_size,
-                cossin_slope_weighted=options.cossin_slope_weighted,
                 force=force,
                 progress=progress,
             )

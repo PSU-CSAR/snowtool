@@ -16,11 +16,9 @@ if TYPE_CHECKING:
 class RasterCollection:
     def __init__(
         self: Self,
-        query: DateQuery,
         rasters: dict[DatasetVariable, list[DataRaster]],
-        dataset_name: str | None = None,
+        dataset_name: str,
     ) -> None:
-        self.query = query
         self.dataset_name = dataset_name
         self._by_variable = {
             variable: sorted(rs, key=lambda x: x.date)
@@ -59,7 +57,6 @@ class RasterCollection:
         dataset: Dataset,
     ) -> Self:
         return cls(
-            query=query,
             rasters={
                 variable: [
                     DataRaster(path, date_)
@@ -81,7 +78,7 @@ class RasterCollection:
         for date_, present in self._by_date.items():
             if present != expected:
                 raise IncompleteDatasetDataError.for_variables(
-                    self.dataset_name or '<unknown>',
+                    self.dataset_name,
                     date_,
                     (v.key for v in expected - present),
                 )

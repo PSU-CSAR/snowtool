@@ -24,7 +24,14 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.raster.tiff_cache import TiffCache
+from snowtool.snowdb.zonal_stats import (
+    DEFAULT_MAX_ZONE_CELLS,
+    ZonalStats,
+    parse_zone_selection,
+)
+from snowtool.snowdb.zones.zone_layer import available_zones
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -33,7 +40,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.variables import DatasetVariable
-    from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
+    from snowtool.snowdb.zonal_stats import ZoneSelection
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +63,6 @@ class SnowDbReader:
         cache: TiffCache | None = None,
         max_zone_cells: int | None = None,
     ) -> None:
-        from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
-
         self.db = db
         self.cache = cache if cache is not None else TiffCache()
         # Output-size guard for a crossed query (product of the selected zone axes);
@@ -121,10 +126,6 @@ class SnowDbReader:
         (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
         has not been rasterized (:class:`FileNotFoundError`).
         """
-        from snowtool.snowdb.raster.collection import RasterCollection
-        from snowtool.snowdb.zonal_stats import ZonalStats, parse_zone_selection
-        from snowtool.snowdb.zones.zone_layer import available_zones
-
         if zone_selections and zone_tokens:
             raise ValueError(
                 'Pass zone_selections or zone_tokens, not both '

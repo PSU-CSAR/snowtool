@@ -335,7 +335,7 @@ def test_raster_collection_flags_incomplete_date(tmp_path):
     }
 
     with pytest.raises(IncompleteDatasetDataError, match='depth'):
-        RasterCollection(query=object(), rasters=rasters, dataset_name='test')
+        RasterCollection(rasters=rasters, dataset_name='test')
 
 
 # --- Dataset.ingest (delegation to spec.ingester) ----------------------------

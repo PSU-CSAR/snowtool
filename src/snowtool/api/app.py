@@ -17,8 +17,6 @@ server start), which is when ``SNOWTOOL_SNOWDB_CONFIG`` must be set; tests call
 
 from __future__ import annotations
 
-import logging
-
 from gazebo.di import Providers
 from gazebo.ext.fastapi import GazeboApp
 from gazebo.tags import Tag, tags_metadata
@@ -57,13 +55,9 @@ def _provide_reader(db: SnowDb, settings: Settings) -> SnowDbReader:
 
 def get_app(
     settings: Settings | None = None,
-    logger: logging.Logger | None = None,
 ) -> GazeboApp:
     if settings is None:
         settings = Settings()
-
-    if logger is None:
-        logger = logging.getLogger(__name__)
 
     # One immutable catalog for the app's lifetime: used directly to enumerate
     # datasets and registered as the app-scoped SnowDb provider so routes inject
@@ -87,9 +81,6 @@ def get_app(
         openapi_tags=tags_metadata(*(Tag(name=member) for member in Tags)),
         query_problem=MALFORMED_QUERY_PARAMETER,
     )
-
-    app.state.settings = settings
-    app.state.logger = logger
 
     install_exception_handlers(app)
 

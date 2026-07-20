@@ -89,7 +89,6 @@ def _fake_terrain_engine(
     work_resolution=None,
     workers=None,
     block_size=None,
-    cossin_slope_weighted=False,
     force=False,
     progress=None,
 ):

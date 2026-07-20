@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import itertools
 import math
 
 from dataclasses import dataclass
@@ -522,7 +523,6 @@ class _ZoneIndex:
     :class:`Zone` tuple for every product cell, in the same flat order.
     """
 
-    axes: list[tuple[Zone, ...]]
     dims: list[int]
     index: numpy.typing.NDArray[numpy.int64]
     in_zone: numpy.typing.NDArray[numpy.bool_]
@@ -560,28 +560,23 @@ class _ZoneIndex:
             minlength=n,
         ).astype(numpy.float64)
         return cls(
-            axes=axes,
             dims=dims,
             index=combined,
             in_zone=in_zone,
             areas=areas,
-            cell_zones=cls._enumerate_cells(axes, dims),
+            cell_zones=cls._enumerate_cells(axes),
         )
 
     @staticmethod
     def _enumerate_cells(
         axes: list[tuple[Zone, ...]],
-        dims: list[int],
     ) -> tuple[tuple[Zone, ...], ...]:
-        """The product cells in flat (mixed-radix) order: one Zone tuple per cell."""
-        cells: list[tuple[Zone, ...]] = []
-        for flat in range(math.prod(dims)):
-            zones: list[Zone] = []
-            for i, dim in enumerate(dims):
-                stride = math.prod(dims[i + 1 :])
-                zones.append(axes[i][(flat // stride) % dim])
-            cells.append(tuple(zones))
-        return tuple(cells)
+        """The product cells in flat (mixed-radix) order: one Zone tuple per cell.
+
+        ``itertools.product`` iterates with the last axis fastest -- the same
+        flat order the mixed-radix ``combined`` index in :meth:`build` produces.
+        """
+        return tuple(itertools.product(*axes))
 
     def reduce(
         self: Self,
@@ -598,7 +593,7 @@ class _ZoneIndex:
         MEAN degenerates to a plain mean when cells are equal-area. A cell with no
         selected pixels is ``nan`` (as a per-pixel empty reduction would be).
         """
-        n = math.prod(self.dims)
+        n = len(self.areas)
         idx = self.index[selection]
         values = values_array[selection]
         areas = area_array[selection]

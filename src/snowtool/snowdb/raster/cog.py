@@ -106,13 +106,14 @@ def write_cog_guarded(
     crs: CRS = WGS84,
     nodata: float | int | None = None,
     tags: dict[str, str] | None = None,
-    predictor: int | None = 2,
+    predictor: int | None = None,
 ) -> None:
     """:func:`write_cog` with the shared ingest existence-guard.
 
     Every ingester writes its COGs the same way: refuse to clobber an existing
-    file unless ``force``, then write with the integer ``predictor=2`` ingest
-    default. This keeps the guard message and that default in one place.
+    file unless ``force``, then write with ``predictor`` passed through to
+    :func:`write_cog`'s dtype-derived default (2 for integers, 3 for floats).
+    This keeps the guard message in one place.
     """
     if not force and path.exists():
         raise ArtifactExistsError(

@@ -28,7 +28,7 @@ def _decode_to_array(
     return array[: tile.rows, : tile.cols]
 
 
-class TiledRaster[T: numpy.generic]:
+class TiledRaster:
     def __init__(self: Self, path: Path) -> None:
         self.path: Path = Path(path)
 
@@ -39,7 +39,7 @@ class TiledRaster[T: numpy.generic]:
         self: Self,
         tiles: list[AffineGridTile],
         cache: TiffCache,
-    ) -> list[numpy.typing.NDArray[T]]:
+    ) -> list[numpy.typing.NDArray[numpy.generic]]:
         """Read several COG blocks in one batched, coalesced fetch.
 
         The blocks are handed to async-tiff together so it can coalesce the
@@ -56,7 +56,7 @@ class TiledRaster[T: numpy.generic]:
         ]
 
 
-class DataRaster(TiledRaster[numpy.generic]):
+class DataRaster(TiledRaster):
     """A dated data COG for one variable on one date.
 
     The read path is dataset-agnostic: the date comes from the ``cogs/<date>/``

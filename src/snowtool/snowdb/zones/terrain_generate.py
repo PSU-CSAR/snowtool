@@ -147,12 +147,9 @@ HALO = 1
 FLAT_SLOPE_DEG = 2.0
 # Whether the flat class can win the per-cell majority vote.
 MAJORITY_INCLUDES_FLAT = True
-# Default for the cos/sin orientation-mean slope weighting (see
-# ``GenerationOptions.cossin_slope_weighted``): unweighted, every non-flat pixel
-# counts once. This is the resolved default the caller can override per generation;
-# it is no longer a hardcoded module constant (a caller sets it through the
-# GenerationOptions seam, e.g. ``manager.generate_zone_layers(..., options=...)``).
-DEFAULT_COSSIN_SLOPE_WEIGHTED = False
+# Whether the per-cell cos/sin orientation mean is weighted by sin(slope) (steep
+# pixels dominate the mean direction). False: every non-flat pixel counts once.
+COSSIN_SLOPE_WEIGHTED = False
 
 # Internal accumulator layout: four cardinal classes plus flat.
 _N_CLASSES = 5
@@ -453,7 +450,6 @@ def generate_terrain(
     work_resolution: float | None = DEFAULT_WORK_RESOLUTION,
     workers: int | None = None,
     block_size: int | None = None,
-    cossin_slope_weighted: bool = DEFAULT_COSSIN_SLOPE_WEIGHTED,
     force: bool = False,
     progress: ProgressReporter = NULL_PROGRESS,
 ) -> dict[str, str]:
@@ -465,13 +461,10 @@ def generate_terrain(
     3DEP pins 10 m. ``workers`` of ``None`` uses one thread per CPU (capped at
     :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial path; ``block_size`` (``None``
     -> :data:`DEFAULT_BLOCK_SIZE`) is the per-worker memory lever (see the module
-    docstring). ``cossin_slope_weighted`` weights each cell's cos/sin orientation
-    mean by ``sin(slope)`` (steep pixels dominate) when set; the default
-    (:data:`DEFAULT_COSSIN_SLOPE_WEIGHTED`) counts every non-flat pixel once. The
-    result -- including the generation hash -- is independent of ``workers``.
-    ``progress`` reports the per-block reprojection. Returns the one generation hash
-    keyed by each target name (all values equal). Refuses to overwrite an existing
-    terrain set unless ``force``.
+    docstring). The result -- including the generation hash -- is independent of
+    ``workers``. ``progress`` reports the per-block reprojection. Returns the one
+    generation hash keyed by each target name (all values equal). Refuses to
+    overwrite an existing terrain set unless ``force``.
     """
     if not targets:
         return {}
@@ -549,7 +542,6 @@ def generate_terrain(
                 accumulators,
                 work_crs,
                 bs,
-                cossin_slope_weighted,
             ).run(n_workers, progress)
     # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
@@ -676,7 +668,6 @@ class _TerrainStreamer:
         accumulators: list[_GridAccumulator],
         work_crs: str,
         block_size: int,
-        cossin_slope_weighted: bool,
     ) -> None:
         self._wvrt = wvrt
         self._dst_transform = dst_transform
@@ -687,10 +678,6 @@ class _TerrainStreamer:
         self._accumulators = accumulators
         self._work_crs = work_crs
         self._block_size = block_size
-        # Whether the per-cell cos/sin orientation mean is weighted by sin(slope)
-        # (steep pixels dominate). Resolved by generate_terrain from its caller's
-        # GenerationOptions; independent of worker count, so the hash stays stable.
-        self._cossin_slope_weighted = cossin_slope_weighted
         self._local = threading.local()
         # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
         self._read_lock = threading.Lock()
@@ -765,7 +752,7 @@ class _TerrainStreamer:
         sin = numpy.sin(rad)
         wt = (
             numpy.sin(numpy.radians(slope_deg))
-            if self._cossin_slope_weighted
+            if COSSIN_SLOPE_WEIGHTED
             else numpy.ones_like(slope_deg)
         )
 
