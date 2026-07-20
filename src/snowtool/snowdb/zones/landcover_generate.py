@@ -70,14 +70,10 @@ class _ForestAccumulator:
 
     def __init__(self: Self, target: ZoneLayerTarget, source_crs: str) -> None:
         self.target = target
-        base = target.grid.base_grid
-        self.height = base.rows
-        self.width = base.cols
-        self.transform = base.transform
-        crs = target.grid.crs
-        if crs is None:  # pragma: no cover - make_grid always sets a CRS
-            raise ValueError(f'{target.name}: grid has no CRS')
-        self._crs = crs
+        self.height = target.rows
+        self.width = target.cols
+        self.transform = target.transform
+        self._crs = target.crs
         n = self.height * self.width
         self.forest = numpy.zeros(n, dtype=numpy.int64)
         self.valid = numpy.zeros(n, dtype=numpy.int64)
@@ -118,23 +114,30 @@ class _ForestAccumulator:
         out[has] = numpy.rint(100.0 * forest[has] / valid[has]).astype(numpy.uint8)
         return out
 
-    def write_layer(
+    def digest_array(
         self: Self,
-        forest_pct: numpy.typing.NDArray[numpy.uint8],
-        nlcd_hash: str,
+        artifacts: numpy.typing.NDArray[numpy.uint8],
+    ) -> numpy.typing.NDArray:
+        """The generation hash digests the finalized forest-pct array itself."""
+        return artifacts
+
+    def write(
+        self: Self,
+        artifacts: numpy.typing.NDArray[numpy.uint8],
+        tag: str,
     ) -> None:
-        """Write the forest-cover COG, stamped with the generation ``nlcd_hash``."""
+        """Write the forest-cover COG, stamped with the generation ``tag``."""
         self.target.directory.mkdir(parents=True, exist_ok=True)
         rio_crs = rasterio.crs.CRS.from_wkt(self._crs.to_wkt())
         write_cog(
             self.target.directory / FOREST_COVER.filename,
-            forest_pct,
+            artifacts,
             transform=self.transform,
             crs=rio_crs,
             nodata=FOREST_COVER.nodata,
             tile_size=self.target.tile_size,
             band_descriptions=FOREST_COVER.band_descriptions,
-            tags={NLCD_HASH_TAG: nlcd_hash},
+            tags={NLCD_HASH_TAG: tag},
         )
 
 
@@ -174,14 +177,7 @@ def generate_landcover(
     # One generation id for the whole pass: a digest over every target's finalized
     # forest array (sorted by name for determinism), stamped identically on every
     # output -- so all layers produced together reconcile as one set.
-    return finalize_and_stamp(
-        accumulators,
-        name_of=lambda acc: acc.target.name,
-        finalize=_ForestAccumulator.finalize,
-        digest_array=lambda forest_pct: forest_pct,
-        write=_ForestAccumulator.write_layer,
-        format_version=LANDCOVER_FORMAT_VERSION,
-    )
+    return finalize_and_stamp(accumulators, format_version=LANDCOVER_FORMAT_VERSION)
 
 
 def _source_window(

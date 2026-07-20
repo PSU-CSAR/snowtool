@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from pathlib import Path
 
+    from affine import Affine
     from griffine.grid import TiledAffineGrid
+    from pyproj import CRS
 
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zoning import ZoneScheme
@@ -87,6 +89,33 @@ class ZoneLayerTarget:
     grid: TiledAffineGrid
     tile_size: int
     directory: Path
+
+    @property
+    def rows(self: Self) -> int:
+        return self.grid.base_grid.rows
+
+    @property
+    def cols(self: Self) -> int:
+        return self.grid.base_grid.cols
+
+    @property
+    def transform(self: Self) -> Affine:
+        return self.grid.base_grid.transform
+
+    @property
+    def crs(self: Self) -> CRS:
+        """The target grid's CRS, or a hard failure if it is somehow unset.
+
+        ``make_grid`` always sets a CRS, so a ``None`` here means something
+        upstream is badly broken -- surfaced immediately rather than deferred
+        to a confusing failure deeper in the accumulator, and shared so the
+        terrain/land-cover accumulator prologues don't each repeat the same
+        defensive check.
+        """
+        crs = self.grid.crs
+        if crs is None:  # pragma: no cover - make_grid always sets a CRS
+            raise ValueError(f'{self.name}: grid has no CRS')
+        return crs
 
 
 class ZoneLayerSet:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy
 
@@ -23,13 +23,36 @@ from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.provenance import versioned_hash
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
 
     import numpy.typing
 
     from affine import Affine
 
     from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
+
+
+class GenerationAccumulator[Artifacts](Protocol):
+    """What :func:`finalize_and_stamp` needs from one target's accumulator.
+
+    Both :class:`~snowtool.snowdb.zones.terrain_generate._GridAccumulator` and
+    :class:`~snowtool.snowdb.zones.landcover_generate._ForestAccumulator`
+    satisfy this structurally (no inheritance needed): a ``target`` to name and
+    sort by, a ``finalize`` that reduces the accumulator to its per-target
+    ``Artifacts``, a ``digest_array`` that projects those artifacts down to the
+    one array each engine's generation hash is defined over (terrain: the
+    elevation array; land cover: the forest-pct array -- *not* "the finalized
+    artifacts" as a whole, since terrain's artifacts are the whole layer list),
+    and a ``write`` that persists the artifacts stamped with the shared tag.
+    """
+
+    target: ZoneLayerTarget
+
+    def finalize(self) -> Artifacts: ...
+
+    def digest_array(self, artifacts: Artifacts) -> numpy.typing.NDArray: ...
+
+    def write(self, artifacts: Artifacts, tag: str) -> None: ...
 
 
 def require_absent_layers(
@@ -59,13 +82,9 @@ def require_absent_layers(
             )
 
 
-def finalize_and_stamp[Acc, Artifacts](
-    accumulators: Iterable[Acc],
+def finalize_and_stamp[Artifacts](
+    accumulators: Iterable[GenerationAccumulator[Artifacts]],
     *,
-    name_of: Callable[[Acc], str],
-    finalize: Callable[[Acc], Artifacts],
-    digest_array: Callable[[Artifacts], numpy.typing.NDArray],
-    write: Callable[[Acc, Artifacts, str], None],
     format_version: int,
 ) -> dict[str, str]:
     """Finalize every accumulator, compute one generation hash, then write.
@@ -79,22 +98,22 @@ def finalize_and_stamp[Acc, Artifacts](
     sequence (name bytes, then array bytes), and which array is digested are all
     provenance-visible and must stay exactly as each caller already relies on
     (terrain digests only the elevation array; land cover digests the forest
-    array) -- that is why ``digest_array`` is a caller-supplied projection rather
+    array) -- that is why ``digest_array`` is a per-accumulator projection rather
     than "the finalized artifacts" themselves.
     """
     accs = list(accumulators)
-    finalized: list[tuple[Acc, Artifacts]] = []
+    finalized: list[tuple[GenerationAccumulator[Artifacts], Artifacts]] = []
     digest = hashlib.sha256()
-    for acc in sorted(accs, key=name_of):
-        artifacts = finalize(acc)
+    for acc in sorted(accs, key=lambda acc: acc.target.name):
+        artifacts = acc.finalize()
         finalized.append((acc, artifacts))
-        digest.update(name_of(acc).encode('utf-8'))
-        digest.update(digest_array(artifacts).tobytes())
+        digest.update(acc.target.name.encode('utf-8'))
+        digest.update(acc.digest_array(artifacts).tobytes())
     generation_hash = versioned_hash(format_version, digest.hexdigest())
 
     for acc, artifacts in finalized:
-        write(acc, artifacts, generation_hash)
-    return dict.fromkeys((name_of(acc) for acc in accs), generation_hash)
+        acc.write(artifacts, generation_hash)
+    return dict.fromkeys((acc.target.name for acc in accs), generation_hash)
 
 
 def cells_for_points(

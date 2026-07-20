@@ -217,15 +217,11 @@ class _GridAccumulator:
 
     def __init__(self: Self, target: ZoneLayerTarget) -> None:
         self.target = target
-        base = target.grid.base_grid
-        self.height = base.rows
-        self.width = base.cols
-        self.transform = base.transform
-        crs = target.grid.crs
-        if crs is None:  # pragma: no cover - make_grid always sets a CRS
-            raise ValueError(f'{target.name}: grid has no CRS')
+        self.height = target.rows
+        self.width = target.cols
+        self.transform = target.transform
         # The streamer builds (thread-local) work-CRS -> this-CRS Transformers.
-        self.crs = crs
+        self.crs = target.crs
         n = self.height * self.width
         self.counts = numpy.zeros(_N_CLASSES * n, dtype=numpy.int64)
         self.sum_cos = numpy.zeros(n, dtype=numpy.float64)
@@ -332,21 +328,28 @@ class _GridAccumulator:
             (ASPECT_ENTROPY, entropy.astype(numpy.float32)),
         ]
 
-    def write_layers(
+    def digest_array(
         self: Self,
-        layers: list[tuple[ZoneLayer, numpy.typing.NDArray]],
-        dem_hash: str,
+        artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
+    ) -> numpy.typing.NDArray:
+        """The generation hash digests only the finalized elevation array."""
+        return next(array for layer, array in artifacts if layer is ELEVATION)
+
+    def write(
+        self: Self,
+        artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
+        tag: str,
     ) -> None:
-        """Write each finalized layer as its own COG, stamped with ``dem_hash``."""
+        """Write each finalized layer as its own COG, stamped with ``tag``."""
         self.target.directory.mkdir(parents=True, exist_ok=True)
         rio_crs = rasterio.crs.CRS.from_wkt(self.crs.to_wkt())
         common = {
             'transform': self.transform,
             'crs': rio_crs,
             'tile_size': self.target.tile_size,
-            'tags': {DEM_HASH_TAG: dem_hash},
+            'tags': {DEM_HASH_TAG: tag},
         }
-        for layer, array in layers:
+        for layer, array in artifacts:
             write_cog(
                 self.target.directory / layer.filename,
                 array,
@@ -380,15 +383,11 @@ def _target_bounds_in_work_crs(
     easts: list[float] = []
     norths: list[float] = []
     for target in targets:
-        base = target.grid.base_grid
-        t = base.transform
+        t = target.transform
         xmin, ymax = t.c, t.f
-        xmax = t.c + base.cols * t.a
-        ymin = t.f + base.rows * t.e
-        crs = target.grid.crs
-        if crs is None:  # pragma: no cover - make_grid always sets a CRS
-            raise ValueError(f'{target.name}: grid has no CRS')
-        rio_crs = rasterio.crs.CRS.from_wkt(crs.to_wkt())
+        xmax = t.c + target.cols * t.a
+        ymin = t.f + target.rows * t.e
+        rio_crs = rasterio.crs.CRS.from_wkt(target.crs.to_wkt())
         w, s, e, n = transform_bounds(rio_crs, work_crs, xmin, ymin, xmax, ymax)
         wests.append(w)
         souths.append(s)
@@ -543,16 +542,7 @@ def generate_terrain(
     # finalized elevation only (not the other layers -- it identifies the
     # generation, not a per-raster hash), stamped identically on every layer of
     # every terrain set so all rasters produced together reconcile as one set.
-    return finalize_and_stamp(
-        accumulators,
-        name_of=lambda acc: acc.target.name,
-        finalize=_GridAccumulator.finalize,
-        digest_array=lambda layers: next(
-            array for layer, array in layers if layer is ELEVATION
-        ),
-        write=_GridAccumulator.write_layers,
-        format_version=TERRAIN_FORMAT_VERSION,
-    )
+    return finalize_and_stamp(accumulators, format_version=TERRAIN_FORMAT_VERSION)
 
 
 def _read_haloed_block(
