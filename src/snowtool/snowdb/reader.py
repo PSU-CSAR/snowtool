@@ -27,6 +27,7 @@ from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.zonal_stats import (
+    DEFAULT_MAX_CONCURRENT_RASTERS,
     DEFAULT_MAX_ZONE_CELLS,
     ZonalStats,
     parse_zone_selection,
@@ -62,6 +63,7 @@ class SnowDbReader:
         db: SnowDb,
         cache: TiffCache | None = None,
         max_zone_cells: int | None = None,
+        max_concurrent_rasters: int | None = None,
     ) -> None:
         self.db = db
         self.cache = cache if cache is not None else TiffCache()
@@ -69,6 +71,14 @@ class SnowDbReader:
         # a read-path cap held here like the cache, not threaded per query.
         self.max_zone_cells = (
             DEFAULT_MAX_ZONE_CELLS if max_zone_cells is None else max_zone_cells
+        )
+        # Fan-out cap on concurrent per-raster reductions (transient window
+        # allocations + unbounded fetch batches); a read-path knob beside the cache,
+        # not threaded per query. Bounds peak memory only, never results.
+        self.max_concurrent_rasters = (
+            DEFAULT_MAX_CONCURRENT_RASTERS
+            if max_concurrent_rasters is None
+            else max_concurrent_rasters
         )
 
     @staticmethod
@@ -161,6 +171,7 @@ class SnowDbReader:
             dataset,
             zone_selections,
             max_zone_cells=self.max_zone_cells,
+            max_concurrent_rasters=self.max_concurrent_rasters,
         )
         duration_ms = (time.perf_counter() - start) * 1000
         cache_after = self.cache.info()

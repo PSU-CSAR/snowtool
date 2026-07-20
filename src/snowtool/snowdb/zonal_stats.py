@@ -39,6 +39,14 @@ if TYPE_CHECKING:
 # settings-derived override; this is the library default.
 DEFAULT_MAX_ZONE_CELLS = 10_000
 
+# Cap on how many per-raster reductions (`_calc`) run concurrently. Each in-flight
+# reduction holds a transient full-window value array and issues its own unbounded
+# tile-fetch batch, so a wide date range would otherwise allocate one such window
+# per date at once. The semaphore bounds peak memory and fetch fan-out without
+# changing results (each reduction writes a disjoint array slice). The HTTP/CLI
+# layer can pass a settings-derived override; this is the library default.
+DEFAULT_MAX_CONCURRENT_RASTERS = 16
+
 
 @dataclass(frozen=True)
 class ZoneSelection:
@@ -108,21 +116,6 @@ def parse_zone_selection(
     return ZoneSelection(layer_key, available.scheme.parse_override(layer_key, raw))
 
 
-@dataclass
-class Result:
-    """One (date, crossed-zone cell, variable) reduction.
-
-    ``zone`` is the cell's per-axis zone tuple (one :class:`Zone` per selected
-    layer, in selection order).
-    """
-
-    date: date
-    zone: tuple[Zone, ...]
-    variable: DatasetVariable
-    value: float
-    area: float
-
-
 class ZonalStats:
     def __init__(
         self: Self,
@@ -131,7 +124,6 @@ class ZonalStats:
         zone_layers: tuple[str, ...],
         zone_cells: tuple[tuple[Zone, ...], ...],
         dates: tuple[date, ...],
-        *results: Result,
     ) -> None:
         self.spec = spec
         # The crossed zone axes (registry keys, in selection order) and the flat
@@ -152,17 +144,22 @@ class ZonalStats:
         # float32 truncates to ~7 significant digits. The array is tiny
         # (cells x dates x stats) and JSON output is float64 anyway, so store the
         # full precision rather than round-tripping through float32.
-        self._array = numpy.full(
+        #
+        # The (dates x cells x 1+variables) array is filled slice-by-slice via
+        # :meth:`fill` -- one whole (date, variable) cell-vector per assignment,
+        # plus the area column per date. Completeness is a construction invariant:
+        # ``RasterCollection.validate`` guarantees every (date, variable) raster
+        # exists, so every slice is written exactly once and no hole-detection
+        # sentinel is needed. Start at 0.0 (a plain, documented fill); any cell not
+        # overwritten would only occur if that invariant were violated.
+        self._array = numpy.zeros(
             (
                 len(self._dates_index),
                 len(self._cells_index),
                 len(self._variables_index) + 1,
             ),
-            -numpy.inf,
             dtype=numpy.float64,
         )
-
-        self.add_results(*results)
 
     @property
     def n_cells(self: Self) -> int:
@@ -170,24 +167,23 @@ class ZonalStats:
         (K=0) query."""
         return len(self._cells_index)
 
-    def add_result(self: Self, result: Result) -> None:
-        cell = self._array[self._dates_index[result.date]][
-            self._cells_index[result.zone]
-        ]
+    def fill(
+        self: Self,
+        date_: date,
+        variable: DatasetVariable,
+        values: numpy.typing.NDArray[numpy.float64],
+        areas: numpy.typing.NDArray[numpy.float64],
+    ) -> None:
+        """Write one (date, variable) reduction into the array, vectorized.
 
-        cell[0] = result.area
-        cell[self._variables_index[result.variable]] = result.value
-
-    def add_results(self: Self, *results: Result) -> None:
-        for result in results:
-            self.add_result(result)
-
-    def validate(self: Self) -> None:
-        if (self._array == -numpy.inf).any():
-            raise ValueError(
-                'Results array is incomplete. '
-                'Ensure all data was processed and added to results successfully.',
-            )
+        ``values`` and ``areas`` are cell-vectors aligned with the flat product
+        (cell) order. The area column is date-invariant, so it is (re)written per
+        date with the same values -- cheap, and keeps a single obvious seam that
+        both :meth:`calculate` and the serializer tests fill the array through.
+        """
+        date_idx = self._dates_index[date_]
+        self._array[date_idx, :, 0] = areas
+        self._array[date_idx, :, self._variables_index[variable]] = values
 
     def _zone_stats(self: Self, date_idx: int, cell_idx: int) -> dict[str, float]:
         """The scaled per-cell stat values (``area_m2`` + each variable) for one
@@ -216,15 +212,6 @@ class ZonalStats:
         """
         return [zone.ref(layer) for layer, zone in zip(layers, cell, strict=True)]
 
-    @property
-    def _has_dates(self: Self) -> bool:
-        """Whether any date was reduced -- i.e. the array has a row to read.
-
-        With no dates the result is a zero-height array: there is no row to read a
-        cell's area or values from, so both serializers report an empty body.
-        """
-        return bool(self._dates_index)
-
     def _emitted_cells(self: Self, *, include_empty_zones: bool) -> list[int]:
         """The cell indices (flat product order) the serializers should emit.
 
@@ -236,11 +223,14 @@ class ZonalStats:
         per-(date, cell) but date-independent, so a cell is empty for every date or
         none -- it is dropped from every date consistently. The whole-basin (K=0) cell
         always has area and is never dropped.
+
+        With no dates there is no array row to read an area from, so nothing is
+        emitted: both serializers report an empty body (empty zones/results).
         """
+        if not self._dates_index:
+            return []
         all_cells = list(range(len(self._cells_index)))
-        # No dates => no rows anyway, and self._array[0] would index-error; the
-        # emptiness of a cell is meaningless without a row to read the area from.
-        if include_empty_zones or not self._has_dates:
+        if include_empty_zones:
             return all_cells
         areas = self._array[0, :, 0]
         return [idx for idx in all_cells if areas[idx] > 0]
@@ -256,32 +246,30 @@ class ZonalStats:
         :meth:`dump_to_csv`, so values are byte-identical. ``area_m2`` is
         date-invariant, so it is read once per zone (from the first date) and
         hoisted into the zone definition. With no dates the matrix is empty and no
-        area is available, so ``zones`` is empty too; ``zone_layers`` and
-        ``variables`` are always reported.
+        area is available, so ``zones`` is empty too (``_emitted_cells`` returns
+        nothing without a date row); ``zone_layers`` and ``variables`` are always
+        reported.
         """
-        self.validate()
         cells = list(self._cells_index)
         variables = [variable.stat_name for variable in self._variables_index]
         emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
 
-        zones: list[CompactZone] = []
+        zones: list[CompactZone] = [
+            CompactZone(
+                zone=self._zone_refs(self.zone_layers, cells[cell_idx]),
+                area_m2=self._zone_stats(0, cell_idx)['area_m2'],
+            )
+            for cell_idx in emitted
+        ]
         results: dict[date, list[list[float | None]]] = {}
-        if self._has_dates:
+        for date_, date_idx in self._dates_index.items():
+            # One _zone_stats call per (date, cell) -- hoisted out of the
+            # per-variable comprehension so the unit scaling runs once, not
+            # once per variable.
+            results[date_] = []
             for cell_idx in emitted:
-                zones.append(
-                    CompactZone(
-                        zone=self._zone_refs(self.zone_layers, cells[cell_idx]),
-                        area_m2=self._zone_stats(0, cell_idx)['area_m2'],
-                    ),
-                )
-            for date_, date_idx in self._dates_index.items():
-                # One _zone_stats call per (date, cell) -- hoisted out of the
-                # per-variable comprehension so the unit scaling runs once, not
-                # once per variable.
-                results[date_] = []
-                for cell_idx in emitted:
-                    stats = self._zone_stats(date_idx, cell_idx)
-                    results[date_].append([stats[name] for name in variables])
+                stats = self._zone_stats(date_idx, cell_idx)
+                results[date_].append([stats[name] for name in variables])
 
         return CompactStats(
             zone_layers=list(self.zone_layers),
@@ -303,21 +291,10 @@ class ZonalStats:
         """Return an iterator over CSV chunks for this result (one header or row each).
 
         Shares ``_zone_stats``/``_emitted_cells``/the ``csv_columns`` machinery with
-        :meth:`dump_to_csv`, so both produce byte-identical output. ``validate()``
-        runs eagerly -- before the first chunk is yielded -- rather than lazily on
-        first iteration, so a caller that starts streaming (e.g. the HTTP response)
-        still sees the error before any output goes out. Each row is formatted with
-        ``csv.writer`` into a small per-row buffer so quoting stays identical to a
-        one-shot dump; nothing here hand-formats CSV text.
+        :meth:`dump_to_csv`, so both produce byte-identical output. Each row is
+        formatted with ``csv.writer`` into a small per-row buffer so quoting stays
+        identical to a one-shot dump; nothing here hand-formats CSV text.
         """
-        self.validate()
-        return self._iter_csv_rows(include_empty_zones=include_empty_zones)
-
-    def _iter_csv_rows(
-        self: Self,
-        *,
-        include_empty_zones: bool,
-    ) -> Iterator[str]:
         buffer = io.StringIO()
         writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
 
@@ -377,6 +354,7 @@ class ZonalStats:
         zone_selections: Sequence[ZoneSelection] = (),
         *,
         max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
+        max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> Self:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
@@ -388,6 +366,10 @@ class ZonalStats:
         to the AOI, and assigned to per-pixel ordinals; the crossed index is the
         cartesian product of the axes. A query whose product would exceed
         ``max_zone_cells`` is rejected before any raster is read.
+
+        ``max_concurrent_rasters`` caps how many per-raster reductions run at once
+        (a semaphore over the fan-out); it bounds peak memory / fetch fan-out only
+        and does not affect results.
         """
         spec = dataset.spec
         selections = list(zone_selections)
@@ -453,27 +435,40 @@ class ZonalStats:
 
         zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array)
 
-        # Fan out across the raster set; each raster's tile reads fan out
-        # further inside _calc. The handle cache dedupes/bounds open COGs.
-        per_raster = await asyncio.gather(
-            *(
-                cls._calc(aoi, variable, raster, zone_index, cache)
-                for variable, variable_rasters in rasters.items()
-                for raster in variable_rasters
-            ),
-        )
-        results: list[Result] = [
-            result for raster_results in per_raster for result in raster_results
-        ]
-
-        return cls(
+        stats = cls(
             spec,
             rasters.variables,
             tuple(zone_layers),
             zone_index.cell_zones,
             tuple(rasters.dates),
-            *results,
         )
+
+        # Fan out across the raster set; each raster's tile reads fan out further
+        # inside _calc. The handle cache dedupes/bounds open COGs, but each in-flight
+        # _calc still holds a transient full-window value array and issues its own
+        # (unbounded) fetch batch, so a wide date range would otherwise allocate all
+        # of them at once. A semaphore caps how many _calc bodies run concurrently --
+        # results are unaffected (each writes its own disjoint (date, variable) slice
+        # of the array); only peak memory / fetch fan-out is bounded.
+        limit = asyncio.Semaphore(max_concurrent_rasters)
+
+        async def _reduce_one(
+            variable: DatasetVariable,
+            raster: DataRaster,
+        ) -> None:
+            async with limit:
+                values = await cls._calc(aoi, variable, raster, zone_index, cache)
+            stats.fill(raster.date, variable, values, zone_index.areas)
+
+        await asyncio.gather(
+            *(
+                _reduce_one(variable, raster)
+                for variable, variable_rasters in rasters.items()
+                for raster in variable_rasters
+            ),
+        )
+
+        return stats
 
     @staticmethod
     async def _calc(
@@ -482,8 +477,14 @@ class ZonalStats:
         raster: DataRaster,
         zone_index: _ZoneIndex,
         cache: TiffCache,
-    ) -> list[Result]:
-        date_ = raster.date
+    ) -> numpy.typing.NDArray[numpy.float64]:
+        """The area-weighted per-cell reduction for one (date, variable) raster.
+
+        Returns the cell-vector (aligned with ``zone_index.cell_zones`` flat product
+        order) of reduced values -- the value column :meth:`fill` writes for this
+        (date, variable). Cell areas are date-invariant and carried on the zone
+        index, so they are not recomputed here.
+        """
         values_array = numpy.empty_like(aoi.array, dtype=variable.dtype)
         values_array[:] = variable.nodata
 
@@ -492,23 +493,12 @@ class ZonalStats:
         # The reduction runs only over in-zone pixels that actually have data;
         # everything else (zone geometry, cell areas) was precomputed once.
         selection = zone_index.in_zone & (values_array != variable.nodata)
-        values = zone_index.reduce(
+        return zone_index.reduce(
             variable.reducer,
             values_array,
             aoi.array,
             selection,
         )
-
-        return [
-            Result(
-                date=date_,
-                variable=variable,
-                zone=cell,
-                value=float(values[idx]),
-                area=float(zone_index.areas[idx]),
-            )
-            for idx, cell in enumerate(zone_index.cell_zones)
-        ]
 
 
 @dataclass

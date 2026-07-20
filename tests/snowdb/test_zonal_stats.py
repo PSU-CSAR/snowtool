@@ -18,6 +18,7 @@ import csv
 import io
 import math
 
+from dataclasses import dataclass
 from datetime import date
 
 import numpy
@@ -31,7 +32,6 @@ from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 from snowtool.snowdb.zonal_stat_models import CompactZone
 from snowtool.snowdb.zonal_stats import (
-    Result,
     ZonalStats,
     ZoneSelection,
     _ZoneIndex,
@@ -45,6 +45,7 @@ from snowtool.snowdb.zones.zoning import (
     BandZone,
     ClassZone,
     ThresholdZone,
+    Zone,
 )
 
 NODATA = -9999  # the variable's int16 nodata sentinel for these stubs
@@ -99,6 +100,46 @@ class _FakeAOI:
         values_array[:] = self._values
 
 
+@dataclass
+class _CalcResult:
+    """One (cell) reduction reassembled from the ``_calc`` value-vector.
+
+    ``_calc`` now returns just the per-cell value vector (aligned with
+    ``zone_index.cell_zones``); these tests still assert per-cell, so a local
+    helper pairs each value back with its zone tuple + the index's cell area --
+    the same (zone, value, area) the deleted ``Result`` carried, without resurrecting
+    it.
+    """
+
+    date: date
+    variable: DatasetVariable
+    zone: tuple[Zone, ...]
+    value: float
+    area: float
+
+
+def _calc_results(aoi, variable, raster, zone_index):
+    """Run ``_calc`` and pair each cell value with its zone tuple and area.
+
+    Untyped like ``_run_calc`` so mypy does not flag the deliberate ``cache=None``
+    (the ``_FakeAOI`` overrides ``load_raster_tiles_into_array``, so the cache is
+    never touched) -- matching the pre-existing test convention here.
+    """
+    values = asyncio.run(
+        ZonalStats._calc(aoi, variable, raster, zone_index, cache=None),
+    )
+    return [
+        _CalcResult(
+            date=raster.date,
+            variable=variable,
+            zone=cell,
+            value=float(values[idx]),
+            area=float(zone_index.areas[idx]),
+        )
+        for idx, cell in enumerate(zone_index.cell_zones)
+    ]
+
+
 def _run_calc(aoi, variable, raster, scheme):
     # A single elevation axis: the K=1 case of the crossed index.
     ordinals = scheme.assign(aoi.elevation)
@@ -107,10 +148,10 @@ def _run_calc(aoi, variable, raster, scheme):
         [ordinals],
         aoi.array,
     )
-    return asyncio.run(ZonalStats._calc(aoi, variable, raster, zone_index, cache=None))
+    return _calc_results(aoi, variable, raster, zone_index)
 
 
-def _bounds(result: Result) -> tuple[int | float, int | float]:
+def _bounds(result: _CalcResult) -> tuple[int | float, int | float]:
     (band,) = result.zone
     assert isinstance(band, BandZone)
     return band.min, band.max
@@ -300,14 +341,11 @@ def test_calc_reduces_each_crossed_cell_independently():
         aoi.array,
     )
 
-    results = asyncio.run(
-        ZonalStats._calc(
-            aoi,
-            _variable(Reducer.MEAN),
-            _FakeRaster(date(2018, 4, 27)),
-            index,
-            cache=None,
-        ),
+    results = _calc_results(
+        aoi,
+        _variable(Reducer.MEAN),
+        _FakeRaster(date(2018, 4, 27)),
+        index,
     )
     by_zone = {r.zone: r.value for r in results}
     assert by_zone[(elev_axis[0], side_axis[0])] == 10.0
@@ -480,6 +518,36 @@ def _band(min_ft: int, max_ft: int) -> BandZone:
 
 
 _DUMP_DAY = date(2018, 4, 27)
+
+
+def _stats_from_cells(
+    spec,
+    variable,
+    zone_layers,
+    cells,
+    day,
+    cell_specs,
+):
+    """Build a ``ZonalStats`` and fill its array through the public ``fill`` seam.
+
+    ``cell_specs`` is ``(zone, value, area)`` per crossed cell, in ``cells`` order.
+    Since ``Result`` is gone, the serializer tests fill the array the same way
+    :meth:`ZonalStats.calculate` does: one vectorized ``fill(date, variable, values,
+    areas)`` per (date, variable). The specs are turned into cell-aligned value and
+    area vectors (matching ``cells`` order) and written in one call.
+    """
+    stats = ZonalStats(spec, {variable}, zone_layers, cells, (day,))
+    cell_index = {cell: idx for idx, cell in enumerate(cells)}
+    values = numpy.empty(len(cells), dtype=numpy.float64)
+    areas = numpy.empty(len(cells), dtype=numpy.float64)
+    for zone, value, area in cell_specs:
+        idx = cell_index[zone]
+        values[idx] = value
+        areas[idx] = area
+    stats.fill(day, variable, values, areas)
+    return stats
+
+
 _FLAT = ClassZone(key='flat', label='flat', code=4)
 _FORESTED = ThresholdZone(
     key='above',
@@ -563,17 +631,13 @@ def test_dump_to_csv_expands_each_axis_kind(
     expected_rows,
 ):
     variable = _variable(Reducer.MEAN)
-    results = [
-        Result(date=_DUMP_DAY, zone=zone, variable=variable, value=value, area=area)
-        for zone, value, area in results_spec
-    ]
-    stats = ZonalStats(
+    stats = _stats_from_cells(
         _spec_with(variable),
-        {variable},
+        variable,
         zone_layers,
         cells,
-        (_DUMP_DAY,),
-        *results,
+        _DUMP_DAY,
+        results_spec,
     )
 
     out = io.StringIO()
@@ -596,23 +660,16 @@ def _two_band_stats() -> ZonalStats:
     """
     variable = _variable(Reducer.MEAN)
     cells = ((_band(0, 1000),), (_band(1000, 2000),))
-    results = [
-        Result(date=_DUMP_DAY, zone=cells[0], variable=variable, value=5.0, area=10.0),
-        Result(
-            date=_DUMP_DAY,
-            zone=cells[1],
-            variable=variable,
-            value=float('nan'),
-            area=0.0,
-        ),
-    ]
-    return ZonalStats(
+    return _stats_from_cells(
         _spec_with(variable),
-        {variable},
+        variable,
         ('terrain.elevation',),
         cells,
-        (_DUMP_DAY,),
-        *results,
+        _DUMP_DAY,
+        [
+            (cells[0], 5.0, 10.0),
+            (cells[1], float('nan'), 0.0),
+        ],
     )
 
 
@@ -669,36 +726,16 @@ def test_iter_csv_matches_dump_to_csv(include_empty_zones):
     )
 
 
-def test_iter_csv_validates_before_returning_the_generator():
-    # iter_csv is itself a plain function (not a generator) that validates then
-    # hands back the row generator, so an incomplete result errors on the call
-    # itself -- before any row is produced -- rather than lazily on first
-    # iteration. That is what lets stats_csv_response's StreamingResponse fail
-    # before it starts emitting the 200.
-    variable = _variable(Reducer.MEAN)
-    # No results added: the array stays -inf everywhere, which validate() rejects.
-    stats = ZonalStats(
-        _spec_with(variable),
-        {variable},
-        ('terrain.elevation',),
-        ((_band(0, 1000),),),
-        (_DUMP_DAY,),
-    )
-
-    with pytest.raises(ValueError, match='incomplete'):
-        stats.iter_csv()
-
-
 def test_dump_compact_whole_basin_cell_is_never_dropped():
     # The K=0 (unstratified) cell always has area and must survive the default filter.
     variable = _variable(Reducer.MEAN)
-    stats = ZonalStats(
+    stats = _stats_from_cells(
         _spec_with(variable),
-        {variable},
+        variable,
         (),
         ((),),
-        (_DUMP_DAY,),
-        Result(date=_DUMP_DAY, zone=(), variable=variable, value=5.0, area=100.0),
+        _DUMP_DAY,
+        [((), 5.0, 100.0)],
     )
     compact = stats.dump_compact()
     (zone,) = compact.zones
