@@ -283,19 +283,6 @@ def add_dataset(
     a name overwrites its link. Since ``register`` skips staging, pourpoint
     coverage for the new dataset is unknown until the next ``pourpoint reindex``.
     """
-    from pydantic import ValidationError
-
-    from snowtool.snowdb.config import DatasetConfig
-    from snowtool.snowdb.spec import DatasetSpec
-
-    try:
-        config = DatasetConfig.load(config_path)
-        DatasetSpec.from_config(config, name)  # validate it resolves (ingester, ...)
-    except (ValidationError, ValueError) as e:
-        raise click.ClickException(
-            f'Not a usable dataset config ({config_path}): {e}',
-        ) from e
-
     manager.register_dataset(name, config_path, active=False)
     click.echo(
         f'registered {name} -> {config_path} '

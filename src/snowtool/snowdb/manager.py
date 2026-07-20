@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from pydantic import ValidationError
+
 from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
@@ -42,6 +44,7 @@ from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 from snowtool.snowdb.progress import NULL_PROGRESS
+from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -51,7 +54,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.progress import ProgressReporter
-    from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import (
         GenerationOptions,
         ZoneLayerProvider,
@@ -262,6 +264,15 @@ class SnowDbManager:
         directory name, so a name containing a path separator or ending in
         ``.json`` (which that method's syntactic partition would read as a
         path) is rejected up front -- registration is the single choke point.
+
+        For a ``path`` link that already exists on disk, the config it points at
+        is parsed and resolved (:meth:`~snowtool.snowdb.spec.DatasetSpec.from_config`)
+        before anything is written, so no caller can register a link that a reader
+        would later fail to open; a malformed or unresolvable config raises
+        :class:`~snowtool.exceptions.SnowDbConfigError` (mirroring how
+        :meth:`SnowDb.open` wraps an unreadable linked config). A path that does
+        not exist yet is accepted as-is and only surfaces as the existing
+        "dangling link" error when a reader opens the database.
         """
         if '/' in name or '\\' in name or name.endswith('.json'):
             raise InvalidDatasetNameError(
@@ -276,6 +287,16 @@ class SnowDbManager:
         if config_path is None:  # pragma: no cover - _read_root_config guarantees it
             raise SnowDbConfigError(self.db.root)
         dataset_config_path = Path(dataset_config_path).resolve()
+        if dataset_config_path.is_file():
+            try:
+                dataset_config = DatasetConfig.load(dataset_config_path)
+                # Validate it resolves (ingester, ...), not just parses.
+                DatasetSpec.from_config(dataset_config, name)
+            except (ValidationError, ValueError, UnicodeDecodeError) as e:
+                raise SnowDbConfigError(
+                    self.db.root,
+                    f'Not a usable dataset config ({dataset_config_path}): {e}',
+                ) from e
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
         # the dataset is staged elsewhere. Stored posix-normalized (via the

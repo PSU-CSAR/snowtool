@@ -680,6 +680,24 @@ def test_register_dataset_rejects_unknown_link_type(tmp_path, spec):
     assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets == {}
 
 
+def test_register_dataset_rejects_a_malformed_linked_config(tmp_path):
+    # A config that exists but doesn't parse/resolve is caught before the write,
+    # not deferred to the next reader open -- no caller can commit a broken link.
+    manager = SnowDbManager.initialize(tmp_path)
+    root_config_path = tmp_path / CONFIG_FILENAME
+    before = root_config_path.read_bytes()
+
+    bad = tmp_path / 'bad.json'
+    bad.write_text('{"resource": "snowtool.dataset/v1", "grid": {}, "variables": {}}')
+
+    with pytest.raises(SnowDbConfigError, match='Not a usable dataset config'):
+        manager.register_dataset('test', bad)
+
+    # Nothing was written -- the root config on disk is byte-for-byte unchanged.
+    assert root_config_path.read_bytes() == before
+    assert RootConfig.load(root_config_path).datasets == {}
+
+
 def test_register_dataset_nonexistent_config_path_defers_to_open(tmp_path):
     # register_dataset is the commit point for the *link*, not a read of the
     # config it points at -- so a path that was never created is accepted here
