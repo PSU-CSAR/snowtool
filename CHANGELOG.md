@@ -73,6 +73,30 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   with yet). This is a data-integrity bug, not a case to paper over with a
   different geometry type than the client asked for, so it now surfaces as a
   `500`.
+- **Behavior change:** a malformed dataset config now raises a clean
+  `SnowDbConfigError` everywhere it's loaded, including a staged dataset
+  reached via a CLI path token — that path used to leak a raw pydantic
+  traceback instead of a normal CLI error. The wrap is now done once in
+  `DatasetConfig.load`/`RootConfig.load` instead of copy-pasted at each of
+  the (previously three, now four) call sites.
+- **API schema:** a pourpoint's `area_meters` is now a required `float` in
+  the pourpoint index and API models (was `float | None`) — an indexed
+  pourpoint is always basin-bearing, so the field can't actually be absent.
+- **Internal API:** `SnowDbReader.zonal_stats`'s two mutually-exclusive
+  `zone_selections`/`zone_tokens` parameters (with a runtime exclusivity
+  check) collapse into one `zones: Sequence[ZoneSelection | str]`; string
+  tokens are resolved against a registry built once per query.
+  `ZonalStats.calculate`'s `zone_selections` kwarg is renamed to `zones` to
+  match.
+- **Internal API:** the `Ingester` contract narrows to a single parsing
+  method, `plan()`, yielding one `DateIngest` per date (date, the source
+  files that hash it, and a `build_rasters(source_hash)` callback); the
+  shared hash/write/result-accumulation machinery that every dataset used
+  to duplicate now lives in one driver, `run_ingest`, in `ingest.py`.
+- **Internal:** `SnowDbReader` gains a `max_concurrent_rasters` knob
+  (default 16, alongside `max_zone_cells`) bounding how many per-raster
+  zonal-stats reductions run concurrently — it bounds peak memory/fetch
+  fan-out only, never results.
 
 ### Removed
 
@@ -80,6 +104,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   response schemas, the CLI `--format json-compact` value (folded into `json`),
   and the per-dataset stats query-parameter compiler. Zone selection is the
   `LAYER:PARAM=VALUE` token grammar everywhere.
+- Verified-dead internal surface found during the code-quality pass:
+  `register_dataset`'s unreachable `link_type` param/guard (only `'path'`
+  was ever passed), `Dataset.validate`, the test-only `Entity`/
+  `ENTITY_ADAPTER`/`load_entity` union, `to_feature`/`from_feature` on
+  `PourpointIndexEntry`, `AOIRaster.station_triplet`, `ZonalStats`'s
+  per-cell `Result` dataclass and its `validate`/`add_result`/
+  `add_results` (superseded by direct array-fill assembly), and
+  `SNODASInputRaster`'s separate `BaseFileInfo` base (merged into its one
+  subclass). No behavior change; each was confirmed unreachable from any
+  production or test caller before deletion.
 
 ### Fixed
 

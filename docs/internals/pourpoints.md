@@ -87,11 +87,11 @@ Maintenance splits two ways. `import`, `sync`, and `remove` update the index
 files, indexes a just-parsed pourpoint from memory, reuses an existing entry
 as-is while its record and the registered-dataset set are unchanged, and
 re-parses from disk only the entries that changed — a self-healing fallback.
-`pourpoint reindex` (`PourpointIndex.from_records`) is the explicit **full
-rebuild** that ignores the persisted index entirely; it is the recovery path for
-out-of-band edits to `records/` and for the one change the incremental path
-cannot see — a grid change to an already-registered dataset name, which alters
-coverage without touching any record.
+`pourpoint reindex` (`PourpointIndex.build`, called with no `reuse`/`preparsed`)
+is the explicit **full rebuild** that ignores the persisted index entirely; it
+is the recovery path for out-of-band edits to `records/` and for the one change
+the incremental path cannot see — a grid change to an already-registered
+dataset name, which alters coverage without touching any record.
 
 ## Coverage
 

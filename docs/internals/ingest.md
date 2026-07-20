@@ -127,9 +127,10 @@ drive a batch with `xargs -n1 -P4`. Batch driving is left to the shell; a single
 ## The three built-in ingesters
 
 **SNODAS** ingests one daily tar archive — one archive is one date. The archive
-holds gzipped raw rasters plus their `.Hdr`/`.txt` headers;
-`SNODASInputRasterSet.from_archive` extracts the tar, gunzips each member, and
-parses the SNODAS filename of every header into a `SNODASInputRaster`. The
+holds gzipped raw rasters plus their `.Hdr`/`.txt` headers; `SnodasIngester.plan`
+extracts the tar (`SNODASInputRasterSet.extract_archive`), then
+`SNODASInputRasterSet.from_extracted` gunzips each member and parses the
+SNODAS filename of every header into a `SNODASInputRaster`. The
 filename regex yields the product code and a `vcode`, which map to the eight
 `Product` variables (`swe`, `depth`, `average_temp`, `runoff`, `sublimation`,
 `sublimation_blowing`, and precip split by `vcode` into `precip_liquid` /

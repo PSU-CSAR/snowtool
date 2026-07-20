@@ -280,7 +280,7 @@ class SNODASInputRaster:
 class SNODASInputRasterSet:
     """A date's validated set of SNODAS rasters, one per product.
 
-    Built by :meth:`from_archive` from an extracted archive's header files: it
+    Built by :meth:`from_extracted` from an extracted archive's header files: it
     validates that the archive holds every product, is a single date, and sits at
     the pinned time-step, then exposes the per-product :class:`SNODASInputRaster`
     set (already carrying the driver's ``source_hash``) as the date's writable

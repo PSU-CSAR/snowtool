@@ -177,12 +177,13 @@ discriminator as its first field: `snowtool.snowdb/v1` for the root config,
 exact-match type tag: a schema change is a *new* type with its own model
 and migration, never an in-place reinterpretation of the old one. No
 entity's version constrains another's, and there is deliberately no global
-snowdb version number. A `TypeAdapter` union (`load_entity`) routes any
-file off disk to exactly one model by its `resource` string, so a file can
-be loaded without knowing its kind up front. This is a greenfield store —
-every resource starts at `v1` and there is no migration machinery; see
-[provenance](provenance.md) for how the same versioned-hash idea tags
-derived artifacts.
+snowdb version number. Each entity is loaded by its own type-specific
+classmethod (`DatasetConfig.load`, `RootConfig.load`), which parses the file
+and wraps any parse failure as a `SnowDbConfigError`; the `resource` field is
+still what identifies the file's kind for a reader inspecting it directly.
+This is a greenfield store — every resource starts at `v1` and there is no
+migration machinery; see [provenance](provenance.md) for how the same
+versioned-hash idea tags derived artifacts.
 
 ## Relocatability
 
