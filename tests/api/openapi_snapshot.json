@@ -285,7 +285,7 @@
         "type": "object"
       },
       "CompactStatsResponse": {
-        "description": "The compact zonal-stats envelope: pourpoint/query echo + the compact body.\n\nA single generic model shared by every dataset \u2014 the compact body carries no\nper-dataset field names \u2014 so it is not parametrized per dataset.",
+        "description": "The compact zonal-stats envelope: pourpoint/query echo + the compact body.\n\nInherits the body fields (zone_layers / variables / zones / results) from\n:class:`CompactStats` and adds the HTTP-only envelope: the pourpoint/query echo\nand HATEOAS links. Inheriting rather than re-declaring the body keeps the\nresponse in lockstep with the domain body -- a new stat field flows through\nautomatically -- and keeps the ``Link``/route concerns out of the domain model.\nA single generic model shared by every dataset (the body carries no per-dataset\nfield names), so it is not parametrized per dataset.",
         "properties": {
           "dataset": {
             "examples": [
@@ -395,13 +395,13 @@
           }
         },
         "required": [
-          "pourpoint",
-          "dataset",
-          "query",
           "zone_layers",
           "variables",
           "zones",
-          "results"
+          "results",
+          "pourpoint",
+          "dataset",
+          "query"
         ],
         "title": "CompactStatsResponse",
         "type": "object"

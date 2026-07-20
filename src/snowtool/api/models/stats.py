@@ -15,17 +15,16 @@ from __future__ import annotations
 
 import io
 
-from datetime import date
 from typing import TYPE_CHECKING
 
 from fastapi.responses import StreamingResponse
 from gazebo.link import Link
 from gazebo.rels import MediaType, Rel
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from snowtool import types
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery, PourPointQuery
-from snowtool.snowdb.zonal_stat_models import CompactStats, CompactZone, StatValue
+from snowtool.snowdb.zonal_stat_models import CompactStats
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -33,22 +32,21 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zonal_stats import ZonalStats
 
 
-class CompactStatsResponse(BaseModel):
+class CompactStatsResponse(CompactStats):
     """The compact zonal-stats envelope: pourpoint/query echo + the compact body.
 
-    A single generic model shared by every dataset — the compact body carries no
-    per-dataset field names — so it is not parametrized per dataset.
+    Inherits the body fields (zone_layers / variables / zones / results) from
+    :class:`CompactStats` and adds the HTTP-only envelope: the pourpoint/query echo
+    and HATEOAS links. Inheriting rather than re-declaring the body keeps the
+    response in lockstep with the domain body -- a new stat field flows through
+    automatically -- and keeps the ``Link``/route concerns out of the domain model.
+    A single generic model shared by every dataset (the body carries no per-dataset
+    field names), so it is not parametrized per dataset.
     """
 
     pourpoint: types.StationTriplet
     dataset: str = Field(examples=['snodas'])
     query: PourPointQuery
-    zone_layers: list[str] = Field(examples=[['terrain.elevation']])
-    variables: list[str] = Field(examples=[['mean_swe_mm']])
-    zones: list[CompactZone]
-    results: dict[date, list[list[StatValue]]] = Field(
-        examples=[{'2008-12-14': [[42.7], [51.3]]}],
-    )
     links: list[Link] = Field(default_factory=list)
 
     @classmethod
@@ -65,10 +63,9 @@ class CompactStatsResponse(BaseModel):
             pourpoint=triplet,
             dataset=dataset,
             query=query,
-            zone_layers=stats.zone_layers,
-            variables=stats.variables,
-            zones=stats.zones,
-            results=stats.results,
+            # Splat the domain body straight in: no field is enumerated here, so a
+            # new CompactStats field needs no change to this envelope.
+            **dict(stats),
             links=[
                 Link.self_link(),
                 Link.root_link(),

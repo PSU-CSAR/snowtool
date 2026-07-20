@@ -6,7 +6,7 @@ import math
 
 from dataclasses import dataclass
 from datetime import date
-from typing import IO, TYPE_CHECKING, Self, cast
+from typing import IO, TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
@@ -22,8 +22,6 @@ from snowtool.snowdb.zones.zoning import CategoricalZoneDescription, Zone
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-
-    from pydantic import BaseModel
 
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.raster.tiff_cache import TiffCache
@@ -208,13 +206,22 @@ class ZonalStats:
     def _zone_refs(
         layers: tuple[str, ...],
         cell: tuple[Zone, ...],
-    ) -> list[BaseModel]:
+    ) -> list[ZoneRef]:
         """Self-describing per-axis zone refs for one crossed-zone cell.
 
         Each :class:`Zone` builds its own concrete ``ZoneRef`` (:meth:`Zone.ref`),
         so a new zone kind owns its ref construction with no change here.
         """
         return [zone.ref(layer) for layer, zone in zip(layers, cell, strict=True)]
+
+    @property
+    def _has_dates(self: Self) -> bool:
+        """Whether any date was reduced -- i.e. the array has a row to read.
+
+        With no dates the result is a zero-height array: there is no row to read a
+        cell's area or values from, so both serializers report an empty body.
+        """
+        return bool(self._dates_index)
 
     def _emitted_cells(self: Self, *, include_empty_zones: bool) -> list[int]:
         """The cell indices (flat product order) the serializers should emit.
@@ -231,7 +238,7 @@ class ZonalStats:
         all_cells = list(range(len(self._cells_index)))
         # No dates => no rows anyway, and self._array[0] would index-error; the
         # emptiness of a cell is meaningless without a row to read the area from.
-        if include_empty_zones or self._array.shape[0] == 0:
+        if include_empty_zones or not self._has_dates:
             return all_cells
         areas = self._array[0, :, 0]
         return [idx for idx in all_cells if areas[idx] > 0]
@@ -257,22 +264,22 @@ class ZonalStats:
 
         zones: list[CompactZone] = []
         results: dict[date, list[list[float | None]]] = {}
-        if self._array.shape[0] > 0:
+        if self._has_dates:
             for cell_idx in emitted:
                 zones.append(
                     CompactZone(
-                        zone=cast(
-                            'list[ZoneRef]',
-                            self._zone_refs(self.zone_layers, cells[cell_idx]),
-                        ),
+                        zone=self._zone_refs(self.zone_layers, cells[cell_idx]),
                         area_m2=self._zone_stats(0, cell_idx)['area_m2'],
                     ),
                 )
             for date_, date_idx in self._dates_index.items():
-                results[date_] = [
-                    [self._zone_stats(date_idx, cell_idx)[name] for name in variables]
-                    for cell_idx in emitted
-                ]
+                # One _zone_stats call per (date, cell) -- hoisted out of the
+                # per-variable comprehension so the unit scaling runs once, not
+                # once per variable.
+                results[date_] = []
+                for cell_idx in emitted:
+                    stats = self._zone_stats(date_idx, cell_idx)
+                    results[date_].append([stats[name] for name in variables])
 
         return CompactStats(
             zone_layers=list(self.zone_layers),

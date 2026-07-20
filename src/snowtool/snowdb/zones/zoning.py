@@ -46,9 +46,8 @@ from snowtool.snowdb.zonal_stat_models import (
 )
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
-
     from snowtool.snowdb.config import ZoneLayerParams
+    from snowtool.snowdb.zonal_stat_models import ZoneRef
 
 
 @dataclass(frozen=True)
@@ -131,7 +130,7 @@ class Zone:
     key: str
     label: str
 
-    def ref(self: Self, layer: str) -> BaseModel:
+    def ref(self: Self, layer: str) -> ZoneRef:
         """The self-describing :class:`ZoneRef` for this zone on axis ``layer``.
 
         Each kind builds its own concrete
