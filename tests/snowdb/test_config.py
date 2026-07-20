@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pydantic import ValidationError
-
+from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.config import CONFIG_FILENAME, PathDatasetLink, RootConfig
 
 
@@ -43,5 +42,24 @@ def test_load_rejects_a_foreign_resource(tmp_path):
         '{"resource": "snowtool.snowdb/v2", "created_at": "2026-01-01T00:00:00Z"}',
     )
 
-    with pytest.raises(ValidationError):
+    # The canonical loader wraps pydantic's ValidationError into a clean,
+    # path-naming SnowDbConfigError -- never a raw pydantic traceback.
+    with pytest.raises(SnowDbConfigError, match=str(path)):
+        RootConfig.load(path)
+
+
+@pytest.mark.parametrize(
+    'content',
+    [
+        b'{ "resource": "snowtool.snowdb/v1", "created_at": "2024-01',
+        b'\xff\xfe not even utf-8 text',
+        b'{"resource": "snowtool.snowdb/v1"}',  # valid JSON, missing created_at
+    ],
+    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
+)
+def test_load_wraps_a_malformed_config_as_a_config_error(tmp_path, content):
+    path = tmp_path / CONFIG_FILENAME
+    path.write_bytes(content)
+
+    with pytest.raises(SnowDbConfigError, match=str(path)):
         RootConfig.load(path)

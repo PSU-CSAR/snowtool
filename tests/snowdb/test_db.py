@@ -178,13 +178,15 @@ def test_open_malformed_root_config_is_a_config_error(tmp_path, content):
 )
 def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path, content):
     # The same class of malformed content, but in a *linked* dataset config rather
-    # than the root: still a clean SnowDbConfigError naming the offending dataset,
-    # not a raw pydantic ValidationError or UnicodeDecodeError.
+    # than the root: still a clean SnowDbConfigError naming the offending config
+    # file (raised by the canonical DatasetConfig.load), not a raw pydantic
+    # ValidationError or UnicodeDecodeError.
     manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
     _register(manager, _spec('snodas'))
-    (manager.db.data_path / 'snodas' / 'dataset.json').write_bytes(content)
+    linked = manager.db.data_path / 'snodas' / 'dataset.json'
+    linked.write_bytes(content)
 
-    with pytest.raises(SnowDbConfigError, match=r"dataset 'snodas'.*unreadable config"):
+    with pytest.raises(SnowDbConfigError, match='not a usable dataset config'):
         SnowDb.open(tmp_path)
 
 
@@ -549,8 +551,9 @@ def test_resolve_dataset_name_is_never_shadowed_by_a_file(tmp_path, monkeypatch,
     assert resolved.path == tmp_path / 'data' / 'test'
 
     # './test' has a separator -> the path branch: the file exists but is not a
-    # dataset config, so it fails validation instead of falling back to the name.
-    with pytest.raises(ValueError, match='validation error'):
+    # dataset config, so it fails as a clean SnowDbConfigError instead of falling
+    # back to the name (or leaking a raw pydantic ValidationError).
+    with pytest.raises(SnowDbConfigError, match='not a usable dataset config'):
         manager.resolve_dataset('./test')
 
     # An unregistered bare name raises even though a file of that name exists.
@@ -690,7 +693,7 @@ def test_register_dataset_rejects_a_malformed_linked_config(tmp_path):
     bad = tmp_path / 'bad.json'
     bad.write_text('{"resource": "snowtool.dataset/v1", "grid": {}, "variables": {}}')
 
-    with pytest.raises(SnowDbConfigError, match='Not a usable dataset config'):
+    with pytest.raises(SnowDbConfigError, match='not a usable dataset config'):
         manager.register_dataset('test', bad)
 
     # Nothing was written -- the root config on disk is byte-for-byte unchanged.

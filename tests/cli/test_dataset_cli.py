@@ -476,7 +476,7 @@ def test_register_rejects_an_unusable_config(runner, cli_obj, initialized_root):
     result = runner.invoke(cli, ['dataset', 'register', 'x', str(bad)], obj=cli_obj)
 
     assert result.exit_code != 0
-    assert 'Not a usable dataset config' in result.output
+    assert 'not a usable dataset config' in result.output.lower()
 
 
 def test_register_requires_initialized_root(runner, tmp_path, spec):
@@ -492,6 +492,31 @@ def test_register_requires_initialized_root(runner, tmp_path, spec):
 
 
 # --- ingest (the dataset-generic seam) ---------------------------------------
+
+
+def test_ingest_staged_config_path_malformed_is_a_clean_error(
+    runner,
+    cli_obj,
+    source_dem,
+    tmp_path,
+):
+    # A dataset NAME token can be a path to a not-yet-registered (staged) config
+    # (resolve_dataset -> _build_staged_dataset); a malformed one must render as
+    # a clean one-line SnowDbConfigError, not a raw pydantic traceback.
+    staged_dir = tmp_path / 'staged'
+    staged_dir.mkdir()
+    bad = staged_dir / 'dataset.json'
+    bad.write_text('{"resource": "snowtool.dataset/v1", "grid": {}, "variables": {}}')
+
+    result = runner.invoke(
+        cli,
+        ['dataset', 'ingest', str(bad), str(source_dem)],
+        obj=cli_obj,
+    )
+
+    assert result.exit_code != 0
+    assert 'Traceback' not in result.output
+    assert 'not a usable dataset config' in result.output.lower()
 
 
 def test_ingest_without_ingester_errors(runner, cli_obj, source_dem):

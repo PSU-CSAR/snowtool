@@ -25,8 +25,6 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
-from pydantic import ValidationError
-
 from snowtool import types
 from snowtool.exceptions import (
     PourpointNotFoundError,
@@ -111,18 +109,10 @@ class SnowDb:
                         self.root,
                         f'dataset {name!r} link points at a missing config: {resolved}',
                     )
-                try:
-                    dataset_config = DatasetConfig.load(resolved)
-                except (ValidationError, UnicodeDecodeError) as e:
-                    # Mirrors `open`'s root-config wrap: a linked dataset config that
-                    # exists but doesn't parse/validate (malformed JSON, wrong shape,
-                    # or bytes that aren't even text) is still a config problem the
-                    # CLI should render cleanly, not a raw pydantic/decode error.
-                    raise SnowDbConfigError(
-                        self.root,
-                        f'dataset {name!r} link points at an unreadable config '
-                        f'{resolved}: {e}',
-                    ) from e
+                # DatasetConfig.load raises a clean SnowDbConfigError naming
+                # `resolved` if the linked config exists but doesn't parse/
+                # validate; nothing further to wrap here.
+                dataset_config = DatasetConfig.load(resolved)
                 base = resolved.parent
             self._dataset_links[name] = (dataset_config, base)
             specs.append(DatasetSpec.from_config(dataset_config, name))
@@ -287,17 +277,9 @@ class SnowDb:
         config_path = path / CONFIG_FILENAME if path.is_dir() else path
         if not config_path.is_file():
             raise SnowDbConfigError(path)
-        try:
-            config = RootConfig.load(config_path)
-        except (ValidationError, UnicodeDecodeError) as e:
-            # A file exists but isn't a valid root config (malformed/truncated JSON,
-            # a schema mismatch, or bytes that aren't even text): still "not a
-            # snowdb this version understands", so raise the same clean error the
-            # CLI already renders rather than leaking a raw parse/decode traceback.
-            raise SnowDbConfigError(
-                path,
-                detail=f'{config_path} is not a readable snowdb root config: {e}',
-            ) from e
+        # RootConfig.load raises a clean SnowDbConfigError naming `config_path`
+        # if it exists but doesn't parse/validate; nothing further to wrap here.
+        config = RootConfig.load(config_path)
         return cls(
             config,
             zone_layer_providers=zone_layer_providers,

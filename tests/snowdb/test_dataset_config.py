@@ -4,6 +4,7 @@ import pytest
 
 from pydantic import ValidationError
 
+from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.config import (
     BandStepParams,
     BucketParams,
@@ -280,3 +281,23 @@ def test_footprint_round_trips_through_json(tmp_path):
     reloaded = DatasetConfig.load(path)
     assert reloaded.footprint is not None
     assert reloaded.footprint == footprint
+
+
+@pytest.mark.parametrize(
+    'content',
+    [
+        b'{ "resource": "snowtool.dataset/v1", "grid": {',
+        b'\xff\xfe not even utf-8 text',
+        b'{"resource": "snowtool.dataset/v1"}',  # valid JSON, missing grid/variables
+    ],
+    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
+)
+def test_load_wraps_a_malformed_config_as_a_config_error(tmp_path, content):
+    # The canonical loader raises SnowDbConfigError (naming the offending path)
+    # for the same malformed-content cases db.py/manager.py used to wrap at each
+    # call site -- never a raw pydantic ValidationError or UnicodeDecodeError.
+    path = tmp_path / 'dataset.json'
+    path.write_bytes(content)
+
+    with pytest.raises(SnowDbConfigError, match=str(path)):
+        DatasetConfig.load(path)

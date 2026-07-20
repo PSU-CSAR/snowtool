@@ -28,9 +28,11 @@ from pydantic import (
     Field,
     PrivateAttr,
     TypeAdapter,
+    ValidationError,
     field_validator,
 )
 
+from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.variables import DatasetVariable
@@ -176,8 +178,23 @@ class DatasetConfig(ResourceModel):
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:
-        """Parse and validate a dataset config file (raises if it is not one)."""
-        return cls.model_validate_json(Path(path).read_text())
+        """Parse and validate a dataset config file.
+
+        A file that exists but doesn't parse/validate (malformed/truncated JSON,
+        a schema mismatch, or bytes that aren't even text) raises a clean
+        :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
+        than leaking a raw pydantic/decode error -- every call site (a linked
+        dataset config, a staged config resolved by path, a to-be-registered
+        config) wants the same treatment.
+        """
+        path = Path(path)
+        try:
+            return cls.model_validate_json(path.read_text())
+        except (ValidationError, UnicodeDecodeError) as e:
+            raise SnowDbConfigError(
+                path,
+                f'{path} is not a usable dataset config: {e}',
+            ) from e
 
     def save(self: Self, path: Path) -> None:
         """Write the config as indented JSON with a trailing newline (atomically)."""
@@ -268,9 +285,23 @@ class RootConfig(ResourceModel):
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:
-        """Parse a root config file and remember where it was loaded from."""
-        config = cls.model_validate_json(Path(path).read_text())
-        config.path = Path(path)
+        """Parse a root config file and remember where it was loaded from.
+
+        A file that exists but isn't a valid root config (malformed/truncated
+        JSON, a schema mismatch, or bytes that aren't even text) is still "not a
+        snowdb this version understands", so this raises
+        :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
+        than leaking a raw pydantic/decode error.
+        """
+        path = Path(path)
+        try:
+            config = cls.model_validate_json(path.read_text())
+        except (ValidationError, UnicodeDecodeError) as e:
+            raise SnowDbConfigError(
+                path,
+                detail=f'{path} is not a readable snowdb root config: {e}',
+            ) from e
+        config.path = path
         return config
 
     def save(self: Self, path: Path) -> None:

@@ -25,8 +25,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
-from pydantic import ValidationError
-
 from snowtool import types
 from snowtool.exceptions import (
     InvalidDatasetNameError,
@@ -222,12 +220,19 @@ class SnowDbManager(PourpointOpsMixin):
             ),
         )
 
-    def _read_root_config(self: Self) -> RootConfig:
-        """Load this root's on-disk config (raises if it is absent)."""
+    def _root_config_path(self: Self) -> Path:
+        """This root's on-disk config path, narrowed to non-``None`` (raises if
+        it is absent). The single "config is on disk" check every write that
+        needs to re-save the root config shares, so a config path known-present
+        here needs no re-guarding downstream."""
         config_path = self.db.config_path
         if config_path is None or not config_path.is_file():
             raise SnowDbConfigError(self.db.root)
-        return RootConfig.load(config_path)
+        return config_path
+
+    def _read_root_config(self: Self) -> RootConfig:
+        """Load this root's on-disk config (raises if it is absent)."""
+        return RootConfig.load(self._root_config_path())
 
     def register_dataset(
         self: Self,
@@ -283,19 +288,20 @@ class SnowDbManager(PourpointOpsMixin):
         if link_type != 'path':
             raise ValueError(f'unknown dataset link type: {link_type!r}')
         config = self._read_root_config()
-        config_path = self.db.config_path
-        if config_path is None:  # pragma: no cover - _read_root_config guarantees it
-            raise SnowDbConfigError(self.db.root)
+        config_path = self._root_config_path()
         dataset_config_path = Path(dataset_config_path).resolve()
         # A missing path is deliberately not validated here: it defers to the
         # existing dangling-link error at SnowDb.open() time, preserving the
         # documented contract that register commits the link, not the target.
         if dataset_config_path.is_file():
+            # DatasetConfig.load already raises a clean SnowDbConfigError for a
+            # config that exists but doesn't parse/validate; only from_config's
+            # resolve step (e.g. an unknown ingester name) still raises a bare
+            # ValueError here, so that's the only one left to wrap.
+            dataset_config = DatasetConfig.load(dataset_config_path)
             try:
-                dataset_config = DatasetConfig.load(dataset_config_path)
-                # Validate it resolves (ingester, ...), not just parses.
                 DatasetSpec.from_config(dataset_config, name)
-            except (ValidationError, ValueError, UnicodeDecodeError) as e:
+            except ValueError as e:
                 raise SnowDbConfigError(
                     self.db.root,
                     f'Not a usable dataset config ({dataset_config_path}): {e}',
@@ -331,9 +337,7 @@ class SnowDbManager(PourpointOpsMixin):
         re-saves harmlessly.
         """
         config = self._read_root_config()
-        config_path = self.db.config_path
-        if config_path is None:  # pragma: no cover - _read_root_config guarantees it
-            raise SnowDbConfigError(self.db.root)
+        config_path = self._root_config_path()
         if name not in config.datasets:
             registered = ', '.join(sorted(config.datasets)) or '(none)'
             raise UnknownDatasetError(
@@ -373,6 +377,10 @@ class SnowDbManager(PourpointOpsMixin):
         location as the resolution base (the same call a path link gets at
         ``SnowDb.open``), so a not-yet-registered dataset resolves exactly as it
         will once registered -- without appearing in ``self.db.datasets`` yet.
+        A malformed staged config (reached via a CLI path token, e.g.
+        ``resolve_dataset``) raises :class:`~snowtool.exceptions.SnowDbConfigError`
+        from :meth:`~snowtool.snowdb.config.DatasetConfig.load`, not a raw
+        pydantic/decode error.
         """
         from snowtool.snowdb.spec import DatasetSpec
 
