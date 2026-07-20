@@ -18,9 +18,7 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.windows import Window
 
-from snowtool import types
 from snowtool.exceptions import IncompleteDatasetDataError, NodataMaskError
-from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import PixelCoord, tile_base_origin, tiles_in_bbox
 from snowtool.snowdb.provenance import versioned_hash
@@ -85,10 +83,6 @@ class AOIRaster:
     array: numpy.typing.NDArray[numpy.float32]
     tiles: list[AffineGridTile]
     origin: PixelCoord
-
-    @property
-    def station_triplet(self: Self) -> types.StationTriplet:
-        return triplet_naming.stem_to_triplet(self.path.stem)
 
     @classmethod
     def open(

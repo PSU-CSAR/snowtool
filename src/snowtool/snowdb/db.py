@@ -159,7 +159,7 @@ class SnowDb:
         # `pourpoint import`/`reindex` without a restart at the cost of one stat.
         self._index: PourpointIndex | None = None
         self._index_mtime: int | None = None
-        self._load_index()
+        self.pourpoint_index()
 
     def _resolve_path(self: Self, link: str | Path, base: Path | None = None) -> Path:
         """Resolve a config path: absolute -> as-is; relative -> against ``base``
@@ -184,17 +184,16 @@ class SnowDb:
         dataset_config: DatasetConfig,
         *,
         base: Path | None = None,
-        default: Path | None = None,
     ) -> Path:
         """Where ``name``'s data lives -- the single rule reads and writes share.
 
         The config's ``data_dir`` (absolute -> anywhere; relative -> against
-        ``base``), else the convention ``default`` (``data/<name>``). ``base``
-        defaults to the root.
+        ``base``), else ``base`` itself, else the convention ``data/<name>``.
+        ``base`` defaults to the root.
         """
         location = dataset_config.data_dir
         if location is None:
-            location = default if default is not None else Path('data') / name
+            location = base if base is not None else Path('data') / name
         return self._resolve_path(location, base)
 
     def dataset_nodata_mask(
@@ -233,7 +232,7 @@ class SnowDb:
         """
         return Dataset(
             spec,
-            self.dataset_dir(name, dataset_config, base=base, default=base),
+            self.dataset_dir(name, dataset_config, base=base),
             self.zone_layer_providers.values(),
             nodata_mask=self.dataset_nodata_mask(dataset_config, base=base),
         )
@@ -354,24 +353,6 @@ class SnowDb:
             )
         return Pourpoint.from_geojson(path)
 
-    def _load_index(self: Self) -> PourpointIndex:
-        """Return the cached index, re-reading it only if ``index.geojson`` changed.
-
-        The revalidation primitive behind :meth:`pourpoint_index`: it ``stat``s the
-        index file and reloads only when the mtime differs from the cached one (a
-        missing file is cached as an empty index, mtime ``None``). One stat per
-        access keeps a single ``SnowDb`` -- e.g. an app-lifespan API instance --
-        correct after an out-of-band reindex without re-parsing on every request.
-        """
-        try:
-            mtime: int | None = self.pourpoint_index_path.stat().st_mtime_ns
-        except FileNotFoundError:
-            mtime = None
-        if self._index is None or mtime != self._index_mtime:
-            self._index = PourpointIndex.load(self.pourpoint_index_path)
-            self._index_mtime = mtime
-        return self._index
-
     def pourpoint_index(self: Self) -> PourpointIndex:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
 
@@ -382,11 +363,22 @@ class SnowDb:
         after out-of-band ``records/`` edits and after a grid change to an
         already-registered dataset name (the one change incremental maintenance
         cannot see; registering/removing a dataset self-heals). The result is
-        cached and revalidated against the file's mtime (see :meth:`_load_index`),
+        cached and revalidated against the file's mtime: it ``stat``s the index
+        file and reloads only when the mtime differs from the cached one (a
+        missing file is cached as an empty index, mtime ``None``). One stat per
+        access keeps a single ``SnowDb`` -- e.g. an app-lifespan API instance --
+        correct after an out-of-band reindex without re-parsing on every request,
         so repeated reads within one process are cheap yet still reflect an
         out-of-band rewrite.
         """
-        return self._load_index()
+        try:
+            mtime: int | None = self.pourpoint_index_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime = None
+        if self._index is None or mtime != self._index_mtime:
+            self._index = PourpointIndex.load(self.pourpoint_index_path)
+            self._index_mtime = mtime
+        return self._index
 
     def pourpoint_dataset_coverage(
         self: Self,

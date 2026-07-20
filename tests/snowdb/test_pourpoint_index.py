@@ -164,23 +164,6 @@ def test_entry_from_aoi_computes_per_dataset_coverage(pourpoint_geojson):
     }
 
 
-def test_entry_feature_round_trips(tmp_path):
-    aoi = Pourpoint.from_geojson(_write_pourpoint(tmp_path / 'p.geojson'))
-    entry = PourpointIndexEntry.from_pourpoint(aoi, _grids())
-    feature = entry.to_feature()
-    assert feature['type'] == 'Feature'
-    assert feature['id'] == '12345:MT:USGS'
-    assert feature['geometry']['type'] == 'Point'
-    assert feature['properties']['name'] == 'Test Basin'
-    assert feature['properties']['area_meters'] == entry.area_meters
-    # Coverage serializes to plain strings and round-trips back to the enum.
-    assert feature['properties']['coverage'] == {
-        'covers': 'full',
-        'disjoint': 'none',
-    }
-    assert PourpointIndexEntry.from_feature(feature) == entry
-
-
 # --- PourpointIndex ----------------------------------------------------------------
 
 

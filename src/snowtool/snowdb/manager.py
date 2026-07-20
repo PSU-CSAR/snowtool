@@ -18,7 +18,6 @@ so the write surface is still a single type; its result dataclasses
 
 from __future__ import annotations
 
-import os
 import shutil
 
 from dataclasses import dataclass
@@ -96,11 +95,11 @@ def _is_path_token(token: str) -> bool:
     The single partition rule shared by :meth:`SnowDbManager.resolve_dataset` (which
     routes a path token to the filesystem and a name token to the catalog) and
     :meth:`SnowDbManager.register_dataset` (which rejects a name that would read as a
-    path). A token containing a path separator (``'/'``, ``'\\'``, or the platform's
-    ``os.sep``, a superset covering both spellings on either OS) or ending in
-    ``.json`` is a path; anything else is a name.
+    path). A token containing a path separator (``'/'`` or ``'\\'``, covering both
+    spellings on either OS) or ending in ``.json`` is a path; anything else is a
+    name.
     """
-    return '/' in token or '\\' in token or os.sep in token or token.endswith('.json')
+    return '/' in token or '\\' in token or token.endswith('.json')
 
 
 @dataclass(frozen=True)
@@ -239,7 +238,6 @@ class SnowDbManager(PourpointOpsMixin):
         name: str,
         dataset_config_path: Path,
         *,
-        link_type: str = 'path',
         active: bool = True,
         coverage: Mapping[types.StationTriplet, Coverage] | None = None,
     ) -> RootConfig:
@@ -285,8 +283,6 @@ class SnowDbManager(PourpointOpsMixin):
                 "path separator or end with '.json' (it must be usable as a "
                 'bare dataset token and a directory name).',
             )
-        if link_type != 'path':
-            raise ValueError(f'unknown dataset link type: {link_type!r}')
         config = self._read_root_config()
         config_path = self._root_config_path()
         dataset_config_path = Path(dataset_config_path).resolve()

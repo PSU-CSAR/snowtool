@@ -10,9 +10,7 @@ from snowtool.snowdb.config import (
     BucketParams,
     DatasetConfig,
     EntropyThresholdParams,
-    RootConfig,
     ThresholdParams,
-    load_entity,
 )
 from snowtool.snowdb.datasets import (
     DATASET_TEMPLATES,
@@ -63,12 +61,12 @@ def test_builtin_template_resolves_byte_equal(spec):
 
 @pytest.mark.parametrize('spec', DEFAULT_DATASET_SPECS, ids=lambda s: s.name)
 def test_builtin_config_round_trips_through_json(tmp_path, spec):
-    # Through disk + the discriminated union: save -> load_entity -> from_config.
+    # Through disk: save -> DatasetConfig.load -> from_config.
     config = config_from_spec(spec)
     path = tmp_path / 'dataset.json'
     config.save(path)
 
-    loaded = load_entity(path)
+    loaded = DatasetConfig.load(path)
 
     assert isinstance(loaded, DatasetConfig)
     _assert_spec_equivalent(DatasetSpec.from_config(loaded, spec.name), spec)
@@ -114,24 +112,6 @@ def test_read_only_dataset_has_no_ingester():
     spec = DatasetSpec.from_config(config, 'derived')
     assert spec.ingester is None
     assert spec.footprint is None  # omitted -> serves the whole grid
-
-
-def test_union_discriminates_root_vs_dataset(tmp_path):
-    root = RootConfig.create()
-    root_path = tmp_path / 'snowdb_conf.json'
-    root.save(root_path)
-
-    assert isinstance(load_entity(root_path), RootConfig)
-    ds_path = tmp_path / 'dataset.json'
-    config_from_spec(DEFAULT_DATASET_SPECS[0]).save(ds_path)
-    assert isinstance(load_entity(ds_path), DatasetConfig)
-
-
-def test_union_rejects_an_unknown_resource(tmp_path):
-    path = tmp_path / 'x.json'
-    path.write_text('{"resource": "snowtool.unknown/v1"}')
-    with pytest.raises(ValidationError):
-        load_entity(path)
 
 
 def _swe_variable() -> DatasetVariable:
@@ -247,7 +227,7 @@ def test_default_zones_enumerate_every_served_layer():
 
 
 def test_default_zones_round_trip_through_dataset_config(tmp_path):
-    # The full DEFAULT_ZONES survives save -> load_entity unchanged.
+    # The full DEFAULT_ZONES survives save -> DatasetConfig.load unchanged.
     config = DatasetConfig(
         grid=_grid_config(),
         variables={'swe': _swe_variable()},
@@ -256,7 +236,7 @@ def test_default_zones_round_trip_through_dataset_config(tmp_path):
     path = tmp_path / 'dataset.json'
     config.save(path)
 
-    loaded = load_entity(path)
+    loaded = DatasetConfig.load(path)
     assert isinstance(loaded, DatasetConfig)
     assert loaded.zones == DEFAULT_ZONES
 

@@ -8,6 +8,8 @@ filename). :class:`DateQuery` is the structural protocol both satisfy.
 
 from __future__ import annotations
 
+import calendar
+
 from datetime import date
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
@@ -15,23 +17,6 @@ from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-
-# Largest valid day per month, treating February as 29 so the leap day stays a
-# valid day-of-year query (some year in any non-trivial span is a leap year).
-_MAX_DAY_IN_MONTH = {
-    1: 31,
-    2: 29,
-    3: 31,
-    4: 30,
-    5: 31,
-    6: 30,
-    7: 31,
-    8: 31,
-    9: 30,
-    10: 31,
-    11: 30,
-    12: 31,
-}
 
 Month = Annotated[
     int,
@@ -105,8 +90,11 @@ class DOYFields(BaseModel):
 
         ``select`` is a filter over available dates, so an impossible day would
         silently match nothing and mask the typo as 'no data'; catch it here.
+        2000 is a leap year, so this treats February as 29 days -- the leap day
+        stays a valid day-of-year query (some year in any non-trivial span is a
+        leap year).
         """
-        if self.day > _MAX_DAY_IN_MONTH[self.month]:
+        if self.day > calendar.monthrange(2000, self.month)[1]:
             raise ValueError(
                 f'day {self.day} is out of range for month {self.month}',
             )

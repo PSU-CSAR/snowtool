@@ -668,21 +668,6 @@ def test_bare_link_without_active_key_reads_as_active(tmp_path, spec):
 # --- register_dataset error paths (WS6) ---------------------------------------
 
 
-def test_register_dataset_rejects_unknown_link_type(tmp_path, spec):
-    manager = SnowDbManager.initialize(tmp_path, [spec])
-    config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir(spec.name, config)
-    ds_dir.mkdir(parents=True, exist_ok=True)
-    config_path = ds_dir / DATASET_CONFIG_FILENAME
-    config.save(config_path)
-
-    with pytest.raises(ValueError, match="unknown dataset link type: 'inline'"):
-        manager.register_dataset(spec.name, config_path, link_type='inline')
-
-    # The rejected call wrote nothing -- the config still has no datasets.
-    assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets == {}
-
-
 def test_register_dataset_rejects_a_malformed_linked_config(tmp_path):
     # A config that exists but doesn't parse/resolve is caught before the write,
     # not deferred to the next reader open -- no caller can commit a broken link.

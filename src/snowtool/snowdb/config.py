@@ -5,7 +5,7 @@ discriminator string (e.g. ``snowtool.snowdb/v1``) as its first field: the
 ``/vN`` is human-facing, but the whole string is an exact-match type tag. A new
 schema version is a new type with its own model and migration chain -- no
 entity's version constrains another's, and there is no global snowdb version
-number. A ``TypeAdapter`` union routes a parsed file to its model.
+number.
 
 The root config is the system's single entry point: handed one path, the snowdb
 reaches everything else (datasets, the pourpoint index and records) from it. A
@@ -27,7 +27,6 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
-    TypeAdapter,
     ValidationError,
     field_validator,
 )
@@ -308,25 +307,3 @@ class RootConfig(ResourceModel):
         """Write the config as indented JSON, remembering where it was written."""
         atomic_write_text(Path(path), self.model_dump_json(indent=2) + '\n')
         self.path = Path(path)
-
-
-# The discriminated union over every persisted entity: a parsed file routes to
-# exactly one model by its opaque ``resource`` string. Grown as entities are
-# added; used where the entity type is not known up front (each model also has its
-# own ``load`` for when it is).
-Entity = Annotated[RootConfig | DatasetConfig, Field(discriminator='resource')]
-ENTITY_ADAPTER: TypeAdapter[RootConfig | DatasetConfig] = TypeAdapter(Entity)
-
-
-def load_entity(path: Path) -> RootConfig | DatasetConfig:
-    """Parse any persisted snowtool entity, routing by its ``resource`` tag.
-
-    The type-agnostic loader: use it when the entity kind is *not* known up front
-    (a file off disk that could be either a root or a dataset config) and let the
-    discriminated union resolve it. Product code that already knows the kind it
-    wants calls the concrete ``RootConfig.load`` / ``DatasetConfig.load`` instead;
-    this is the public entry point for the general "load whatever this file is"
-    case (and the round-trip guarantee the persisted ``resource`` tags exist to
-    provide).
-    """
-    return ENTITY_ADAPTER.validate_json(Path(path).read_text())

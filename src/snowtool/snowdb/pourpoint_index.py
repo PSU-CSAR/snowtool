@@ -115,9 +115,6 @@ class PourpointIndexEntry(BaseModel):
             ),
         )
 
-    def to_feature(self: Self) -> dict[str, Any]:
-        return self._to_index_feature().model_dump(mode='json')
-
     @classmethod
     def _from_index_feature(cls: type[Self], feature: _IndexFeature) -> Self:
         # geojson-pydantic permits a null id/geometry/properties (valid GeoJSON);
@@ -136,10 +133,6 @@ class PourpointIndexEntry(BaseModel):
             area_meters=feature.properties.area_meters,
             coverage=feature.properties.coverage,
         )
-
-    @classmethod
-    def from_feature(cls: type[Self], feature: dict[str, Any]) -> Self:
-        return cls._from_index_feature(_IndexFeature.model_validate(feature))
 
 
 @dataclass

@@ -145,15 +145,6 @@ class Dataset:
             )
         return hash_files([self.nodata_mask])
 
-    def validate(self: Self) -> Self:
-        if not self.path.exists():
-            raise FileNotFoundError(f'Unable to read directory: {self.path}')
-
-        if not self.path.is_dir():
-            raise ValueError(f'Not a directory: {self.path}')
-
-        return self
-
     @classmethod
     def create(
         cls: type[Self],
