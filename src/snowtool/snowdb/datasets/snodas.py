@@ -18,7 +18,6 @@ import shutil
 import tarfile
 import tempfile
 
-from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -27,34 +26,19 @@ from typing import TYPE_CHECKING, ClassVar, Self
 import rasterio
 
 from snowtool.exceptions import IngestSourceError, SnowtoolError
-from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
-from snowtool.snowdb.ingest import IngestResult
-from snowtool.snowdb.progress import NULL_PROGRESS
-from snowtool.snowdb.provenance import hash_files, versioned_hash
+from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Mapping
+
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.progress import ProgressReporter
 
 HDR_EXTS = ('.Hdr', '.txt')
 
 # --- SNODAS products: the variables + their filename-code mapping --------------
-
-_product_code_to_product_name = {
-    1025: 'precip',
-    1034: 'swe',
-    1036: 'depth',
-    1038: 'average_temp',
-    1039: 'sublimation_blowing',
-    1044: 'runoff',
-    1050: 'sublimation',
-}
-
-_product_name_to_product_code = {v: k for k, v in _product_code_to_product_name.items()}
-
 
 _millimeters = Unit(name='mm', scale_factor=1)
 _millimeters_100 = Unit(name='mm', scale_factor=100)
@@ -63,17 +47,6 @@ _millimeters_100 = Unit(name='mm', scale_factor=100)
 # reporting scale is 10 despite the NSIDC data-field table listing a scale of 1.
 _kelvin = Unit(name='k', scale_factor=10)
 _kg_per_meter2 = Unit(name='kg_per_m2', scale_factor=10)
-
-_units = {
-    'precip_solid': _kg_per_meter2,
-    'precip_liquid': _kg_per_meter2,
-    'swe': _millimeters,
-    'depth': _millimeters,
-    'average_temp': _kelvin,
-    'sublimation': _millimeters_100,
-    'sublimation_blowing': _millimeters_100,
-    'runoff': _millimeters_100,
-}
 
 
 class Product(StrEnum):
@@ -88,41 +61,33 @@ class Product(StrEnum):
 
     @classmethod
     def from_product_codes(cls: type[Self], product_code: int, vcode: str) -> Self:
-        product_name: str = _product_code_to_product_name[product_code]
+        """The product a filename's ``(product_code, vcode)`` identifies.
 
-        if product_name != 'precip':
-            return cls(product_name)
-
-        match vcode:
-            case 'lL00':
-                return cls('precip_liquid')
-            case 'lL01':
-                return cls('precip_solid')
-            case _:
-                raise ValueError(
-                    f"unknown vcode '{vcode}' for product type 'precip'",
+        Precip shares one code (1025) split by vcode; every other product is
+        identified by its code alone (any vcode). The two-tier lookup tries the
+        exact ``(code, vcode)`` first (the precip pair) then falls back to the
+        vcode-agnostic ``(code, None)`` -- unambiguous, since 1025 registers only
+        the precip pair and no ``(code, None)``.
+        """
+        try:
+            return (
+                _PRODUCT_BY_CODE_VCODE.get(
+                    (product_code, vcode),
                 )
+                or _PRODUCT_BY_CODE_VCODE[(product_code, None)]
+            )
+        except KeyError:
+            raise ValueError(
+                f"no SNODAS product for code {product_code} vcode '{vcode}'",
+            ) from None
 
     def to_glob(self: Self) -> str:
-        product_name = self.value
-        vcode: str = ''
-
-        if product_name.startswith('precip'):
-            product_name, precip_type = product_name.split('_')
-            match precip_type:
-                case 'liquid':
-                    vcode = 'lL00'
-                case 'solid':
-                    vcode = 'lL01'
-                case _:
-                    raise ValueError(f"unknown precip type '{precip_type}'")
-
-        product_code = _product_name_to_product_code[product_name]
+        code, vcode, _ = _PRODUCTS[self]
         return ''.join(
             [
                 '?' * 6,
                 'v[01]',
-                str(product_code),
+                str(code),
                 '?',
                 vcode,
                 '*TTNATS*.tif',
@@ -130,10 +95,34 @@ class Product(StrEnum):
         )
 
     def unit(self: Self) -> Unit:
-        return _units[self.value]
+        return _PRODUCTS[self][2]
 
 
-# --- SNODAS filename parser ---------------------------------------------------
+# The one product identity table: Product -> (filename product code, filename
+# vcode, reporting unit). ``vcode`` is the literal glob/parse vcode -- the two
+# precip variants share code 1025 and split on it ('lL00' liquid, 'lL01' solid);
+# every other product is vcode-agnostic (empty string here; '?'-globbed above).
+_PRODUCTS: dict[Product, tuple[int, str, Unit]] = {
+    Product.PRECIP_LIQUID: (1025, 'lL00', _kg_per_meter2),
+    Product.PRECIP_SOLID: (1025, 'lL01', _kg_per_meter2),
+    Product.SNOW_WATER_EQUIVALENT: (1034, '', _millimeters),
+    Product.SNOW_DEPTH: (1036, '', _millimeters),
+    Product.AVERAGE_TEMP: (1038, '', _kelvin),
+    Product.SUBLIMATION_BLOWING: (1039, '', _millimeters_100),
+    Product.RUNOFF: (1044, '', _millimeters_100),
+    Product.SUBLIMATION: (1050, '', _millimeters_100),
+}
+
+# The parse inverse: (code, vcode-or-None) -> Product. Precip registers its two
+# real vcodes; every other product registers vcode-agnostically under None, which
+# from_product_codes falls back to for any parsed vcode (see its two-tier lookup).
+_PRODUCT_BY_CODE_VCODE: dict[tuple[int, str | None], Product] = {
+    (code, vcode if product.value.startswith('precip') else None): product
+    for product, (code, vcode, _) in _PRODUCTS.items()
+}
+
+
+# --- SNODAS filename parser + per-date raster ---------------------------------
 
 
 class Region(StrEnum):
@@ -150,22 +139,16 @@ class Datatype(StrEnum):
     V1 = 'v1'  # model output
 
 
-class Timecode(StrEnum):
-    T0024 = '0024'  # 24 hr integration
-    T0001 = '0001'  # 1 hr snapshot
+class SNODASInputRaster:
+    """One parsed SNODAS header file, ready to write itself as a COG.
 
+    Parses the SNODAS filename into its fields (region/model/datatype/product/
+    time-step) and implements the :class:`~snowtool.snowdb.ingest.WritableRaster`
+    contract. ``source_hash`` is the driver-computed versioned hash of the source
+    tar -- a required constructor argument so a COG can never be written without
+    its ``SOURCE_HASH`` provenance tag.
+    """
 
-class Interval(StrEnum):
-    HOUR = 'H'
-    DAY = 'D'
-
-
-class Offset(StrEnum):
-    P001 = 'P001'  # value is delta over interval or value at interval end
-    P000 = 'P000'  # value from interval start
-
-
-class BaseFileInfo:
     regex: ClassVar[re.Pattern[str]] = re.compile(
         r'^'
         r'(?P<region>[a-z]{2})_'
@@ -174,20 +157,24 @@ class BaseFileInfo:
         r'(?P<product_code>\d{4})'
         r'(?P<scaled>S?)'
         r'(?P<vcode>[a-zA-Z]{2}[\d_]{2})'
+        # timecode: 0024 = 24 hr integration, 0001 = 1 hr snapshot.
         r'[AT](?P<timecode>00(01|24))'
         r'TTNATS'
         r'(?P<year>\d{4})'
         r'(?P<month>\d{2})'
         r'(?P<day>\d{2})'
         r'(?P<hour>\d{2})'
+        # interval: H = hour, D = day.
         r'(?P<interval>H|D)'
+        # offset: P001 = delta over / value at interval end, P000 = interval start.
         r'(?P<offset>P00[01])'
         r'$',
     )
 
-    def __init__(self: Self, path: Path) -> None:
+    def __init__(self: Self, path: Path, source_hash: str) -> None:
         self.path = path
         self.name = self.path.stem
+        self.source_hash = source_hash
         info = self._match(self.name).groupdict()
 
         try:
@@ -196,7 +183,7 @@ class BaseFileInfo:
             self.datatype = Datatype(info['datatype'])
             self.scaled = bool(info['scaled'])
             self.vcode: str = info['vcode']
-            self.timecode = Timecode(info['timecode'])
+            self.timecode: str = info['timecode']
             self.datetime = datetime(
                 year=int(info['year']),
                 month=int(info['month']),
@@ -204,8 +191,8 @@ class BaseFileInfo:
                 hour=int(info['hour']),
                 tzinfo=UTC,
             )
-            self.interval = Interval(info['interval'])
-            self.offset = Offset(info['offset'])
+            self.interval: str = info['interval']
+            self.offset: str = info['offset']
             self.product = Product.from_product_codes(
                 int(info['product_code']),
                 self.vcode,
@@ -213,25 +200,18 @@ class BaseFileInfo:
         except Exception as e:
             raise IngestSourceError('invalid value in SNODAS file name') from e
 
+        if path.suffix not in HDR_EXTS:
+            raise IngestSourceError(
+                'SNODAS raster path must be to header file. '
+                f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
+            )
+
     @classmethod
     def _match(cls: type[Self], string: str):
         match = cls.regex.match(string)
         if not match:
             raise IngestSourceError('unable to parse SNODAS file path')
         return match
-
-
-class SNODASInputRaster(BaseFileInfo):
-    def __init__(self: Self, path: Path) -> None:
-        super().__init__(path)
-        if path.suffix not in HDR_EXTS:
-            raise IngestSourceError(
-                'SNODAS raster path must be to header file. '
-                f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
-            )
-        # The versioned hash of the source tar, set by the ingester once per date
-        # (the same value handed to write_date_cogs) so every COG carries it.
-        self.source_hash = ''
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
@@ -289,15 +269,24 @@ class SNODASInputRaster(BaseFileInfo):
                 'SOURCE_DATATYPE': self.datatype.value,
                 'SOURCE_SCALED': str(self.scaled),
                 'SOURCE_VCODE': self.vcode,
-                'SOURCE_TIMECODE': self.timecode.value,
-                'SOURCE_INTERVAL': self.interval.value,
-                'SOURCE_OFFSET': self.offset.value,
+                'SOURCE_TIMECODE': self.timecode,
+                'SOURCE_INTERVAL': self.interval,
+                'SOURCE_OFFSET': self.offset,
                 'SOURCE_TIMESTEP': self.datetime.isoformat(),
             },
         )
 
 
 class SNODASInputRasterSet:
+    """A date's validated set of SNODAS rasters, one per product.
+
+    Built by :meth:`from_archive` from an extracted archive's header files: it
+    validates that the archive holds every product, is a single date, and sits at
+    the pinned time-step, then exposes the per-product :class:`SNODASInputRaster`
+    set (already carrying the driver's ``source_hash``) as the date's writable
+    rasters.
+    """
+
     def __init__(
         self: Self,
         rasters: Mapping[Product, SNODASInputRaster],
@@ -348,14 +337,14 @@ class SNODASInputRasterSet:
                 'pin to allow other hours.',
             )
 
-    @classmethod
-    def from_archive(
-        cls: type[Self],
-        snodas_tar: Path,
-        extract_dir: Path,
-    ) -> Self:
-        rasters: dict[Product, SNODASInputRaster] = {}
+    @staticmethod
+    def extract_archive(snodas_tar: Path, extract_dir: Path) -> None:
+        """Extract the tar's gzipped rasters (header + data) into ``extract_dir``.
 
+        The archive nests each raster gzipped inside the tar, so unpack the tar to
+        a scratch dir then gunzip each member into ``extract_dir``, leaving the raw
+        SNODAS header/data files the raster parser reads.
+        """
         with tempfile.TemporaryDirectory() as _temp:
             temp = Path(_temp)
             with tarfile.open(snodas_tar) as tar:
@@ -366,11 +355,18 @@ class SNODASInputRasterSet:
                 with gzip.open(f, 'rb') as f_in, outpath.open('wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-            for ext in HDR_EXTS:
-                for hdr in extract_dir.glob(f'*{ext}'):
-                    file_info = SNODASInputRaster(hdr)
-                    rasters[file_info.product] = file_info
-
+    @classmethod
+    def from_extracted(
+        cls: type[Self],
+        extract_dir: Path,
+        source_hash: str,
+    ) -> Self:
+        """The validated per-product raster set over already-extracted headers."""
+        rasters: dict[Product, SNODASInputRaster] = {}
+        for ext in HDR_EXTS:
+            for hdr in extract_dir.glob(f'*{ext}'):
+                file_info = SNODASInputRaster(hdr, source_hash)
+                rasters[file_info.product] = file_info
         return cls(rasters)
 
 
@@ -378,21 +374,21 @@ class SNODASInputRasterSet:
 
 
 class SnodasIngester:
-    """Ingests a SNODAS tar archive (one archive == one date) into a dataset.
+    """Parses a SNODAS tar archive (one archive == one date) for the ingest driver.
 
-    The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: it
-    parses the archive into a per-date raster set and hands them to the dataset's
-    generic :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`.
+    The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
+    :meth:`plan` extracts the archive once, validates the date/product set, and
+    yields a single :class:`~snowtool.snowdb.ingest.DateIngest` whose
+    ``build_rasters`` turns the driver-computed source hash into the validated
+    per-date raster set (each COG stamped with that hash). The driver hashes the
+    tar, drives the write, and builds the result.
     """
 
-    def ingest(
+    def plan(
         self,
         source: Path,
         dataset: Dataset,
-        *,
-        force: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> IngestResult:
+    ) -> Iterator[DateIngest]:
         if source.is_dir():
             # Guarded here so a directory earns a precise, typed error instead of
             # tarfile's raw IsADirectoryError.
@@ -401,24 +397,27 @@ class SnodasIngester:
                 f'date), got a directory: {source}. Ingest archives one per '
                 'invocation.',
             )
-        # One versioned hash of the source tar per date (== per archive), stamped on
-        # every COG and compared by the skip check.
-        source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
-        with tempfile.TemporaryDirectory() as extract_dir:
-            rasters = SNODASInputRasterSet.from_archive(source, Path(extract_dir))
-            for raster in rasters:
-                raster.source_hash = source_hash
-            wrote = dataset.write_date_cogs(
-                rasters.date,
-                rasters,
-                source_hash=source_hash,
-                force=force,
-                progress=progress,
+
+        # Extract the archive once into a tempdir kept alive across the yield by
+        # this generator. The date + product set are validated up front (with a
+        # placeholder hash, discarded); build_rasters re-reads the same extracted
+        # headers once the driver hands back the real source hash, so every COG is
+        # stamped and nothing is extracted twice.
+        with tempfile.TemporaryDirectory() as _extract:
+            extract_dir = Path(_extract)
+            SNODASInputRasterSet.extract_archive(source, extract_dir)
+            date_ = SNODASInputRasterSet.from_extracted(extract_dir, '').date
+
+            def build_rasters(source_hash: str) -> list[SNODASInputRaster]:
+                return list(
+                    SNODASInputRasterSet.from_extracted(extract_dir, source_hash),
+                )
+
+            yield DateIngest(
+                date=date_,
+                source_files=[source],
+                build_rasters=build_rasters,
             )
-        dates = [rasters.date]
-        if wrote:
-            return IngestResult(ingested=dates, skipped=[])
-        return IngestResult(ingested=[], skipped=dates)
 
 
 # --- SNODAS variables + spec (the source of truth for SNODAS values) ----------

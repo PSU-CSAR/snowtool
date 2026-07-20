@@ -350,26 +350,35 @@ def test_ingest_without_ingester_raises(dataset, tmp_path):
 
 
 def test_ingest_delegates_to_ingester(tmp_path, spec):
+    from snowtool.snowdb.ingest import DateIngest
+
     class _Recorder:
         def __init__(self):
             self.calls = []
 
-        def ingest(self, source, ds, *, force=False, **_):
-            self.calls.append((source, ds, force))
-            return IngestResult(ingested=[date(2021, 3, 1)], skipped=[])
+        def plan(self, source, ds):
+            self.calls.append((source, ds))
+            yield DateIngest(
+                date=date(2021, 3, 1),
+                source_files=[source],
+                build_rasters=lambda _hash: _full('srcA'),
+            )
 
     recorder = _Recorder()
     ingestable = DatasetSpec(
         name='test',
         grid_params=spec.grid_params,
+        variables=(_var('swe'), _var('depth')),
         ingester=recorder,
     )
     ds = Dataset.create(ingestable, tmp_path / 'db')
+    src = tmp_path / 'src.tar'
+    src.write_bytes(b'source bytes')
 
-    result = ds.ingest(tmp_path / 'src.tar', force=True)
+    result = ds.ingest(src, force=True)
 
     assert result == IngestResult(ingested=[date(2021, 3, 1)], skipped=[])
-    assert recorder.calls == [(tmp_path / 'src.tar', ds, True)]
+    assert recorder.calls == [(src, ds)]
 
 
 # --- SnodasIngester orchestration (no GDAL: archive parsing is faked) ---------
@@ -409,11 +418,47 @@ def test_snodas_set_refuses_other_timestep_hours():
         )
 
 
+def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
+    """Stub the SNODAS extract/parse seam with a fresh real-COG raster.
+
+    The archive parsing (which needs the system SNODAS/GDAL stack) is stubbed: the
+    extraction is a no-op and ``from_extracted`` returns a one-raster set whose
+    single COG carries whatever ``source_hash`` the caller passed (empty on the
+    date-probe read, the versioned tar hash on the build). So the driver's hashing,
+    per-date skip, and write orchestration run over real code.
+    """
+
+    class _FakeRasterFile:
+        def __init__(self, source_hash: str) -> None:
+            self.out_name = f'{swe_name}.tif'
+            self.source_hash = source_hash
+
+        def write_cog(self, output_dir, force: bool = False) -> None:
+            _write_marker_cog(output_dir / self.out_name, self.source_hash)
+
+    class _FakeSet:
+        def __init__(self, source_hash: str) -> None:
+            self.date = ingest_date
+            self._raster = _FakeRasterFile(source_hash)
+
+        def __iter__(self):
+            yield self._raster
+
+    monkeypatch.setattr(
+        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.extract_archive',
+        staticmethod(lambda source, extract_dir: None),
+    )
+    monkeypatch.setattr(
+        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_extracted',
+        classmethod(lambda cls, extract_dir, source_hash: _FakeSet(source_hash)),
+    )
+
+
 def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
-    """SnodasIngester parses an archive then writes via Dataset.write_date_cogs.
+    """The SNODAS plan is driven through run_ingest into per-date COGs.
 
     The archive parsing (which needs the system SNODAS/GDAL stack) is stubbed so
-    this exercises only the ingester's orchestration on a single-variable synthetic
+    this exercises only the ingest orchestration on a single-variable synthetic
     snodas dataset (so the fake set of one COG still satisfies date completeness).
     """
     mini = DatasetSpec(
@@ -424,40 +469,21 @@ def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
     )
     ds = Dataset.create(mini, tmp_path / 'db')
     swe_name = snodas_swe_name('20190202')
-    # The ingester now hashes the source tar, so it must exist on disk.
+    d = date(2019, 2, 2)
+    # The driver hashes the source tar, so it must exist on disk.
     tar = tmp_path / 'snodas.tar'
     tar.write_bytes(b'fake snodas archive bytes')
+    _patch_snodas_archive(monkeypatch, swe_name, d)
 
-    class _FakeRasterFile:
-        out_name = f'{swe_name}.tif'
-        source_hash = ''
+    result = ds.ingest(tar)
 
-        def write_cog(self, output_dir, force: bool = False) -> None:
-            _write_marker_cog(output_dir / self.out_name, self.source_hash)
-
-    fake_raster = _FakeRasterFile()
-
-    class _FakeSet:
-        date = date(2019, 2, 2)
-
-        def __iter__(self):
-            yield fake_raster
-
-    def fake_from_archive(source, extract_dir):
-        assert source == tar
-        return _FakeSet()
-
-    monkeypatch.setattr(
-        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_archive',
-        staticmethod(fake_from_archive),
+    assert result == IngestResult(ingested=[d], skipped=[])
+    cog_path = ds.date_dir(d) / f'{swe_name}.tif'
+    assert cog_path.is_file()
+    # The driver stamped the versioned tar hash on the written COG.
+    assert ds._date_source_hash(ds.date_dir(d)).startswith(
+        f'v{INGEST_FORMAT_VERSION}:',
     )
-
-    result = SnodasIngester().ingest(tar, ds)
-
-    assert result == IngestResult(ingested=[date(2019, 2, 2)], skipped=[])
-    # The ingester set the versioned tar hash on the raster before writing.
-    assert fake_raster.source_hash.startswith(f'v{INGEST_FORMAT_VERSION}:')
-    assert (ds.date_dir(date(2019, 2, 2)) / f'{swe_name}.tif').is_file()
 
 
 def _mini_snodas(tmp_path, spec):
@@ -469,33 +495,6 @@ def _mini_snodas(tmp_path, spec):
             ingester=SnodasIngester(),
         ),
         tmp_path / 'db',
-    )
-
-
-def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
-    """Fake SNODASInputRasterSet.from_archive to yield a fresh real-COG raster."""
-
-    class _FakeRasterFile:
-        out_name = f'{swe_name}.tif'
-        source_hash = ''
-
-        def write_cog(self, output_dir, force: bool = False) -> None:
-            _write_marker_cog(output_dir / self.out_name, self.source_hash)
-
-    class _FakeSet:
-        date = ingest_date
-
-        def __iter__(self):
-            yield self._raster
-
-        _raster = _FakeRasterFile()
-
-    def fake_from_archive(source, extract_dir):
-        return _FakeSet()
-
-    monkeypatch.setattr(
-        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_archive',
-        staticmethod(fake_from_archive),
     )
 
 
@@ -514,18 +513,18 @@ def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
     tar.write_bytes(b'archive v1')
     cog_path = ds.date_dir(d) / f'{swe_name}.tif'
 
-    assert SnodasIngester().ingest(tar, ds).ingested == [d]
+    assert ds.ingest(tar).ingested == [d]
     first_mtime = cog_path.stat().st_mtime_ns
 
     # Same bytes -> skipped, file untouched.
-    result = SnodasIngester().ingest(tar, ds)
+    result = ds.ingest(tar)
     assert result == IngestResult(ingested=[], skipped=[d])
     assert cog_path.stat().st_mtime_ns == first_mtime
 
     # Same name, different bytes -> rebuilt (hash mismatch).
     tar.write_bytes(b'archive v2 -- re-released under the same name')
-    assert SnodasIngester().ingest(tar, ds).ingested == [d]
+    assert ds.ingest(tar).ingested == [d]
 
     # force rebuilds even when the hash matches.
-    result = SnodasIngester().ingest(tar, ds, force=True)
+    result = ds.ingest(tar, force=True)
     assert result.ingested == [d]

@@ -22,21 +22,19 @@ from typing import TYPE_CHECKING, Self
 import rasterio
 
 from snowtool.exceptions import SnowtoolError
-from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
-from snowtool.snowdb.ingest import IngestResult
-from snowtool.snowdb.progress import NULL_PROGRESS
-from snowtool.snowdb.provenance import hash_files, versioned_hash
+from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.progress import ProgressReporter
+    from snowtool.snowdb.ingest import WritableRaster
 
 # --- SWANN 800m variables -----------------------------------------------------
 
@@ -126,12 +124,13 @@ class SwannRaster:
 
 
 class SwannIngester:
-    """Ingests one SWANN 800m daily NetCDF (one file == one date) into a dataset.
+    """Parses one SWANN 800m daily NetCDF (one file == one date) for the driver.
 
-    The SWANN implementation of :class:`~snowtool.snowdb.ingest.Ingester`: it
-    parses the date from the filename and hands a :class:`SwannRaster` per
-    variable to the dataset's generic
-    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`.
+    The SWANN implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
+    :meth:`plan` parses the date + stage from the filename and yields a single
+    :class:`~snowtool.snowdb.ingest.DateIngest` whose ``build_rasters`` produces a
+    grid-aligned :class:`SwannRaster` per variable. The driver hashes the file,
+    drives the write, and builds the result.
     """
 
     # The product is published in three processing stages -- `_early` (newest),
@@ -147,14 +146,11 @@ class SwannIngester:
         r'UA_SWE_Depth_800m_v1_(?P<date>\d{8})_(?P<stage>early|provisional|stable)\.nc$',
     )
 
-    def ingest(
+    def plan(
         self: Self,
         source: Path,
         dataset: Dataset,
-        *,
-        force: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> IngestResult:
+    ) -> Iterator[DateIngest]:
         if source.is_dir():
             # Guarded before the filename regex so a directory earns a precise
             # error rather than a misleading "does not match" message (or a raw
@@ -178,50 +174,43 @@ class SwannIngester:
                 'stage pin to ingest finalized data.',
             )
         ingest_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
-
-        # One versioned hash of the source .nc per date (== per file), stamped on
-        # every COG and compared by the skip check.
-        source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
+        stage = match['stage']
 
         transform = dataset.grid.base_grid.transform
         crs = dataset.grid_crs
         tile_size = dataset.spec.grid_params.tile_size
 
-        # Name each COG after the source file (+ variable) so the provenance is
-        # visible in the filesystem; the full record also goes into COG tags.
-        rasters = []
-        for subdataset, key in _SUBDATASET_TO_VARIABLE.items():
-            variable = dataset.spec.variables[key]
-            rasters.append(
-                SwannRaster(
-                    f'netcdf:{source}:{subdataset}',
-                    f'{source.stem}__{variable.key}.tif',
-                    transform=transform,
-                    crs=crs,
-                    tile_size=tile_size,
-                    nodata=variable.nodata,
-                    tags=source_tags(
-                        dataset=dataset.spec.name,
-                        date=ingest_date,
-                        variable=variable.key,
-                        files=source.name,
-                        source_hash=source_hash,
-                        extra={'SOURCE_STAGE': match['stage']},
+        def build_rasters(source_hash: str) -> list[WritableRaster]:
+            # Name each COG after the source file (+ variable) so the provenance is
+            # visible in the filesystem; the full record also goes into COG tags.
+            rasters: list[WritableRaster] = []
+            for subdataset, key in _SUBDATASET_TO_VARIABLE.items():
+                variable = dataset.spec.variables[key]
+                rasters.append(
+                    SwannRaster(
+                        f'netcdf:{source}:{subdataset}',
+                        f'{source.stem}__{variable.key}.tif',
+                        transform=transform,
+                        crs=crs,
+                        tile_size=tile_size,
+                        nodata=variable.nodata,
+                        tags=source_tags(
+                            dataset=dataset.spec.name,
+                            date=ingest_date,
+                            variable=variable.key,
+                            files=source.name,
+                            source_hash=source_hash,
+                            extra={'SOURCE_STAGE': stage},
+                        ),
                     ),
-                ),
-            )
+                )
+            return rasters
 
-        wrote = dataset.write_date_cogs(
-            ingest_date,
-            rasters,
-            source_hash=source_hash,
-            force=force,
-            progress=progress,
+        yield DateIngest(
+            date=ingest_date,
+            source_files=[source],
+            build_rasters=build_rasters,
         )
-        dates = [ingest_date]
-        if wrote:
-            return IngestResult(ingested=dates, skipped=[])
-        return IngestResult(ingested=[], skipped=dates)
 
 
 # --- SWANN 800m spec ----------------------------------------------------------

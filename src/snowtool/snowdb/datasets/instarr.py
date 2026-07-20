@@ -33,22 +33,20 @@ from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
 from snowtool.exceptions import SnowtoolError
-from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
-from snowtool.snowdb.ingest import IngestResult
-from snowtool.snowdb.progress import NULL_PROGRESS
-from snowtool.snowdb.provenance import hash_files, versioned_hash
+from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from datetime import date
     from pathlib import Path
 
     from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.progress import ProgressReporter
+    from snowtool.snowdb.ingest import WritableRaster
 
 # --- MODIS Sinusoidal grid constants ------------------------------------------
 
@@ -226,14 +224,16 @@ class InstarrMosaicRaster:
 
 
 class InstarrIngester:
-    """Ingests a directory of SPIRES NRT tiles into a dataset.
+    """Parses a directory of SPIRES NRT tiles into per-date work for the driver.
 
     The INSTARR implementation of :class:`~snowtool.snowdb.ingest.Ingester`. The
     source tiles are tile-major on disk (``h##v##/YYYY/MM/SPIRES_NRT_*.nc``), so a
-    date's tiles are scattered; this scans ``source`` for tiles, groups them by
-    date, and writes one mosaicked COG per variable per date via the dataset's
-    generic :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`. ``source``
-    may be a directory (scanned recursively) or a single tile file.
+    date's tiles are scattered; :meth:`plan` scans ``source`` for tiles, groups
+    them by date, and yields one :class:`~snowtool.snowdb.ingest.DateIngest` per
+    date whose ``build_rasters`` produces one mosaicked COG per variable. The
+    driver hashes each date's contributing tiles, drives the write, and builds the
+    result. ``source`` may be a directory (scanned recursively) or a single tile
+    file.
     """
 
     filename_re = re.compile(
@@ -241,27 +241,29 @@ class InstarrIngester:
         r'(?P<date>\d{8})_(?P<version>V[\d.]+)\.nc$',
     )
 
-    def ingest(
+    def plan(
         self: Self,
         source: Path,
         dataset: Dataset,
-        *,
-        force: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> IngestResult:
+    ) -> Iterator[DateIngest]:
         candidates = (
             sorted(source.glob('**/SPIRES_NRT_*.nc')) if source.is_dir() else [source]
         )
 
-        tiles_by_date: dict[date, list[Path]] = defaultdict(list)
+        # Parse each tile filename once and group the surviving matches by date; the
+        # date's tiles are then read straight off their matches (path via
+        # match.string is not needed -- the path is carried alongside).
+        matches_by_date: dict[date, list[tuple[Path, re.Match[str]]]] = defaultdict(
+            list,
+        )
         for path in candidates:
             match = self.filename_re.search(path.name)
             if match is None:
                 continue
             tile_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
-            tiles_by_date[tile_date].append(path)
+            matches_by_date[tile_date].append((path, match))
 
-        if not tiles_by_date:
+        if not matches_by_date:
             raise SnowtoolError(
                 f'No SPIRES NRT tiles found under {source} (expected files like '
                 "'SPIRES_NRT_h09v04_MOD09GA061_<YYYYMMDD>_V1.0.nc').",
@@ -271,63 +273,67 @@ class InstarrIngester:
         transform = dataset.grid.base_grid.transform
         crs = dataset.grid_crs
 
-        ingested: list[date] = []
-        skipped: list[date] = []
-        for ingest_date, tile_paths in sorted(tiles_by_date.items()):
-            stem, collection, version = self._distilled_stem(tile_paths)
+        for ingest_date, tile_matches in sorted(matches_by_date.items()):
+            tile_paths = [path for path, _ in tile_matches]
+            stem, collection, version = self._distilled_stem(tile_matches)
             # Filesystem-visible provenance is the distilled stem; the COG tags
             # carry the full record, including the exact contributing tiles.
             source_files = ' '.join(sorted(p.name for p in tile_paths))
-            # One versioned hash per date over the date's sorted contributing tiles,
-            # stamped on every COG and compared by the skip check.
-            source_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files(tile_paths))
-            rasters = [
-                InstarrMosaicRaster(
-                    variable,
-                    [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
-                    grid_params,
-                    out_name=f'{stem}__{variable.key}.tif',
-                    transform=transform,
-                    crs=crs,
-                    tags=source_tags(
-                        dataset=dataset.spec.name,
-                        date=ingest_date,
-                        variable=variable.key,
-                        files=source_files,
-                        source_hash=source_hash,
-                        extra={
-                            'SOURCE_COLLECTION': collection,
-                            'SOURCE_VERSION': version,
-                        },
-                    ),
-                )
-                for variable in dataset.spec.variables.values()
-            ]
-            wrote = dataset.write_date_cogs(
-                ingest_date,
-                rasters,
-                source_hash=source_hash,
-                force=force,
-                progress=progress,
+
+            def build_rasters(
+                source_hash: str,
+                *,
+                tile_paths: list[Path] = tile_paths,
+                stem: str = stem,
+                collection: str = collection,
+                version: str = version,
+                source_files: str = source_files,
+                ingest_date: date = ingest_date,
+            ) -> list[WritableRaster]:
+                return [
+                    InstarrMosaicRaster(
+                        variable,
+                        [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
+                        grid_params,
+                        out_name=f'{stem}__{variable.key}.tif',
+                        transform=transform,
+                        crs=crs,
+                        tags=source_tags(
+                            dataset=dataset.spec.name,
+                            date=ingest_date,
+                            variable=variable.key,
+                            files=source_files,
+                            source_hash=source_hash,
+                            extra={
+                                'SOURCE_COLLECTION': collection,
+                                'SOURCE_VERSION': version,
+                            },
+                        ),
+                    )
+                    for variable in dataset.spec.variables.values()
+                ]
+
+            yield DateIngest(
+                date=ingest_date,
+                source_files=tile_paths,
+                build_rasters=build_rasters,
             )
-            (ingested if wrote else skipped).append(ingest_date)
 
-        return IngestResult(ingested=ingested, skipped=skipped)
-
-    def _distilled_stem(self: Self, tile_paths: list[Path]) -> tuple[str, str, str]:
+    def _distilled_stem(
+        self: Self,
+        tile_matches: list[tuple[Path, re.Match[str]]],
+    ) -> tuple[str, str, str]:
         """The mosaic's provenance stem plus its ``(collection, version)``.
 
         Drops the per-tile ``h##v##`` (the output spans all the date's tiles) and
-        keeps the fields shared across them. Refuses a date whose tiles disagree
-        on collection or version -- that would mix products into one mosaic.
+        keeps the fields shared across them, consuming the matches already parsed
+        by :meth:`plan` (no re-parse). Refuses a date whose tiles disagree on
+        collection or version -- that would mix products into one mosaic.
         """
-        identities = set()
-        for path in tile_paths:
-            match = self.filename_re.search(path.name)
-            if match is not None:
-                identities.add(
-                    (match['collection'], match['date'], match['version']),
-                )
+        identities = {
+            (match['collection'], match['date'], match['version'])
+            for _, match in tile_matches
+        }
 
         if len(identities) > 1:
             raise SnowtoolError(

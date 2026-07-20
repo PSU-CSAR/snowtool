@@ -354,19 +354,23 @@ class Dataset:
     ) -> IngestResult:
         """Ingest a source artifact into per-date COGs, via this dataset's ingester.
 
-        Delegates to ``spec.ingester`` (the dataset-kind-specific parser); raises
-        if the dataset has no configured ingester. Returns an
+        Drives ``spec.ingester``'s per-date plan through the generic
+        :func:`~snowtool.snowdb.ingest.run_ingest` (which computes the versioned
+        source hash and commits each date); raises if the dataset has no
+        configured ingester. Returns an
         :class:`~snowtool.snowdb.ingest.IngestResult` splitting the dates written
         from those skipped as already current. ``progress`` reports each date's
         per-variable COG writes (see :meth:`write_date_cogs`).
         """
+        from snowtool.snowdb.ingest import run_ingest
+
         ingester = self.spec.ingester
         if ingester is None:
             raise SnowtoolError(
                 f"dataset '{self.spec.name}' has no configured ingester; "
                 'nothing can be ingested into it.',
             )
-        return ingester.ingest(source, self, force=force, progress=progress)
+        return run_ingest(ingester, source, self, force=force, progress=progress)
 
     def _unresolved_variables(self: Self, names: Iterable[str]) -> set[str]:
         """Spec variable keys whose glob does not match exactly one of ``names``.
