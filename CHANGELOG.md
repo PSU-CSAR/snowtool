@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - **CLI change:** the `stats --zone` override syntax is now the explicit
   `LAYER:PARAM=VALUE` (e.g. `terrain.elevation:band_step_ft=500`); the old
   positional `LAYER:VALUE` form is no longer accepted.
+- **Breaking:** `windows iis install`'s `--skip-site`/`--skip-config` flags
+  are replaced by a single `--only [config|site]` selector (default: run
+  both steps).
 
 ### Changed
 

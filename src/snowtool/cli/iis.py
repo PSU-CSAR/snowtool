@@ -94,16 +94,12 @@ def iis() -> None:
     help="IIS site access-log directory (defaults to IIS's own default).",
 )
 @click.option(
-    '--skip-site',
-    is_flag=True,
-    default=False,
-    help='Only write web.config.',
-)
-@click.option(
-    '--skip-config',
-    is_flag=True,
-    default=False,
-    help='Only provision the site.',
+    '--only',
+    'only',
+    type=click.Choice(['config', 'site']),
+    default=None,
+    help='Run only one step instead of both: "config" writes web.config '
+    'only; "site" provisions the IIS site only. Default: run both.',
 )
 def install(
     directory: Path,
@@ -115,8 +111,7 @@ def install(
     cert_thumbprint: str | None,
     recycle_time: str,
     access_log_dir: Path | None,
-    skip_site: bool,
-    skip_config: bool,
+    only: str | None,
 ) -> None:
     """Install (or update) DIRECTORY as an IIS site fronting the API.
 
@@ -134,7 +129,7 @@ def install(
     directory.mkdir(exist_ok=True)
     (directory / 'log').mkdir(exist_ok=True)
 
-    if not skip_config:
+    if only != 'site':
         web_config = directory / 'web.config'
         web_config.write_text(
             render_web_config(
@@ -145,32 +140,31 @@ def install(
         )
         click.echo(f'Wrote {web_config}')
 
-    if protocol == 'https' and not cert_thumbprint:
-        click.echo(
-            'No --cert-thumbprint given; after install, bind the SSL certificate '
-            f'manually: IIS Manager > Sites > {site_name} > Edit Bindings.',
+    if only != 'config':
+        if protocol == 'https' and not cert_thumbprint:
+            click.echo(
+                'No --cert-thumbprint given; after install, bind the SSL '
+                f'certificate manually: IIS Manager > Sites > {site_name} > '
+                'Edit Bindings.',
+            )
+
+        click.echo(f'Provisioning IIS site {site_name!r}...')
+        run_powershell(
+            install_args(
+                site_name=site_name,
+                physical_path=directory,
+                venv_path=venv_root(Path(sys.executable)),
+                base_python_path=base_python_root(sys.prefix, sys.base_prefix),
+                snowdb_path=snowdb_root(snowdb_config),
+                hostname=hostname,
+                port=port,
+                protocol=protocol,
+                cert_thumbprint=cert_thumbprint,
+                recycle_time=recycle_time,
+                access_log_dir=access_log_dir,
+            ),
         )
-
-    if skip_site:
-        return
-
-    click.echo(f'Provisioning IIS site {site_name!r}...')
-    run_powershell(
-        install_args(
-            site_name=site_name,
-            physical_path=directory,
-            venv_path=venv_root(Path(sys.executable)),
-            base_python_path=base_python_root(sys.prefix, sys.base_prefix),
-            snowdb_path=snowdb_root(snowdb_config),
-            hostname=hostname,
-            port=port,
-            protocol=protocol,
-            cert_thumbprint=cert_thumbprint,
-            recycle_time=recycle_time,
-            access_log_dir=access_log_dir,
-        ),
-    )
-    click.echo('Done.')
+        click.echo('Done.')
 
 
 @iis.command('remove')

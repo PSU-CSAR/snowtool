@@ -371,3 +371,76 @@ def test_remove_fails_cleanly_on_non_windows(tmp_path):
 
     assert result.exit_code != 0
     assert 'Windows' in result.output
+
+
+def test_install_help_documents_only_option():
+    result = CliRunner().invoke(cli, ['windows', 'iis', 'install', '--help'])
+
+    assert result.exit_code == 0
+    assert '--only' in result.output
+    assert '--skip-site' not in result.output
+    assert '--skip-config' not in result.output
+
+
+@pytest.mark.parametrize('only', ['config', 'site'])
+def test_install_accepts_only_config_or_site(tmp_path, only):
+    # Genuinely exercised past option parsing: the non-Windows guard fires
+    # only after click has validated --only, so an invalid choice is
+    # distinguishable here from a valid one hitting require_windows().
+    result = CliRunner().invoke(
+        cli,
+        [
+            'windows',
+            'iis',
+            'install',
+            str(tmp_path / 'site'),
+            '--hostname',
+            'snow.example.org',
+            '--config',
+            str(tmp_path),
+            '--only',
+            only,
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert 'Windows' in result.output
+
+
+def test_install_rejects_invalid_only_value(tmp_path):
+    result = CliRunner().invoke(
+        cli,
+        [
+            'windows',
+            'iis',
+            'install',
+            str(tmp_path / 'site'),
+            '--hostname',
+            'snow.example.org',
+            '--config',
+            str(tmp_path),
+            '--only',
+            'bogus',
+        ],
+    )
+
+    assert result.exit_code == 2  # click Choice rejection
+
+
+def test_install_rejects_removed_skip_flags(tmp_path):
+    result = CliRunner().invoke(
+        cli,
+        [
+            'windows',
+            'iis',
+            'install',
+            str(tmp_path / 'site'),
+            '--hostname',
+            'snow.example.org',
+            '--config',
+            str(tmp_path),
+            '--skip-site',
+        ],
+    )
+
+    assert result.exit_code == 2  # click: no such option
