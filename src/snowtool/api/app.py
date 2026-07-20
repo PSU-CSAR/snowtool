@@ -21,6 +21,7 @@ import logging
 
 from gazebo.di import Providers
 from gazebo.ext.fastapi import GazeboApp
+from gazebo.tags import Tag, tags_metadata
 
 from snowtool.api.problems import MALFORMED_QUERY_PARAMETER
 from snowtool.api.settings import Settings
@@ -83,7 +84,7 @@ def get_app(
         providers,
         title=API_TITLE,
         description=API_DESCRIPTION,
-        openapi_tags=Tags.metadata(),
+        openapi_tags=tags_metadata(*(Tag(name=member) for member in Tags)),
         query_problem=MALFORMED_QUERY_PARAMETER,
     )
 
