@@ -66,6 +66,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   (`Coverage.NONE`) is therefore now reported in the staged result's
   `rasterized.skipped` (alongside already-current rasters) instead of being
   silently omitted.
+- **Behavior change:** `GET /pourpoints?geometry=basin` no longer silently
+  serves the outflow point in place of the basin polygon when an indexed
+  record's on-disk basin polygon is missing (only possible via an out-of-band
+  edit to `pourpoints/records/` that a `pourpoint reindex` hasn't caught up
+  with yet). This is a data-integrity bug, not a case to paper over with a
+  different geometry type than the client asked for, so it now surfaces as a
+  `500`.
 
 ### Removed
 

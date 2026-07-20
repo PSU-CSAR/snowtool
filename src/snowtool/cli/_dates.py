@@ -101,10 +101,7 @@ def _range_query(dates: str) -> DateRangeQuery:
             f'2024-01-01/2024-06-30 (open ends with ..), a single date, or '
             f'MM-DD with --years ({e})',
         ) from e
-    return DateRangeQuery(
-        start_date=interval.start.date() if interval.start else None,
-        end_date=interval.end.date() if interval.end else None,
-    )
+    return DateRangeQuery.from_interval(interval)
 
 
 def _doy_query(dates: str | None, years: str) -> DOYQuery:

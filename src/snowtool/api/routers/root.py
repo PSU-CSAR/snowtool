@@ -20,7 +20,7 @@ from gazebo.problems import ProblemType
 from gazebo.rels import Rel
 
 from snowtool.api.models.root import VersionInfo
-from snowtool.api.problems import PROBLEMS
+from snowtool.api.problems import PROBLEM_TYPE_NOT_FOUND, PROBLEMS
 from snowtool.api.tags import Tags
 
 API_TITLE = 'PSU CSAR snowtool API'
@@ -54,7 +54,7 @@ async def list_problems() -> dict[str, ProblemType]:
 async def get_problem(key: str) -> ProblemType:
     problem = PROBLEMS.get(key)
     if problem is None:
-        raise PROBLEMS['problem-type-not-found'].exception(
+        raise PROBLEM_TYPE_NOT_FOUND.exception(
             detail=f'No such problem type: {key!r}',
         )
     return problem

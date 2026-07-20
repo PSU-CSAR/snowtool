@@ -17,29 +17,26 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import Query
 from fastapi.responses import StreamingResponse
 from gazebo.ext.fastapi import GazeboRouter
-from gazebo.negotiation import FormatEnum, alternate_links, f_description, negotiate
-from gazebo.params import DatetimeQuery
+from gazebo.negotiation import alternate_links, negotiate
 from gazebo.rels import MediaType
-from pydantic import BaseModel, Field
 
 from snowtool import types
 from snowtool.api.dependencies import ReaderDep
-from snowtool.api.models.stats import CompactStatsResponse, stats_csv_response
+from snowtool.api.models.stats import (
+    CompactStatsResponse,
+    DateRangeStatsQuery,
+    DOYStatsQuery,
+    _StatsFormat,
+    _StatsQueryBase,
+    stats_csv_response,
+)
 from snowtool.api.tags import Tags
 from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery
 
 if TYPE_CHECKING:
     from gazebo.negotiation import Representation
-    from gazebo.params import DatetimeInterval
 
     from snowtool.snowdb.reader import SnowDbReader
-
-
-class _StatsFormat(FormatEnum):
-    """The ``?f=`` keys the stats route serves, each carrying its media type."""
-
-    json = 'json', 'application/json'
-    csv = 'csv', 'text/csv'
 
 
 REPRESENTATIONS = _StatsFormat.representations()
@@ -51,63 +48,6 @@ REPRESENTATIONS = _StatsFormat.representations()
 _STATS_RESPONSES = _StatsFormat.openapi_responses(schemas={MediaType.JSON: None})
 
 router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/stats')
-
-_ZONE_DESC = (
-    'Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See '
-    'GET /datasets/{dataset} for the valid layer keys, override params, and '
-    'variables. Default: whole basin.'
-)
-_VARIABLE_DESC = (
-    'Variable to report (repeatable; default: all). Use a variable key from '
-    'GET /datasets/{dataset}.'
-)
-_ALLOW_PARTIAL_DESC = (
-    'Permit a basin only partially covered by the dataset grid (default false: a '
-    'partially-covered basin is a 409). A wholly off-grid basin always 409s.'
-)
-_INCLUDE_EMPTY_DESC = (
-    'Include crossed zones that no AOI pixel falls in (0 area, all values null). '
-    'By default these empty combinations are dropped. No effect on a whole-basin '
-    'query.'
-)
-_DATETIME_EXAMPLES = [
-    '2018-01-01/2018-06-30',
-    '2018-04-27',
-    '2018-01-01/..',
-    '../2018-06-30',
-]
-
-
-class _StatsQueryBase(BaseModel):
-    zone: list[str] = Field(default_factory=list, description=_ZONE_DESC)
-    variable: list[str] = Field(default_factory=list, description=_VARIABLE_DESC)
-    allow_partial: bool = Field(default=False, description=_ALLOW_PARTIAL_DESC)
-    include_empty_zones: bool = Field(default=False, description=_INCLUDE_EMPTY_DESC)
-    f: _StatsFormat | None = Field(
-        default=None,
-        description=f_description(_StatsFormat),
-    )
-
-
-class DateRangeStatsQuery(_StatsQueryBase):
-    datetime: DatetimeQuery = Field(
-        default=None,
-        examples=_DATETIME_EXAMPLES,
-        json_schema_extra={'example': _DATETIME_EXAMPLES[0]},
-    )
-
-
-class DOYStatsQuery(_StatsQueryBase, DOYFields):
-    pass
-
-
-def _date_range(interval: DatetimeInterval | None) -> DateRangeQuery:
-    if interval is None:
-        return DateRangeQuery()
-    return DateRangeQuery(
-        start_date=interval.start.date() if interval.start else None,
-        end_date=interval.end.date() if interval.end else None,
-    )
 
 
 async def _run(
@@ -159,7 +99,7 @@ async def stats_date_range(
         reader,
         dataset,
         triplet,
-        _date_range(params.datetime),
+        DateRangeQuery.from_interval(params.datetime),
         params,
         rep,
     )
@@ -179,10 +119,5 @@ async def stats_doy(
     params: Annotated[DOYStatsQuery, Query()],
 ) -> CompactStatsResponse | StreamingResponse:
     rep = negotiate(REPRESENTATIONS, f=params.f)
-    query = DOYQuery(
-        month=params.month,
-        day=params.day,
-        start_year=params.start_year,
-        end_year=params.end_year,
-    )
+    query = DOYQuery(**params.model_dump(include=set(DOYFields.model_fields)))
     return await _run(reader, dataset, triplet, query, params, rep)

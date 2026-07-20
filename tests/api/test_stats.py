@@ -14,12 +14,39 @@ from fastapi.testclient import TestClient
 from gazebo.testing import assert_has_link, assert_problem
 
 from snowtool.api.app import get_app
+from snowtool.api.models.dataset import _DOY_QUERY, _SHARED_STATS_QUERY
 
 from ..conftest import SWE_VALUE, populate_synthetic_root
 
 TRIPLET = '12345:MT:USGS'
 BASE = f'/datasets/test/stats/{TRIPLET}'
 DAY = '2018-04-27/2018-04-27'
+
+
+def test_shared_stats_query_lists_are_derived_from_the_query_models() -> None:
+    # The dataset resource's HATEOAS query_template lists are derived from the
+    # private query models (api/models/stats.py) via model_fields, not
+    # hand-maintained literals -- pin the values so a field addition/removal on
+    # either query model is caught here rather than only showing up as a
+    # silent link-shape drift.
+    assert _SHARED_STATS_QUERY == [
+        'zone',
+        'variable',
+        'allow_partial',
+        'include_empty_zones',
+        'f',
+    ]
+    assert _DOY_QUERY == [
+        'month',
+        'day',
+        'start_year',
+        'end_year',
+        'zone',
+        'variable',
+        'allow_partial',
+        'include_empty_zones',
+        'f',
+    ]
 
 
 def test_date_range_whole_basin_compact(synthetic_client) -> None:

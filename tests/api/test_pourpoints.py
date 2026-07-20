@@ -2,8 +2,6 @@
 
 import json
 
-from dataclasses import replace
-
 import pytest
 
 from fastapi.testclient import TestClient
@@ -226,14 +224,40 @@ def test_detail_stats_links_exclude_inactive_datasets(inactive_dataset_client) -
     assert len(stats) == 2
 
 
-def test_stats_links_omitted_for_point_only_and_none_coverage(pourpoint_geojson):
+def test_stats_links_omitted_for_none_coverage(pourpoint_geojson):
     pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
-    # A point-only pourpoint has no basin to query, so no stats affordance.
-    point_only = replace(pourpoint, polygon=None)
-    assert _pourpoint_stats_links(point_only, {'test': Coverage.FULL}) == []
     # A dataset that cannot serve the basin (coverage none) contributes no pair
     # -- such a query always 409s, so its link would advertise a dead end.
     assert _pourpoint_stats_links(pourpoint, {'test': Coverage.NONE}) == []
+
+
+def test_list_basin_geometry_raises_on_data_integrity_broken_record(
+    synthetic_settings,
+) -> None:
+    # An out-of-band edit to records/ can leave the persisted index believing a
+    # triplet is basin-bearing (it hasn't been ``reindex``ed) while the on-disk
+    # record itself has been swapped to a point-only Feature. build_pourpoint_
+    # collection must not silently paper over this by serving the point as the
+    # basin (a different geometry type than ?geometry=basin promises) -- it
+    # raises (a bare, unmapped ValueError -- a genuine server bug -- 500s in a
+    # real deployment; the test client re-raises it instead of wrapping it).
+    from snowtool.snowdb.db import SnowDb
+
+    db = SnowDb.open(synthetic_settings.snowdb_config)
+    record_path = db.pourpoint_record_path(TRIPLET)
+    point_only_record = {
+        'type': 'Feature',
+        'id': TRIPLET,
+        'geometry': {'type': 'Point', 'coordinates': [-119.45, 44.45]},
+        'properties': {'name': 'Test Basin', 'source': 'test'},
+    }
+    record_path.write_text(json.dumps(point_only_record))
+
+    with (
+        TestClient(get_app(settings=synthetic_settings)) as client,
+        pytest.raises(ValueError, match='has no basin polygon'),
+    ):
+        client.get('/pourpoints', params={'geometry': 'basin'})
 
 
 def test_list_basin_geometry_returns_polygons(synthetic_client) -> None:

@@ -10,13 +10,27 @@ from __future__ import annotations
 
 import calendar
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
 from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+
+class _Interval(Protocol):  # pragma: no cover
+    """The duck-typed shape :meth:`DateRangeQuery.from_interval` accepts.
+
+    Structurally matches :class:`gazebo.params.DatetimeInterval` (an open
+    ``start``/``end`` instant pair) without importing gazebo at runtime -- the
+    domain layer stays framework-agnostic; only the CLI/API surfaces that
+    already depend on gazebo pass a real ``DatetimeInterval`` in.
+    """
+
+    start: datetime | None
+    end: datetime | None
+
 
 Month = Annotated[
     int,
@@ -35,7 +49,7 @@ Year = Annotated[
 
 
 class DateQuery(Protocol):  # pragma: no cover
-    def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str: ...
+    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str: ...
     def select(self: Self, available: Iterable[date]) -> list[date]: ...
 
 
@@ -52,12 +66,29 @@ class DateRangeQuery(BaseModel):
     start_date: date | None = Field(default=None, examples=['2008-12-01'])
     end_date: date | None = Field(default=None, examples=['2008-12-14'])
 
-    def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
+    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str:
         return '{}_{}-{}{}.csv'.format(
-            '-'.join(pourpoint_name.split()),
+            '-'.join(triplet.split()),
             _bound(self.start_date),
             _bound(self.end_date),
             f'_zonal_{zone_size}' if zone_size else '',
+        )
+
+    @classmethod
+    def from_interval(cls, interval: _Interval | None) -> Self:
+        """Build from a parsed datetime interval (or ``None`` for no filter).
+
+        ``interval`` is duck-typed (``.start``/``.end``, each an optional
+        ``datetime``) so this accepts a real
+        :class:`gazebo.params.DatetimeInterval` from the CLI/API without this
+        module importing gazebo at runtime. Only the date component is kept --
+        the query filters on calendar date, not time of day.
+        """
+        if interval is None:
+            return cls()
+        return cls(
+            start_date=interval.start.date() if interval.start else None,
+            end_date=interval.end.date() if interval.end else None,
         )
 
     def select(self: Self, available: Iterable[date]) -> list[date]:
@@ -119,9 +150,9 @@ class DOYFields(BaseModel):
 class DOYQuery(DOYFields):
     type: Literal['DayOfYear'] = 'DayOfYear'
 
-    def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
+    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str:
         return '{}_{}-{}_{}-{}{}.csv'.format(
-            '-'.join(pourpoint_name.split()),
+            '-'.join(triplet.split()),
             self.month,
             self.day,
             self.start_year,

@@ -32,7 +32,7 @@ from gazebo.pagination import paginate_offset
 from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
-from snowtool.api.models.dataset import pourpoint_stats_links
+from snowtool.api.models.dataset import stats_links
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
@@ -105,17 +105,13 @@ def _pourpoint_stats_links(
     active datasets) whose coverage is FULL or PARTIAL -- a NONE dataset always
     409s, so its link would advertise a dead end. Each pair binds the triplet
     and carries the dataset name (see
-    :func:`snowtool.api.models.dataset.pourpoint_stats_links`). A point-only
-    pourpoint has no basin to query, so it gets none (defensive: such records
-    are not indexed, so the detail route cannot reach this today).
+    :func:`snowtool.api.models.dataset.stats_links`).
     """
-    if pourpoint.polygon is None:
-        return []
     return [
         link
         for name in sorted(coverage)
         if coverage[name] is not Coverage.NONE
-        for link in pourpoint_stats_links(name, pourpoint.station_triplet)
+        for link in stats_links(name, pourpoint.station_triplet)
     ]
 
 
@@ -174,13 +170,21 @@ def build_pourpoint_collection(
 
     items: list[PourpointFeature] = []
     for entry in page:
+        geometry: Point | Polygon | MultiPolygon
         if basin_geometry:
             # The index has no polygon by design; load the record for the basin.
-            # The entry is indexed (so basin-bearing), but `.polygon` stays
-            # Optional on the model -- fall back to the point to keep this total.
-            geometry = snowdb.load_pourpoint(entry.triplet, index=index).polygon or (
-                entry.point
-            )
+            # The entry is indexed, so the invariant (indexed => basin-bearing)
+            # guarantees `.polygon` is set; a `None` here is a data-integrity bug
+            # in the stored record, not a case to paper over by silently swapping
+            # in the point (a different geometry type than the client asked
+            # for) -- let it raise a bare, unmapped error (a genuine server 500,
+            # per the convention in api/exceptions.py) instead.
+            basin = snowdb.load_pourpoint(entry.triplet, index=index).polygon
+            if basin is None:
+                raise ValueError(
+                    f'Indexed pourpoint {entry.triplet!r} has no basin polygon.',
+                )
+            geometry = basin
         else:
             geometry = entry.point
         items.append(

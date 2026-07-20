@@ -17,17 +17,75 @@ from typing import TYPE_CHECKING
 
 from fastapi.responses import StreamingResponse
 from gazebo.link import Link
+from gazebo.negotiation import FormatEnum, f_description
+from gazebo.params import DatetimeQuery
 from gazebo.rels import MediaType, Rel
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from snowtool import types
-from snowtool.snowdb.query import DateRangeQuery, DOYQuery, PourPointQuery
+from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery, PourPointQuery
 from snowtool.snowdb.zonal_stat_models import CompactStats
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from snowtool.snowdb.zonal_stats import ZonalStats
+
+
+class _StatsFormat(FormatEnum):
+    """The ``?f=`` keys the stats route serves, each carrying its media type."""
+
+    json = 'json', 'application/json'
+    csv = 'csv', 'text/csv'
+
+
+_ZONE_DESC = (
+    'Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See '
+    'GET /datasets/{dataset} for the valid layer keys, override params, and '
+    'variables. Default: whole basin.'
+)
+_VARIABLE_DESC = (
+    'Variable to report (repeatable; default: all). Use a variable key from '
+    'GET /datasets/{dataset}.'
+)
+_ALLOW_PARTIAL_DESC = (
+    'Permit a basin only partially covered by the dataset grid (default false: a '
+    'partially-covered basin is a 409). A wholly off-grid basin always 409s.'
+)
+_INCLUDE_EMPTY_DESC = (
+    'Include crossed zones that no AOI pixel falls in (0 area, all values null). '
+    'By default these empty combinations are dropped. No effect on a whole-basin '
+    'query.'
+)
+_DATETIME_EXAMPLES = [
+    '2018-01-01/2018-06-30',
+    '2018-04-27',
+    '2018-01-01/..',
+    '../2018-06-30',
+]
+
+
+class _StatsQueryBase(BaseModel):
+    zone: list[str] = Field(default_factory=list, description=_ZONE_DESC)
+    variable: list[str] = Field(default_factory=list, description=_VARIABLE_DESC)
+    allow_partial: bool = Field(default=False, description=_ALLOW_PARTIAL_DESC)
+    include_empty_zones: bool = Field(default=False, description=_INCLUDE_EMPTY_DESC)
+    f: _StatsFormat | None = Field(
+        default=None,
+        description=f_description(_StatsFormat),
+    )
+
+
+class DateRangeStatsQuery(_StatsQueryBase):
+    datetime: DatetimeQuery = Field(
+        default=None,
+        examples=_DATETIME_EXAMPLES,
+        json_schema_extra={'example': _DATETIME_EXAMPLES[0]},
+    )
+
+
+class DOYStatsQuery(_StatsQueryBase, DOYFields):
+    pass
 
 
 class CompactStatsResponse(CompactStats):
