@@ -654,6 +654,41 @@ def test_dump_to_csv_keeps_empty_zones_when_requested():
     ]
 
 
+@pytest.mark.parametrize('include_empty_zones', [False, True])
+def test_iter_csv_matches_dump_to_csv(include_empty_zones):
+    # dump_to_csv is now just out.writelines(iter_csv(...)); pin that the
+    # generator's chunks concatenate to exactly what the buffered writer
+    # produces, for both the default-filtered and full-product cases.
+    stats = _two_band_stats()
+
+    out = io.StringIO()
+    stats.dump_to_csv(out, include_empty_zones=include_empty_zones)
+
+    assert ''.join(stats.iter_csv(include_empty_zones=include_empty_zones)) == (
+        out.getvalue()
+    )
+
+
+def test_iter_csv_validates_before_returning_the_generator():
+    # iter_csv is itself a plain function (not a generator) that validates then
+    # hands back the row generator, so an incomplete result errors on the call
+    # itself -- before any row is produced -- rather than lazily on first
+    # iteration. That is what lets stats_csv_response's StreamingResponse fail
+    # before it starts emitting the 200.
+    variable = _variable(Reducer.MEAN)
+    # No results added: the array stays -inf everywhere, which validate() rejects.
+    stats = ZonalStats(
+        _spec_with(variable),
+        {variable},
+        ('terrain.elevation',),
+        ((_band(0, 1000),),),
+        (_DUMP_DAY,),
+    )
+
+    with pytest.raises(ValueError, match='incomplete'):
+        stats.iter_csv()
+
+
 def test_dump_compact_whole_basin_cell_is_never_dropped():
     # The K=0 (unstratified) cell always has area and must survive the default filter.
     variable = _variable(Reducer.MEAN)

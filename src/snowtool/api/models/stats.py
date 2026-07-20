@@ -6,14 +6,12 @@ compact body (zone layers / variables / zones defined once, values positional) s
 there are no per-dataset field names and one OpenAPI schema covers them all.
 
 Content is negotiated (``?f=`` / ``Accept``): ``csv`` streams
-:meth:`ZonalStats.dump_to_csv` via :func:`stats_csv_response` with a
+:meth:`ZonalStats.iter_csv` via :func:`stats_csv_response` with a
 ``Content-Disposition`` filename from the query's ``csv_name``; the JSON envelope
 carries an ``alternate`` link to the CSV.
 """
 
 from __future__ import annotations
-
-import io
 
 from typing import TYPE_CHECKING
 
@@ -86,11 +84,14 @@ def stats_csv_response(
     *,
     include_empty_zones: bool = False,
 ) -> StreamingResponse:
-    """Stream a :class:`ZonalStats` as a CSV attachment named ``filename``."""
-    buffer = io.StringIO()
-    stats.dump_to_csv(buffer, include_empty_zones=include_empty_zones)
+    """Stream a :class:`ZonalStats` as a CSV attachment named ``filename``.
+
+    ``stats.iter_csv`` validates eagerly (before its first yield), so a bad
+    result object still errors here -- before the response starts -- rather
+    than mid-stream after the 200 headers are already sent.
+    """
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        stats.iter_csv(include_empty_zones=include_empty_zones),
         media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )

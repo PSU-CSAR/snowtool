@@ -7,7 +7,7 @@ per-dataset compiled one. Discovery lives in the dataset resource
 params, and variables; the ``zone`` query tokens mirror that shape
 (``LAYER[:PARAM=VALUE]``). Output is content-negotiated (``?f=json|csv`` or
 ``Accept``): ``json`` is the compact body (the default), ``csv`` streams the flat
-rows via :meth:`ZonalStats.dump_to_csv`.
+rows via :meth:`ZonalStats.iter_csv`.
 """
 
 from __future__ import annotations

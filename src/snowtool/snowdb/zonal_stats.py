@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import io
 import math
 
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ from snowtool.snowdb.zones.zone_layer import available_zones
 from snowtool.snowdb.zones.zoning import CategoricalZoneDescription, Zone
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
 
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.raster.tiff_cache import TiffCache
@@ -297,9 +298,33 @@ class ZonalStats:
         """
         return next(iter(self._cells_index))
 
-    def dump_to_csv(self: Self, out: IO, *, include_empty_zones: bool = False) -> None:
+    def iter_csv(self: Self, *, include_empty_zones: bool = False) -> Iterator[str]:
+        """Yield the CSV text for this result, one chunk (header or row) at a time.
+
+        Shares ``_zone_stats``/``_emitted_cells``/the ``csv_columns`` machinery with
+        :meth:`dump_to_csv`, so both produce byte-identical output. ``validate()``
+        runs eagerly -- before the first chunk is yielded -- rather than lazily on
+        first iteration, so a caller that starts streaming (e.g. the HTTP response)
+        still sees the error before any output goes out. Each row is formatted with
+        ``csv.writer`` into a small per-row buffer so quoting stays identical to a
+        one-shot dump; nothing here hand-formats CSV text.
+        """
         self.validate()
-        writer = csv.writer(out, quoting=csv.QUOTE_MINIMAL)
+        return self._iter_csv_rows(include_empty_zones=include_empty_zones)
+
+    def _iter_csv_rows(
+        self: Self,
+        *,
+        include_empty_zones: bool,
+    ) -> Iterator[str]:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
+
+        def _flush(row: list[str]) -> str:
+            buffer.seek(0)
+            buffer.truncate()
+            writer.writerow(row)
+            return buffer.getvalue()
 
         # One row per (date, crossed-zone cell). Each axis describes its own
         # columns (:meth:`Zone.csv_columns`): a structured axis (banded/threshold)
@@ -312,7 +337,7 @@ class ZonalStats:
             headers.extend(header for header, _ in zone.csv_columns(layer))
         headers.append('area_m2')
         headers.extend(variable.stat_name for variable in self._variables_index)
-        writer.writerow(headers)
+        yield _flush(headers)
 
         cells = list(self._cells_index)
         emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
@@ -336,7 +361,10 @@ class ZonalStats:
                     '' if math.isnan(value) else str(value)
                     for value in self._zone_stats(date_idx, cell_idx).values()
                 )
-                writer.writerow(row)
+                yield _flush(row)
+
+    def dump_to_csv(self: Self, out: IO, *, include_empty_zones: bool = False) -> None:
+        out.writelines(self.iter_csv(include_empty_zones=include_empty_zones))
 
     @classmethod
     async def calculate(
