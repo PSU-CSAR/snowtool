@@ -67,13 +67,9 @@ lives in :mod:`snowtool.snowdb.zones.generate_common`.
 from __future__ import annotations
 
 import math
-import os
-import sys
 import threading
 import warnings
 
-from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
@@ -96,6 +92,11 @@ from snowtool.snowdb.zones.generate_common import (
     finalize_and_stamp,
     pixel_centre_coords,
     require_absent_layers,
+)
+from snowtool.snowdb.zones.parallel import (
+    CancelToken,
+    effective_workers,
+    ordered_parallel_map,
 )
 from snowtool.snowdb.zones.terrain import (
     ASPECT_COMPONENT_NODATA,
@@ -153,14 +154,6 @@ COSSIN_SLOPE_WEIGHTED = False
 
 # Internal accumulator layout: four cardinal classes plus flat.
 _N_CLASSES = 5
-
-# Default cap on the *auto* worker count (``workers=None``): one thread per CPU but
-# never more than this. Beyond ~here the per-block reprojection stops scaling (reads
-# are serialised under a lock and the serial bin/reduce starts to bind) while memory
-# and lock contention keep climbing, so more threads mostly cost RAM. An explicit
-# ``workers`` is always honoured -- the caller owns that tradeoff (see the module
-# docstring's memory notes; ``block_size`` is the lever for bounding per-worker RAM).
-MAX_AUTO_WORKERS = 16
 
 
 def _slope_aspect(
@@ -459,7 +452,8 @@ def generate_terrain(
     the work grid (``work_crs`` at ``work_resolution`` metres). ``work_resolution``
     of ``None`` lets GDAL pick it from the source (right for an unknown local DEM);
     3DEP pins 10 m. ``workers`` of ``None`` uses one thread per CPU (capped at
-    :data:`MAX_AUTO_WORKERS`), ``1`` forces the serial path; ``block_size`` (``None``
+    :data:`~snowtool.snowdb.zones.parallel.MAX_AUTO_WORKERS`), ``1`` forces the serial
+    path; ``block_size`` (``None``
     -> :data:`DEFAULT_BLOCK_SIZE`) is the per-worker memory lever (see the module
     docstring). The result -- including the generation hash -- is independent of
     ``workers``. ``progress`` reports the per-block reprojection. Returns the one
@@ -469,7 +463,7 @@ def generate_terrain(
     if not targets:
         return {}
 
-    n_workers = _effective_workers(workers)
+    n_workers = effective_workers(workers)
     bs = block_size if block_size is not None else DEFAULT_BLOCK_SIZE
 
     if not force:
@@ -628,19 +622,6 @@ class _BlockResult:
     ]
 
 
-def _effective_workers(requested: int | None) -> int:
-    """Resolve the worker count.
-
-    ``requested`` of ``None`` means auto -- one thread per CPU, but never more than
-    :data:`MAX_AUTO_WORKERS`. ``1`` (or anything <= 1) means the serial path. An
-    explicit request is honoured as-is: the caller owns the memory tradeoff (bound
-    per-worker RAM with ``block_size``; see the module docstring). Always >= 1.
-    """
-    if requested is None:
-        return min(os.cpu_count() or 1, MAX_AUTO_WORKERS)
-    return max(1, requested)
-
-
 class _TerrainStreamer:
     """Streams one work grid in blocks, binning into every target accumulator.
 
@@ -655,6 +636,12 @@ class _TerrainStreamer:
     :class:`WarpedVRT` over it) is not safe for concurrent reads. The read is a small
     fraction of the per-block cost (the reprojection dominates and still runs fully in
     parallel), so serialising it costs little.
+
+    The parallel-map / serial-reduce machinery -- the sliding window, the warm-gate,
+    and the ctrl+c-proof teardown that guarantees no worker is left inside the
+    WarpedVRT the caller closes on return -- lives in
+    :mod:`snowtool.snowdb.zones.parallel`; ``run`` just wires ``_compute``/``_reduce``
+    into it.
     """
 
     def __init__(
@@ -681,10 +668,6 @@ class _TerrainStreamer:
         self._local = threading.local()
         # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
         self._read_lock = threading.Lock()
-        # Set when run() is aborting (e.g. ctrl+c): workers bail out before the
-        # read, so teardown waits on at most the one read already in flight
-        # instead of draining every queued block's (possibly network) read.
-        self._cancelled = threading.Event()
 
     def _blocks(self: Self) -> list[_Block]:
         bs = self._block_size
@@ -715,20 +698,20 @@ class _TerrainStreamer:
             self._local.tfs = tfs
         return tfs
 
-    def _compute(self: Self, block: _Block) -> _BlockResult | None:
+    def _compute(self: Self, block: _Block, cancel: CancelToken) -> _BlockResult | None:
         """Worker step: read, derive terrain, reproject. Pure, no shared writes.
 
         ``None`` means "no contribution" to the reducer -- true for an all-nodata
         block and for a block abandoned because the run is being cancelled.
         """
-        # Bail before queueing on the read lock: once run() is aborting, blocks
+        # Bail before queueing on the read lock: once the run is aborting, blocks
         # waiting their turn must not each still pay a read. The re-check under
         # the lock closes the race for a worker that passed the first check just
         # before cancellation and acquired the lock just after it.
-        if self._cancelled.is_set():
+        if cancel.cancelled:
             return None
         with self._read_lock:
-            if self._cancelled.is_set():
+            if cancel.cancelled:
                 return None
             z = _read_haloed_block(
                 self._wvrt,
@@ -800,95 +783,19 @@ class _TerrainStreamer:
         workers: int,
         progress: ProgressReporter = NULL_PROGRESS,
     ) -> None:
-        blocks = self._blocks()
-        # One bar over the whole pass; the serial, block-ordered reduce is the unit
-        # of visible progress (advance once per block, computed serial or parallel).
-        with progress.track('reprojecting DEM', total=len(blocks)) as task:
-            if workers <= 1:
-                for block in blocks:
-                    result = self._compute(block)
-                    if result is not None:
-                        self._reduce(result)
-                    task.advance()
-                return
+        """Stream every block through the ordered parallel-map engine.
 
-            # Parallel map, serial ordered reduce. A sliding window of at most
-            # ``workers`` in-flight futures keeps every worker fed while bounding the
-            # transient memory of buffered block results; popping left to right
-            # reduces in block order, so the accumulation stays deterministic.
-            # The pool is torn down by hand rather than as a context manager: on
-            # an interrupt, ``__exit__``'s plain ``shutdown(wait=True)`` would
-            # drain every queued block's read, and a second ctrl+c could abort
-            # the join entirely -- leaving a worker inside the WarpedVRT when the
-            # caller closes it (a use-after-free in GDAL).
-            pending = iter(blocks)
-            pool = ThreadPoolExecutor(max_workers=workers)
-            window: deque[Future[_BlockResult | None]] = deque()
-            # Opened by the teardown; warm-up tasks (below) block on it so that
-            # every worker thread exists before any block work is queued.
-            warm_gate = threading.Event()
-            try:
-                # Pre-start the full complement of worker threads on gated
-                # no-ops. A ctrl+c inside Thread.start can leak an OS thread the
-                # executor never registered (CPython registers a worker *after*
-                # starting it), and shutdown() never joins an unregistered
-                # thread -- confining thread starts to this warm-up, when only
-                # harmless gate-waits are queued, means a leaked thread can
-                # never be the one inside a block read. Afterwards the pool is
-                # at max_workers, so the submits below never start a thread.
-                for _ in range(workers):
-                    pool.submit(warm_gate.wait)
-                warm_gate.set()
-                for block in pending:
-                    window.append(pool.submit(self._compute, block))
-                    if len(window) >= workers:
-                        break
-                while window:
-                    result = window.popleft().result()
-                    if result is not None:
-                        self._reduce(result)
-                    task.advance()
-                    next_block = next(pending, None)
-                    if next_block is not None:
-                        window.append(pool.submit(self._compute, next_block))
-            finally:
-                self._teardown(pool, window, warm_gate)
-
-    def _teardown(
-        self: Self,
-        pool: ThreadPoolExecutor,
-        window: deque[Future[_BlockResult | None]],
-        warm_gate: threading.Event,
-    ) -> None:
-        """Join every worker, surviving any number of further ctrl+c presses.
-
-        The caller closes the WarpedVRT (and its GDAL source datasets) as soon
-        as run() unwinds, so no worker may still be reading when this returns --
-        this join is what stands between a ctrl+c and a use-after-free (SIGSEGV)
-        inside GDAL, and further ctrl+c presses must not be able to skip it: the
-        loop retries until the join completes uninterrupted. It catches
-        BaseException, not KeyboardInterrupt, because an interrupt landing
-        inside the wait/join internals can surface as a secondary error (e.g. a
-        RuntimeError from a broken Condition) that must not abort the join
-        either.
-
-        Cancelling first makes still-queued workers no-op instead of reading, so
-        the join waits on at most the one read already in flight. On a clean
-        exit nothing is in flight and the flag is inert.
+        The engine maps ``_compute`` (read + Horn + reproject; pure) over the blocks
+        on ``workers`` threads and folds each result through ``_reduce`` serially, in
+        block order, on this thread -- so the binning (and the generation hash) is
+        reproducible regardless of worker count, and no worker survives inside the
+        WarpedVRT after this returns. See :mod:`snowtool.snowdb.zones.parallel`.
         """
-        self._cancelled.set()
-        warm_gate.set()  # unblock warm-up no-ops so shutdown can join
-        interrupted = False
-        while True:
-            try:
-                wait(window)
-                pool.shutdown(wait=True, cancel_futures=True)
-            except BaseException:  # noqa: BLE001 -- see the docstring
-                interrupted = True
-                continue
-            break
-        # An interrupt swallowed by the retry loop must still surface -- unless
-        # one is already propagating out of run()'s try (raising here would
-        # replace it with a bare KeyboardInterrupt for nothing).
-        if interrupted and sys.exc_info()[1] is None:
-            raise KeyboardInterrupt
+        ordered_parallel_map(
+            self._blocks(),
+            self._compute,
+            self._reduce,
+            workers=workers,
+            progress=progress,
+            label='reprojecting DEM',
+        )

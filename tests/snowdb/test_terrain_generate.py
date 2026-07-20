@@ -7,7 +7,6 @@ keeps the reprojection a near-identity, so the geometry is exact.
 """
 
 import hashlib
-import os
 
 import numpy
 import pytest
@@ -36,9 +35,7 @@ from snowtool.snowdb.zones.terrain import (
     TerrainProvider,
 )
 from snowtool.snowdb.zones.terrain_generate import (
-    MAX_AUTO_WORKERS,
     _clip_grid_to_bounds,
-    _effective_workers,
     generate_terrain,
 )
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
@@ -418,20 +415,6 @@ def test_parallel_matches_serial_for_multiple_targets(tmp_path):
             strict=True,
         ):
             numpy.testing.assert_array_equal(s, p)
-
-
-def test_effective_workers_defaults_and_honors_explicit_request():
-
-    # An explicit request is honoured as-is -- no silent memory override.
-    assert _effective_workers(4) == 4
-    assert _effective_workers(64) == 64
-    # <= 1 is the serial path.
-    assert _effective_workers(1) == 1
-    assert _effective_workers(0) == 1
-    # None means auto: one thread per CPU, but never more than the cap.
-    auto = _effective_workers(None)
-    assert auto == min(os.cpu_count() or 1, MAX_AUTO_WORKERS)
-    assert 1 <= auto <= MAX_AUTO_WORKERS
 
 
 def test_clip_grid_to_bounds_shrinks_to_footprint_on_lattice():
