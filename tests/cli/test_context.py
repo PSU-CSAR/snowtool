@@ -49,20 +49,13 @@ def test_snowdb_without_config_is_a_clean_error(monkeypatch):
     assert 'No snowdb configured' in result.output
 
 
-def test_ambient_env_var_does_not_override_injected_config(
-    cli_obj,
-    tmp_path,
-    monkeypatch,
-):
-    # An exported SNOWTOOL_SNOWDB_CONFIG must not clobber an explicitly injected
-    # CliContext (cli_obj serves the synthetic 'test' dataset). Point the env var at a
-    # *different*, non-snowdb dir: the injected config must still win, so the command
-    # succeeds serving 'test' instead of failing to open the env path. Guards a
-    # maintainer running the suite with the env var exported (the normal way to use it).
-    elsewhere = tmp_path / 'elsewhere'
-    elsewhere.mkdir()  # a bare dir -> not a snowdb; opening it would error
-    monkeypatch.setenv('SNOWTOOL_SNOWDB_CONFIG', str(elsewhere))
-
+def test_no_ambient_env_var_leaves_injected_config_untouched(cli_obj):
+    # The suite's autouse `_no_ambient_snowdb_config` fixture (tests/cli/conftest.py)
+    # strips SNOWTOOL_SNOWDB_CONFIG for every CLI test, so an injected CliContext
+    # (cli_obj serves the synthetic 'test' dataset) is never clobbered by a
+    # maintainer's exported env var -- the case the old `_apply_config`
+    # env-vs-flag branch used to guard explicitly, now covered by never letting
+    # the ambient env var reach the test in the first place.
     result = CliRunner().invoke(
         cli,
         ['dataset', 'list', '--format', 'json'],
@@ -74,8 +67,8 @@ def test_ambient_env_var_does_not_override_injected_config(
 
 
 def test_explicit_config_flag_still_overrides_injected_config(cli_obj, tmp_path):
-    # The env var yields to an injected context, but an explicit --config flag wins:
-    # a *different* initialized (empty) root on the command line replaces cli_obj's.
+    # An explicit --config flag always wins over an injected CliContext: a
+    # *different* initialized (empty) root on the command line replaces cli_obj's.
     other = tmp_path / 'other'
     SnowDbManager.initialize(other)
 

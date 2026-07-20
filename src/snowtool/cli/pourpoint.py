@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli import _console
-from snowtool.cli._confirm import confirm_destructive
+from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
@@ -224,20 +224,19 @@ def remove_pourpoint(
     yes: bool,
 ) -> None:
     """Remove a stored pourpoint and its per-dataset rasters (cascade)."""
-    if dry_run:
-        present = manager.remove_pourpoint(triplet, dry_run=True)
-        click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
-        return
 
-    confirm_destructive(
+    def _remove(*, dry_run: bool = False) -> bool:
+        if dry_run:
+            return manager.remove_pourpoint(triplet, dry_run=True)
+        return manager.remove_pourpoint(triplet, progress=RichProgress())
+
+    run_removal(
+        triplet,
         f'Remove {triplet} and its per-dataset rasters?',
+        _remove,
+        dry_run=dry_run,
         yes=yes,
     )
-
-    if manager.remove_pourpoint(triplet, progress=RichProgress()):
-        click.echo(f'removed {triplet}')
-    else:
-        click.echo(f'{triplet}: absent (nothing removed)')
 
 
 @pourpoint.command('rasterize')

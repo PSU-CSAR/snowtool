@@ -21,7 +21,7 @@ from snowtool.exceptions import IncompleteDatasetDataError, QueryParameterError
 from snowtool.snowdb import triplet_naming
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     from affine import Affine
@@ -296,13 +296,29 @@ class VariableRange:
     nodata_pct: float
 
 
-def value_ranges_report(dataset: Dataset, d: date) -> list[VariableRange]:
-    """Per-variable min/max/mean (unit-scaled) and nodata % for date ``d``."""
+def value_ranges_report(
+    dataset: Dataset,
+    on_date: date | None = None,
+) -> list[VariableRange]:
+    """Per-variable min/max/mean (unit-scaled) and nodata % for ``on_date``.
+
+    ``on_date`` defaults to the dataset's latest ingested date; raises
+    :class:`~snowtool.exceptions.QueryParameterError` if the dataset has no
+    ingested dates (there is no "latest" to default to), or if the resolved
+    date has no variable files at all (nothing to report).
+    """
     import rasterio
+
+    name = dataset.spec.name
+    if on_date is None:
+        dates = dataset.available_dates()
+        if not dates:
+            raise QueryParameterError(f'{name} has no ingested dates')
+        on_date = dates[-1]
 
     findings: list[VariableRange] = []
     for _key, variable in sorted(dataset.spec.variables.items()):
-        path = dataset.variable_path(d, variable)
+        path = dataset.variable_path(on_date, variable)
         if path is None:
             continue
         with rasterio.open(path) as src:
@@ -324,6 +340,10 @@ def value_ranges_report(dataset: Dataset, d: date) -> list[VariableRange]:
                 mean=mean,
                 nodata_pct=nodata_pct,
             ),
+        )
+    if not findings:
+        raise QueryParameterError(
+            f'{name} has no variable files for {on_date.isoformat()}',
         )
     return findings
 
@@ -405,6 +425,26 @@ class DatasetInfoReport:
     date_count: int
     first_date: date | None
     last_date: date | None
+
+    def to_record(self) -> dict[str, object]:
+        """Flatten to the ``dataset info`` record: renamed/ISO-converted fields.
+
+        ``date_count`` -> ``dates`` (the CLI's public name); ``extent``/
+        ``variables`` to plain lists (json/csv-friendly); ``first_date``/
+        ``last_date`` to ISO strings (or ``None``). Table-only prose (the
+        geographic ``cell_area_m2`` placeholder, the collapsed elevation
+        bracket) is *not* applied here -- json/csv keep the typed fields, and
+        the CLI layers that prose on for the table format only.
+        """
+        from dataclasses import asdict
+
+        record = asdict(self)
+        record['extent'] = list(self.extent)
+        record['variables'] = list(self.variables)
+        record['dates'] = record.pop('date_count')
+        record['first_date'] = self.first_date.isoformat() if self.first_date else None
+        record['last_date'] = self.last_date.isoformat() if self.last_date else None
+        return record
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
@@ -522,3 +562,106 @@ def grid_validation_report(dataset: Dataset) -> list[str]:
                 f'COG {cog.name} transform {tuple(actual)[:6]}',
             )
     return issues
+
+
+# --- doctor: the health-check registry + uniform finding rows ----------------
+
+type _Finding = dict[str, str]
+
+
+def _finding(check: str, dataset: str, target: str, issue: str) -> _Finding:
+    return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
+
+
+def _grid_findings(dataset: Dataset) -> list[_Finding]:
+    name = dataset.spec.name
+    return [
+        _finding('grid', name, '', issue) for issue in grid_validation_report(dataset)
+    ]
+
+
+def _dates_findings(dataset: Dataset) -> list[_Finding]:
+    name = dataset.spec.name
+    return [
+        _finding(
+            'dates',
+            name,
+            inc.date.isoformat(),
+            f'missing {", ".join(inc.missing)}',
+        )
+        for inc in completeness_report(dataset)
+    ]
+
+
+def _files_findings(dataset: Dataset) -> list[_Finding]:
+    name = dataset.spec.name
+    findings = [
+        _finding('files', name, artifact, 'missing')
+        for artifact in missing_artifacts(dataset)
+    ]
+    findings.extend(
+        _finding(
+            'files',
+            name,
+            stale.provider,
+            f'stale zone-layer format (stored {stale.stored} != '
+            f'current {stale.expected})',
+        )
+        for stale in stale_format_zone_layers(dataset)
+    )
+    return findings
+
+
+def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[_Finding]:
+    name = dataset.spec.name
+    coverage = pourpoint_coverage_report(snowdb, dataset)
+    findings = [
+        _finding('pourpoints', name, triplet, issue)
+        for issue, triplets in (
+            ('no raster', coverage.unrasterized),
+            ('orphan raster', coverage.orphan_rasters),
+            ('partial coverage', coverage.partial),
+            ('no coverage', coverage.uncovered),
+        )
+        for triplet in triplets
+    ]
+    findings.extend(
+        _finding('pourpoints', name, issue.triplet, issue.issue)
+        for issue in aoi_health_report(dataset)
+    )
+    return findings
+
+
+# Only ``pourpoints`` needs the whole-db pourpoint registry to compare against;
+# the other three take just the dataset. Rather than have every check accept
+# (and ignore) a ``snowdb`` it has no use for -- the accidental-protocol wart
+# this replaces -- each entry is wrapped to the one uniform calling convention
+# :func:`health_findings` dispatches through, so the *bodies* stay honest about
+# what they read. Order is the ``doctor`` output/CLI-help order.
+HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[_Finding]]] = {
+    'grid': lambda _snowdb, dataset: _grid_findings(dataset),
+    'dates': lambda _snowdb, dataset: _dates_findings(dataset),
+    'files': lambda _snowdb, dataset: _files_findings(dataset),
+    'pourpoints': _pourpoints_findings,
+}
+
+# The valid check names, in ``doctor``'s output/default-sweep order.
+HEALTH_CHECK_NAMES: tuple[str, ...] = tuple(HEALTH_CHECKS)
+
+
+def health_findings(
+    snowdb: SnowDb,
+    dataset: Dataset,
+    checks: Iterable[str],
+) -> list[_Finding]:
+    """Run the named ``checks`` (see :data:`HEALTH_CHECK_NAMES`) against
+    ``dataset``, returning uniform finding rows for ``snowtool doctor``.
+
+    ``checks`` must already be validated against ``HEALTH_CHECK_NAMES`` -- an
+    unknown name raises a plain ``KeyError``, which the CLI never reaches
+    because it checks first (for a clean usage error rather than a traceback).
+    """
+    findings: list[_Finding] = []
+    for check in checks:
+        findings.extend(HEALTH_CHECKS[check](snowdb, dataset))
+    return findings

@@ -469,11 +469,19 @@ class SnowDb:
 
         Raises :class:`~snowtool.exceptions.UnknownDatasetError` (not
         ``KeyError``) for a name that is unregistered *or* registered but
-        inactive -- this surface serves only active datasets.
+        inactive -- this surface serves only active datasets. A
+        registered-but-inactive name gets a pointed "activate it" hint instead
+        of a generic miss, since the fix differs (every caller of this
+        surface -- the CLI's ``stats``, the HTTP API -- benefits identically).
         """
         try:
             return self.datasets[name]
         except KeyError:
+            if name in self.registered:
+                raise UnknownDatasetError(
+                    f'Dataset {name!r} is registered but inactive. '
+                    f"Activate it with 'snowtool dataset activate {name}'.",
+                ) from None
             active = ', '.join(sorted(self.datasets)) or '(none)'
             raise UnknownDatasetError(
                 f'No such dataset {name!r}. Active datasets: {active}.',

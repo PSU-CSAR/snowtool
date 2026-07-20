@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._render import FORMATS
-from snowtool.exceptions import UnknownDatasetError
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
@@ -51,34 +50,21 @@ dataset_option = click.option(
 )
 
 
-def get_dataset(
-    snowdb: SnowDb,
-    name: str,
-    *,
-    include_inactive: bool = True,
-) -> Dataset:
+def get_dataset(snowdb: SnowDb, name: str) -> Dataset:
     """Resolve a dataset by name, or raise a clean CLI error listing the options.
 
-    By default anything *registered* resolves -- the management/diagnostics
-    surface, where activation is irrelevant. ``include_inactive=False`` narrows
-    the lookup to active datasets (matching what the API serves; ``stats`` is
-    the one reader-surface caller); a registered-but-inactive name then gets a
-    pointed "activate it" error instead of a generic miss.
+    Anything *registered* resolves -- the management/diagnostics surface,
+    where activation is irrelevant (``stats`` is the one reader-surface
+    caller, and it resolves through ``SnowDb.__getitem__`` directly instead,
+    so its registered-but-inactive name gets that surface's own pointed
+    "activate it" hint).
     """
-    if include_inactive and name in snowdb.registered:
+    if name in snowdb.registered:
         return snowdb.registered[name]
-    try:
-        return snowdb[name]
-    except UnknownDatasetError as e:
-        if name in snowdb.registered:
-            raise click.ClickException(
-                f'Dataset {name!r} is registered but inactive. '
-                f"Activate it with 'snowtool dataset activate {name}'.",
-            ) from e
-        registered = ', '.join(sorted(snowdb.registered)) or '(none)'
-        raise click.ClickException(
-            f'No such dataset: {name!r}. Registered datasets: {registered}.',
-        ) from e
+    registered = ', '.join(sorted(snowdb.registered)) or '(none)'
+    raise click.ClickException(
+        f'No such dataset: {name!r}. Registered datasets: {registered}.',
+    )
 
 
 def resolve_datasets(

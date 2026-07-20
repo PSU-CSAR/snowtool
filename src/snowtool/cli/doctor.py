@@ -28,82 +28,9 @@ from snowtool.cli._render import _emit
 from snowtool.snowdb import diagnostics
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.db import SnowDb
 
 type _Finding = dict[str, str]
-
-
-def _finding(check: str, dataset: str, target: str, issue: str) -> _Finding:
-    return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
-
-
-def _check_grid(snowdb: SnowDb, ds: Dataset) -> list[_Finding]:
-    name = ds.spec.name
-    return [
-        _finding('grid', name, '', issue)
-        for issue in diagnostics.grid_validation_report(ds)
-    ]
-
-
-def _check_dates(snowdb: SnowDb, ds: Dataset) -> list[_Finding]:
-    name = ds.spec.name
-    return [
-        _finding(
-            'dates',
-            name,
-            inc.date.isoformat(),
-            f'missing {", ".join(inc.missing)}',
-        )
-        for inc in diagnostics.completeness_report(ds)
-    ]
-
-
-def _check_files(snowdb: SnowDb, ds: Dataset) -> list[_Finding]:
-    name = ds.spec.name
-    findings = [
-        _finding('files', name, artifact, 'missing')
-        for artifact in diagnostics.missing_artifacts(ds)
-    ]
-    findings.extend(
-        _finding(
-            'files',
-            name,
-            stale.provider,
-            f'stale zone-layer format (stored {stale.stored} != '
-            f'current {stale.expected})',
-        )
-        for stale in diagnostics.stale_format_zone_layers(ds)
-    )
-    return findings
-
-
-def _check_pourpoints(snowdb: SnowDb, ds: Dataset) -> list[_Finding]:
-    name = ds.spec.name
-    coverage = diagnostics.pourpoint_coverage_report(snowdb, ds)
-    findings = [
-        _finding('pourpoints', name, triplet, issue)
-        for issue, triplets in (
-            ('no raster', coverage.unrasterized),
-            ('orphan raster', coverage.orphan_rasters),
-            ('partial coverage', coverage.partial),
-            ('no coverage', coverage.uncovered),
-        )
-        for triplet in triplets
-    ]
-    findings.extend(
-        _finding('pourpoints', name, issue.triplet, issue.issue)
-        for issue in diagnostics.aoi_health_report(ds)
-    )
-    return findings
-
-
-CHECKS = {
-    'grid': _check_grid,
-    'dates': _check_dates,
-    'files': _check_files,
-    'pourpoints': _check_pourpoints,
-}
 
 
 @click.command('doctor')
@@ -136,13 +63,15 @@ def doctor(
       snowtool doctor
       snowtool doctor files pourpoints -d snodas --format json
     """
-    unknown = sorted(set(checks) - CHECKS.keys())
+    unknown = sorted(set(checks) - set(diagnostics.HEALTH_CHECK_NAMES))
     if unknown:
         raise click.ClickException(
             f'Unknown check(s): {", ".join(unknown)}. '
-            f'Known checks: {", ".join(CHECKS)}.',
+            f'Known checks: {", ".join(diagnostics.HEALTH_CHECK_NAMES)}.',
         )
-    selected = list(dict.fromkeys(checks)) if checks else list(CHECKS)
+    selected = (
+        list(dict.fromkeys(checks)) if checks else list(diagnostics.HEALTH_CHECK_NAMES)
+    )
     datasets = resolve_datasets(
         snowdb,
         dataset_names,
@@ -156,7 +85,7 @@ def doctor(
     ) as task:
         for ds in datasets:
             for check in selected:
-                findings.extend(CHECKS[check](snowdb, ds))
+                findings.extend(diagnostics.health_findings(snowdb, ds, [check]))
                 task.advance()
 
     _emit(findings, fmt)

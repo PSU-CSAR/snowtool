@@ -630,7 +630,9 @@ def test_getitem_raises_unknown_dataset_error_for_an_unregistered_name(tmp_path,
 
 def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spec):
     # __getitem__ serves only active datasets: a registered-but-inactive name is
-    # unresolvable from this surface too, not just a genuinely-unregistered one.
+    # unresolvable from this surface too, not just a genuinely-unregistered one --
+    # but it gets a pointed "activate it" hint instead of the generic miss, since
+    # the fix differs (this benefits every caller: CLI stats, the HTTP API).
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
     ds_dir = manager.db.dataset_dir(spec.name, config)
@@ -643,7 +645,10 @@ def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spe
 
     with pytest.raises(
         UnknownDatasetError,
-        match=r"No such dataset 'test'\. Active datasets: \(none\)\.",
+        match=(
+            r"Dataset 'test' is registered but inactive\. "
+            r"Activate it with 'snowtool dataset activate test'\."
+        ),
     ):
         db['test']
 

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._confirm import confirm_destructive
+from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import format_option, get_dataset
 from snowtool.cli._dates import DATE
@@ -67,19 +67,12 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     is the two numeric fields ``min_elevation_m``/``max_elevation_m`` in
     json/csv, rendered as ``MIN .. MAX`` prose in the table.
     """
-    from dataclasses import asdict
-
     from snowtool.snowdb.diagnostics import dataset_info_report
 
     ds = get_dataset(snowdb, name)
     report = dataset_info_report(snowdb, ds)
 
-    record = asdict(report)
-    record['extent'] = list(report.extent)
-    record['variables'] = list(report.variables)
-    record['dates'] = record.pop('date_count')
-    record['first_date'] = report.first_date.isoformat() if report.first_date else None
-    record['last_date'] = report.last_date.isoformat() if report.last_date else None
+    record = report.to_record()
     if fmt == 'table':
         # Prose forms belong to the table only -- json/csv keep the typed fields
         # (`cell_area_m2: float | None`, numeric `min/max_elevation_m`).
@@ -153,12 +146,6 @@ def dataset_values(
     from snowtool.snowdb import diagnostics
 
     ds = get_dataset(snowdb, name)
-    if on_date is None:
-        dates = ds.available_dates()
-        if not dates:
-            raise click.ClickException(f'{name} has no ingested dates')
-        on_date = dates[-1]
-
     rows = [
         {
             'variable': result.variable,
@@ -170,10 +157,6 @@ def dataset_values(
         }
         for result in diagnostics.value_ranges_report(ds, on_date)
     ]
-    if not rows:
-        raise click.ClickException(
-            f'{name} has no variable files for {on_date.isoformat()}',
-        )
     _emit(rows, fmt)
 
 
@@ -464,14 +447,13 @@ def remove_date(
     ds = manager.resolve_dataset(name)
     iso = removal_date.isoformat()
 
-    if dry_run:
-        present = ds.remove_date(removal_date, dry_run=True)
-        click.echo(f'would remove {name} {iso}' if present else f'{name} {iso}: absent')
-        return
+    def _remove(*, dry_run: bool = False) -> bool:
+        return ds.remove_date(removal_date, dry_run=dry_run)
 
-    confirm_destructive(f'Remove {name} {iso}? This deletes its COGs.', yes=yes)
-
-    if ds.remove_date(removal_date):
-        click.echo(f'removed {name} {iso}')
-    else:
-        click.echo(f'{name} {iso}: absent (nothing removed)')
+    run_removal(
+        f'{name} {iso}',
+        f'Remove {name} {iso}? This deletes its COGs.',
+        _remove,
+        dry_run=dry_run,
+        yes=yes,
+    )

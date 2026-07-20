@@ -21,8 +21,6 @@ from typing import TYPE_CHECKING, Concatenate
 
 import click
 
-from click.core import ParameterSource
-
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -141,20 +139,11 @@ def _apply_config(
     The callback behind :data:`config_option`: it runs during arg parsing (before
     the command body), so ``pass_snowdb``/``pass_manager`` and ``init`` read
     the resolved config off ``ctx.obj``. ``value`` is the flag or its
-    ``SNOWTOOL_SNOWDB_CONFIG`` env var (click resolves the envvar).
-
-    An explicit ``--config`` flag always wins; the env var only fills a context that
-    has no config yet. So neither ``None`` (neither set) nor a bare exported env var
-    disturbs a test's injected :class:`CliContext` -- otherwise a maintainer running
-    the CLI suite with ``SNOWTOOL_SNOWDB_CONFIG`` exported (the normal way to use the
-    tool) would have every injected-context command silently open that snowdb instead.
+    ``SNOWTOOL_SNOWDB_CONFIG`` env var (click resolves the envvar); a bare
+    ``None`` (neither set) leaves any injected :class:`CliContext` untouched.
     """
-    if value is None:
-        return value
-    obj = ctx.ensure_object(CliContext)
-    from_env = ctx.get_parameter_source(param.name) is ParameterSource.ENVIRONMENT
-    if obj.config is None or not from_env:
-        obj.config = value
+    if value is not None:
+        ctx.ensure_object(CliContext).config = value
     return value
 
 

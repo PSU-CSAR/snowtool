@@ -41,6 +41,20 @@ def _restore_console():
     _console.configure()
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_snowdb_config(monkeypatch):
+    """Strip a maintainer's exported ``SNOWTOOL_SNOWDB_CONFIG`` for every CLI test.
+
+    ``_apply_config`` (``cli/_context.py``) only ever *sets* ``CliContext.config``
+    from the env var -- it no longer special-cases "injected context, ambient env
+    var" -- so an env var exported in the shell running the suite would otherwise
+    leak into every real (non-injected) ``CliRunner().invoke(cli, ...)`` call here
+    (``test_context.py`` covers the injected-context case explicitly, with its own
+    ``monkeypatch.setenv``).
+    """
+    monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()

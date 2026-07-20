@@ -19,7 +19,7 @@ import click
 
 from snowtool.cli import _console
 from snowtool.cli._context import config_option, pass_snowdb
-from snowtool.cli._datasets import get_dataset, nested_format_option
+from snowtool.cli._datasets import nested_format_option
 from snowtool.cli._dates import parse_dates_query
 from snowtool.snowdb.reader import SnowDbReader
 
@@ -96,9 +96,6 @@ def stats(
       snowtool stats snodas 13120:CO:SNTL --dates 04-01 --years 2018..2024 \\
           --zone terrain.elevation --format json
     """
-    # get_dataset validates dataset_name/include_inactive up front for a clean CLI
-    # error; the reader re-resolves it internally to parse `--zone` tokens.
-    get_dataset(snowdb, dataset_name, include_inactive=False)
     date_query = parse_dates_query(dates, years)
 
     reader = SnowDbReader(snowdb)
