@@ -59,6 +59,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `SnowDbManager.rasterize_aois` or the `Dataset` method directly.
   `Dataset.create`'s `force` parameter is renamed `exist_ok` and made
   keyword-only, matching what it actually does (`mkdir(exist_ok=...)`).
+- **Behavior change:** `dataset create`/`stage_dataset` no longer pre-filters
+  wholly off-grid basins before rasterizing; it now hands every basin-bearing
+  pourpoint to the same `rasterize_aois` pass and lets that method's own
+  coverage check skip them. A basin entirely outside the new grid
+  (`Coverage.NONE`) is therefore now reported in the staged result's
+  `rasterized.skipped` (alongside already-current rasters) instead of being
+  silently omitted.
 
 ### Removed
 

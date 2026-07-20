@@ -21,11 +21,10 @@ from snowtool.exceptions import (
     GeoJSONValidationError,
     PourpointPruneDestinationRequiredError,
 )
-from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
+from snowtool.snowdb.pourpoint_index import PourpointIndex
 from snowtool.snowdb.progress import NULL_PROGRESS
 
 if TYPE_CHECKING:
@@ -95,8 +94,8 @@ class PourpointOpsMixin:
         the manifest always reflects the live grids.
         """
         domains = self._coverage_domains()
-        index = PourpointIndex.from_records(
-            self.db.pourpoint_records_path,
+        index = PourpointIndex.build(
+            self.db.pourpoint_paths(),
             domains,
             progress=progress,
         )
@@ -128,43 +127,15 @@ class PourpointOpsMixin:
         """
         domains = self._coverage_domains()
         previous = PourpointIndex.load(self.db.pourpoint_index_path)
-        paths = self.db.pourpoint_paths()
-        entries: list[PourpointIndexEntry] = []
-        with progress.track(
-            f'indexing {len(paths)} pourpoint(s)',
-            total=len(paths),
-        ) as task:
-            for path in paths:
-                triplet = triplet_naming.stem_to_triplet(path.stem)
-                if triplet in imported:
-                    entries.append(
-                        PourpointIndexEntry.from_pourpoint(imported[triplet], domains),
-                    )
-                elif triplet in previous and set(previous[triplet].coverage) == set(
-                    domains,
-                ):
-                    entries.append(previous[triplet])
-                else:
-                    pourpoint = Pourpoint.from_geojson(path)
-                    if pourpoint.polygon is not None:
-                        entries.append(
-                            PourpointIndexEntry.from_pourpoint(pourpoint, domains),
-                        )
-                task.advance()
-        index = PourpointIndex.from_entries(entries)
+        index = PourpointIndex.build(
+            self.db.pourpoint_paths(),
+            domains,
+            reuse=previous.entries,
+            preparsed=imported,
+            progress=progress,
+        )
         index.save(self.db.pourpoint_index_path)
         return index
-
-    def _stored_triplets(self: Self) -> set[types.StationTriplet]:
-        """Stored triplets read straight from record filenames (no geojson parse).
-
-        Record files are written named for the pourpoint's own triplet, so the filename
-        is authoritative -- cheaper than parsing every record for set diffs.
-        """
-        return {
-            triplet_naming.stem_to_triplet(path.stem)
-            for path in self.db.pourpoint_paths()
-        }
 
     def _resolve_sources(self: Self, src: Path) -> list[Path]:
         """A file SRC -> ``[src]``; a directory SRC -> its sorted ``*.geojson``."""
@@ -279,7 +250,7 @@ class PourpointOpsMixin:
         # source "has"; only stored triplets absent from that set are pruned.
         source_triplets = set(imported) | set(skipped)
         to_prune = sorted(
-            t for t in self._stored_triplets() if t not in source_triplets
+            t for t in self.db.pourpoint_triplets() if t not in source_triplets
         )
 
         if to_prune and not dry_run and prune_to is None:

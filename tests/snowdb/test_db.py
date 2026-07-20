@@ -322,8 +322,15 @@ def test_aois_parse_global_geojson(tmp_path, pourpoint_geojson):
 
 
 def test_aoi_triplets(tmp_path, pourpoint_geojson):
+    # Triplets are filename-derived (the record filename is authoritative), so
+    # the record must be named for its own triplet -- unlike test_aois_parse_
+    # global_geojson above, which proves content-based parsing works under an
+    # arbitrary filename.
     db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
-    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pourpoint.geojson')
+    shutil.copy(
+        pourpoint_geojson,
+        db.pourpoint_records_path / '12345_MT_USGS.geojson',
+    )
 
     assert db.pourpoint_triplets() == {'12345:MT:USGS'}
 

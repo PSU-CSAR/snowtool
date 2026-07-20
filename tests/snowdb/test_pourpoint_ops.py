@@ -98,7 +98,7 @@ def test_import_dir_classifies_imported_skipped_invalid(manager, tmp_path):
     assert result.imported == ['11111:MT:USGS']
     assert result.skipped == ['22222:MT:USGS']
     assert [p.name for p, _ in result.invalid] == ['bad.geojson']
-    assert manager._stored_triplets() == {'11111:MT:USGS'}
+    assert manager.db.pourpoint_triplets() == {'11111:MT:USGS'}
 
 
 def test_import_dry_run_writes_nothing(manager, db, pourpoint_geojson):
@@ -113,7 +113,7 @@ def test_import_is_idempotent(manager, pourpoint_geojson):
     manager.import_pourpoints(pourpoint_geojson)
     manager.import_pourpoints(pourpoint_geojson)
 
-    assert manager._stored_triplets() == {'12345:MT:USGS'}
+    assert manager.db.pourpoint_triplets() == {'12345:MT:USGS'}
 
 
 # --- malformed source classification (3a) ------------------------------------
@@ -278,7 +278,7 @@ def test_sync_without_prune_to_refuses_to_remove(manager, db, tmp_path):
         manager.sync_pourpoints(src)
 
     # Nothing was changed (the additive import did not run either).
-    assert manager._stored_triplets() == {'22222:MT:USGS'}
+    assert manager.db.pourpoint_triplets() == {'22222:MT:USGS'}
     assert not db.pourpoint_record_path('11111:MT:USGS').exists()
 
 
@@ -290,7 +290,7 @@ def test_sync_dry_run_reports_prune_without_removing(manager, tmp_path):
     result = manager.sync_pourpoints(src, dry_run=True)
 
     assert result.pruned == ['22222:MT:USGS']
-    assert manager._stored_triplets() == {'22222:MT:USGS'}  # unchanged
+    assert manager.db.pourpoint_triplets() == {'22222:MT:USGS'}  # unchanged
 
 
 # --- dump / remove / reindex -------------------------------------------------
@@ -665,12 +665,14 @@ def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, sp
     staged = manager.stage_dataset('other', config_path)
 
     # Coverage classifies both basins; only the (partially) served one burns.
+    # The wholly off-grid basin is still handed to rasterize_aois, whose own
+    # Coverage.NONE check skips it -- so it appears in `skipped`, not omitted.
     assert staged.coverage == {
         '33333:MT:USGS': Coverage.PARTIAL,
         '55555:MT:USGS': Coverage.NONE,
     }
     assert staged.rasterized.built == [('33333:MT:USGS', 'other')]
-    assert staged.rasterized.skipped == []
+    assert staged.rasterized.skipped == [('55555:MT:USGS', 'other')]
     aoi_dir = staged.dataset.path / 'aoi-rasters'
     assert (aoi_dir / '33333_MT_USGS.tif').is_file()
     assert not (aoi_dir / '55555_MT_USGS.tif').exists()

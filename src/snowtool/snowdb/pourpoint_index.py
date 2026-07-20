@@ -20,10 +20,13 @@ entry), so the load path guards those into clear errors.
 
 Maintenance is split two ways: import/sync/remove update the index *incrementally*
 (``SnowDbManager._update_index`` reuses an entry as-is while its record and the
-registered-dataset set are unchanged), while ``pourpoint reindex``
-(:meth:`PourpointIndex.from_records`) is the explicit FULL rebuild that ignores
-the persisted index -- the recovery path for out-of-band ``records/`` edits and
-for a grid change to an already-registered dataset name.
+registered-dataset set are unchanged), while ``pourpoint reindex`` is the explicit
+FULL rebuild that ignores the persisted index -- the recovery path for
+out-of-band ``records/`` edits and for a grid change to an already-registered
+dataset name. Both paths share one loop, :meth:`PourpointIndex.build`: a full
+rebuild calls it with no ``reuse``/``preparsed`` (so every record is parsed from
+disk), while the incremental path passes the previous index as ``reuse`` and any
+just-parsed pourpoints as ``preparsed``.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from geojson_pydantic import Feature, FeatureCollection, Point
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
+from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
 from snowtool.snowdb.pourpoint import Pourpoint
@@ -78,10 +82,11 @@ class PourpointIndexEntry(BaseModel):
     # can report it without parsing the (large) basin records.
     area_meters: float | None = None
     # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
-    # name. Derived: `PourpointIndex.from_records` recomputes it, registration
-    # folds a new dataset's key in, and incremental import/sync/remove reuse an
-    # entry only while its key set still matches the registered datasets -- so a
-    # grid change to an already-registered name needs a `pourpoint reindex`.
+    # name. Derived: a full rebuild (`PourpointIndex.build` with no `reuse`)
+    # recomputes it, registration folds a new dataset's key in, and incremental
+    # import/sync/remove reuse an entry only while its key set still matches the
+    # registered datasets -- so a grid change to an already-registered name
+    # needs a `pourpoint reindex`.
     coverage: dict[str, Coverage] = Field(default_factory=dict)
 
     @classmethod
@@ -151,37 +156,55 @@ class PourpointIndex:
         return cls({entry.triplet: entry for entry in entries})
 
     @classmethod
-    def from_records(
+    def build(
         cls: type[Self],
-        records_dir: Path,
+        paths: Iterable[Path],
         domains: Mapping[str, CoverageDomain],
         *,
+        reuse: Mapping[types.StationTriplet, PourpointIndexEntry] = {},
+        preparsed: Mapping[types.StationTriplet, Pourpoint] = {},
         progress: ProgressReporter = NULL_PROGRESS,
     ) -> Self:
-        """Rebuild the index by parsing every ``records/<triplet>.geojson``.
+        """Build an index over ``paths`` (one ``records/<triplet>.geojson`` each).
 
-        The FULL rebuild (any persisted index is ignored). Per-dataset coverage is
-        computed here against ``domains`` (dataset name ->
+        The one loop shared by the explicit FULL rebuild (``pourpoint reindex``,
+        called with no ``reuse``/``preparsed`` -- every record is parsed from
+        disk) and the incremental update after an import/sync/remove (called
+        with the previous index as ``reuse`` and this operation's just-parsed
+        pourpoints as ``preparsed``). Per record, in order: a triplet present in
+        ``preparsed`` is indexed from that in-memory :class:`Pourpoint` (no disk
+        re-parse); else a triplet present in ``reuse`` whose entry's coverage keys
+        still equal ``domains`` is kept as-is; else the record is parsed from disk
+        and indexed, skipping point-only pourpoints (no basin, nothing to cover,
+        no geometry hash to index). Per-dataset coverage for a freshly indexed
+        entry is computed against ``domains`` (dataset name ->
         :class:`~snowtool.snowdb.coverage.CoverageDomain`) so it stays derived:
-        rebuilding the index re-derives it, and a grid/domain change is picked up
-        by a plain ``pourpoint reindex``. Point-only pourpoints are skipped: with no
-        basin they have nothing to cover and no geometry hash to index. ``progress``
-        reports the pass, advancing once per record file.
+        a full rebuild re-derives it, and a grid/domain change is picked up by a
+        plain ``pourpoint reindex`` -- the one change a ``reuse`` hit cannot see
+        (its coverage keys match but the domain behind an unchanged name may have
+        moved). ``progress`` reports the pass, advancing once per path whether
+        reused, indexed from memory, or parsed.
         """
-        if not records_dir.is_dir():
-            return cls({})
-        paths = sorted(records_dir.glob('*.geojson'))
-        entries = []
+        paths = sorted(paths)
+        entries: list[PourpointIndexEntry] = []
         with progress.track(
             f'indexing {len(paths)} pourpoint(s)',
             total=len(paths),
         ) as task:
             for path in paths:
-                pourpoint = Pourpoint.from_geojson(path)
-                if pourpoint.polygon is not None:
+                triplet = triplet_naming.stem_to_triplet(path.stem)
+                if triplet in preparsed:
                     entries.append(
-                        PourpointIndexEntry.from_pourpoint(pourpoint, domains),
+                        PourpointIndexEntry.from_pourpoint(preparsed[triplet], domains),
                     )
+                elif triplet in reuse and set(reuse[triplet].coverage) == set(domains):
+                    entries.append(reuse[triplet])
+                else:
+                    pourpoint = Pourpoint.from_geojson(path)
+                    if pourpoint.polygon is not None:
+                        entries.append(
+                            PourpointIndexEntry.from_pourpoint(pourpoint, domains),
+                        )
                 task.advance()
         return cls.from_entries(entries)
 

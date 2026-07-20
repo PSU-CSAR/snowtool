@@ -109,8 +109,10 @@ class StagedDataset:
 
     ``dataset`` is the built (still-unregistered) :class:`Dataset`;
     ``created`` is whether this stage created the skeleton (vs. found an existing
-    one); ``rasterized`` is the AOI-raster pass over
-    the new grid; ``coverage`` is the per-pourpoint geometric coverage of the new
+    one); ``rasterized`` is the AOI-raster pass over the new grid --
+    ``rasterized.skipped`` includes both already-current rasters and basins
+    entirely off this grid (``Coverage.NONE``, which has no tile window to
+    burn); ``coverage`` is the per-pourpoint geometric coverage of the new
     grid, which the commit writes into the index so a reader sees real coverage
     without waiting for a reindex.
     """
@@ -437,15 +439,17 @@ class SnowDbManager(PourpointOpsMixin):
 
         ``progress`` reports each slow phase as a sequential tracked task: parsing
         the pourpoint records, the per-pourpoint coverage computation, and the
-        AOI rasterize pass. Coverage is computed *first* and only basins the new
-        grid can serve (``PARTIAL``/``FULL``) are rasterized -- an off-grid basin
-        has no window to burn, though its ``NONE`` coverage is still recorded so
-        the index reports it as off-grid. Converge-by-default, like
-        ingest: an existing skeleton is tolerated, and rasterization rebuilds an
-        AOI raster only when it is absent or its provenance tag reads stale (a
-        changed basin polygon or a format-version bump). A byte-level forced
-        rebuild is :meth:`rasterize_aois` with ``rebuild=True`` (the
-        ``pourpoint rasterize --rebuild`` command).
+        AOI rasterize pass. Coverage is computed *first* and recorded for every
+        basin-bearing pourpoint regardless of grid fit, but every one of them is
+        still handed to :meth:`rasterize_aois` -- an off-grid basin (``NONE``
+        coverage) has no window to burn, so *its own* ``Coverage.NONE`` check
+        skips it (reported in the returned ``rasterized.skipped``, alongside
+        already-current rasters), rather than this method filtering it out first.
+        Converge-by-default, like ingest: an existing skeleton is tolerated, and
+        rasterization rebuilds an AOI raster only when it is absent or its
+        provenance tag reads stale (a changed basin polygon or a format-version
+        bump). A byte-level forced rebuild is :meth:`rasterize_aois` with
+        ``rebuild=True`` (the ``pourpoint rasterize --rebuild`` command).
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
 
@@ -482,16 +486,12 @@ class SnowDbManager(PourpointOpsMixin):
                     domain,
                 )
                 task.advance()
-        # Coverage gates the burn: an off-grid basin (NONE) has no tile window
-        # on this grid, so only basins the grid at least partially serves are
-        # rasterized.
-        covered = [
-            pourpoint
-            for pourpoint in basin_pourpoints
-            if coverage[pourpoint.station_triplet] is not Coverage.NONE
-        ]
+        # Every basin-bearing pourpoint goes to rasterize_aois regardless of its
+        # just-computed coverage: an off-grid basin (NONE) has no tile window on
+        # this grid, so rasterize_aois's own Coverage.NONE check skips it (into
+        # `rasterized.skipped`) rather than this method pre-filtering it out.
         rasterized = self.rasterize_aois(
-            covered,
+            basin_pourpoints,
             [dataset],
             progress=progress,
         )

@@ -113,7 +113,7 @@ def test_pourpoints_check_flags_unrasterized(
     _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset)
     shutil.copy(
         pourpoint_geojson,
-        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
+        initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson',
     )
 
     result = _doctor(runner, cli_obj, 'pourpoints')
@@ -137,7 +137,7 @@ def test_pourpoints_check_clean_when_rasterized(
     # counts as an orphan against the registry.
     shutil.copy(
         pourpoint_geojson,
-        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
+        initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson',
     )
     cli_obj.snowdb['test'].rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
@@ -194,7 +194,7 @@ def test_rolls_up_dates_and_pourpoint_findings(
     # A pourpoint with no AOI raster (pourpoints finding).
     shutil.copy(
         pourpoint_geojson,
-        initialized_root / 'pourpoints' / 'records' / 'pp.geojson',
+        initialized_root / 'pourpoints' / 'records' / '12345_MT_USGS.geojson',
     )
 
     result = _doctor(runner, cli_obj)

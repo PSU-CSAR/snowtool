@@ -167,13 +167,13 @@ def test_entry_from_aoi_computes_per_dataset_coverage(pourpoint_geojson):
 # --- PourpointIndex ----------------------------------------------------------------
 
 
-def test_index_from_records_and_save_load_round_trip(tmp_path):
+def test_index_build_and_save_load_round_trip(tmp_path):
     records = tmp_path / 'records'
     records.mkdir()
     _write_pourpoint(records / 'b.geojson', triplet='20000:MT:USGS')
     _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
 
-    index = PourpointIndex.from_records(records, _grids())
+    index = PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
     assert index.triplets() == {'10000:MT:USGS', '20000:MT:USGS'}
     # Coverage is derived per dataset during the rebuild.
     assert index['10000:MT:USGS'].coverage == {
@@ -196,7 +196,7 @@ def test_index_from_records_and_save_load_round_trip(tmp_path):
     assert reloaded.entries == index.entries
 
 
-def test_index_from_records_skips_point_only_records(tmp_path):
+def test_index_build_skips_point_only_records(tmp_path):
     # A point-only pourpoint (no basin) in records/ must not crash reindex on
     # geometry_hash; it is simply not an AOI and is left out of the index.
     records = tmp_path / 'records'
@@ -208,12 +208,12 @@ def test_index_from_records_skips_point_only_records(tmp_path):
         with_polygon=False,
     )
 
-    index = PourpointIndex.from_records(records, _grids())
+    index = PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
     assert index.triplets() == {'10000:MT:USGS'}
 
 
-def test_index_from_records_empty_when_dir_absent(tmp_path):
-    assert PourpointIndex.from_records(tmp_path / 'nope', _grids()).triplets() == set()
+def test_index_build_empty_over_no_paths(tmp_path):
+    assert PourpointIndex.build([], _grids()).triplets() == set()
 
 
 def test_index_load_missing_file_is_empty(tmp_path):

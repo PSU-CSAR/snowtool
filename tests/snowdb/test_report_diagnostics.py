@@ -157,7 +157,10 @@ def test_pourpoint_coverage_unrasterized_then_covered(
     SnowDbManager.initialize(tmp_path, [spec])
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
-    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pp.geojson')
+    shutil.copy(
+        pourpoint_geojson,
+        db.pourpoint_records_path / '12345_MT_USGS.geojson',
+    )
 
     before = diagnostics.pourpoint_coverage_report(db, ds)
     assert before.unrasterized == ('12345:MT:USGS',)

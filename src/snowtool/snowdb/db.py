@@ -315,8 +315,13 @@ class SnowDb:
             yield Pourpoint.from_geojson(path)
 
     def pourpoint_triplets(self: Self) -> set[types.StationTriplet]:
-        """The station triplets of every stored pourpoint (parsed from the id)."""
-        return {pp.station_triplet for pp in self.pourpoints()}
+        """The station triplets of every stored pourpoint, read from filenames.
+
+        Record files are written named for the pourpoint's own triplet, so the
+        filename is authoritative -- cheaper than parsing every record just for
+        the triplet set (e.g. for set diffs or a coverage report).
+        """
+        return {triplet_naming.stem_to_triplet(p.stem) for p in self.pourpoint_paths()}
 
     def pourpoint_record_path(self: Self, triplet: types.StationTriplet) -> Path:
         """The canonical ``records/<triplet>.geojson`` path (``:`` -> ``_``)."""
@@ -334,7 +339,7 @@ class SnowDb:
         """Parse the stored record for an *indexed* pourpoint ``triplet``.
 
         The index is the availability gate: only basin-bearing pourpoints are
-        indexed (``PourpointIndex.from_records`` skips point-only ones), so a
+        indexed (``PourpointIndex.build`` skips point-only ones), so a
         triplet absent from the index -- a point-only record or anything dropped
         into ``records/`` out of band without a ``pourpoint reindex`` -- is not
         served and raises :class:`PourpointNotFoundError`. Callers already holding
