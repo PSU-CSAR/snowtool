@@ -56,7 +56,8 @@ class CategoricalZoneInfo(CategoricalZoneDescription):
     key: str = Field(examples=['terrain.aspect'])
 
 
-# A stratifiable zone layer, discriminated on the scheme ``kind`` -- so the
+# A stratifiable zone layer, discriminated on ``kind`` (inherited from the
+# domain description each Info class subclasses) -- so the
 # OpenAPI schema states the real per-kind contract (``classes`` exists iff
 # categorical, ``param``/``default`` iff overridable) instead of advertising
 # every field as nullable. Each member is the domain description plus a registry

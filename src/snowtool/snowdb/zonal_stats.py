@@ -299,7 +299,7 @@ class ZonalStats:
         return next(iter(self._cells_index))
 
     def iter_csv(self: Self, *, include_empty_zones: bool = False) -> Iterator[str]:
-        """Yield the CSV text for this result, one chunk (header or row) at a time.
+        """Return an iterator over CSV chunks for this result (one header or row each).
 
         Shares ``_zone_stats``/``_emitted_cells``/the ``csv_columns`` machinery with
         :meth:`dump_to_csv`, so both produce byte-identical output. ``validate()``

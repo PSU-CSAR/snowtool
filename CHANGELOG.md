@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `zone` or `variable` value is now a `422` (raised by the shared zone-selection
   parser) rather than the previous `400` (schema-level enum rejection on the
   old per-dataset query model).
+- **Breaking (error codes):** on the day-of-year stats endpoint, an
+  impossible calendar day (e.g. Feb 30) or an inverted year span is now a
+  `400` `/problems/malformed-query-parameter` (FastAPI-native request
+  validation) rather than the previous `422` (round-tripped through
+  `QueryParameterError`). This moves the opposite direction from the
+  zone/variable change above because it's a different class of parameter
+  error: malformed request-scope input, not an unresolvable domain value.
 - **Breaking (`dataset info` output):** the `json`/`csv` forms are now typed
   and machine-stable: `cell_area_m2` is `null` (not the prose string
   `"varies (geographic)"`) on a geographic grid, and the elevation bracket is
