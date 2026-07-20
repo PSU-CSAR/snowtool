@@ -16,10 +16,11 @@ from datetime import date
 
 import pytest
 
-from snowtool.exceptions import PourpointCoverageError
+from snowtool.exceptions import PourpointCoverageError, QueryParameterError
 from snowtool.snowdb.query import DateRangeQuery
 from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.reader import SnowDbReader
+from snowtool.snowdb.zonal_stats import ZoneSelection
 
 from ..conftest import SWE_VALUE, populate_synthetic_root
 
@@ -52,6 +53,57 @@ def test_reader_whole_basin_zonal_stats(reader):
     assert zone.area_m2 > 0
     (matrix,) = compact.results.values()
     assert matrix == [[pytest.approx(SWE_VALUE)]]
+
+
+def test_reader_zone_tokens_parse_to_same_stats_as_zone_selections(reader):
+    # zone_tokens is the CLI/HTTP string-token entry point; it must reduce to the
+    # exact same stats as passing the equivalent ZoneSelection directly.
+    from_tokens = asyncio.run(
+        reader.zonal_stats(
+            TRIPLET,
+            'test',
+            QUERY,
+            variable_keys=['swe'],
+            zone_tokens=['terrain.elevation:band_step_ft=500'],
+        ),
+    )
+    from_selections = asyncio.run(
+        SnowDbReader(reader.db).zonal_stats(
+            TRIPLET,
+            'test',
+            QUERY,
+            variable_keys=['swe'],
+            zone_selections=[ZoneSelection('terrain.elevation', 500)],
+        ),
+    )
+    assert from_tokens.dump_compact() == from_selections.dump_compact()
+
+
+def test_reader_zone_tokens_unknown_layer_raises_query_parameter_error(reader):
+    with pytest.raises(QueryParameterError, match='Unknown zone layer'):
+        asyncio.run(
+            reader.zonal_stats(
+                TRIPLET,
+                'test',
+                QUERY,
+                variable_keys=['swe'],
+                zone_tokens=['nope.nope'],
+            ),
+        )
+
+
+def test_reader_zone_tokens_and_zone_selections_are_mutually_exclusive(reader):
+    with pytest.raises(ValueError, match='zone_selections or zone_tokens'):
+        asyncio.run(
+            reader.zonal_stats(
+                TRIPLET,
+                'test',
+                QUERY,
+                variable_keys=['swe'],
+                zone_selections=[ZoneSelection('terrain.elevation')],
+                zone_tokens=['terrain.elevation'],
+            ),
+        )
 
 
 def test_reader_unknown_variable_is_clean_error(reader):

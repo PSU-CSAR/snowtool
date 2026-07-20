@@ -16,6 +16,7 @@ use it -- the API at app-lifespan scope, the CLI inside its ``asyncio.run``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -98,6 +99,7 @@ class SnowDbReader:
         *,
         variable_keys: Iterable[str] | None = None,
         zone_selections: Sequence[ZoneSelection] = (),
+        zone_tokens: Sequence[str] = (),
         allow_partial: bool = False,
     ) -> ZonalStats:
         """Compute zonal statistics for one AOI over one dataset.
@@ -107,13 +109,28 @@ class SnowDbReader:
         requested variables, builds the raster collection for ``query``, and runs
         the crossed-zone reduction over the reader's cache. ``variable_keys``
         defaults to every variable the dataset defines; ``zone_selections`` defaults
-        to none (a whole-basin reduction). Raises a clean error when the
+        to none (a whole-basin reduction). ``zone_tokens`` is the CLI/HTTP
+        ``LAYER[:PARAM=VALUE]`` string form -- parsed here (building the zone
+        registry once via :func:`~snowtool.snowdb.zones.zone_layer.available_zones`
+        and mapping each token through
+        :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection`) so callers never
+        touch the registry themselves. ``zone_selections`` and ``zone_tokens`` are
+        mutually exclusive -- passing both is a caller bug and raises
+        :class:`ValueError`, not a user-facing error. Raises a clean error when the
         dataset/variable is unknown, the pourpoint is not covered
         (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
         has not been rasterized (:class:`FileNotFoundError`).
         """
         from snowtool.snowdb.raster.collection import RasterCollection
-        from snowtool.snowdb.zonal_stats import ZonalStats
+        from snowtool.snowdb.zonal_stats import ZonalStats, parse_zone_selection
+        from snowtool.snowdb.zones.zone_layer import available_zones
+
+        if zone_selections and zone_tokens:
+            raise ValueError(
+                'Pass zone_selections or zone_tokens, not both '
+                '(zone_tokens is for string-token callers; zone_selections is '
+                'for programmatic ones).',
+            )
 
         dataset = self.db[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
@@ -123,6 +140,12 @@ class SnowDbReader:
             dataset_name,
             allow_partial=allow_partial,
         )
+
+        if zone_tokens:
+            registry = available_zones(dataset.providers.values())
+            zone_selections = [
+                parse_zone_selection(token, registry) for token in zone_tokens
+            ]
 
         variables = self._resolve_variables(dataset, variable_keys)
         aoi_raster = dataset.load_aoi_raster(triplet)
@@ -160,3 +183,34 @@ class SnowDbReader:
         )
 
         return stats
+
+    def zonal_stats_sync(
+        self: Self,
+        triplet: types.StationTriplet,
+        dataset_name: str,
+        query: DateQuery,
+        *,
+        variable_keys: Iterable[str] | None = None,
+        zone_selections: Sequence[ZoneSelection] = (),
+        zone_tokens: Sequence[str] = (),
+        allow_partial: bool = False,
+    ) -> ZonalStats:
+        """Synchronous facade over :meth:`zonal_stats`: ``asyncio.run``, nothing else.
+
+        For callers with no running loop -- the CLI ``stats`` command -- so they
+        need no ``asyncio.run``/closure ceremony of their own. The reader's cache is
+        loop-affine (bound to the loop that first awaits it), so this is for a
+        fresh reader used once; do not call this and then await :meth:`zonal_stats`
+        on the same instance from a different loop.
+        """
+        return asyncio.run(
+            self.zonal_stats(
+                triplet,
+                dataset_name,
+                query,
+                variable_keys=variable_keys,
+                zone_selections=zone_selections,
+                zone_tokens=zone_tokens,
+                allow_partial=allow_partial,
+            ),
+        )

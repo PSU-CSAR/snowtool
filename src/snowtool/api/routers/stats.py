@@ -28,15 +28,12 @@ from snowtool.api.models.stats import CompactStatsResponse, stats_csv_response
 from snowtool.api.tags import Tags
 from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery
-from snowtool.snowdb.zonal_stats import parse_zone_selection
-from snowtool.snowdb.zones.zone_layer import available_zones
 
 if TYPE_CHECKING:
     from gazebo.negotiation import Representation
     from gazebo.params import DatetimeInterval
 
     from snowtool.snowdb.reader import SnowDbReader
-    from snowtool.snowdb.zonal_stats import ZoneSelection
 
 
 class _StatsFormat(FormatEnum):
@@ -125,23 +122,18 @@ async def _run(
     params: _StatsQueryBase,
     rep: Representation,
 ) -> CompactStatsResponse | StreamingResponse:
-    resolved = reader.db[dataset]
-    registry = available_zones(resolved.providers.values())
-    selections: list[ZoneSelection] = [
-        parse_zone_selection(token, registry) for token in params.zone
-    ]
     stats = await reader.zonal_stats(
         triplet,
         dataset,
         query,
         variable_keys=params.variable or None,
-        zone_selections=selections,
+        zone_tokens=params.zone,
         allow_partial=params.allow_partial,
     )
     if rep.key == 'csv':
         return stats_csv_response(
             stats,
-            query.csv_name(triplet, zone_size=len(selections)),
+            query.csv_name(triplet, zone_size=len(params.zone)),
             include_empty_zones=params.include_empty_zones,
         )
     return CompactStatsResponse.build(

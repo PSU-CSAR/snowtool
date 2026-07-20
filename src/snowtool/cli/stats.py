@@ -10,7 +10,6 @@ the two query surfaces share one syntax (see :mod:`snowtool.cli._dates`).
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 
@@ -22,12 +21,10 @@ from snowtool.cli import _console
 from snowtool.cli._context import config_option, pass_snowdb
 from snowtool.cli._datasets import get_dataset, nested_format_option
 from snowtool.cli._dates import parse_dates_query
-from snowtool.snowdb.zonal_stats import parse_zone_selection
-from snowtool.snowdb.zones.zone_layer import available_zones
+from snowtool.snowdb.reader import SnowDbReader
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.zonal_stats import ZonalStats
 
 
 @click.command('stats')
@@ -99,33 +96,21 @@ def stats(
       snowtool stats snodas 13120:CO:SNTL --dates 04-01 --years 2018..2024 \\
           --zone terrain.elevation --format json
     """
-    dataset = get_dataset(snowdb, dataset_name, include_inactive=False)
+    # get_dataset validates dataset_name/include_inactive up front for a clean CLI
+    # error; the reader re-resolves it internally to parse `--zone` tokens.
+    get_dataset(snowdb, dataset_name, include_inactive=False)
     date_query = parse_dates_query(dates, years)
 
-    registry = available_zones(dataset.providers.values())
-    # The CLI's ``LAYER[:PARAM=VALUE]`` string tokens and the HTTP API's ``zone``
-    # query params both parse through :func:`parse_zone_selection` into the same
-    # ``list[ZoneSelection]`` (see ``api.routers.stats._run``); only the input
-    # shape differs.
-    selections = [parse_zone_selection(token, registry) for token in zones]
-
-    async def run() -> ZonalStats:
-        # Build the reader inside the loop that will use it: the cache it owns is
-        # loop-affine (alru_cache binds to the loop that first awaits it).
-        from snowtool.snowdb.reader import SnowDbReader
-
-        reader = SnowDbReader(snowdb)
-        return await reader.zonal_stats(
+    reader = SnowDbReader(snowdb)
+    with _console.err().status(f'querying {dataset_name} for {triplet}...'):
+        result = reader.zonal_stats_sync(
             triplet,
             dataset_name,
             date_query,
             variable_keys=variables or None,
-            zone_selections=selections,
+            zone_tokens=zones,
             allow_partial=allow_partial,
         )
-
-    with _console.err().status(f'querying {dataset_name} for {triplet}...'):
-        result = asyncio.run(run())
 
     if fmt == 'json':
         # Always pretty-printed: this is the human-facing surface, and it is
