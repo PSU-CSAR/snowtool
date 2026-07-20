@@ -635,10 +635,14 @@ class Dataset:
             cogs=self._cogs.is_dir(),
         )
 
-    def remove_date(self: Self, d: date) -> bool:
-        """Delete a date's ``cogs/<YYYYMMDD>/`` directory; True if it existed."""
+    def remove_date(self: Self, d: date, *, dry_run: bool = False) -> bool:
+        """Delete a date's ``cogs/<YYYYMMDD>/`` directory; True if it existed.
+
+        ``dry_run`` reports whether the date dir exists without deleting it.
+        """
         date_dir = self.date_dir(d)
         if not date_dir.is_dir():
             return False
-        shutil.rmtree(date_dir)
+        if not dry_run:
+            shutil.rmtree(date_dir)
         return True

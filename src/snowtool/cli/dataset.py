@@ -485,7 +485,7 @@ def remove_date(
     iso = removal_date.isoformat()
 
     if dry_run:
-        present = removal_date in ds.available_dates()
+        present = ds.remove_date(removal_date, dry_run=True)
         click.echo(f'would remove {name} {iso}' if present else f'{name} {iso}: absent')
         return
 

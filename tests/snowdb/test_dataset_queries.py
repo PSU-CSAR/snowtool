@@ -87,6 +87,13 @@ def test_remove_absent_date_is_a_noop(dataset):
     assert dataset.remove_date(date(2018, 1, 1)) is False
 
 
+def test_remove_date_dry_run_reports_without_deleting(dataset):
+    (dataset._cogs / '20180101').mkdir()
+
+    assert dataset.remove_date(date(2018, 1, 1), dry_run=True) is True
+    assert (dataset._cogs / '20180101').is_dir()
+
+
 def test_artifact_status_for_created_projected_dataset(tmp_path):
     # No area raster is tracked for any grid -- the AOI raster carries cell area.
 

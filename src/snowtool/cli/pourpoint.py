@@ -225,7 +225,7 @@ def remove_pourpoint(
 ) -> None:
     """Remove a stored pourpoint and its per-dataset rasters (cascade)."""
     if dry_run:
-        present = manager.db.pourpoint_record_path(triplet).is_file()
+        present = manager.remove_pourpoint(triplet, dry_run=True)
         click.echo(f'would remove {triplet}' if present else f'{triplet}: absent')
         return
 
