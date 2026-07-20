@@ -28,7 +28,11 @@ from typing import TYPE_CHECKING, Self
 from pydantic import ValidationError
 
 from snowtool import types
-from snowtool.exceptions import PourpointNotFoundError, SnowDbConfigError
+from snowtool.exceptions import (
+    PourpointNotFoundError,
+    SnowDbConfigError,
+    UnknownDatasetError,
+)
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
@@ -419,10 +423,15 @@ class SnowDb:
         in the entry's ``coverage`` dict; that reads as
         :attr:`~snowtool.snowdb.coverage.Coverage.NONE` (no coverage) rather than
         an error, so a not-yet-recomputed dataset degrades to "off grid" instead
-        of a 500. Raises only if the dataset is unknown or the pourpoint unindexed.
+        of a 500. Raises :class:`~snowtool.exceptions.UnknownDatasetError` if the
+        dataset is unknown, or :class:`~snowtool.exceptions.PourpointNotFoundError`
+        if the pourpoint is unindexed.
         """
         if dataset_name not in self.datasets:
-            raise KeyError(dataset_name)
+            active = ', '.join(sorted(self.datasets)) or '(none)'
+            raise UnknownDatasetError(
+                f'No such dataset {dataset_name!r}. Active datasets: {active}.',
+            )
         index = self.pourpoint_index()
         if triplet not in index:
             raise PourpointNotFoundError(
@@ -477,7 +486,19 @@ class SnowDb:
         return dest
 
     def __getitem__(self: Self, name: str) -> Dataset:
-        return self.datasets[name]
+        """Look up active dataset ``name``.
+
+        Raises :class:`~snowtool.exceptions.UnknownDatasetError` (not
+        ``KeyError``) for a name that is unregistered *or* registered but
+        inactive -- this surface serves only active datasets.
+        """
+        try:
+            return self.datasets[name]
+        except KeyError:
+            active = ', '.join(sorted(self.datasets)) or '(none)'
+            raise UnknownDatasetError(
+                f'No such dataset {name!r}. Active datasets: {active}.',
+            ) from None
 
     def __iter__(self: Self) -> Iterator[str]:
         return iter(self.datasets)

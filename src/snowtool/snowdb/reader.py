@@ -115,7 +115,7 @@ class SnowDbReader:
         from snowtool.snowdb.raster.collection import RasterCollection
         from snowtool.snowdb.zonal_stats import ZonalStats
 
-        dataset = self.db.datasets[dataset_name]
+        dataset = self.db[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
         # served footprint (fully, unless allow_partial), checked before any read.
         coverage = self.db.require_pourpoint_coverage(

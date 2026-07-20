@@ -4,7 +4,6 @@ from gazebo.ext.fastapi import GazeboRouter
 
 from snowtool.api.dependencies import CatalogDb
 from snowtool.api.models.dataset import DatasetInfo, DatasetList
-from snowtool.api.problems import DATASET_NOT_FOUND
 from snowtool.api.tags import Tags
 
 router: GazeboRouter = GazeboRouter()
@@ -17,8 +16,5 @@ async def list_datasets(snowdb: CatalogDb) -> DatasetList:
 
 @router.get('/datasets/{dataset}', name='get_dataset', tags=[Tags.DATASETS])
 async def get_dataset(dataset: str, snowdb: CatalogDb) -> DatasetInfo:
-    try:
-        bound = snowdb[dataset]
-    except KeyError as e:
-        raise DATASET_NOT_FOUND.exception(detail=f'No such dataset: {dataset!r}') from e
+    bound = snowdb[dataset]
     return DatasetInfo.from_dataset(bound)

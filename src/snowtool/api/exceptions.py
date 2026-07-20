@@ -10,6 +10,7 @@ still surfaces as a 500. Each maps onto a registered :class:`ProblemType` (see
 * :class:`PourpointCoverageError` -> 409 (the AOI is not covered by the dataset grid)
 * :class:`PourpointNotFoundError` -> 404 (no stored AOI record for the triplet)
 * :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
+* :class:`UnknownDatasetError` -> 404 (the dataset name is unregistered or inactive)
 * :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)
 * :class:`IncompleteDatasetDataError` -> 500 (server data integrity: a missing or
   duplicated variable COG for the requested date). Kept 500-class deliberately --
@@ -31,6 +32,7 @@ from snowtool.exceptions import (
     PourpointCoverageError,
     PourpointNotFoundError,
     QueryParameterError,
+    UnknownDatasetError,
 )
 
 if TYPE_CHECKING:
@@ -58,6 +60,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         PourpointCoverageError: problems.POURPOINT_NOT_COVERED,
         PourpointNotFoundError: problems.POURPOINT_NOT_FOUND,
         AOIRasterNotFoundError: problems.AOI_RASTER_NOT_FOUND,
+        UnknownDatasetError: problems.DATASET_NOT_FOUND,
         QueryParameterError: problems.INVALID_QUERY_PARAMETER,
         IncompleteDatasetDataError: problems.INCOMPLETE_DATASET_DATA,
     }

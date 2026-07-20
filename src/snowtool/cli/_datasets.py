@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._render import FORMATS
+from snowtool.exceptions import UnknownDatasetError
 
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
@@ -68,7 +69,7 @@ def get_dataset(
         return snowdb.registered[name]
     try:
         return snowdb[name]
-    except KeyError as e:
+    except UnknownDatasetError as e:
         if name in snowdb.registered:
             raise click.ClickException(
                 f'Dataset {name!r} is registered but inactive. '

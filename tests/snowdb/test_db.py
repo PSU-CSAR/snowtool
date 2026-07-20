@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy
 import pytest
 
-from snowtool.exceptions import SnowDbConfigError
+from snowtool.exceptions import SnowDbConfigError, UnknownDatasetError
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -341,8 +341,8 @@ def test_coverage_fallback_none_for_dataset_predating_index(
     assert db.pourpoint_dataset_coverage('12345:MT:USGS', 'other') is Coverage.NONE
     # The dataset the index knows still returns its real coverage.
     assert db.pourpoint_dataset_coverage('12345:MT:USGS', 'test') is Coverage.FULL
-    # A genuinely-unknown (unregistered) dataset is still a programming error.
-    with pytest.raises(KeyError):
+    # A genuinely-unknown (unregistered) dataset still raises.
+    with pytest.raises(UnknownDatasetError):
         db.pourpoint_dataset_coverage('12345:MT:USGS', 'unregistered')
 
 
@@ -601,6 +601,36 @@ def test_inactive_dataset_is_registered_but_not_served(tmp_path, spec):
     reopened = SnowDb.open(tmp_path)
     assert list(reopened) == [spec.name]
     assert reopened.datasets[spec.name] is reopened.registered[spec.name]
+
+
+def test_getitem_raises_unknown_dataset_error_for_an_unregistered_name(tmp_path, spec):
+    db = make_snowdb(tmp_path, [spec])
+
+    with pytest.raises(
+        UnknownDatasetError,
+        match=r"No such dataset 'nope'\. Active datasets: test\.",
+    ):
+        db['nope']
+
+
+def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spec):
+    # __getitem__ serves only active datasets: a registered-but-inactive name is
+    # unresolvable from this surface too, not just a genuinely-unregistered one.
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    ds_dir = manager.db.dataset_dir(spec.name, config)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    config_path = ds_dir / DATASET_CONFIG_FILENAME
+    config.save(config_path)
+    manager.register_dataset(spec.name, config_path, active=False)
+
+    db = SnowDb.open(tmp_path)
+
+    with pytest.raises(
+        UnknownDatasetError,
+        match=r"No such dataset 'test'\. Active datasets: \(none\)\.",
+    ):
+        db['test']
 
 
 def test_set_dataset_active_rejects_an_unregistered_name(tmp_path):

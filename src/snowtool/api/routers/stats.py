@@ -25,7 +25,6 @@ from pydantic import BaseModel, Field, ValidationError
 from snowtool import types
 from snowtool.api.dependencies import ReaderDep
 from snowtool.api.models.stats import CompactStatsResponse, stats_csv_response
-from snowtool.api.problems import DATASET_NOT_FOUND
 from snowtool.api.tags import Tags
 from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery
@@ -36,7 +35,6 @@ if TYPE_CHECKING:
     from gazebo.negotiation import Representation
     from gazebo.params import DatetimeInterval
 
-    from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.reader import SnowDbReader
     from snowtool.snowdb.zonal_stats import ZoneSelection
 
@@ -110,16 +108,6 @@ class DOYStatsQuery(_StatsQueryBase):
     end_year: int = Field(ge=1, le=9999, examples=[2018])
 
 
-def _resolve(reader: SnowDbReader, dataset: str) -> Dataset:
-    """The active dataset by name, or a 404 problem (mirrors GET /datasets)."""
-    try:
-        return reader.db[dataset]
-    except KeyError as e:
-        raise DATASET_NOT_FOUND.exception(
-            detail=f'No such dataset: {dataset!r}',
-        ) from e
-
-
 def _date_range(interval: DatetimeInterval | None) -> DateRangeQuery:
     if interval is None:
         return DateRangeQuery()
@@ -137,7 +125,7 @@ async def _run(
     params: _StatsQueryBase,
     rep: Representation,
 ) -> CompactStatsResponse | StreamingResponse:
-    resolved = _resolve(reader, dataset)
+    resolved = reader.db[dataset]
     registry = available_zones(resolved.providers.values())
     selections: list[ZoneSelection] = [
         parse_zone_selection(token, registry) for token in params.zone
