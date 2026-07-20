@@ -77,9 +77,10 @@ class GeometryOutsideGridError(SnowtoolError, ValueError):
     Rasterizing a basin burns its tile window onto the dataset grid; a basin
     lying entirely outside the grid has no window (its coverage is ``NONE``), so
     a direct ``Dataset.rasterize_aoi`` surfaces this typed condition instead of
-    a degenerate (inverted) window and a numpy shape error. The batch paths
-    (``stage_dataset``/``rasterize_aois``) pre-filter by coverage and *skip*
-    such basins rather than raising.
+    a degenerate (inverted) window and a numpy shape error. The batch path
+    (``rasterize_aois``, which ``stage_dataset`` also goes through) checks each
+    pourpoint-dataset pair's coverage and *skips* such basins rather than
+    raising.
     """
 
 
