@@ -68,7 +68,7 @@ def test_rasterize_aoi(dataset, pourpoint_geojson, grid):
 
 def test_aoi_raster_reopen_roundtrips_tiles(dataset, pourpoint_geojson):
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
-    written = dataset.rasterize_aoi(aoi, force=True)
+    written = dataset.rasterize_aoi(aoi, rebuild=True)
     reopened = AOIRaster.open(written.path, dataset.grid)
     assert {(t.row, t.col) for t in reopened.tiles} == {
         (t.row, t.col) for t in written.tiles

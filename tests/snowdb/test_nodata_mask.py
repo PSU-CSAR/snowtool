@@ -144,7 +144,7 @@ def test_mask_add_change_remove_marks_aoi_stale(
     # Adding a mask: the same on-disk raster reads as stale.
     masked = Dataset(spec, root, nodata_mask=nodata_mask)
     assert not masked.aoi_raster_is_current(pp)
-    assert masked.rasterize_aoi_if_needed(pp)
+    assert masked.rasterize_aoi(pp)
     assert masked.aoi_raster_is_current(pp)
 
     # The rebuilt raster is stale again from a maskless dataset's view...
@@ -155,7 +155,7 @@ def test_mask_add_change_remove_marks_aoi_stale(
     write_mask(nodata_mask, grid, valid_through_col=99)
     changed = Dataset(spec, root, nodata_mask=nodata_mask)
     assert not changed.aoi_raster_is_current(pp)
-    assert changed.rasterize_aoi_if_needed(pp)
+    assert changed.rasterize_aoi(pp)
     assert changed.aoi_raster_is_current(pp)
 
 

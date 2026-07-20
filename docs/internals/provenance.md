@@ -57,7 +57,7 @@ and `aoi_provenance` wraps it with `AOI_RASTER_FORMAT_VERSION`. When a
 one tag off the existing COG (`Dataset.aoi_raster_hash`, a header-only
 `tags()` read with no array decode) and comparing it to the current
 `aoi_provenance`. A changed basin *or* a format bump makes them differ, and
-`rasterize_aoi_if_needed` re-burns; a match skips the work entirely.
+`Dataset.rasterize_aoi` re-burns; a match skips the work entirely.
 
 `SNOWTOOL_DEM_HASH` is the versioned hash of a terrain generation's
 mean-elevation array, stamped identically on every layer the pass writes

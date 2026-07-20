@@ -150,8 +150,8 @@ class Dataset:
         cls: type[Self],
         spec: DatasetSpec,
         path: Path,
-        force: bool = False,
         *,
+        exist_ok: bool = False,
         nodata_mask: Path | None = None,
     ) -> Self:
         """Create the dataset's directory skeleton.
@@ -168,14 +168,14 @@ class Dataset:
             # `snowtool init`, so tolerate it; whether the dataset is already
             # *populated* is enforced by the artifact guards below (the
             # aoi-rasters/cogs dirs), which still refuse to clobber existing data
-            # without force.
+            # without exist_ok.
             self.path.mkdir(parents=True, exist_ok=True)
-            self._aoi_rasters.mkdir(exist_ok=force)
-            self._cogs.mkdir(exist_ok=force)
+            self._aoi_rasters.mkdir(exist_ok=exist_ok)
+            self._cogs.mkdir(exist_ok=exist_ok)
         except FileExistsError as e:
             raise ArtifactExistsError(
                 f'Could not create {self.spec.name} dataset: {self.path} already '
-                'exists. Remove and try again or use `force=True`.',
+                'exists. Remove and try again or use `exist_ok=True`.',
             ) from e
 
         return self
@@ -245,8 +245,24 @@ class Dataset:
             self._aoi_rasters / f'{triplet_naming.triplet_to_stem(station_triplet)}.tif'
         )
 
-    def rasterize_aoi(self, aoi: Pourpoint, force: bool = False) -> AOIRaster:
-        """Burn ``aoi``'s basin onto this dataset's grid as an AOI raster.
+    def rasterize_aoi(
+        self: Self,
+        pourpoint: Pourpoint,
+        *,
+        rebuild: bool = False,
+    ) -> AOIRaster | None:
+        """Burn ``pourpoint``'s basin onto this dataset's grid as an AOI raster.
+
+        Converge-by-default: build when the raster is missing or stale (see
+        :meth:`aoi_raster_is_current`), skip when it is already current --
+        ``rebuild=True`` forces a rebuild regardless of current state. Returns
+        the built :class:`~snowtool.snowdb.aoi_raster.AOIRaster`, or ``None``
+        when the existing raster was already current and nothing was written.
+        This return shape serves both callers: production (the batch
+        converge loop) only needs the did-it-write boolean, which the
+        ``None``/raster split gives for free via truthiness; tests that want
+        the raster itself get it directly on the build path, which is the
+        common case in a synthetic-grid test that always starts from empty.
 
         The tile window is clamped to the grid (see
         :func:`~snowtool.snowdb.grid.bounding_tiles`), so a basin straddling a
@@ -254,24 +270,22 @@ class Dataset:
         grid raises :class:`~snowtool.exceptions.GeometryOutsideGridError` (the
         batch paths pre-filter those by coverage instead of calling this).
         """
+        if not rebuild and self.aoi_raster_is_current(pourpoint):
+            return None
+
         # A management (write) op may run against a dataset that has no data yet,
         # so create the aoi-rasters dir if it is missing (but never the base
         # snowdb dirs -- those are SnowDbManager.initialize's job).
         self._aoi_rasters.mkdir(parents=True, exist_ok=True)
 
-        path = self.aoi_raster_path_from_triplet(aoi.station_triplet)
-        if not force and path.exists():
-            raise ArtifactExistsError(
-                f'Could not create AOI raster: {path} already exists. '
-                'Remove and try again or use `force=True`.',
-            )
+        path = self.aoi_raster_path_from_triplet(pourpoint.station_triplet)
 
         # The AOI is stored in WGS84; reproject it into this grid's CRS so its
         # tile extent and pixel mask are computed in the grid's own coordinates.
         crs = self.grid.crs
         if crs is None:  # pragma: no cover - make_grid always sets a CRS
             raise ValueError('grid has no CRS')
-        geometry = aoi.geometry_in_crs(crs)
+        geometry = pourpoint.geometry_in_crs(crs)
         ul_tile, br_tile = bounding_tiles(self.grid, geometry.bounds)
 
         # A projected grid burns its constant cell area; a geographic grid burns
@@ -285,7 +299,7 @@ class Dataset:
             ul_tile,
             br_tile,
             tile_size=self.spec.grid_params.tile_size,
-            provenance=aoi_provenance(aoi.geometry_hash, self.nodata_mask_hash),
+            provenance=aoi_provenance(pourpoint.geometry_hash, self.nodata_mask_hash),
             base_grid=self.grid.base_grid,
             cell_area=cell_area,
             nodata_mask=self.nodata_mask,
@@ -319,23 +333,6 @@ class Dataset:
             aoi.geometry_hash,
             self.nodata_mask_hash,
         )
-
-    def rasterize_aoi_if_needed(
-        self: Self,
-        aoi: Pourpoint,
-        *,
-        rebuild: bool = False,
-    ) -> bool:
-        """Build the AOI raster when missing or stale; True if it was (re)built.
-
-        ``rebuild=True`` forces a rebuild regardless of current state. The
-        converge-by-default path (``rebuild=False``) skips a raster only when it
-        is already current (a matching :attr:`Pourpoint.geometry_hash` tag).
-        """
-        if not rebuild and self.aoi_raster_is_current(aoi):
-            return False
-        self.rasterize_aoi(aoi, force=True)
-        return True
 
     def remove_aoi_raster(
         self: Self,

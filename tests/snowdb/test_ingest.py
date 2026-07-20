@@ -349,7 +349,7 @@ def test_ingest_without_ingester_raises(dataset, tmp_path):
         dataset.ingest(tmp_path / 'archive.tar')
 
 
-def test_ingest_delegates_to_ingester(tmp_path, spec, source_dem):
+def test_ingest_delegates_to_ingester(tmp_path, spec):
     class _Recorder:
         def __init__(self):
             self.calls = []
@@ -364,7 +364,7 @@ def test_ingest_delegates_to_ingester(tmp_path, spec, source_dem):
         grid_params=spec.grid_params,
         ingester=recorder,
     )
-    ds = Dataset.create(ingestable, tmp_path / 'db', source_dem)
+    ds = Dataset.create(ingestable, tmp_path / 'db')
 
     result = ds.ingest(tmp_path / 'src.tar', force=True)
 

@@ -60,13 +60,13 @@ def _write_aoi(directory, triplet, *, with_polygon=True, polygon=None):
 
 
 @pytest.fixture
-def manager(tmp_path, spec, source_dem):
+def manager(tmp_path, spec):
     """An initialized snowdb (write side) with the synthetic 'test' dataset.
 
     Writes go through this manager; reads use the derived ``db`` fixture.
     """
     SnowDbManager.initialize(tmp_path, [spec])
-    Dataset.create(spec, tmp_path / 'data' / 'test', source_dem)
+    Dataset.create(spec, tmp_path / 'data' / 'test')
     return make_manager(tmp_path, [spec])
 
 
@@ -252,7 +252,7 @@ def test_sync_prunes_absent_aoi_and_cascades(manager, db, tmp_path):
     manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
     manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     # Burn a raster for the one about to be pruned, to prove the cascade.
-    manager.rasterize_aoi(db.load_pourpoint('22222:MT:USGS'))
+    db['test'].rasterize_aoi(db.load_pourpoint('22222:MT:USGS'))
     raster = db['test'].aoi_raster_path_from_triplet('22222:MT:USGS')
     assert raster.is_file()
 
@@ -305,7 +305,7 @@ def test_dump_aoi_copies_record_out(manager, db, pourpoint_geojson, tmp_path):
 
 def test_remove_aoi_cascades_and_reindexes(manager, db, pourpoint_geojson):
     manager.import_pourpoints(pourpoint_geojson)
-    manager.rasterize_aoi(db.load_pourpoint('12345:MT:USGS'))
+    db['test'].rasterize_aoi(db.load_pourpoint('12345:MT:USGS'))
     raster = db['test'].aoi_raster_path_from_triplet('12345:MT:USGS')
     assert raster.is_file()
 
@@ -538,11 +538,11 @@ def test_format_version_bump_makes_aoi_raster_stale(db, pourpoint_geojson, monke
         aoi_raster_mod.AOI_RASTER_FORMAT_VERSION + 1,
     )
     assert ds.aoi_raster_is_current(aoi) is False
-    assert ds.rasterize_aoi_if_needed(aoi) is True
+    assert ds.rasterize_aoi(aoi) is not None
     assert ds.aoi_raster_is_current(aoi) is True
 
 
-def test_rasterize_if_needed_builds_then_skips_then_rebuilds(
+def test_rasterize_aoi_builds_then_skips_then_rebuilds(
     db,
     pourpoint_geojson,
     tmp_path,
@@ -550,8 +550,8 @@ def test_rasterize_if_needed_builds_then_skips_then_rebuilds(
     ds = db['test']
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
 
-    assert ds.rasterize_aoi_if_needed(aoi) is True  # missing -> built
-    assert ds.rasterize_aoi_if_needed(aoi) is False  # current -> skipped
+    assert ds.rasterize_aoi(aoi) is not None  # missing -> built
+    assert ds.rasterize_aoi(aoi) is None  # current -> skipped
 
     # A changed basin makes the existing raster stale.
     stale = _write_aoi(
@@ -561,8 +561,8 @@ def test_rasterize_if_needed_builds_then_skips_then_rebuilds(
     )
     stale_aoi = Pourpoint.from_geojson(stale)
     assert ds.aoi_raster_is_current(stale_aoi) is False
-    assert ds.rasterize_aoi_if_needed(stale_aoi) is True  # stale -> rebuilt
-    assert ds.rasterize_aoi_if_needed(stale_aoi, rebuild=False) is False
+    assert ds.rasterize_aoi(stale_aoi) is not None  # stale -> rebuilt
+    assert ds.rasterize_aoi(stale_aoi, rebuild=False) is None
 
 
 def test_remove_aoi_raster(db, pourpoint_geojson):

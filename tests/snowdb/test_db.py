@@ -243,7 +243,6 @@ def test_duplicate_spec_names_rejected():
 def test_rasterize_aoi_burns_every_active_dataset(
     tmp_path,
     spec,
-    source_dem,
     pourpoint_geojson,
 ):
     """A global AOI is rasterized once per active dataset, on each one's grid."""
@@ -251,20 +250,26 @@ def test_rasterize_aoi_burns_every_active_dataset(
         name='snodas',
         grid_params=spec.grid_params,
     )
-    # `spec` (name='test') and `spec_b` (name='snodas') share the synthetic grid,
-    # so the one source DEM covers both.
+    # `spec` (name='test') and `spec_b` (name='snodas') share the synthetic grid.
     data = tmp_path / 'data'
     data.mkdir()
-    Dataset.create(spec, data / spec.name, source_dem)
-    Dataset.create(spec_b, data / spec_b.name, source_dem)
+    Dataset.create(spec, data / spec.name)
+    Dataset.create(spec_b, data / spec_b.name)
 
     manager = make_manager(tmp_path, [spec, spec_b])
-    rasters = manager.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
+    pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
+    result = manager.rasterize_aois([pourpoint], list(manager.db.registered.values()))
 
-    assert set(rasters) == {'test', 'snodas'}
-    for name, raster in rasters.items():
-        assert raster.path.exists()
-        assert raster.path.parent == data / name / 'aoi-rasters'
+    assert set(manager.db.registered) == {'test', 'snodas'}
+    assert set(result.built) == {
+        (pourpoint.station_triplet, 'test'),
+        (pourpoint.station_triplet, 'snodas'),
+    }
+    assert result.skipped == []
+    for name, dataset in manager.db.registered.items():
+        raster_path = dataset.aoi_raster_path_from_triplet(pourpoint.station_triplet)
+        assert raster_path.exists()
+        assert raster_path.parent == data / name / 'aoi-rasters'
 
 
 def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, pourpoint_geojson):

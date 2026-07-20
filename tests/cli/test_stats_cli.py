@@ -55,7 +55,7 @@ def populated_root(initialized_root, pourpoint_geojson):
     dataset = manager.db['test']
     write_terrain(dataset)
     write_landcover(dataset)
-    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), force=True)
+    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
     _ingest_swe_cog(dataset)
     return initialized_root
 

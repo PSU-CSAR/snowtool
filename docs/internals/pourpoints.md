@@ -167,7 +167,7 @@ Rasterization is driven at two granularities. `dataset create` stages a new grid
 and rasterizes every indexed basin onto it in one pass (`stage_dataset` →
 `rasterize_aois`), gating each burn by coverage so an off-grid (`NONE`) basin is
 skipped rather than attempted. The per-pourpoint `pourpoint rasterize` command
-rebuilds only what is **missing or stale**: `rasterize_aoi_if_needed` skips a
+rebuilds only what is **missing or stale**: `Dataset.rasterize_aoi` skips a
 raster whose `SNOWTOOL_AOI_HASH` already matches and rebuilds otherwise, with
 `--rebuild` forcing a byte-level rebuild regardless. Importing or syncing
 pourpoints does *not* rasterize — `import`/`sync` only write records and update

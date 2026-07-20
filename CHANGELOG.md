@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `"varies (geographic)"`) on a geographic grid, and the elevation bracket is
   the two numeric fields `min_elevation_m`/`max_elevation_m` (not the prose
   `elevation_bracket_m` string). The `table` form is unchanged.
+- **Internal API:** `Dataset.rasterize_aoi` and `Dataset.rasterize_aoi_if_needed`
+  are merged into a single `Dataset.rasterize_aoi(pourpoint, *, rebuild=False)`,
+  converge-by-default (build when missing/stale, skip when current unless
+  `rebuild=True`), returning the built `AOIRaster` or `None` when skipped as
+  current. The redundant, differently-behaved `SnowDbManager.rasterize_aoi` is
+  deleted (production always went through `rasterize_aois`); use
+  `SnowDbManager.rasterize_aois` or the `Dataset` method directly.
+  `Dataset.create`'s `force` parameter is renamed `exist_ok` and made
+  keyword-only, matching what it actually does (`mkdir(exist_ok=...)`).
 
 ### Removed
 

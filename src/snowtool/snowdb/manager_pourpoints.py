@@ -367,7 +367,7 @@ class PourpointOpsMixin:
                     if dataset_coverage(aoi, domain) is Coverage.NONE:
                         # Entirely off this grid: nothing to burn.
                         skipped.append(pair)
-                    elif dataset.rasterize_aoi_if_needed(aoi, rebuild=rebuild):
+                    elif dataset.rasterize_aoi(aoi, rebuild=rebuild):
                         built.append(pair)
                     else:
                         skipped.append(pair)

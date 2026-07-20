@@ -181,7 +181,7 @@ def populate_synthetic_root(
     write_terrain(dataset)
     write_landcover(dataset)
     if rasterize:
-        dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), force=True)
+        dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
     if ingest:
         out_dir = dataset.date_dir(date(2018, 4, 27))
         out_dir.mkdir(parents=True, exist_ok=True)

@@ -56,7 +56,6 @@ from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVID
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from snowtool.snowdb.aoi_raster import AOIRaster
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.zones.zone_layer import (
@@ -562,24 +561,6 @@ class SnowDbManager(PourpointOpsMixin):
                 active=False,
             )
         return CreatedDataset(staged=staged, registered=registered)
-
-    def rasterize_aoi(
-        self: Self,
-        aoi: Pourpoint,
-        force: bool = False,
-    ) -> dict[str, AOIRaster]:
-        """Rasterize a pourpoint's basin onto every registered dataset's grid.
-
-        Pourpoints are shared across datasets, but each dataset has its own grid, so an
-        AOI must be burned once per dataset (different grids -> different tile
-        windows and masks). Covers inactive datasets too, so activating one later
-        is instant -- its AOI rasters already exist. Returns the resulting AOI
-        raster keyed by dataset name.
-        """
-        return {
-            name: dataset.rasterize_aoi(aoi, force=force)
-            for name, dataset in self.db.registered.items()
-        }
 
     def generate_zone_layers(
         self: Self,
