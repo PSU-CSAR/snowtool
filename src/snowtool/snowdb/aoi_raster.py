@@ -20,7 +20,12 @@ from rasterio.windows import Window
 
 from snowtool.exceptions import IncompleteDatasetDataError, NodataMaskError
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
-from snowtool.snowdb.grid import PixelCoord, tile_base_origin, tiles_in_bbox
+from snowtool.snowdb.grid import (
+    PixelCoord,
+    bounding_tiles,
+    tile_base_origin,
+    tiles_in_bbox,
+)
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster import TiledRaster
 from snowtool.snowdb.raster.cog import write_cog
@@ -213,15 +218,12 @@ def aoi_provenance(geometry_hash: str, nodata_mask_hash: str | None) -> str:
 def write_aoi_raster(
     path: Path,
     geometry: Geometry,
-    crs: rasterio.crs.CRS,
-    start_tile: AffineGridTile,
-    end_tile: AffineGridTile,
-    tile_size: int,
-    provenance: str,
+    grid: TiledAffineGrid,
+    geometry_hash: str,
     *,
-    base_grid: AffineGrid,
     cell_area: float | None,
     nodata_mask: Path | None = None,
+    nodata_mask_hash: str | None = None,
 ) -> None:
     """Burn ``geometry`` to a per-pixel cell-area AOI COG over its tile-bbox window.
 
@@ -229,20 +231,42 @@ def write_aoi_raster(
     to on this grid; every other pixel is ``0`` (so the one raster is both membership
     signal and area weights). ``cell_area`` is the grid's constant cell area on a
     projected grid, or ``None`` on a geographic grid (per-row geodesic area is
-    computed from ``base_grid``).
+    computed from the grid's ``base_grid``).
 
-    ``provenance`` is the versioned AOI tag (``SNOWTOOL_AOI_HASH``) and must be
-    :func:`aoi_provenance` of the AOI's geometry digest and the file digest of
-    the same ``nodata_mask`` passed here -- the caller keeps the two in sync
-    (see ``Dataset.rasterize_aoi``). Geometry and mask are the raster's only
+    ``crs``, the tile-bbox window, ``tile_size``, and ``base_grid`` all derive
+    from ``grid`` -- ``geometry`` is already reprojected into the grid's CRS
+    (see ``Dataset.rasterize_aoi``), and its bounds pick the tile-bbox window
+    via :func:`~snowtool.snowdb.grid.bounding_tiles`.
+
+    The stamped ``SNOWTOOL_AOI_HASH`` tag is :func:`aoi_provenance` of
+    ``geometry_hash`` and ``nodata_mask_hash`` -- computed here, from the same
+    ``nodata_mask`` this call actually burns, so there is no caller-kept
+    sync invariant to maintain. Geometry and mask are the raster's only
     provenance axes: the cell areas are a pure function of the fixed grid, and
     elevation/terrain are read live at query time, so a terrain rebuild never
     invalidates an AOI raster.
 
-    ``nodata_mask`` is the dataset's optional valid-domain raster (see
-    ``DatasetConfig.nodata_mask``): its 0/nodata pixels are burned out of the
-    AOI (zero area weight).
+    ``nodata_mask``/``nodata_mask_hash`` are the dataset's optional valid-domain
+    raster and its file digest (see ``DatasetConfig.nodata_mask``,
+    ``Dataset.nodata_mask_hash``): the mask's 0/nodata pixels are burned out of
+    the AOI (zero area weight). ``nodata_mask_hash`` is taken as given (not
+    hashed from ``nodata_mask`` here) so a convergence loop over many pourpoints
+    still hashes the mask file once, not once per AOI -- the two must agree on
+    whether a mask is configured (one ``None`` and the other not is a caller
+    bug, not a valid maskless call, and is rejected rather than silently
+    computing maskless provenance for a masked raster).
     """
+    if (nodata_mask is None) != (nodata_mask_hash is None):
+        raise ValueError(
+            'nodata_mask and nodata_mask_hash must both be given or both be '
+            f'None (got nodata_mask={nodata_mask!r}, '
+            f'nodata_mask_hash={nodata_mask_hash!r})',
+        )
+    start_tile, end_tile = bounding_tiles(grid, geometry.bounds)
+    crs = rasterio.crs.CRS.from_user_input(grid.crs)
+    base_grid = grid.base_grid
+    tile_size = grid.tile_rows
+
     start = tile_base_origin(start_tile)
     end_origin = tile_base_origin(end_tile)
     end_row = end_origin.row + end_tile.rows
@@ -254,7 +278,6 @@ def write_aoi_raster(
     # base (full) resolution.
     transform = start_tile.transform
 
-    # ``geometry`` is already in the grid CRS (see Dataset.rasterize_aoi).
     aoi_mask = make_geometry_mask(
         geometry,
         out_shape=(height, width),
@@ -282,7 +305,7 @@ def write_aoi_raster(
         # Records the geometry + format version this raster was burned from, so a
         # changed basin OR a format bump is detected (and re-rasterized) by a cheap
         # tag read.
-        AOI_HASH_TAG: provenance,
+        AOI_HASH_TAG: aoi_provenance(geometry_hash, nodata_mask_hash),
     }
 
     write_cog(

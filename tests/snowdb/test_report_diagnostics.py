@@ -332,11 +332,11 @@ def test_dataset_info_report(tmp_path, spec):
 
     assert result.name == 'test'
     assert result.active is True
-    assert result.present is True
-    assert result.is_geographic is True
-    assert result.cell_area_m2 is None  # geographic grid -> per-pixel area raster
-    assert result.rows == result.cols == 512
-    assert result.n_tiles == 4
+    assert result.status.present is True
+    assert result.grid.is_geographic is True
+    assert result.grid.cell_area_m2 is None  # geographic grid -> per-pixel area raster
+    assert result.grid.rows == result.grid.cols == 512
+    assert result.grid.n_tiles == 4
     assert result.min_elevation_m == -100.0
     assert result.max_elevation_m == 4500.0
     assert result.variables == (
@@ -354,11 +354,11 @@ def test_dataset_info_report(tmp_path, spec):
     assert result.zone_layers['terrain']['hash'] is not None
     assert result.zones['terrain']['aspect'] is None
     assert result.zones['terrain']['elevation'] == {'band_step_ft': 1000}
-    assert result.cogs is False  # no dates ingested
-    assert result.aoi_rasters is False
-    assert result.date_count == 0
-    assert result.first_date is None
-    assert result.last_date is None
+    assert result.status.artifacts.cogs is False  # no dates ingested
+    assert result.status.artifacts.aoi_rasters is False
+    assert result.status.date_count == 0
+    assert result.status.first_date is None
+    assert result.status.last_date is None
 
 
 # --- grid validation ---------------------------------------------------------

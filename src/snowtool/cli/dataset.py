@@ -76,7 +76,7 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     if fmt == 'table':
         # Prose forms belong to the table only -- json/csv keep the typed fields
         # (`cell_area_m2: float | None`, numeric `min/max_elevation_m`).
-        if report.cell_area_m2 is None:
+        if report.grid.cell_area_m2 is None:
             record['cell_area_m2'] = 'varies (geographic)'
         record['elevation_bracket_m'] = (
             f'{report.min_elevation_m} .. {report.max_elevation_m}'

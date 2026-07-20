@@ -390,14 +390,17 @@ def grid_report(dataset: Dataset) -> GridReport:
 
 @dataclass(frozen=True)
 class DatasetInfoReport:
-    """Everything ``dataset info`` reports about one dataset, typed and flat.
+    """Everything ``dataset info`` reports about one dataset.
 
-    Composes :func:`dataset_status` (on-disk presence/artifacts/date span) and
-    :func:`grid_report` (grid geometry) with the spec-level fields (variables,
-    zone config, active flag) and per-provider zone-layer presence/provenance --
-    one scan each, no duplicated filesystem walks. ``cell_area_m2`` is ``None``
-    on a geographic grid (per-pixel area raster, see :class:`GridReport`);
-    ``min_elevation_m``/``max_elevation_m`` are the shared elevation bracket
+    Nests :func:`dataset_status` (on-disk presence/artifacts/date span) and
+    :func:`grid_report` (grid geometry) rather than flat-copying their fields,
+    alongside the spec-level fields (variables, zone config, active flag) and
+    per-provider zone-layer presence/provenance -- one scan each, no duplicated
+    filesystem walks. :meth:`to_record` flattens both back out for the CLI, so
+    a new field on either nested report needs adding in exactly one place here.
+    ``grid.cell_area_m2`` is ``None`` on a geographic grid (per-pixel area
+    raster, see :class:`GridReport`); ``min_elevation_m``/``max_elevation_m``
+    are the shared elevation bracket
     (:data:`~snowtool.snowdb.constants.MIN_ELEVATION_M` /
     :data:`~snowtool.snowdb.constants.MAX_ELEVATION_M`) that elevation banding
     zones across, not a per-dataset measurement.
@@ -405,30 +408,20 @@ class DatasetInfoReport:
 
     name: str
     active: bool
-    present: bool
-    crs: str
-    is_geographic: bool
-    rows: int
-    cols: int
-    tile_size: int
-    cell_area_m2: float | None
-    px_size: float
-    n_tiles: int
-    extent: Extent
+    status: DatasetStatus
+    grid: GridReport
     zones: dict[str, dict[str, dict | None]]
     min_elevation_m: float
     max_elevation_m: float
     variables: tuple[str, ...]
     zone_layers: dict[str, dict[str, object]]  # provider -> {present, hash}
-    cogs: bool
-    aoi_rasters: bool
-    date_count: int
-    first_date: date | None
-    last_date: date | None
 
     def to_record(self) -> dict[str, object]:
         """Flatten to the ``dataset info`` record: renamed/ISO-converted fields.
 
+        Spreads ``status``/``grid`` back to the top level (dropping their
+        redundant ``name``/``artifacts``) so json/csv output is unchanged by
+        the nesting: same keys, same order as the pre-nesting flat record.
         ``date_count`` -> ``dates`` (the CLI's public name); ``extent``/
         ``variables`` to plain lists (json/csv-friendly); ``first_date``/
         ``last_date`` to ISO strings (or ``None``). Table-only prose (the
@@ -436,21 +429,40 @@ class DatasetInfoReport:
         bracket) is *not* applied here -- json/csv keep the typed fields, and
         the CLI layers that prose on for the table format only.
         """
-        from dataclasses import asdict
-
-        record = asdict(self)
-        record['extent'] = list(self.extent)
-        record['variables'] = list(self.variables)
-        record['dates'] = record.pop('date_count')
-        record['first_date'] = self.first_date.isoformat() if self.first_date else None
-        record['last_date'] = self.last_date.isoformat() if self.last_date else None
-        return record
+        return {
+            'name': self.name,
+            'active': self.active,
+            'present': self.status.present,
+            'crs': self.grid.crs,
+            'is_geographic': self.grid.is_geographic,
+            'rows': self.grid.rows,
+            'cols': self.grid.cols,
+            'tile_size': self.grid.tile_size,
+            'cell_area_m2': self.grid.cell_area_m2,
+            'px_size': self.grid.px_size,
+            'n_tiles': self.grid.n_tiles,
+            'extent': list(self.grid.extent),
+            'zones': self.zones,
+            'min_elevation_m': self.min_elevation_m,
+            'max_elevation_m': self.max_elevation_m,
+            'variables': list(self.variables),
+            'zone_layers': self.zone_layers,
+            'cogs': self.status.artifacts.cogs,
+            'aoi_rasters': self.status.artifacts.aoi_rasters,
+            'dates': self.status.date_count,
+            'first_date': (
+                self.status.first_date.isoformat() if self.status.first_date else None
+            ),
+            'last_date': (
+                self.status.last_date.isoformat() if self.status.last_date else None
+            ),
+        }
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
     """Assemble a :class:`DatasetInfoReport` for ``dataset info``.
 
-    Composes :func:`dataset_status` and :func:`grid_report` rather than
+    Nests :func:`dataset_status` and :func:`grid_report` rather than
     re-scanning the dataset -- this is the one place their fields are merged
     with the spec-derived ones (variables, zone config, per-provider zone-layer
     hashes) that neither builder carries.
@@ -465,16 +477,8 @@ def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
     return DatasetInfoReport(
         name=spec.name,
         active=spec.name in snowdb.datasets,
-        present=status.present,
-        crs=grid.crs,
-        is_geographic=grid.is_geographic,
-        rows=grid.rows,
-        cols=grid.cols,
-        tile_size=grid.tile_size,
-        cell_area_m2=grid.cell_area_m2,
-        px_size=grid.px_size,
-        n_tiles=grid.n_tiles,
-        extent=grid.extent,
+        status=status,
+        grid=grid,
         zones={
             provider: {
                 layer: params.model_dump() if params is not None else None
@@ -492,11 +496,6 @@ def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
             }
             for name in dataset.zones
         },
-        cogs=artifacts.cogs,
-        aoi_rasters=artifacts.aoi_rasters,
-        date_count=status.date_count,
-        first_date=status.first_date,
-        last_date=status.last_date,
     )
 
 

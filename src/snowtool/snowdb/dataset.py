@@ -23,7 +23,7 @@ from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.aoi_raster import AOIRaster, aoi_provenance, write_aoi_raster
 from snowtool.snowdb.atomic import staged_dir
 from snowtool.snowdb.constants import AOI_HASH_TAG
-from snowtool.snowdb.grid import bounding_tiles, grid_extent_4326
+from snowtool.snowdb.grid import grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files
@@ -286,7 +286,6 @@ class Dataset:
         if crs is None:  # pragma: no cover - make_grid always sets a CRS
             raise ValueError('grid has no CRS')
         geometry = pourpoint.geometry_in_crs(crs)
-        ul_tile, br_tile = bounding_tiles(self.grid, geometry.bounds)
 
         # A projected grid burns its constant cell area; a geographic grid burns
         # per-row geodesic area, computed from the base grid (cell_area=None).
@@ -295,14 +294,11 @@ class Dataset:
         write_aoi_raster(
             path,
             geometry,
-            self.grid_crs,
-            ul_tile,
-            br_tile,
-            tile_size=self.spec.grid_params.tile_size,
-            provenance=aoi_provenance(pourpoint.geometry_hash, self.nodata_mask_hash),
-            base_grid=self.grid.base_grid,
+            self.grid,
+            pourpoint.geometry_hash,
             cell_area=cell_area,
             nodata_mask=self.nodata_mask,
+            nodata_mask_hash=self.nodata_mask_hash,
         )
 
         return AOIRaster.open(path, self.grid)
