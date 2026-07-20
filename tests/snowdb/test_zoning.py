@@ -124,7 +124,7 @@ def test_banded_describe_reports_param_default_and_unit():
         layer_nodata=ELEVATION_NODATA,
     )
     assert scheme.describe() == BandedZoneDescription(
-        param_key='band_step_ft',
+        param='band_step_ft',
         default=1000,
         unit='ft',
         # The covered band range: [0, 1000), [1000, 2000), [2000, 3000) (the last is
@@ -186,7 +186,7 @@ def test_bucketed_describe_reports_count_and_range():
     scheme = NORTHNESS.zoning
     assert isinstance(scheme, EvenBucketZoning)
     assert scheme.describe() == BucketedZoneDescription(
-        param_key='buckets',
+        param='buckets',
         default=4,
         min=-1,
         max=1,
@@ -298,7 +298,7 @@ def test_threshold_describe_reports_param_default_and_unit():
         above_label='forested',
     )
     assert scheme.describe() == ThresholdZoneDescription(
-        param_key='threshold_pct',
+        param='threshold_pct',
         default=40,
         unit='%',
         min=0,

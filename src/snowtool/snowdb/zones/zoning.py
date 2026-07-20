@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 import numpy
 import numpy.typing
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from snowtool.exceptions import QueryParameterError, ZoneParamsError
 from snowtool.snowdb.config import (
     BandStepParams,
@@ -50,61 +52,67 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zonal_stat_models import ZoneRef
 
 
-@dataclass(frozen=True)
-class ZoneClassDescription:
+class ZoneClassDescription(BaseModel):
     """One categorical class in a scheme's :class:`ZoneDescription` (key + label)."""
 
-    key: str
-    label: str
+    model_config = ConfigDict(frozen=True)
+
+    key: str = Field(examples=['N'])
+    label: str = Field(examples=['N'])
 
 
-@dataclass(frozen=True)
-class BandedZoneDescription:
+class BandedZoneDescription(BaseModel):
     """Self-description of a banded axis: its override param, band width
     default, unit, and covered range (first band's lower to last band's upper
     edge). The switch-free surface the API discovery/query layers read instead
     of ``isinstance``-ing a scheme (likewise the other kinds below)."""
 
-    kind: ClassVar[Literal['banded']] = 'banded'
-    param_key: str
-    default: int
-    unit: str
-    min: int | float
-    max: int | float
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal['banded'] = 'banded'
+    param: str = Field(examples=['band_step_ft'])
+    default: int = Field(examples=[1000])
+    unit: str = Field(examples=['ft'])
+    min: int | float = Field(examples=[-1000])
+    max: int | float = Field(examples=[15000])
 
 
-@dataclass(frozen=True)
-class BucketedZoneDescription:
+class BucketedZoneDescription(BaseModel):
     """Self-description of an even-bucketed axis (dimensionless: no unit)."""
 
-    kind: ClassVar[Literal['bucketed']] = 'bucketed'
-    param_key: str
-    default: int
-    min: int | float
-    max: int | float
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal['bucketed'] = 'bucketed'
+    param: str = Field(examples=['buckets'])
+    default: int = Field(examples=[4])
+    min: int | float = Field(examples=[-1])
+    max: int | float = Field(examples=[1])
     # Kept as an attribute so the overridable kinds share a uniform shape for
     # consumers reading ``desc.unit``; a bucketed axis is always dimensionless.
+    # A ClassVar (not a field), so it never reaches the wire schema.
     unit: ClassVar[None] = None
 
 
-@dataclass(frozen=True)
-class ThresholdZoneDescription:
+class ThresholdZoneDescription(BaseModel):
     """Self-description of a threshold-split axis: param, split default, unit,
     and the measured range the split sits within."""
 
-    kind: ClassVar[Literal['threshold']] = 'threshold'
-    param_key: str
-    default: float
-    unit: str
-    min: int | float
-    max: int | float
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal['threshold'] = 'threshold'
+    param: str = Field(examples=['threshold_pct'])
+    default: float = Field(examples=[50.0])
+    unit: str = Field(examples=['%'])
+    min: int | float = Field(examples=[0])
+    max: int | float = Field(examples=[100])
 
 
-@dataclass(frozen=True)
-class CategoricalZoneDescription:
+class CategoricalZoneDescription(BaseModel):
     """Self-description of a categorical axis: no override param, just classes."""
 
-    kind: ClassVar[Literal['categorical']] = 'categorical'
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal['categorical'] = 'categorical'
     classes: tuple[ZoneClassDescription, ...]
 
 
@@ -396,7 +404,7 @@ class BandedZoning(ZoneScheme):
     def describe(self: Self) -> BandedZoneDescription:
         bands = self.zones()
         return BandedZoneDescription(
-            param_key=self.param_key,
+            param=self.param_key,
             default=self.default_step,
             unit=self.unit,
             min=bands[0].min,
@@ -484,7 +492,7 @@ class EvenBucketZoning(ZoneScheme):
     def describe(self: Self) -> BucketedZoneDescription:
         bands = self.zones()
         return BucketedZoneDescription(
-            param_key=self.param_key,
+            param=self.param_key,
             default=self.default_buckets,
             min=bands[0].min,
             max=bands[-1].max,
@@ -578,7 +586,7 @@ class ThresholdZoning(ZoneScheme):
 
     def describe(self: Self) -> ThresholdZoneDescription:
         return ThresholdZoneDescription(
-            param_key=self.param_key,
+            param=self.param_key,
             default=float(self.default_threshold),
             unit=self.unit,
             min=_as_number(self.domain_min),

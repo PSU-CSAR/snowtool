@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from gazebo.link import Link
 from gazebo.rels import Rel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from snowtool.snowdb.zones.zone_layer import available_zones
 from snowtool.snowdb.zones.zoning import (
@@ -17,7 +17,6 @@ from snowtool.snowdb.zones.zoning import (
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.zones.zone_layer import AvailableZone
 
 
 class VariableInfo(BaseModel):
@@ -29,106 +28,45 @@ class VariableInfo(BaseModel):
     reducer: str = Field(examples=['mean'])
 
 
-class ZoneClassInfo(BaseModel):
-    """One categorical class a zone layer stratifies into (key + human label)."""
-
-    key: str = Field(examples=['N'])
-    label: str = Field(examples=['N'])
-
-
-class BandedZoneInfo(BaseModel):
+class BandedZoneInfo(BandedZoneDescription):
     """A banded zone axis: overridable band width over a covered numeric range.
 
     ``key`` is the value the ``zone`` query param accepts; the override query
     param is ``'<key>.<param>'`` (likewise the other overridable kinds below).
     """
 
-    kind: Literal['banded'] = 'banded'
     key: str = Field(examples=['terrain.elevation'])
-    param: str = Field(examples=['band_step_ft'])
-    default: int = Field(examples=[1000])
-    unit: str = Field(examples=['ft'])
-    min: int | float = Field(examples=[-1000])
-    max: int | float = Field(examples=[15000])
 
 
-class BucketedZoneInfo(BaseModel):
+class BucketedZoneInfo(BucketedZoneDescription):
     """An even-bucketed dimensionless axis: overridable bucket count."""
 
-    kind: Literal['bucketed'] = 'bucketed'
     key: str = Field(examples=['terrain.northness'])
-    param: str = Field(examples=['buckets'])
-    default: int = Field(examples=[4])
-    min: int | float = Field(examples=[-1])
-    max: int | float = Field(examples=[1])
 
 
-class ThresholdZoneInfo(BaseModel):
+class ThresholdZoneInfo(ThresholdZoneDescription):
     """A threshold-split axis: overridable split point within its measured range."""
 
-    kind: Literal['threshold'] = 'threshold'
     key: str = Field(examples=['landcover.forest_cover'])
-    param: str = Field(examples=['threshold_pct'])
-    default: float = Field(examples=[50.0])
-    unit: str = Field(examples=['%'])
-    min: int | float = Field(examples=[0])
-    max: int | float = Field(examples=[100])
 
 
-class CategoricalZoneInfo(BaseModel):
+class CategoricalZoneInfo(CategoricalZoneDescription):
     """A categorical axis: fixed classes, no override param."""
 
-    kind: Literal['categorical'] = 'categorical'
     key: str = Field(examples=['terrain.aspect'])
-    classes: list[ZoneClassInfo]
 
 
 # A stratifiable zone layer, discriminated on the scheme ``kind`` -- so the
 # OpenAPI schema states the real per-kind contract (``classes`` exists iff
 # categorical, ``param``/``default`` iff overridable) instead of advertising
-# every field as nullable.
+# every field as nullable. Each member is the domain description plus a registry
+# ``key``, so the wire schema is served straight from the description.
 ZoneInfo = Annotated[
     BandedZoneInfo | BucketedZoneInfo | ThresholdZoneInfo | CategoricalZoneInfo,
     Field(discriminator='kind'),
 ]
 
-
-def _zone_info(key: str, available: AvailableZone) -> ZoneInfo:
-    """Build the per-kind :data:`ZoneInfo` member from a scheme's ``describe()``."""
-    desc = available.scheme.describe()
-    match desc:
-        case BandedZoneDescription():
-            return BandedZoneInfo(
-                key=key,
-                param=desc.param_key,
-                default=desc.default,
-                unit=desc.unit,
-                min=desc.min,
-                max=desc.max,
-            )
-        case BucketedZoneDescription():
-            return BucketedZoneInfo(
-                key=key,
-                param=desc.param_key,
-                default=desc.default,
-                min=desc.min,
-                max=desc.max,
-            )
-        case ThresholdZoneDescription():
-            return ThresholdZoneInfo(
-                key=key,
-                param=desc.param_key,
-                default=desc.default,
-                unit=desc.unit,
-                min=desc.min,
-                max=desc.max,
-            )
-        case CategoricalZoneDescription():
-            return CategoricalZoneInfo(
-                key=key,
-                classes=[ZoneClassInfo(key=c.key, label=c.label) for c in desc.classes],
-            )
-    assert_never(desc)
+_zone_info_adapter: TypeAdapter[ZoneInfo] = TypeAdapter(ZoneInfo)
 
 
 class GridInfo(BaseModel):
@@ -150,9 +88,18 @@ STATS_DOY_REL = 'stats-doy'
 
 
 def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
-    """Every stratifiable zone of ``dataset`` as :data:`ZoneInfo`, sorted by key."""
+    """Every stratifiable zone of ``dataset`` as :data:`ZoneInfo`, sorted by key.
+
+    Each info is the scheme's own ``describe()`` description plus the registry
+    ``key``; the ``kind`` field discriminates the right :data:`ZoneInfo` member.
+    """
     registry = available_zones(dataset.providers.values())
-    return [_zone_info(key, registry[key]) for key in sorted(registry)]
+    return [
+        _zone_info_adapter.validate_python(
+            {'key': key, **dict(registry[key].scheme.describe())},
+        )
+        for key in sorted(registry)
+    ]
 
 
 def stats_links(name: str, *, triplet: str | None = None) -> list[Link]:

@@ -99,10 +99,10 @@ def parse_zone_selection(
         raise QueryParameterError(
             f'Zone layer {layer_key!r} is categorical and takes no override.',
         )
-    if param != desc.param_key:
+    if param != desc.param:
         raise QueryParameterError(
             f'Unknown override {param!r} for {layer_key!r}; its override is '
-            f'{desc.param_key!r} (e.g. {layer_key}:{desc.param_key}=<value>).',
+            f'{desc.param!r} (e.g. {layer_key}:{desc.param}=<value>).',
         )
     return ZoneSelection(layer_key, available.scheme.parse_override(layer_key, raw))
 

@@ -135,12 +135,12 @@
           }
         },
         "required": [
-          "key",
           "param",
           "default",
           "unit",
           "min",
-          "max"
+          "max",
+          "key"
         ],
         "title": "BandedZoneInfo",
         "type": "object"
@@ -205,11 +205,11 @@
           }
         },
         "required": [
-          "key",
           "param",
           "default",
           "min",
-          "max"
+          "max",
+          "key"
         ],
         "title": "BucketedZoneInfo",
         "type": "object"
@@ -219,7 +219,7 @@
         "properties": {
           "classes": {
             "items": {
-              "$ref": "#/components/schemas/ZoneClassInfo"
+              "$ref": "#/components/schemas/ZoneClassDescription"
             },
             "title": "Classes",
             "type": "array"
@@ -239,8 +239,8 @@
           }
         },
         "required": [
-          "key",
-          "classes"
+          "classes",
+          "key"
         ],
         "title": "CategoricalZoneInfo",
         "type": "object"
@@ -2159,12 +2159,12 @@
           }
         },
         "required": [
-          "key",
           "param",
           "default",
           "unit",
           "min",
-          "max"
+          "max",
+          "key"
         ],
         "title": "ThresholdZoneInfo",
         "type": "object"
@@ -2331,8 +2331,8 @@
         "title": "VersionInfo",
         "type": "object"
       },
-      "ZoneClassInfo": {
-        "description": "One categorical class a zone layer stratifies into (key + human label).",
+      "ZoneClassDescription": {
+        "description": "One categorical class in a scheme's :class:`ZoneDescription` (key + label).",
         "properties": {
           "key": {
             "examples": [
@@ -2353,7 +2353,7 @@
           "key",
           "label"
         ],
-        "title": "ZoneClassInfo",
+        "title": "ZoneClassDescription",
         "type": "object"
       },
       "_StatsFormat": {
