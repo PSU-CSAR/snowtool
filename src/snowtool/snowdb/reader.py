@@ -30,6 +30,7 @@ from snowtool.snowdb.zonal_stats import (
     DEFAULT_MAX_CONCURRENT_RASTERS,
     DEFAULT_MAX_ZONE_CELLS,
     ZonalStats,
+    ZoneSelection,
     parse_zone_selection,
 )
 from snowtool.snowdb.zones.zone_layer import available_zones
@@ -41,7 +42,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.variables import DatasetVariable
-    from snowtool.snowdb.zonal_stats import ZoneSelection
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +113,7 @@ class SnowDbReader:
         query: DateQuery,
         *,
         variable_keys: Iterable[str] | None = None,
-        zone_selections: Sequence[ZoneSelection] = (),
-        zone_tokens: Sequence[str] = (),
+        zones: Sequence[ZoneSelection | str] = (),
         allow_partial: bool = False,
     ) -> ZonalStats:
         """Compute zonal statistics for one AOI over one dataset.
@@ -123,26 +122,19 @@ class SnowDbReader:
         stats routes: it guards coverage, loads the burned AOI raster, resolves the
         requested variables, builds the raster collection for ``query``, and runs
         the crossed-zone reduction over the reader's cache. ``variable_keys``
-        defaults to every variable the dataset defines; ``zone_selections`` defaults
-        to none (a whole-basin reduction). ``zone_tokens`` is the CLI/HTTP
-        ``LAYER[:PARAM=VALUE]`` string form -- parsed here (building the zone
-        registry once via :func:`~snowtool.snowdb.zones.zone_layer.available_zones`
-        and mapping each token through
-        :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection`) so callers never
-        touch the registry themselves. ``zone_selections`` and ``zone_tokens`` are
-        mutually exclusive -- passing both is a caller bug and raises
-        :class:`ValueError`, not a user-facing error. Raises a clean error when the
-        dataset/variable is unknown, the pourpoint is not covered
+        defaults to every variable the dataset defines. ``zones`` defaults to none
+        (a whole-basin reduction); each element is either an already-resolved
+        :class:`~snowtool.snowdb.zonal_stats.ZoneSelection` (the programmatic form)
+        or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here -- building
+        the zone registry once via
+        :func:`~snowtool.snowdb.zones.zone_layer.available_zones` and mapping each
+        string through :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection` --
+        so callers never touch the registry themselves. Raises a clean error when
+        the dataset/variable is unknown, a zone token is malformed or names an
+        unknown layer, the pourpoint is not covered
         (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
         has not been rasterized (:class:`FileNotFoundError`).
         """
-        if zone_selections and zone_tokens:
-            raise ValueError(
-                'Pass zone_selections or zone_tokens, not both '
-                '(zone_tokens is for string-token callers; zone_selections is '
-                'for programmatic ones).',
-            )
-
         dataset = self.db[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
         # served footprint (fully, unless allow_partial), checked before any read.
@@ -152,11 +144,18 @@ class SnowDbReader:
             allow_partial=allow_partial,
         )
 
-        if zone_tokens:
-            registry = available_zones(dataset.providers.values())
-            zone_selections = [
-                parse_zone_selection(token, registry) for token in zone_tokens
-            ]
+        # The registry is built once here (only when a string token needs parsing)
+        # and used for every token in this query; an already-resolved
+        # ZoneSelection passes through untouched.
+        registry = None
+        zone_selections: list[ZoneSelection] = []
+        for zone in zones:
+            if isinstance(zone, ZoneSelection):
+                zone_selections.append(zone)
+                continue
+            if registry is None:
+                registry = available_zones(dataset.providers.values())
+            zone_selections.append(parse_zone_selection(zone, registry))
 
         variables = self._resolve_variables(dataset, variable_keys)
         aoi_raster = dataset.load_aoi_raster(triplet)
@@ -203,8 +202,7 @@ class SnowDbReader:
         query: DateQuery,
         *,
         variable_keys: Iterable[str] | None = None,
-        zone_selections: Sequence[ZoneSelection] = (),
-        zone_tokens: Sequence[str] = (),
+        zones: Sequence[ZoneSelection | str] = (),
         allow_partial: bool = False,
     ) -> ZonalStats:
         """Synchronous facade over :meth:`zonal_stats`: ``asyncio.run``, nothing else.
@@ -221,8 +219,7 @@ class SnowDbReader:
                 dataset_name,
                 query,
                 variable_keys=variable_keys,
-                zone_selections=zone_selections,
-                zone_tokens=zone_tokens,
+                zones=zones,
                 allow_partial=allow_partial,
             ),
         )

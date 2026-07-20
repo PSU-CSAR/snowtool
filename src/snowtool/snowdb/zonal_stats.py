@@ -351,34 +351,40 @@ class ZonalStats:
         rasters: RasterCollection,
         cache: TiffCache,
         dataset: Dataset,
-        zone_selections: Sequence[ZoneSelection] = (),
+        zones: Sequence[ZoneSelection] = (),
         *,
         max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
         max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> Self:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
-        ``zone_selections`` names the zone-layer axes to cross (each resolved
-        against ``dataset``'s zone layers + the provider registry). An **empty**
-        selection means *no* stratification: the reduction is over the whole basin,
-        producing a single cell per date whose ``zone`` tuple is empty (the K=0
-        case of the crossed index). Each selected zone layer is read live, windowed
-        to the AOI, and assigned to per-pixel ordinals; the crossed index is the
-        cartesian product of the axes. A query whose product would exceed
-        ``max_zone_cells`` is rejected before any raster is read.
+        ``zones`` is the axes to cross, already resolved to :class:`ZoneSelection`
+        (a caller with string ``LAYER[:PARAM=VALUE]`` tokens parses them up front
+        via :func:`parse_zone_selection`; this method takes only the resolved
+        form and never re-parses a token). An **empty** selection means *no*
+        stratification: the reduction is over the whole basin, producing a single
+        cell per date whose ``zone`` tuple is empty (the K=0 case of the crossed
+        index). Each selected zone layer is read live, windowed to the AOI, and
+        assigned to per-pixel ordinals; the crossed index is the cartesian
+        product of the axes. A query whose product would exceed ``max_zone_cells``
+        is rejected before any raster is read.
 
         ``max_concurrent_rasters`` caps how many per-raster reductions run at once
         (a semaphore over the fan-out); it bounds peak memory / fetch fan-out only
         and does not affect results.
         """
         spec = dataset.spec
-        selections = list(zone_selections)
+        selections = list(zones)
 
         # Resolve each axis (registry + per-selection scheme overrides). The zone
         # geometry (which pixel is in which crossed cell, and each cell's total
         # area) depends only on the AOI mask + the zone layers -- not on any
         # variable or date -- so it is computed once here and reused by every
-        # reduction.
+        # reduction. This is the query's one registry build: a caller that already
+        # parsed string tokens (the reader) built its own registry to do so and
+        # does not pass it in, since a fresh dict from the same dataset providers
+        # is equivalent and this keeps `calculate` self-sufficient for its direct
+        # (non-reader) callers.
         registry = available_zones(dataset.providers.values())
         resolved: list[tuple[AvailableZone, ZoneScheme]] = []
         for selection in selections:

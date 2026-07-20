@@ -123,7 +123,7 @@ async def _run(
         dataset,
         query,
         variable_keys=params.variable or None,
-        zone_tokens=params.zone,
+        zones=params.zone,
         allow_partial=params.allow_partial,
     )
     if rep.key == 'csv':

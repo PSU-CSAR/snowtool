@@ -108,7 +108,7 @@ def stats(
             dataset_name,
             date_query,
             variable_keys=variables or None,
-            zone_tokens=zones,
+            zones=zones,
             allow_partial=allow_partial,
         )
 

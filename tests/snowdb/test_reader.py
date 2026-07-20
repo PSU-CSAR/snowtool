@@ -56,15 +56,16 @@ def test_reader_whole_basin_zonal_stats(reader):
 
 
 def test_reader_zone_tokens_parse_to_same_stats_as_zone_selections(reader):
-    # zone_tokens is the CLI/HTTP string-token entry point; it must reduce to the
-    # exact same stats as passing the equivalent ZoneSelection directly.
+    # A string token is the CLI/HTTP entry point; it must reduce to the exact
+    # same stats as passing the equivalent ZoneSelection directly -- both are
+    # valid elements of the same `zones` sequence.
     from_tokens = asyncio.run(
         reader.zonal_stats(
             TRIPLET,
             'test',
             QUERY,
             variable_keys=['swe'],
-            zone_tokens=['terrain.elevation:band_step_ft=500'],
+            zones=['terrain.elevation:band_step_ft=500'],
         ),
     )
     from_selections = asyncio.run(
@@ -73,7 +74,7 @@ def test_reader_zone_tokens_parse_to_same_stats_as_zone_selections(reader):
             'test',
             QUERY,
             variable_keys=['swe'],
-            zone_selections=[ZoneSelection('terrain.elevation', 500)],
+            zones=[ZoneSelection('terrain.elevation', 500)],
         ),
     )
     assert from_tokens.dump_compact() == from_selections.dump_compact()
@@ -87,21 +88,7 @@ def test_reader_zone_tokens_unknown_layer_raises_query_parameter_error(reader):
                 'test',
                 QUERY,
                 variable_keys=['swe'],
-                zone_tokens=['nope.nope'],
-            ),
-        )
-
-
-def test_reader_zone_tokens_and_zone_selections_are_mutually_exclusive(reader):
-    with pytest.raises(ValueError, match='zone_selections or zone_tokens'):
-        asyncio.run(
-            reader.zonal_stats(
-                TRIPLET,
-                'test',
-                QUERY,
-                variable_keys=['swe'],
-                zone_selections=[ZoneSelection('terrain.elevation')],
-                zone_tokens=['terrain.elevation'],
+                zones=['nope.nope'],
             ),
         )
 
@@ -138,7 +125,7 @@ def test_reader_applies_its_own_max_zone_cells_cap(catalog):
                 'test',
                 QUERY,
                 variable_keys=['swe'],
-                zone_selections=[ZoneSelection('terrain.elevation')],
+                zones=[ZoneSelection('terrain.elevation')],
             ),
         )
 
@@ -170,7 +157,7 @@ def _log_fields(record: logging.LogRecord) -> dict[str, str]:
 
 
 @pytest.mark.parametrize(
-    ('zone_selections', 'expected_zone_axes', 'expected_cells'),
+    ('zones', 'expected_zone_axes', 'expected_cells'),
     [
         ((), 0, 1),  # whole-basin: no axes, one (empty-zone) cell.
         pytest.param(
@@ -184,14 +171,12 @@ def _log_fields(record: logging.LogRecord) -> dict[str, str]:
 def test_reader_logs_one_structured_line_per_query(
     caplog,
     reader,
-    zone_selections,
+    zones,
     expected_zone_axes,
     expected_cells,
 ):
-    if zone_selections == 'terrain_elevation':
-        from snowtool.snowdb.zonal_stats import ZoneSelection
-
-        zone_selections = [ZoneSelection('terrain.elevation')]
+    if zones == 'terrain_elevation':
+        zones = [ZoneSelection('terrain.elevation')]
 
     caplog.set_level(logging.INFO, logger='snowtool.snowdb.reader')
     asyncio.run(
@@ -200,7 +185,7 @@ def test_reader_logs_one_structured_line_per_query(
             'test',
             QUERY,
             variable_keys=['swe'],
-            zone_selections=zone_selections,
+            zones=zones,
         ),
     )
 

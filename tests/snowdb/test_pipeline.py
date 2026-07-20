@@ -129,7 +129,7 @@ def _crossed_stats(dataset, pourpoint_geojson, selections, *, max_zone_cells=10_
             collection,
             cache,
             dataset,
-            zone_selections=selections,
+            zones=selections,
             max_zone_cells=max_zone_cells,
         )
         return aoi_raster, stats
