@@ -207,24 +207,37 @@ def test_unknown_aoi_returns_404(synthetic_client) -> None:
     assert_problem(response, status=404)
 
 
-def test_doy_impossible_day_returns_422(synthetic_client) -> None:
-    # Feb 30 can occur in no year: DOYQuery's validator raises, and the route must
-    # translate that into a 422 problem rather than let it 500.
+def test_doy_impossible_day_returns_400(synthetic_client) -> None:
+    # Feb 30 can occur in no year: DOYStatsQuery now shares DOYQuery's cross-field
+    # validator, so this fails FastAPI-native request validation. A query-scoped
+    # RequestValidationError is a 400 (gazebo's malformed-query-parameter problem),
+    # not the app-level 422 QueryParameterError this used to raise via the old
+    # hand-rolled try/except in stats_doy.
     response = synthetic_client.get(
         f'{BASE}/doy',
         params={'month': 2, 'day': 30, 'start_year': 2018, 'end_year': 2018},
     )
-    body = assert_problem(response, status=422)
-    assert 'Invalid day of year' in body['detail']
+    body = assert_problem(
+        response,
+        status=400,
+        type='/problems/malformed-query-parameter',
+    )
+    assert body['errors'][0]['msg'] == 'Value error, day 30 is out of range for month 2'
 
 
-def test_doy_inverted_year_span_returns_422(synthetic_client) -> None:
+def test_doy_inverted_year_span_returns_400(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/doy',
         params={'month': 4, 'day': 27, 'start_year': 2019, 'end_year': 2018},
     )
-    body = assert_problem(response, status=422)
-    assert 'Invalid day of year' in body['detail']
+    body = assert_problem(
+        response,
+        status=400,
+        type='/problems/malformed-query-parameter',
+    )
+    assert body['errors'][0]['msg'] == (
+        'Value error, end_year 2018 is before start_year 2019'
+    )
 
 
 def test_uncovered_aoi_returns_409(

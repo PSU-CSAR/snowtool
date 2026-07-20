@@ -2654,6 +2654,62 @@
             }
           },
           {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "examples": [
+                4
+              ],
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "examples": [
+                1
+              ],
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Day",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_year",
+            "required": true,
+            "schema": {
+              "examples": [
+                2008
+              ],
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "Start Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_year",
+            "required": true,
+            "schema": {
+              "examples": [
+                2020
+              ],
+              "maximum": 9999,
+              "minimum": 1,
+              "title": "End Year",
+              "type": "integer"
+            }
+          },
+          {
             "description": "Stratify by a zone layer (repeatable): LAYER or LAYER:PARAM=VALUE. See GET /datasets/{dataset} for the valid layer keys, override params, and variables. Default: whole basin.",
             "in": "query",
             "name": "zone",
@@ -2721,62 +2777,6 @@
               ],
               "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
               "title": "F"
-            }
-          },
-          {
-            "in": "query",
-            "name": "month",
-            "required": true,
-            "schema": {
-              "examples": [
-                4
-              ],
-              "maximum": 12,
-              "minimum": 1,
-              "title": "Month",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "day",
-            "required": true,
-            "schema": {
-              "examples": [
-                27
-              ],
-              "maximum": 31,
-              "minimum": 1,
-              "title": "Day",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "start_year",
-            "required": true,
-            "schema": {
-              "examples": [
-                2018
-              ],
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "Start Year",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_year",
-            "required": true,
-            "schema": {
-              "examples": [
-                2018
-              ],
-              "maximum": 9999,
-              "minimum": 1,
-              "title": "End Year",
-              "type": "integer"
             }
           }
         ],

@@ -88,8 +88,12 @@ class DateRangeQuery(BaseModel):
         return f'{_bound(self.start_date)}/{_bound(self.end_date)}'
 
 
-class DOYQuery(BaseModel):
-    type: Literal['DayOfYear'] = 'DayOfYear'
+class DOYFields(BaseModel):
+    """The day-of-year field set and its cross-field validators, shared by
+    :class:`DOYQuery` and the API's DOY request model so both get the same bounds
+    and the same impossible-date/inverted-span checks from one definition.
+    """
+
     month: Month
     day: Day
     start_year: Year
@@ -122,6 +126,10 @@ class DOYQuery(BaseModel):
                 f'end_year {self.end_year} is before start_year {self.start_year}',
             )
         return self
+
+
+class DOYQuery(DOYFields):
+    type: Literal['DayOfYear'] = 'DayOfYear'
 
     def csv_name(self: Self, pourpoint_name: str, zone_size: int = 0) -> str:
         return '{}_{}-{}_{}-{}{}.csv'.format(

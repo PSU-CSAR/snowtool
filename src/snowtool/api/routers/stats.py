@@ -20,14 +20,13 @@ from gazebo.ext.fastapi import GazeboRouter
 from gazebo.negotiation import FormatEnum, alternate_links, f_description, negotiate
 from gazebo.params import DatetimeQuery
 from gazebo.rels import MediaType
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from snowtool import types
 from snowtool.api.dependencies import ReaderDep
 from snowtool.api.models.stats import CompactStatsResponse, stats_csv_response
 from snowtool.api.tags import Tags
-from snowtool.exceptions import QueryParameterError
-from snowtool.snowdb.query import DateRangeQuery, DOYQuery
+from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery
 
 if TYPE_CHECKING:
     from gazebo.negotiation import Representation
@@ -98,11 +97,8 @@ class DateRangeStatsQuery(_StatsQueryBase):
     )
 
 
-class DOYStatsQuery(_StatsQueryBase):
-    month: int = Field(ge=1, le=12, examples=[4])
-    day: int = Field(ge=1, le=31, examples=[27])
-    start_year: int = Field(ge=1, le=9999, examples=[2018])
-    end_year: int = Field(ge=1, le=9999, examples=[2018])
+class DOYStatsQuery(_StatsQueryBase, DOYFields):
+    pass
 
 
 def _date_range(interval: DatetimeInterval | None) -> DateRangeQuery:
@@ -183,13 +179,10 @@ async def stats_doy(
     params: Annotated[DOYStatsQuery, Query()],
 ) -> CompactStatsResponse | StreamingResponse:
     rep = negotiate(REPRESENTATIONS, f=params.f)
-    try:
-        query = DOYQuery(
-            month=params.month,
-            day=params.day,
-            start_year=params.start_year,
-            end_year=params.end_year,
-        )
-    except ValidationError as e:
-        raise QueryParameterError(f'Invalid day of year: {e}') from e
+    query = DOYQuery(
+        month=params.month,
+        day=params.day,
+        start_year=params.start_year,
+        end_year=params.end_year,
+    )
     return await _run(reader, dataset, triplet, query, params, rep)
