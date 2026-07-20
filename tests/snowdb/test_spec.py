@@ -7,7 +7,7 @@ from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
 from snowtool.snowdb.coverage import _grid_extent_polygon
-from snowtool.snowdb.spec import DatasetSpec, GridParams
+from snowtool.snowdb.spec import DEFAULT_ZONES, DatasetSpec, GridParams
 
 
 def _geographic_spec() -> DatasetSpec:
@@ -99,3 +99,11 @@ def test_projected_spec_has_constant_cell_area():
     spec = _projected_spec()
     assert spec.is_geographic is False
     assert spec.cell_area == pytest.approx(1000.0 * 1000.0)
+
+
+def test_defaulted_zones_do_not_alias_default_zones():
+    # A spec built with no explicit `zones` deep-copies DEFAULT_ZONES, so mutating
+    # the spec's copy must not leak back into the shared module-level dict.
+    spec = _geographic_spec()
+    spec.zones['terrain']['elevation'] = None
+    assert DEFAULT_ZONES['terrain']['elevation'] is not None

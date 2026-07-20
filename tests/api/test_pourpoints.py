@@ -230,10 +230,10 @@ def test_stats_links_omitted_for_point_only_and_none_coverage(pourpoint_geojson)
     pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
     # A point-only pourpoint has no basin to query, so no stats affordance.
     point_only = replace(pourpoint, polygon=None)
-    assert _pourpoint_stats_links(None, point_only, {'test': Coverage.FULL}) == []
+    assert _pourpoint_stats_links(point_only, {'test': Coverage.FULL}) == []
     # A dataset that cannot serve the basin (coverage none) contributes no pair
     # -- such a query always 409s, so its link would advertise a dead end.
-    assert _pourpoint_stats_links(None, pourpoint, {'test': Coverage.NONE}) == []
+    assert _pourpoint_stats_links(pourpoint, {'test': Coverage.NONE}) == []
 
 
 def test_list_basin_geometry_returns_polygons(synthetic_client) -> None:

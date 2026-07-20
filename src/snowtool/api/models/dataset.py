@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Self
 
 from gazebo.link import Link
 from gazebo.rels import Rel
@@ -102,40 +102,60 @@ def dataset_zone_infos(dataset: Dataset) -> list[ZoneInfo]:
     ]
 
 
-def stats_links(name: str, *, triplet: str | None = None) -> list[Link]:
-    """Links to dataset ``name``'s two stats query endpoints.
+_SHARED_STATS_QUERY = ['zone', 'variable', 'allow_partial', 'include_empty_zones', 'f']
+_DOY_QUERY = ['month', 'day', 'start_year', 'end_year', *_SHARED_STATS_QUERY]
 
-    Without ``triplet`` -- the dataset resource's form -- the station triplet is
-    an unbound RFC 6570 path variable. With a ``triplet`` -- the pourpoint
-    resource's form -- it is bound into the path, titles are dataset-prefixed, and
-    each link carries a machine-readable ``dataset`` field so a client holding
-    several datasets' pairs selects one by ``(rel, dataset)``. The query params are
-    the generic form-query expansion (no per-zone override fields; ``f`` negotiates
-    json/csv).
+
+def dataset_stats_links(name: str) -> list[Link]:
+    """Links to dataset ``name``'s two stats query endpoints, the dataset resource's
+    form: the station triplet is an unbound RFC 6570 path variable, and titles are
+    unprefixed. The query params are the generic form-query expansion (no per-zone
+    override fields; ``f`` negotiates json/csv).
     """
-    shared = ['zone', 'variable', 'allow_partial', 'include_empty_zones', 'f']
-    if triplet is None:
-        binding: dict[str, Any] = {'path': {'dataset': name}, 'template': ['triplet']}
-        date_range_title = 'Date-range zonal statistics'
-        doy_title = 'Day-of-year zonal statistics'
-    else:
-        binding = {'path': {'dataset': name, 'triplet': triplet}, 'dataset': name}
-        date_range_title = f'{name} date-range zonal statistics'
-        doy_title = f'{name} day-of-year zonal statistics'
     return [
         Link.to_route(
             'stats_date_range',
             rel=STATS_DATE_RANGE_REL,
-            title=date_range_title,
-            query_template=['datetime', *shared],
-            **binding,
+            title='Date-range zonal statistics',
+            path={'dataset': name},
+            template=['triplet'],
+            query_template=['datetime', *_SHARED_STATS_QUERY],
         ),
         Link.to_route(
             'stats_doy',
             rel=STATS_DOY_REL,
-            title=doy_title,
-            query_template=['month', 'day', 'start_year', 'end_year', *shared],
-            **binding,
+            title='Day-of-year zonal statistics',
+            path={'dataset': name},
+            template=['triplet'],
+            query_template=_DOY_QUERY,
+        ),
+    ]
+
+
+def pourpoint_stats_links(name: str, triplet: str) -> list[Link]:
+    """Links to dataset ``name``'s two stats query endpoints, the pourpoint
+    resource's form: the station triplet is bound into the path, titles are
+    dataset-prefixed, and each link carries a machine-readable ``dataset`` field
+    so a client holding several datasets' pairs selects one by ``(rel, dataset)``.
+    The query params are the generic form-query expansion (no per-zone override
+    fields; ``f`` negotiates json/csv).
+    """
+    return [
+        Link.to_route(
+            'stats_date_range',
+            rel=STATS_DATE_RANGE_REL,
+            title=f'{name} date-range zonal statistics',
+            path={'dataset': name, 'triplet': triplet},
+            dataset=name,
+            query_template=['datetime', *_SHARED_STATS_QUERY],
+        ),
+        Link.to_route(
+            'stats_doy',
+            rel=STATS_DOY_REL,
+            title=f'{name} day-of-year zonal statistics',
+            path={'dataset': name, 'triplet': triplet},
+            dataset=name,
+            query_template=_DOY_QUERY,
         ),
     ]
 
@@ -174,7 +194,7 @@ class DatasetInfo(BaseModel):
             links=[
                 Link.self_link(),
                 Link.root_link(),
-                *stats_links(spec.name),
+                *dataset_stats_links(spec.name),
             ],
         )
 

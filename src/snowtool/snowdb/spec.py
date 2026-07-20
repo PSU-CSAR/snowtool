@@ -16,6 +16,8 @@ is a definition, not a passive settings bag.
 
 from __future__ import annotations
 
+import copy
+
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -87,8 +89,13 @@ class DatasetSpec:
         # The zone layers this dataset enables and their per-layer default query
         # params (band step, forest threshold, ...). A provider listed here is
         # generated + served for this dataset; one absent is not. Defaults to the
-        # standard terrain + land-cover set (see DEFAULT_ZONES).
-        self.zones: ZoneConfig = DEFAULT_ZONES if zones is None else zones
+        # standard terrain + land-cover set (see DEFAULT_ZONES), deep-copied so no
+        # spec aliases (and could mutate) the shared module-level dict -- the
+        # values are small frozen models, so the copy is cheap and runs once per
+        # spec construction.
+        self.zones: ZoneConfig = (
+            copy.deepcopy(DEFAULT_ZONES) if zones is None else zones
+        )
         self.grid = make_grid(**self.grid_params.model_dump())
         self.variables = {variable.key: variable for variable in variables}
         # How this dataset kind turns a source artifact into per-date COGs;

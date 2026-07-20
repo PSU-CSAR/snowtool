@@ -10,9 +10,10 @@
 *always* a property too, so the basin view never loses the outflow point.
 
 ``GET /pourpoints/{triplet}`` returns a single ``Feature`` -- it is one record, so
-there is no payload pressure and it always carries the basin polygon (falling back
-to the point for a point-only pourpoint) plus the full curated property set, with
-per-dataset coverage pulled from the index.
+there is no payload pressure and it serves the basin polygon as ``geometry`` (a
+``load_pourpoint`` lookup gates on the index, so the served record is always
+basin-bearing in practice) plus the full curated property set, with per-dataset
+coverage pulled from the index.
 
 Coverage in both responses is filtered to *active* datasets: the index itself
 carries coverage for every registered dataset (the admin surfaces -- CLI
@@ -31,7 +32,7 @@ from gazebo.pagination import paginate_offset
 from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
-from snowtool.api.models.dataset import stats_links
+from snowtool.api.models.dataset import pourpoint_stats_links
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
@@ -95,7 +96,6 @@ def _active_coverage(
 
 
 def _pourpoint_stats_links(
-    snowdb: SnowDb,
     pourpoint: Pourpoint,
     coverage: dict[str, Coverage],
 ) -> list[Link]:
@@ -105,9 +105,9 @@ def _pourpoint_stats_links(
     active datasets) whose coverage is FULL or PARTIAL -- a NONE dataset always
     409s, so its link would advertise a dead end. Each pair binds the triplet
     and carries the dataset name (see
-    :func:`snowtool.api.models.dataset.stats_links`). A point-only pourpoint
-    has no basin to query, so it gets none (defensive: such records are not
-    indexed, so the detail route cannot reach this today).
+    :func:`snowtool.api.models.dataset.pourpoint_stats_links`). A point-only
+    pourpoint has no basin to query, so it gets none (defensive: such records
+    are not indexed, so the detail route cannot reach this today).
     """
     if pourpoint.polygon is None:
         return []
@@ -115,7 +115,7 @@ def _pourpoint_stats_links(
         link
         for name in sorted(coverage)
         if coverage[name] is not Coverage.NONE
-        for link in stats_links(name, triplet=pourpoint.station_triplet)
+        for link in pourpoint_stats_links(name, pourpoint.station_triplet)
     ]
 
 
@@ -243,6 +243,6 @@ def build_pourpoint_detail(
                 rel=Rel.COLLECTION,
                 type=MediaType.GEOJSON,
             ),
-            *_pourpoint_stats_links(snowdb, pourpoint, coverage),
+            *_pourpoint_stats_links(pourpoint, coverage),
         ],
     )
