@@ -155,21 +155,22 @@ def _resolve_ref(tree: GitHubTree) -> str:
     return branch
 
 
-def _list_geojson(tree: GitHubTree, ref: str) -> list[str]:
+def _list_geojson(tree: GitHubTree) -> list[str]:
     """Repo-relative paths of every ``*.geojson`` blob under ``tree.subdir``.
 
-    Uses the Git Trees API with ``recursive=1`` -- one request that returns the
-    whole subtree, and (unlike the Contents API) is not capped at 1000 entries. A
-    truncated response means the repo is too large to enumerate this way, which we
-    reject rather than silently import a partial set.
+    Requires a resolved ``tree.ref`` (see :func:`_resolve_ref`). Uses the Git Trees
+    API with ``recursive=1`` -- one request that returns the whole subtree, and
+    (unlike the Contents API) is not capped at 1000 entries. A truncated response
+    means the repo is too large to enumerate this way, which we reject rather than
+    silently import a partial set.
     """
     listing = _get_json(
-        f'{_API}/repos/{tree.owner}/{tree.repo}/git/trees/{ref}?recursive=1',
+        f'{_API}/repos/{tree.owner}/{tree.repo}/git/trees/{tree.ref}?recursive=1',
     )
     if listing.get('truncated'):
         raise RemoteSourceError(
-            f'GitHub tree listing for {tree.owner}/{tree.repo}@{ref} was truncated '
-            '(repository too large to enumerate via the trees API).',
+            f'GitHub tree listing for {tree.owner}/{tree.repo}@{tree.ref} was '
+            'truncated (repository too large to enumerate via the trees API).',
         )
     prefix = f'{tree.subdir}/' if tree.subdir else ''
     return sorted(
@@ -208,19 +209,18 @@ def _fetch_github_tree(
     progress: ProgressReporter,
 ) -> Path:
     """Download every ``*.geojson`` under ``tree`` into ``dest_dir`` (flat)."""
-    ref = _resolve_ref(tree)
-    tree = replace(tree, ref=ref)
-    paths = _list_geojson(tree, ref)
+    tree = replace(tree, ref=_resolve_ref(tree))
+    paths = _list_geojson(tree)
     if not paths:
         where = tree.subdir or '/'
         raise RemoteSourceError(
             f'No .geojson files found under {where!r} in '
-            f'{tree.owner}/{tree.repo}@{ref}.',
+            f'{tree.owner}/{tree.repo}@{tree.ref}.',
         )
     names = _flat_names(paths)
 
     def download(path: str) -> None:
-        raw = f'{_RAW}/{tree.owner}/{tree.repo}/{ref}/{path}'
+        raw = f'{_RAW}/{tree.owner}/{tree.repo}/{tree.ref}/{path}'
         (dest_dir / names[path]).write_bytes(_get_bytes(raw))
 
     with (

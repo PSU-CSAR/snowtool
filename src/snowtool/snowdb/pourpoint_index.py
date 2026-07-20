@@ -58,7 +58,7 @@ class _IndexFeatureProperties(BaseModel):
     """The index manifest ``Feature``'s ``properties`` block."""
 
     name: str
-    area_meters: float | None = None
+    area_meters: float
     geometry_hash: str
     coverage: dict[str, Coverage] = Field(default_factory=dict)
 
@@ -79,8 +79,10 @@ class PourpointIndexEntry(BaseModel):
     # API, kept so a stale index can be detected/rebuilt.
     geometry_hash: str
     # Geodesic basin area (m^2), computed from the polygon at reindex so the list
-    # can report it without parsing the (large) basin records.
-    area_meters: float | None = None
+    # can report it without parsing the (large) basin records. Always present: an
+    # index entry only exists for a basin-bearing pourpoint (point-only ones are
+    # never indexed), so the area is always computable.
+    area_meters: float
     # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
     # name. Derived: a full rebuild (`PourpointIndex.build` with no `reuse`)
     # recomputes it, registration folds a new dataset's key in, and incremental

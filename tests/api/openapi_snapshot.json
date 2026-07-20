@@ -1901,18 +1901,11 @@
         "description": "The single-record (detail) properties: the summary set + curated ids.",
         "properties": {
           "area_meters": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "examples": [
               27740389176.98
             ],
-            "title": "Area Meters"
+            "title": "Area Meters",
+            "type": "number"
           },
           "awdb_id": {
             "anyOf": [
@@ -1986,6 +1979,7 @@
         },
         "required": [
           "name",
+          "area_meters",
           "pourpoint"
         ],
         "title": "PourpointDetailProperties",
@@ -1995,18 +1989,11 @@
         "description": "A pourpoint's summary (list) properties -- the denormalized index fields.\n\nFixed regardless of the ``geometry`` view: only the feature ``geometry`` slot\nchanges between point and basin mode, never these properties. ``pourpoint`` is\nthe outflow ``[lon, lat]`` and is always present (free from the index), so the\nbasin view still carries the point.",
         "properties": {
           "area_meters": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "examples": [
               27740389176.98
             ],
-            "title": "Area Meters"
+            "title": "Area Meters",
+            "type": "number"
           },
           "coverage": {
             "additionalProperties": {
@@ -2052,6 +2039,7 @@
         },
         "required": [
           "name",
+          "area_meters",
           "pourpoint"
         ],
         "title": "PourpointProperties",

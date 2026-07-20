@@ -124,10 +124,19 @@ def require_full_coverage(
     ``FULL`` always passes. ``PARTIAL`` passes only when ``allow_partial`` is set
     (the caller knowingly wants the in-grid portion). ``NONE`` always raises --
     an off-grid basin has no pixels, so there is nothing to clip to. Raises
-    :class:`~snowtool.exceptions.PourpointCoverageError`.
+    :class:`~snowtool.exceptions.PourpointCoverageError`, whose rendered message
+    is built here (the one place that owns the ``Coverage`` enum).
     """
     if coverage is Coverage.FULL:
         return
     if coverage is Coverage.PARTIAL and allow_partial:
         return
-    raise PourpointCoverageError(triplet, dataset, coverage)
+    if coverage is Coverage.PARTIAL:
+        detail = (
+            'is only partially covered by it (the basin extends outside the '
+            'grid); pass allow_partial to query the in-grid portion only'
+        )
+    else:
+        detail = 'is not covered by it (the basin is entirely outside the grid)'
+    message = f'Pourpoint {triplet!r} {detail} (dataset {dataset!r}).'
+    raise PourpointCoverageError(triplet, dataset, coverage, message)

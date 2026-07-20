@@ -56,7 +56,7 @@ class PourpointProperties(BaseModel):
     """
 
     name: str = Field(examples=['Clark Fork R at St. Regis'])
-    area_meters: float | None = Field(default=None, examples=[27740389176.98])
+    area_meters: float = Field(examples=[27740389176.98])
     pourpoint: tuple[float, float] = Field(examples=[(-115.087346, 47.301864)])
     coverage: dict[str, Coverage] = Field(
         default_factory=dict,

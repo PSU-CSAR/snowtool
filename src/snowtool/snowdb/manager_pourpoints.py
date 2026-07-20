@@ -156,7 +156,7 @@ class PourpointOpsMixin:
         list[types.StationTriplet],
         list[tuple[Path, str]],
     ]:
-        """Split source paths into importable AOIs, skipped point-only, invalid.
+        """Split source paths into importable pourpoints, skipped point-only, invalid.
 
         Pure (no writes, aside from advancing ``progress`` once per source): the
         caller decides whether to persist the result, so a dry run and a real run
@@ -172,23 +172,43 @@ class PourpointOpsMixin:
         ) as task:
             for path in sources:
                 try:
-                    aoi = Pourpoint.from_geojson(path)
+                    pourpoint = Pourpoint.from_geojson(path)
                 except GeoJSONValidationError as e:
                     invalid.append((path, str(e)))
                 else:
-                    if aoi.polygon is None:
+                    if pourpoint.polygon is None:
                         # A valid pourpoint, but with no basin it is skipped.
-                        skipped.append(aoi.station_triplet)
+                        skipped.append(pourpoint.station_triplet)
                     else:
-                        to_import.append((path, aoi))
+                        to_import.append((path, pourpoint))
                 task.advance()
         return to_import, skipped, invalid
 
     def _write_records(self: Self, to_import: Iterable[tuple[Path, Pourpoint]]) -> None:
         """Copy each source geojson verbatim to its canonical record path."""
         self.db.pourpoint_records_path.mkdir(parents=True, exist_ok=True)
-        for path, aoi in to_import:
-            atomic_copy(path, self.db.pourpoint_record_path(aoi.station_triplet))
+        for path, pourpoint in to_import:
+            atomic_copy(path, self.db.pourpoint_record_path(pourpoint.station_triplet))
+
+    def _commit(
+        self: Self,
+        to_import: list[tuple[Path, Pourpoint]],
+        *,
+        progress: ProgressReporter,
+    ) -> None:
+        """Write records for ``to_import`` and incrementally update the index.
+
+        The shared classify-then-write tail for both ``import_pourpoints`` and
+        ``sync_pourpoints`` once a dry run has been ruled out: copy each source
+        geojson to its canonical record path, then feed the just-parsed
+        pourpoints to :meth:`_update_index` as ``preparsed`` so they are indexed
+        without a disk re-parse.
+        """
+        self._write_records(to_import)
+        self._update_index(
+            {pourpoint.station_triplet: pourpoint for _, pourpoint in to_import},
+            progress=progress,
+        )
 
     def import_pourpoints(
         self: Self,
@@ -209,13 +229,9 @@ class PourpointOpsMixin:
             self._resolve_sources(src),
             progress=progress,
         )
-        imported = [aoi.station_triplet for _, aoi in to_import]
+        imported = [pourpoint.station_triplet for _, pourpoint in to_import]
         if not dry_run:
-            self._write_records(to_import)
-            self._update_index(
-                {aoi.station_triplet: aoi for _, aoi in to_import},
-                progress=progress,
-            )
+            self._commit(to_import, progress=progress)
         return PourpointImportResult(imported, skipped, invalid)
 
     def sync_pourpoints(
@@ -242,12 +258,13 @@ class PourpointOpsMixin:
             raise NotADirectoryError(f'pourpoint sync requires a directory: {src}')
 
         to_import, skipped, invalid = self._classify_sources(
-            sorted(src.glob('*.geojson')),
+            self._resolve_sources(src),
             progress=progress,
         )
-        imported = [aoi.station_triplet for _, aoi in to_import]
-        # Both AOIs and point-only pourpoints in the source represent triplets the
-        # source "has"; only stored triplets absent from that set are pruned.
+        imported = [pourpoint.station_triplet for _, pourpoint in to_import]
+        # Both basin-bearing and point-only pourpoints in the source represent
+        # triplets the source "has"; only stored triplets absent from that set
+        # are pruned.
         source_triplets = set(imported) | set(skipped)
         to_prune = sorted(
             t for t in self.db.pourpoint_triplets() if t not in source_triplets
@@ -257,13 +274,9 @@ class PourpointOpsMixin:
             raise PourpointPruneDestinationRequiredError(to_prune)
 
         if not dry_run:
-            self._write_records(to_import)
             for triplet in to_prune:
                 self._remove_pourpoint_files(triplet, dump_to=prune_to)
-            self._update_index(
-                {aoi.station_triplet: aoi for _, aoi in to_import},
-                progress=progress,
-            )
+            self._commit(to_import, progress=progress)
 
         return PourpointSyncResult(imported, skipped, invalid, to_prune)
 
@@ -332,13 +345,13 @@ class PourpointOpsMixin:
         skipped: list[tuple[types.StationTriplet, str]] = []
         total = len(pourpoints) * len(datasets)
         with progress.track('rasterizing', total=total) as task:
-            for aoi in pourpoints:
+            for pourpoint in pourpoints:
                 for dataset, domain in zip(datasets, domains, strict=True):
-                    pair = (aoi.station_triplet, dataset.spec.name)
-                    if dataset_coverage(aoi, domain) is Coverage.NONE:
+                    pair = (pourpoint.station_triplet, dataset.spec.name)
+                    if dataset_coverage(pourpoint, domain) is Coverage.NONE:
                         # Entirely off this grid: nothing to burn.
                         skipped.append(pair)
-                    elif dataset.rasterize_aoi(aoi, rebuild=rebuild):
+                    elif dataset.rasterize_aoi(pourpoint, rebuild=rebuild):
                         built.append(pair)
                     else:
                         skipped.append(pair)

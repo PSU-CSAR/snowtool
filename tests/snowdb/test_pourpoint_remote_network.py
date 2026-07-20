@@ -38,7 +38,7 @@ def test_resolve_ref_finds_default_branch():
 
 def test_list_geojson_enumerates_reference_dir():
     tree = _reference_tree()
-    paths = _list_geojson(tree, tree.ref)
+    paths = _list_geojson(tree)
 
     # The reference dir holds >1000 records -- past the Contents API's cap, so this
     # proves the trees-API path is what makes enumeration complete.
@@ -48,7 +48,7 @@ def test_list_geojson_enumerates_reference_dir():
 
 def test_fetch_single_file_downloads_a_record(tmp_path):
     tree = _reference_tree()
-    first = _list_geojson(tree, tree.ref)[0]
+    first = _list_geojson(tree)[0]
     url = f'https://raw.githubusercontent.com/{_OWNER}/{_REPO}/{tree.ref}/{first}'
 
     dest = _fetch_single_file(url, tmp_path)
@@ -63,4 +63,4 @@ def test_fetch_single_file_downloads_a_record(tmp_path):
 def test_list_geojson_empty_subdir_is_reported():
     tree = _reference_tree()
     empty = replace(tree, subdir='definitely/not/a/real/subdir')
-    assert _list_geojson(empty, empty.ref) == []
+    assert _list_geojson(empty) == []

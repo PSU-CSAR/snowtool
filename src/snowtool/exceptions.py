@@ -53,22 +53,23 @@ class PourpointCoverageError(SnowtoolError):
     computed ``coverage`` so the caller can report which case fired. ``partial``
     coverage is overridable (``allow_partial`` -- a knowingly-clipped query);
     ``none`` is never allowed, as an off-grid basin has no pixels to compute.
+
+    A plain carrier: :func:`~snowtool.snowdb.coverage.require_full_coverage` owns
+    the ``Coverage`` enum and builds the rendered ``message``, so this class does
+    not need to know its members (or duck-type around them).
     """
 
-    def __init__(self, triplet: str, dataset: str, coverage: object) -> None:
+    def __init__(
+        self,
+        triplet: str,
+        dataset: str,
+        coverage: object,
+        message: str,
+    ) -> None:
         self.triplet = triplet
         self.dataset = dataset
         self.coverage = coverage
-        # ``coverage`` is a Coverage enum; matched by value to avoid importing it
-        # here (coverage.py imports this module for the guard).
-        if getattr(coverage, 'value', coverage) == 'partial':
-            detail = (
-                'is only partially covered by it (the basin extends outside the '
-                'grid); pass allow_partial to query the in-grid portion only'
-            )
-        else:
-            detail = 'is not covered by it (the basin is entirely outside the grid)'
-        super().__init__(f'Pourpoint {triplet!r} {detail} (dataset {dataset!r}).')
+        super().__init__(message)
 
 
 class GeometryOutsideGridError(SnowtoolError, ValueError):

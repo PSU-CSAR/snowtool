@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
@@ -22,7 +22,6 @@ from snowtool.snowdb import triplet_naming
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-    from datetime import date
     from pathlib import Path
 
     from affine import Affine
@@ -87,9 +86,6 @@ def missing_dates(
     is omitted and the dataset has no ingested dates (there is no range start to
     infer). A ``start`` after ``end`` yields an empty list rather than erroring.
     """
-    from datetime import date as date_cls
-    from datetime import timedelta
-
     ingested = set(dataset.available_dates())
     if start is None:
         if not ingested:
@@ -98,7 +94,7 @@ def missing_dates(
             )
         start = min(ingested)
     if end is None:
-        end = date_cls.today()  # noqa: DTZ011 - a calendar date, not a timestamp
+        end = date.today()  # noqa: DTZ011 - a calendar date, not a timestamp
 
     one_day = timedelta(days=1)
     missing: list[date] = []
