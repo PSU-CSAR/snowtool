@@ -173,9 +173,6 @@ class BandZone(Zone):
     max: int | float
     unit: str | None
 
-    def __str__(self: Self) -> str:
-        return f'{self.min}_{self.max}'
-
     def ref(self: Self, layer: str) -> BandZoneRef:
         return BandZoneRef(layer=layer, min=self.min, max=self.max, unit=self.unit)
 
@@ -192,9 +189,6 @@ class ClassZone(Zone):
     """One discrete class, identified by its on-disk pixel ``code``."""
 
     code: int
-
-    def __str__(self: Self) -> str:
-        return self.label
 
     def ref(self: Self, layer: str) -> ClassZoneRef:
         return ClassZoneRef(layer=layer, code=self.code, label=self.label)
@@ -215,9 +209,6 @@ class ThresholdZone(Zone):
     threshold: float
     unit: str
     side: Literal['below', 'above']
-
-    def __str__(self: Self) -> str:
-        return self.label
 
     def ref(self: Self, layer: str) -> ThresholdZoneRef:
         return ThresholdZoneRef(
@@ -647,7 +638,6 @@ class CategoricalZoning(ZoneScheme):
     """A fixed set of discrete classes keyed by their on-disk pixel codes."""
 
     classes: tuple[ClassZone, ...]
-    layer_nodata: int
 
     def describe(self: Self) -> CategoricalZoneDescription:
         return CategoricalZoneDescription(

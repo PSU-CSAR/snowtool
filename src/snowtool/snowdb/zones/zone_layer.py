@@ -59,9 +59,9 @@ class ZoneLayer:
     Shared by the generator (which writes it) and :class:`ZoneLayerSet` (which
     locates/reads it) so the two can never disagree on layout. ``key`` is the
     stable id a query references (e.g. ``'elevation'``); ``zoning`` is the
-    :class:`~snowtool.snowdb.zones.zoning.ZoneScheme` that makes the layer a query-able
-    zone (``None`` for a layer that is generated but not itself zone-able, e.g.
-    the aspect components).
+    :class:`~snowtool.snowdb.zones.zoning.ZoneScheme` that makes the layer a
+    query-able zone -- every layer carries one (since v3 the aspect components
+    northness/eastness are their own query axes).
     """
 
     filename: str
@@ -69,7 +69,7 @@ class ZoneLayer:
     nodata: float | int
     band_descriptions: tuple[str, ...]
     key: str
-    zoning: ZoneScheme | None = None
+    zoning: ZoneScheme
 
     @property
     def count(self: Self) -> int:
@@ -201,10 +201,14 @@ class ZoneLayerSource(ABC):
     def open(
         self: Self,
         bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> AbstractContextManager[rasterio.io.DatasetReader]:
         """Context manager yielding an opened dataset covering ``bounds``.
 
-        ``bounds`` is ``(west, south, east, north)`` in EPSG:4326.
+        ``bounds`` is ``(west, south, east, north)`` in EPSG:4326. ``progress``
+        reports a source's own long step (e.g. an NLCD download); a source that
+        streams or reads a local file ignores it.
         """
         raise NotImplementedError
 
@@ -257,9 +261,10 @@ class ZoneLayerProvider(ABC):
 
         Owns the ``with source.open(bounds)`` and the engine call. The engine is
         injectable per provider (a test passes a fast stand-in via the constructor);
-        an un-injected provider resolves the real engine lazily, since the engine
-        module imports its provider and a module-level import would cycle. Returns
-        the per-target provenance hash. ``options`` carries engine knobs (e.g.
+        an un-injected provider binds the real engine at module import (the engine
+        imports its provider's layer-definitions module, not the provider, so there
+        is no cycle). Returns the per-target provenance hash. ``options`` carries
+        engine knobs (e.g.
         terrain's ``workers``/``block_size``); a provider ignores any it does not
         use, and ``None`` defers to the engine defaults. ``progress`` reports the
         long step (terrain's per-block reprojection, the NLCD download).
@@ -294,17 +299,15 @@ def available_zones(
 ) -> dict[str, AvailableZone]:
     """Every query-able zone across ``providers``, keyed ``'<provider>.<layer.key>'``.
 
-    Enumerates each provider's layers that declare a zoning scheme
-    (``layer.zoning is not None``); layers that are generated but not themselves
-    zone-able (e.g. the aspect components) never appear.
+    Every layer carries a zoning scheme (it is a required field), so every layer
+    of every provider is a query-able zone.
     """
     zones: dict[str, AvailableZone] = {}
     for provider in providers:
         for layer in provider.layers:
-            if layer.zoning is not None:
-                zones[f'{provider.name}.{layer.key}'] = AvailableZone(
-                    provider,
-                    layer,
-                    layer.zoning,
-                )
+            zones[f'{provider.name}.{layer.key}'] = AvailableZone(
+                provider,
+                layer,
+                layer.zoning,
+            )
     return zones

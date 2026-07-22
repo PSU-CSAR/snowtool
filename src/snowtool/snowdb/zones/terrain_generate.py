@@ -99,7 +99,7 @@ from snowtool.snowdb.zones.parallel import (
     effective_workers,
     ordered_parallel_map,
 )
-from snowtool.snowdb.zones.terrain import (
+from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_COMPONENT_NODATA,
     ASPECT_E,
     ASPECT_ENTROPY,

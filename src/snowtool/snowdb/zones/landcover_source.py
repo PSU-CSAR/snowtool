@@ -27,8 +27,7 @@ import tempfile
 import urllib.request
 import zipfile
 
-from abc import abstractmethod
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
@@ -57,20 +56,10 @@ DEFAULT_NLCD_URL = (
 class LandCoverSource(ZoneLayerSource):
     """A source of fine-resolution NLCD land cover, opened over an extent.
 
-    Adds an optional ``progress`` to :meth:`open` over the base contract: a source
-    that fetches its data (:class:`AnnualNLCD`) reports the download through it;
-    one that reads a local file ignores it.
+    A marker subtype of :class:`ZoneLayerSource` (the base ``open`` already carries
+    the ``progress`` a fetching source like :class:`AnnualNLCD` reports its download
+    through); ``LandCoverProvider.generate`` uses it to reject a non-NLCD source.
     """
-
-    @abstractmethod
-    def open(
-        self: Self,
-        bounds: Bounds,
-        *,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> AbstractContextManager[rasterio.io.DatasetReader]:
-        """Context manager yielding an opened NLCD raster covering ``bounds``."""
-        raise NotImplementedError
 
 
 class LocalFile(LandCoverSource):

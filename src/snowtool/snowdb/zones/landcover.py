@@ -18,25 +18,35 @@ builds and reads land cover like any other zone layer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Protocol, Self
 
-from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
+from snowtool.snowdb.constants import NLCD_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
-from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerProvider
-from snowtool.snowdb.zones.zoning import ThresholdZoning
+from snowtool.snowdb.zones.landcover_generate import generate_landcover
+from snowtool.snowdb.zones.landcover_layers import (
+    DEFAULT_FOREST_THRESHOLD_PCT,
+    FOREST_COVER,
+    LANDCOVER_FORMAT_VERSION,
+    LANDCOVER_LAYERS,
+)
+from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
 
-# On-disk format version of a land-cover layer set, owned by LandCoverProvider and
-# stamped (via provenance.versioned_hash) onto NLCD_HASH_TAG by the generator. Bump
-# on a material change to the land-cover layer encoding so existing sets read stale.
-LANDCOVER_FORMAT_VERSION = 1
-
-# Default forest-cover threshold (percent): cells with this much forest or more
-# read as "forested", below it as "unforested". Overridable per query.
-DEFAULT_FOREST_THRESHOLD_PCT = 50
+# The layer/constant definitions live in ``landcover_layers`` so the generation
+# engine can import them without importing this provider (this module imports the
+# engine below to bind its module-level default). Re-exported here so external
+# importers keep reading them off ``snowtool.snowdb.zones.landcover``.
+__all__ = [
+    'DEFAULT_FOREST_THRESHOLD_PCT',
+    'FOREST_COVER',
+    'LANDCOVER_FORMAT_VERSION',
+    'LANDCOVER_LAYERS',
+    'LandCoverProvider',
+]
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
+
+    import rasterio.io
 
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zone_layer import (
@@ -45,35 +55,26 @@ if TYPE_CHECKING:
         ZoneLayerTarget,
     )
 
-    # The land-cover generation engine (landcover_generate.generate_landcover);
-    # injectable so a test can supply a fast stand-in. Returns per-target hashes.
-    LandCoverEngine = Callable[..., dict[str, str]]
+    class LandCoverEngine(Protocol):
+        """The land-cover generation engine's call signature.
 
+        Matches
+        :func:`~snowtool.snowdb.zones.landcover_generate.generate_landcover`;
+        injectable (see :meth:`LandCoverProvider.__init__`) so a test can supply a
+        fast stand-in that is signature-checked against the real engine. Returns
+        the per-target provenance hash (all values equal).
+        """
 
-FOREST_COVER = ZoneLayer(
-    filename='forest_cover_pct.tif',
-    dtype='uint8',
-    nodata=FOREST_PCT_NODATA,
-    band_descriptions=('forest_cover_percent_0_100',),
-    key='forest_cover',
-    # Forest cover is a forested/unforested split at a percent threshold (default
-    # 50%), not a set of percent bands: the question is whether a cell is forested,
-    # and the threshold is the per-query knob. Pixels are already percent, so
-    # value_scale is 1.
-    zoning=ThresholdZoning(
-        default_threshold=DEFAULT_FOREST_THRESHOLD_PCT,
-        domain_min=0,
-        domain_max=100,
-        unit='%',
-        value_scale=1,
-        layer_nodata=FOREST_PCT_NODATA,
-        below_label='unforested',
-        above_label='forested',
-    ),
-)
-
-# Every layer of a complete land-cover set, in write order.
-LANDCOVER_LAYERS = (FOREST_COVER,)
+        def __call__(
+            self,
+            source: rasterio.io.DatasetReader,
+            targets: list[ZoneLayerTarget],
+            *,
+            workers: int | None = ...,
+            block_size: int | None = ...,
+            force: bool = ...,
+            progress: ProgressReporter = ...,
+        ) -> dict[str, str]: ...
 
 
 class LandCoverProvider(ZoneLayerProvider):
@@ -86,10 +87,12 @@ class LandCoverProvider(ZoneLayerProvider):
     format_version = LANDCOVER_FORMAT_VERSION
 
     def __init__(self: Self, engine: LandCoverEngine | None = None) -> None:
-        # The generation engine, injectable for tests; None resolves lazily to the
-        # real streaming engine in generate() (landcover_generate imports landcover,
-        # so a module-level import would cycle).
-        self._engine = engine
+        # The generation engine, injectable for tests; None binds the real
+        # streaming engine (landcover_generate imports landcover_layers, not this
+        # provider, so the default can be a plain module-level import).
+        self._engine: LandCoverEngine = (
+            engine if engine is not None else generate_landcover
+        )
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default NLCD source -- the MRLC Annual NLCD bundle, cached locally.
@@ -127,19 +130,13 @@ class LandCoverProvider(ZoneLayerProvider):
         from snowtool.snowdb.zones.landcover_source import LandCoverSource
         from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
-        engine = self._engine
-        if engine is None:
-            from snowtool.snowdb.zones.landcover_generate import generate_landcover
-
-            engine = generate_landcover
-
         if not isinstance(source, LandCoverSource):  # pragma: no cover - defensive
             raise TypeError(
                 f'land-cover generation needs a LandCoverSource, got {source!r}',
             )
         options = options or GenerationOptions()
         with source.open(bounds, progress=progress) as src:
-            return engine(
+            return self._engine(
                 src,
                 targets,
                 workers=options.workers,

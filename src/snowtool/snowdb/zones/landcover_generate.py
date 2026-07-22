@@ -52,7 +52,7 @@ from snowtool.snowdb.zones.generate_common import (
     pixel_centre_coords,
     require_absent_layers,
 )
-from snowtool.snowdb.zones.landcover import (
+from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,

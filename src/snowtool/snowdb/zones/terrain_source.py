@@ -23,8 +23,7 @@ import asyncio
 import math
 import tempfile
 
-from abc import abstractmethod
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
@@ -38,6 +37,7 @@ from async_tiff.store import S3Store
 from rasterio.crs import CRS
 
 from snowtool.snowdb.grid import Bounds
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.terrain_generate import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
@@ -108,17 +108,6 @@ class DemSource(ZoneLayerSource):
         self.work_crs = work_crs
         self.work_resolution = work_resolution
 
-    @abstractmethod
-    def open(
-        self: Self,
-        bounds: Bounds,
-    ) -> AbstractContextManager[rasterio.io.DatasetReader]:
-        """Context manager yielding an opened DEM mosaic covering ``bounds``.
-
-        ``bounds`` is ``(west, south, east, north)`` in EPSG:4326.
-        """
-        raise NotImplementedError
-
 
 class LocalFile(DemSource):
     """A DEM the operator already has on disk (a raster or a ``.vrt``).
@@ -140,8 +129,14 @@ class LocalFile(DemSource):
         self.path = Path(path)
 
     @contextmanager
-    def open(self: Self, bounds: Bounds) -> Iterator[rasterio.io.DatasetReader]:
+    def open(
+        self: Self,
+        bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> Iterator[rasterio.io.DatasetReader]:
         # The whole file is the source; the engine clips to the target grids.
+        # Nothing to download, so ``progress`` is unused.
         with rasterio.open(self.path) as src:
             yield src
 
@@ -154,7 +149,15 @@ class ThreeDEP(DemSource):
     """
 
     @contextmanager
-    def open(self: Self, bounds: Bounds) -> Iterator[rasterio.io.DatasetReader]:
+    def open(
+        self: Self,
+        bounds: Bounds,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> Iterator[rasterio.io.DatasetReader]:
+        # 3DEP tiles stream lazily over range reads, so there is no discrete
+        # download step to report; ``progress`` is accepted for the uniform source
+        # contract and unused.
         tiles = discover_tiles(bounds)
         if not tiles:
             raise RuntimeError(

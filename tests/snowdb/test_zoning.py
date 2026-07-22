@@ -435,7 +435,6 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
                         ClassZone(key='a', label='a', code=0),
                         ClassZone(key='b', label='b', code=1),
                     ),
-                    layer_nodata=255,
                 ),
             ),
         )
