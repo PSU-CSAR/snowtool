@@ -63,8 +63,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   current. The redundant, differently-behaved `SnowDbManager.rasterize_aoi` is
   deleted (production always went through `rasterize_aois`); use
   `SnowDbManager.rasterize_aois` or the `Dataset` method directly.
-  `Dataset.create`'s `force` parameter is renamed `exist_ok` and made
-  keyword-only, matching what it actually does (`mkdir(exist_ok=...)`).
+  `Dataset.create` is likewise converge-by-default: it builds any missing
+  part of the skeleton and returns `(dataset, created)` instead of raising
+  on an existing one — its old `force`/`exist_ok` parameter is gone, and a
+  partially-built skeleton no longer earns a wrong "already exists. Remove
+  and try again" error.
 - **Behavior change:** `dataset create`/`stage_dataset` no longer pre-filters
   wholly off-grid basins before rasterizing; it now hands every basin-bearing
   pourpoint to the same `rasterize_aois` pass and lets that method's own
@@ -96,9 +99,50 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   match.
 - **Internal API:** the `Ingester` contract narrows to a single parsing
   method, `plan()`, yielding one `DateIngest` per date (date, the source
-  files that hash it, and a `build_rasters(source_hash)` callback); the
-  shared hash/write/result-accumulation machinery that every dataset used
-  to duplicate now lives in one driver, `run_ingest`, in `ingest.py`.
+  files that hash it, the date's expected COG names, and a
+  `build_rasters(source_hash)` callback); the shared
+  hash/write/result-accumulation machinery that every dataset used to
+  duplicate now lives in one driver, `run_ingest`, in `ingest.py`.
+  `Dataset.write_date_cogs(date, out_names, build_rasters, ...)` invokes
+  the build callback only *after* its skip-if-current check, so skipping
+  an already-current date does zero source reads on every dataset — a
+  property of the driver contract, not per-ingester discipline.
+- SNODAS ingest no longer extracts the tar archive up front: `plan()` reads
+  only the member names, and extraction happens inside the deferred raster
+  build. Re-ingesting an already-current archive (the advertised
+  `ls *.tar | xargs … ingest` converge pattern) previously extracted and
+  gunzipped every product just to be told "up-to-date"; now it touches
+  nothing but the archive's name list and hash.
+- **Behavior change (error types):** a dataset config whose `ingester` name
+  doesn't resolve now raises a clean `SnowDbConfigError` at every load
+  site — including `SnowDb.open` (API startup, every CLI invocation), which
+  previously leaked a bare `ValueError` while the identical failure at
+  register time got the typed error. Config→spec loading is now the one
+  `load_dataset_spec` helper instead of three inconsistently-wrapped
+  copies.
+- **Behavior change (CLI messages):** management commands resolving a
+  dataset *name* (`ingest`, `info`, `dates`, `values`, …) now report an
+  unknown name as `"No such dataset …"` with the registered listing — the
+  same wording as the read surface (was `"No registered dataset …"`).
+- **Internal API:** `AOIRaster.read_window(raster, *, dtype, fill, cache)`
+  (allocate-and-return) replaces the mutate-in-place
+  `load_raster_tiles_into_array`; `SnowDb` gains `registered_dataset(name)`
+  (the one active-or-inactive lookup with the typed error, shared by the
+  manager and the CLI) and `pourpoint_page(…)` (the index paging /
+  bbox-filter / basin-loading read that previously lived inline in the
+  API's DTO module); `snowtool.snowdb.pourpoint_remote` moves to
+  `snowtool.cli._remote` (it is CLI transport — URL parsing and
+  `GITHUB_TOKEN` handling, not a snowdb concept). Int-typed zone-scheme
+  overrides (`band_step_ft`, `buckets`) now reject a non-integer value
+  instead of silently truncating.
+- **Internal:** the terrain and land-cover generation engines share one
+  `StreamingBinner`/`BinAccumulator` scaffold in `generate_common` (the
+  read lock, thread-local transformers, cancellation dance, and ordered
+  serial reduce now exist in exactly one place); output rasters and
+  generation hashes are bit-identical. Zoning schemes' `configured`/
+  `parse_override` are generic on the `ZoneScheme` base, driven by
+  `param_key` — no per-scheme copies, and no `entropy_threshold` code
+  fork.
 - **Internal:** `SnowDbReader` gains a `max_concurrent_rasters` knob
   (default 16, alongside `max_zone_cells`) bounding how many per-raster
   zonal-stats reductions run concurrently — it bounds peak memory/fetch
@@ -138,6 +182,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   production or test caller before deletion.
 
 ### Fixed
+
+- `SnowDbManager.create_dataset` checked "is this name already registered?"
+  against the `SnowDb` snapshot fixed at open time, so on a single manager
+  instance a `register_dataset` followed by `create_dataset` of the same
+  name would re-register — relinking and deactivating the registration the
+  docs promise is never clobbered. The check now reads the on-disk root
+  config, like every other manager write.
+- `build_mosaic_vrt` took CRS/resolution/dtype/nodata from the first tile
+  and never checked the rest, so a heterogeneous tile set would produce a
+  silently misregistered mosaic; it now raises a clear error instead.
 
 ### Security
 
