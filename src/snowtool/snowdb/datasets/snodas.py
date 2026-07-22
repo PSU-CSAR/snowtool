@@ -114,11 +114,11 @@ _PRODUCTS: dict[Product, tuple[int, str, Unit]] = {
 }
 
 # The parse inverse: (code, vcode-or-None) -> Product. Precip registers its two
-# real vcodes; every other product registers vcode-agnostically under None, which
-# from_product_codes falls back to for any parsed vcode (see its two-tier lookup).
+# real vcodes; every other product registers vcode-agnostically under None (its
+# _PRODUCTS vcode is the empty string), which from_product_codes falls back to for
+# any parsed vcode (see its two-tier lookup).
 _PRODUCT_BY_CODE_VCODE: dict[tuple[int, str | None], Product] = {
-    (code, vcode if product.value.startswith('precip') else None): product
-    for product, (code, vcode, _) in _PRODUCTS.items()
+    (code, vcode or None): product for product, (code, vcode, _) in _PRODUCTS.items()
 }
 
 
@@ -144,9 +144,11 @@ class SNODASInputRaster:
 
     Parses the SNODAS filename into its fields (region/model/datatype/product/
     time-step) and implements the :class:`~snowtool.snowdb.ingest.WritableRaster`
-    contract. ``source_hash`` is the driver-computed versioned hash of the source
-    tar -- a required constructor argument so a COG can never be written without
-    its ``SOURCE_HASH`` provenance tag.
+    contract. The filename is parsed once, at construction; ``source_hash`` -- the
+    driver-computed versioned hash of the source tar -- is stamped later, when
+    :meth:`SNODASInputRasterSet.build_rasters` runs, so a COG still can never be
+    written without its ``SOURCE_HASH`` provenance tag but the archive is not
+    re-parsed to apply it (see :meth:`write_cog`, which requires it be set).
     """
 
     regex: ClassVar[re.Pattern[str]] = re.compile(
@@ -171,10 +173,12 @@ class SNODASInputRaster:
         r'$',
     )
 
-    def __init__(self: Self, path: Path, source_hash: str) -> None:
+    def __init__(self: Self, path: Path) -> None:
         self.path = path
         self.name = self.path.stem
-        self.source_hash = source_hash
+        # Stamped at build time by SNODASInputRasterSet.build_rasters; write_cog
+        # refuses to run until it is set.
+        self.source_hash: str | None = None
         info = self._match(self.name).groupdict()
 
         try:
@@ -234,6 +238,14 @@ class SNODASInputRaster:
         return f'{self.name}.tif'
 
     def write_cog(self: Self, output_dir: Path) -> None:
+        source_hash = self.source_hash
+        if source_hash is None:
+            # Upholds the invariant a COG never lands without provenance: the set's
+            # build_rasters stamps the hash before handing rasters to the driver.
+            raise SnowtoolError(
+                'SNODAS raster written without a source hash; '
+                'build_rasters must stamp it first',
+            )
         # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
         self.trim_header(self.path)
 
@@ -250,10 +262,10 @@ class SNODASInputRaster:
             crs=crs,
             nodata=nodata,
             tile_size=SNODAS_SPEC.grid_params.tile_size,
-            tags=self._provenance_tags(),
+            tags=self._provenance_tags(source_hash),
         )
 
-    def _provenance_tags(self: Self) -> dict[str, str]:
+    def _provenance_tags(self: Self, source_hash: str) -> dict[str, str]:
         # SNODAS already keeps its full source stem as the COG name; these tags
         # add the parsed fields as a structured, queryable record in the file.
         return source_tags(
@@ -261,7 +273,7 @@ class SNODASInputRaster:
             date=self.datetime.date(),
             variable=self.product.value,
             files=self.path.name,
-            source_hash=self.source_hash,
+            source_hash=source_hash,
             extra={
                 'SOURCE_REGION': self.region.value,
                 'SOURCE_MODEL': self.model.value,
@@ -279,11 +291,11 @@ class SNODASInputRaster:
 class SNODASInputRasterSet:
     """A date's validated set of SNODAS rasters, one per product.
 
-    Built by :meth:`from_extracted` from an extracted archive's header files: it
-    validates that the archive holds every product, is a single date, and sits at
-    the pinned time-step, then exposes the per-product :class:`SNODASInputRaster`
-    set (already carrying the driver's ``source_hash``) as the date's writable
-    rasters.
+    Built once by :meth:`from_extracted` from an extracted archive's header files:
+    it validates that the archive holds every product, is a single date, and sits
+    at the pinned time-step. The archive is parsed exactly once here; the driver's
+    ``source_hash`` is stamped onto the already-parsed rasters later, by
+    :meth:`build_rasters`, which returns them as the date's writable rasters.
     """
 
     def __init__(
@@ -355,18 +367,34 @@ class SNODASInputRasterSet:
                     shutil.copyfileobj(f_in, f_out)
 
     @classmethod
-    def from_extracted(
-        cls: type[Self],
-        extract_dir: Path,
-        source_hash: str,
-    ) -> Self:
-        """The validated per-product raster set over already-extracted headers."""
+    def from_extracted(cls: type[Self], extract_dir: Path) -> Self:
+        """The validated per-product raster set over already-extracted headers.
+
+        Parses each header file once. The rasters carry no ``source_hash`` yet;
+        :meth:`build_rasters` stamps it before they are written.
+        """
         rasters: dict[Product, SNODASInputRaster] = {}
         for ext in HDR_EXTS:
             for hdr in extract_dir.glob(f'*{ext}'):
-                file_info = SNODASInputRaster(hdr, source_hash)
+                file_info = SNODASInputRaster(hdr)
                 rasters[file_info.product] = file_info
         return cls(rasters)
+
+    def build_rasters(
+        self: Self,
+        source_hash: str,
+    ) -> list[SNODASInputRaster]:
+        """Stamp the driver's source hash onto the parsed rasters, then return them.
+
+        The :class:`~snowtool.snowdb.ingest.DateIngest.build_rasters` callback for
+        SNODAS: no re-glob, no re-parse -- the archive was parsed once in
+        :meth:`from_extracted`; this just applies the hash the driver computed so
+        every COG lands with its ``SOURCE_HASH`` provenance tag.
+        """
+        rasters = list(self)
+        for raster in rasters:
+            raster.source_hash = source_hash
+        return rasters
 
 
 # --- SNODAS ingest ------------------------------------------------------------
@@ -376,11 +404,12 @@ class SnodasIngester:
     """Parses a SNODAS tar archive (one archive == one date) for the ingest driver.
 
     The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
-    :meth:`plan` extracts the archive once, validates the date/product set, and
-    yields a single :class:`~snowtool.snowdb.ingest.DateIngest` whose
-    ``build_rasters`` turns the driver-computed source hash into the validated
-    per-date raster set (each COG stamped with that hash). The driver hashes the
-    tar, drives the write, and builds the result.
+    :meth:`plan` extracts and parses the archive exactly once, validates the
+    date/product set, and yields a single
+    :class:`~snowtool.snowdb.ingest.DateIngest` whose ``build_rasters`` stamps the
+    driver-computed source hash onto those already-parsed rasters (each COG stamped
+    with that hash). The driver hashes the tar, drives the write, and builds the
+    result.
     """
 
     def plan(
@@ -398,24 +427,19 @@ class SnodasIngester:
             )
 
         # Extract the archive once into a tempdir kept alive across the yield by
-        # this generator. The date + product set are validated up front (with a
-        # placeholder hash, discarded); build_rasters re-reads the same extracted
-        # headers once the driver hands back the real source hash, so every COG is
-        # stamped and nothing is extracted twice.
+        # this generator, and parse it once into the validated raster set. The
+        # date + product set are validated here; build_rasters stamps the driver's
+        # real source hash onto those same parsed rasters -- nothing is extracted
+        # or parsed twice.
         with tempfile.TemporaryDirectory() as _extract:
             extract_dir = Path(_extract)
             SNODASInputRasterSet.extract_archive(source, extract_dir)
-            date_ = SNODASInputRasterSet.from_extracted(extract_dir, '').date
-
-            def build_rasters(source_hash: str) -> list[SNODASInputRaster]:
-                return list(
-                    SNODASInputRasterSet.from_extracted(extract_dir, source_hash),
-                )
+            raster_set = SNODASInputRasterSet.from_extracted(extract_dir)
 
             yield DateIngest(
-                date=date_,
+                date=raster_set.date,
                 source_files=[source],
-                build_rasters=build_rasters,
+                build_rasters=raster_set.build_rasters,
             )
 
 

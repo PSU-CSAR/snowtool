@@ -422,27 +422,31 @@ def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
     """Stub the SNODAS extract/parse seam with a fresh real-COG raster.
 
     The archive parsing (which needs the system SNODAS/GDAL stack) is stubbed: the
-    extraction is a no-op and ``from_extracted`` returns a one-raster set whose
-    single COG carries whatever ``source_hash`` the caller passed (empty on the
-    date-probe read, the versioned tar hash on the build). So the driver's hashing,
-    per-date skip, and write orchestration run over real code.
+    extraction is a no-op and ``from_extracted`` returns a one-raster set parsed
+    once, whose ``build_rasters`` stamps the driver-computed source hash onto its
+    single raster before writing. So the driver's hashing, per-date skip, and write
+    orchestration run over real code.
     """
 
     class _FakeRasterFile:
-        def __init__(self, source_hash: str) -> None:
+        def __init__(self) -> None:
             self.out_name = f'{swe_name}.tif'
-            self.source_hash = source_hash
+            self.source_hash: str | None = None
 
         def write_cog(self, output_dir) -> None:
             _write_marker_cog(output_dir / self.out_name, self.source_hash)
 
     class _FakeSet:
-        def __init__(self, source_hash: str) -> None:
+        def __init__(self) -> None:
             self.date = ingest_date
-            self._raster = _FakeRasterFile(source_hash)
+            self._raster = _FakeRasterFile()
 
         def __iter__(self):
             yield self._raster
+
+        def build_rasters(self, source_hash: str):
+            self._raster.source_hash = source_hash
+            return [self._raster]
 
     monkeypatch.setattr(
         'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.extract_archive',
@@ -450,7 +454,7 @@ def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
     )
     monkeypatch.setattr(
         'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_extracted',
-        classmethod(lambda cls, extract_dir, source_hash: _FakeSet(source_hash)),
+        classmethod(lambda cls, extract_dir: _FakeSet()),
     )
 
 
