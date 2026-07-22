@@ -41,7 +41,6 @@ from snowtool.snowdb.constants import (
     NLCD_HASH_TAG,
 )
 from snowtool.snowdb.grid import grid_extent_4326
-from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.generate_common import (
     cells_for_points,
     finalize_and_stamp,
@@ -55,7 +54,7 @@ from snowtool.snowdb.zones.landcover import (
 )
 
 if TYPE_CHECKING:
-    from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
+    from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
 
 BLOCK = 2048
 
@@ -103,8 +102,8 @@ class _ForestAccumulator:
         if forest_cells.size:
             self.forest += numpy.bincount(forest_cells, minlength=n)
 
-    def finalize(self: Self) -> numpy.typing.NDArray[numpy.uint8]:
-        """Reduce the counts to the percent-forest array (nodata where no pixels)."""
+    def finalize(self: Self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]:
+        """Reduce the counts to the percent-forest layer (nodata where no pixels)."""
         h, w = self.height, self.width
         valid = self.valid.reshape(h, w)
         forest = self.forest.reshape(h, w)
@@ -112,33 +111,7 @@ class _ForestAccumulator:
         has = valid > 0
         # forest <= valid, so the rounded percentage is always in 0..100.
         out[has] = numpy.rint(100.0 * forest[has] / valid[has]).astype(numpy.uint8)
-        return out
-
-    def digest_array(
-        self: Self,
-        artifacts: numpy.typing.NDArray[numpy.uint8],
-    ) -> numpy.typing.NDArray:
-        """The generation hash digests the finalized forest-pct array itself."""
-        return artifacts
-
-    def write(
-        self: Self,
-        artifacts: numpy.typing.NDArray[numpy.uint8],
-        tag: str,
-    ) -> None:
-        """Write the forest-cover COG, stamped with the generation ``tag``."""
-        self.target.directory.mkdir(parents=True, exist_ok=True)
-        rio_crs = rasterio.crs.CRS.from_wkt(self._crs.to_wkt())
-        write_cog(
-            self.target.directory / FOREST_COVER.filename,
-            artifacts,
-            transform=self.transform,
-            crs=rio_crs,
-            nodata=FOREST_COVER.nodata,
-            tile_size=self.target.tile_size,
-            band_descriptions=FOREST_COVER.band_descriptions,
-            tags={NLCD_HASH_TAG: tag},
-        )
+        return [(FOREST_COVER, out)]
 
 
 def generate_landcover(
@@ -175,9 +148,14 @@ def generate_landcover(
         _stream_blocks(source, window, forest, src_nodata, accumulators)
 
     # One generation id for the whole pass: a digest over every target's finalized
-    # forest array (sorted by name for determinism), stamped identically on every
-    # output -- so all layers produced together reconcile as one set.
-    return finalize_and_stamp(accumulators, format_version=LANDCOVER_FORMAT_VERSION)
+    # forest array (its only finalized layer, sorted by name for determinism),
+    # stamped identically on every output -- so all layers produced together
+    # reconcile as one set.
+    return finalize_and_stamp(
+        accumulators,
+        format_version=LANDCOVER_FORMAT_VERSION,
+        hash_tag=NLCD_HASH_TAG,
+    )
 
 
 def _source_window(

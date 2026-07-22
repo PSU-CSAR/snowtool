@@ -86,7 +86,6 @@ from rasterio.windows import transform as window_transform
 from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
-from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.generate_common import (
     cells_for_points,
     finalize_and_stamp,
@@ -314,49 +313,13 @@ class _GridAccumulator:
                 ASPECT_ENTROPY_NODATA,
             )
 
-        # The orientation components are two single-band query axes, not one
-        # two-band file (see TerrainProvider's docstring for why); ``components``
-        # is stacked (northness, eastness) here only to share the astype below.
-        components = numpy.stack(
-            [northness.astype(numpy.float32), eastness.astype(numpy.float32)],
-        )
         return [
             (ELEVATION, elevation.astype(numpy.float32)),
             (ASPECT_MAJORITY, majority),
-            (NORTHNESS, components[0]),
-            (EASTNESS, components[1]),
+            (NORTHNESS, northness.astype(numpy.float32)),
+            (EASTNESS, eastness.astype(numpy.float32)),
             (ASPECT_ENTROPY, entropy.astype(numpy.float32)),
         ]
-
-    def digest_array(
-        self: Self,
-        artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
-    ) -> numpy.typing.NDArray:
-        """The generation hash digests only the finalized elevation array."""
-        return next(array for layer, array in artifacts if layer is ELEVATION)
-
-    def write(
-        self: Self,
-        artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
-        tag: str,
-    ) -> None:
-        """Write each finalized layer as its own COG, stamped with ``tag``."""
-        self.target.directory.mkdir(parents=True, exist_ok=True)
-        rio_crs = rasterio.crs.CRS.from_wkt(self.crs.to_wkt())
-        common = {
-            'transform': self.transform,
-            'crs': rio_crs,
-            'tile_size': self.target.tile_size,
-            'tags': {DEM_HASH_TAG: tag},
-        }
-        for layer, array in artifacts:
-            write_cog(
-                self.target.directory / layer.filename,
-                array,
-                nodata=layer.nodata,
-                band_descriptions=layer.band_descriptions,
-                **common,
-            )
 
 
 def _target_bounds_in_work_crs(
@@ -539,10 +502,15 @@ def generate_terrain(
     # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
 
     # One generation id for the whole pass: a digest over every target's
-    # finalized elevation only (not the other layers -- it identifies the
-    # generation, not a per-raster hash), stamped identically on every layer of
-    # every terrain set so all rasters produced together reconcile as one set.
-    return finalize_and_stamp(accumulators, format_version=TERRAIN_FORMAT_VERSION)
+    # finalized elevation only (the first layer each finalize returns -- it
+    # identifies the generation, not a per-raster hash), stamped identically on
+    # every layer of every terrain set so all rasters produced together
+    # reconcile as one set.
+    return finalize_and_stamp(
+        accumulators,
+        format_version=TERRAIN_FORMAT_VERSION,
+        hash_tag=DEM_HASH_TAG,
+    )
 
 
 def _read_haloed_block(

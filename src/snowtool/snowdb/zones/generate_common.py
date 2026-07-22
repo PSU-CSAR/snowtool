@@ -18,9 +18,11 @@ import hashlib
 from typing import TYPE_CHECKING, Protocol
 
 import numpy
+import rasterio
 
 from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.raster.cog import write_cog
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -32,27 +34,22 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
 
 
-class GenerationAccumulator[Artifacts](Protocol):
+class GenerationAccumulator(Protocol):
     """What :func:`finalize_and_stamp` needs from one target's accumulator.
 
     Both :class:`~snowtool.snowdb.zones.terrain_generate._GridAccumulator` and
     :class:`~snowtool.snowdb.zones.landcover_generate._ForestAccumulator`
     satisfy this structurally (no inheritance needed): a ``target`` to name and
-    sort by, a ``finalize`` that reduces the accumulator to its per-target
-    ``Artifacts``, a ``digest_array`` that projects those artifacts down to the
-    one array each engine's generation hash is defined over (terrain: the
-    elevation array; land cover: the forest-pct array -- *not* "the finalized
-    artifacts" as a whole, since terrain's artifacts are the whole layer list),
-    and a ``write`` that persists the artifacts stamped with the shared tag.
+    sort by, and a ``finalize`` that reduces the accumulator to its per-target
+    layer/array pairs. The generation hash is defined over the *first* pair's
+    array (terrain: the elevation array, first in its list; land cover: the
+    forest-pct array, its only pair), so each engine controls the digested
+    array purely by ordering its ``finalize`` output.
     """
 
     target: ZoneLayerTarget
 
-    def finalize(self) -> Artifacts: ...
-
-    def digest_array(self, artifacts: Artifacts) -> numpy.typing.NDArray: ...
-
-    def write(self, artifacts: Artifacts, tag: str) -> None: ...
+    def finalize(self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
 
 
 def require_absent_layers(
@@ -82,38 +79,64 @@ def require_absent_layers(
             )
 
 
-def finalize_and_stamp[Artifacts](
-    accumulators: Iterable[GenerationAccumulator[Artifacts]],
+def finalize_and_stamp(
+    accumulators: Iterable[GenerationAccumulator],
     *,
     format_version: int,
+    hash_tag: str,
 ) -> dict[str, str]:
     """Finalize every accumulator, compute one generation hash, then write.
 
     One generation id for the whole streaming pass: a sha256 digest over every
-    target's name plus its finalized ``digest_array`` (sorted by target name for
-    determinism), turned into a :func:`~snowtool.snowdb.provenance.versioned_hash`
-    and stamped identically on every output of every target -- so everything
+    target's name plus its *first* finalized layer's array (sorted by target
+    name for determinism), turned into a
+    :func:`~snowtool.snowdb.provenance.versioned_hash` and stamped identically
+    (under ``hash_tag``) on every output of every target -- so everything
     produced together reconciles as one set. The iteration order (sorted for the
     digest, input order for the returned mapping), the per-accumulator update
     sequence (name bytes, then array bytes), and which array is digested are all
-    provenance-visible and must stay exactly as each caller already relies on
-    (terrain digests only the elevation array; land cover digests the forest
-    array) -- that is why ``digest_array`` is a per-accumulator projection rather
-    than "the finalized artifacts" themselves.
+    provenance-visible and must stay exactly as each caller already relies on:
+    the digested array is definitionally the first pair each ``finalize``
+    returns (terrain lists elevation first; land cover returns only the forest
+    array), so each engine pins its digested array by ordering that list.
     """
     accs = list(accumulators)
-    finalized: list[tuple[GenerationAccumulator[Artifacts], Artifacts]] = []
+    finalized: list[
+        tuple[GenerationAccumulator, list[tuple[ZoneLayer, numpy.typing.NDArray]]]
+    ] = []
     digest = hashlib.sha256()
     for acc in sorted(accs, key=lambda acc: acc.target.name):
         artifacts = acc.finalize()
         finalized.append((acc, artifacts))
         digest.update(acc.target.name.encode('utf-8'))
-        digest.update(acc.digest_array(artifacts).tobytes())
+        digest.update(artifacts[0][1].tobytes())
     generation_hash = versioned_hash(format_version, digest.hexdigest())
 
     for acc, artifacts in finalized:
-        acc.write(artifacts, generation_hash)
+        write_layers(acc.target, artifacts, generation_hash, hash_tag)
     return dict.fromkeys((acc.target.name for acc in accs), generation_hash)
+
+
+def write_layers(
+    target: ZoneLayerTarget,
+    artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
+    tag: str,
+    hash_tag: str,
+) -> None:
+    """Write each finalized layer as its own COG, ``tag`` stamped at ``hash_tag``."""
+    target.directory.mkdir(parents=True, exist_ok=True)
+    rio_crs = rasterio.crs.CRS.from_wkt(target.crs.to_wkt())
+    for layer, array in artifacts:
+        write_cog(
+            target.directory / layer.filename,
+            array,
+            transform=target.transform,
+            crs=rio_crs,
+            nodata=layer.nodata,
+            tile_size=target.tile_size,
+            band_descriptions=layer.band_descriptions,
+            tags={hash_tag: tag},
+        )
 
 
 def cells_for_points(
