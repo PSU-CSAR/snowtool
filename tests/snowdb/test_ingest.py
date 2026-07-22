@@ -11,10 +11,7 @@ hash-based skip-if-current, and stale-cleanup logic without a full dataset fixtu
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
-import numpy
 import pytest
-
-from rasterio.transform import from_origin
 
 from snowtool.exceptions import IncompleteDatasetDataError, SnowtoolError
 from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION, Dataset
@@ -22,34 +19,16 @@ from snowtool.snowdb.datasets import SNODAS_SPEC, SnodasIngester
 from snowtool.snowdb.datasets.snodas import SNODASInputRasterSet
 from snowtool.snowdb.ingest import IngestResult
 from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.raster import cog
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
-from ..conftest import snodas_swe_name
+from ..conftest import snodas_swe_name, write_marker_cog
 
 _MM = Unit(name='mm', scale_factor=1)
 
 # Two distinct versioned source hashes for the write-path tests.
 _HASH_A = versioned_hash(INGEST_FORMAT_VERSION, 'a' * 64)
 _HASH_B = versioned_hash(INGEST_FORMAT_VERSION, 'b' * 64)
-
-
-def _write_marker_cog(path, source_hash: str | None) -> None:
-    """Write a tiny real COG at ``path``, tagged with ``source_hash`` if given.
-
-    Real (not name-only) so the header-only ``SOURCE_HASH`` read the skip check
-    does can open it; ``source_hash=None`` simulates a legacy pre-hash COG.
-    """
-    tags = {cog.SOURCE_HASH_TAG: source_hash} if source_hash is not None else None
-    cog.write_cog(
-        path,
-        numpy.zeros((16, 16), dtype='int16'),
-        transform=from_origin(-100.0, 40.0, 0.01, 0.01),
-        tile_size=16,
-        predictor=2,
-        tags=tags,
-    )
 
 
 def _var(key: str) -> DatasetVariable:
@@ -90,7 +69,7 @@ class _FakeRaster:
         self.written_to = None
 
     def write_cog(self, output_dir) -> None:
-        _write_marker_cog(output_dir / self.out_name, self.source_hash)
+        write_marker_cog(output_dir / self.out_name, self.source_hash)
         self.written_to = output_dir
 
 
@@ -180,7 +159,7 @@ def test_write_date_cogs_missing_hash_tag_rebuilds(two_var_dataset):
     out = two_var_dataset.date_dir(d)
     out.mkdir(parents=True)
     for name in ('srcA__swe.tif', 'srcA__depth.tif'):
-        _write_marker_cog(out / name, None)
+        write_marker_cog(out / name, None)
 
     rerun = _full('srcA')
     assert two_var_dataset.write_date_cogs(d, rerun, source_hash=_HASH_A) is True
@@ -434,7 +413,7 @@ def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
             self.source_hash: str | None = None
 
         def write_cog(self, output_dir) -> None:
-            _write_marker_cog(output_dir / self.out_name, self.source_hash)
+            write_marker_cog(output_dir / self.out_name, self.source_hash)
 
     class _FakeSet:
         def __init__(self) -> None:

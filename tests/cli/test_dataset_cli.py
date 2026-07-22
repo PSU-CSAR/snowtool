@@ -10,13 +10,16 @@ from snowtool.cli import cli
 from snowtool.cli._context import CliContext
 from snowtool.snowdb import datasets as datasets_mod
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
-from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
 
-from ..conftest import register_dataset_config, write_swe_cog
+from ..conftest import (
+    full_marker_rasters,
+    register_dataset_config,
+    write_swe_cog,
+)
 
 
 def _json(result):
@@ -540,15 +543,15 @@ def test_ingest_delegates_to_spec_ingester(
                 yield DateIngest(
                     date=d,
                     source_files=[source],
-                    build_rasters=lambda _h: [],
+                    build_rasters=lambda h: full_marker_rasters(dataset, h),
                 )
 
     fake = _FakeIngester()
     # Ingesters are code, referenced by registry name: register the fake so a
-    # config naming it resolves to it. The driver's write step is stubbed to
-    # "wrote" so the run reports both planned dates as ingested.
+    # config naming it resolves to it. Its build_rasters yield real marker COGs
+    # (one per spec variable) so the run drives the genuine atomic write path and
+    # reports both planned dates as ingested.
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-    monkeypatch.setattr(Dataset, 'write_date_cogs', lambda *a, **k: True)
 
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
@@ -588,31 +591,35 @@ def test_ingest_converges_and_force_reingests(
     source_dem,
 ):
     # Converge-by-default: a run whose source hash matches reports "up to date";
-    # --force re-ingests. The fake ingester reports skipped vs ingested by force.
+    # --force re-ingests. Driven through the real per-date skip/force contract by
+    # real marker COGs -- a first ingest establishes the current date, a second
+    # unchanged run converges, and --force rebuilds it.
     class _ConvergingIngester:
         def plan(self, source, dataset):
             yield DateIngest(
                 date=date(2020, 1, 1),
                 source_files=[source],
-                build_rasters=lambda _h: [],
+                build_rasters=lambda h: full_marker_rasters(dataset, h),
             )
 
     fake = _ConvergingIngester()
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-    # The driver's write reports skip (converge) unless forced -- the real
-    # write_date_cogs' force/skip contract, stubbed to avoid needing real COGs.
-    forces: list[bool] = []
-
-    def fake_write(self, d, rasters, *, source_hash, force=False, **_):
-        forces.append(force)
-        return force
-
-    monkeypatch.setattr(Dataset, 'write_date_cogs', fake_write)
 
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
     config.ingester = 'fake'
     register_dataset_config(manager, 'test', config)
+
+    # A first ingest lands the date on disk (source hash stamped) so the next,
+    # unchanged run can be recognised as already current.
+    first = runner.invoke(
+        cli,
+        ['dataset', 'ingest', 'test', str(source_dem), '--format', 'json'],
+        obj=CliContext(config=tmp_path),
+    )
+    assert first.exit_code == 0, first.output
+    assert json.loads(first.stdout)[0]['action'] == 'ingested'
+
     converge = runner.invoke(
         cli,
         ['dataset', 'ingest', 'test', str(source_dem), '--format', 'json'],
@@ -642,7 +649,6 @@ def test_ingest_converges_and_force_reingests(
             'source': str(source_dem),
         },
     ]
-    assert forces == [False, True]
 
 
 def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
@@ -659,12 +665,11 @@ def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
             yield DateIngest(
                 date=date(2020, 1, 1),
                 source_files=sorted(source.glob('*.nc')),
-                build_rasters=lambda _h: [],
+                build_rasters=lambda h: full_marker_rasters(dataset, h),
             )
 
     fake = _FakeIngester()
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-    monkeypatch.setattr(Dataset, 'write_date_cogs', lambda *a, **k: True)
 
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
@@ -719,11 +724,10 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
             yield DateIngest(
                 date=date(2020, 1, 1),
                 source_files=[source],
-                build_rasters=lambda _h: [],
+                build_rasters=lambda h: full_marker_rasters(dataset, h),
             )
 
     monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', _FakeIngester())
-    monkeypatch.setattr(Dataset, 'write_date_cogs', lambda *a, **k: True)
 
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
