@@ -107,12 +107,28 @@ class AOIRaster:
             origin=origin,
         )
 
-    async def load_raster_tiles_into_array(
+    async def read_window(
         self: Self,
         raster: TiledRaster,
-        array: numpy.typing.NDArray[Any],
+        *,
+        dtype: numpy.typing.DTypeLike,
+        fill: float | int,
         cache: TiffCache,
-    ) -> None:
+    ) -> numpy.typing.NDArray[Any]:
+        """Read ``raster`` into a fresh AOI-window array (shape of :attr:`array`).
+
+        Allocates a window-shaped array prefilled with ``fill`` (the caller's
+        nodata sentinel), coalesces one fetch per source COG, and places each
+        tile block. The tile bbox spans the whole window, so the placed blocks
+        are expected to cover every pixel and the prefill never survives -- it is
+        a belt-and-suspenders guard, kept here in the one loader rather than
+        duplicated at each call site.
+        """
+        array: numpy.typing.NDArray[Any] = numpy.full(
+            self.array.shape,
+            fill,
+            dtype=dtype,
+        )
         # One coalesced fetch per source COG, then place each block.
         blocks = await raster.load_tiles(self.tiles, cache)
         for tile, block in zip(self.tiles, blocks, strict=True):
@@ -123,6 +139,7 @@ class AOIRaster:
                 offset_row : offset_row + tile.rows,
                 offset_col : offset_col + tile.cols,
             ] = block
+        return array
 
 
 def make_geometry_mask(

@@ -380,41 +380,54 @@ class ZonalStats:
         rasters: RasterCollection,
         cache: TiffCache,
         dataset: Dataset,
-        zones: Sequence[ZoneSelection] = (),
+        zones: Sequence[str | ZoneSelection] = (),
         *,
+        registry: Mapping[str, AvailableZone] | None = None,
         max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
         max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> Self:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
-        ``zones`` is the axes to cross, already resolved to :class:`ZoneSelection`
-        (a caller with string ``LAYER[:PARAM=VALUE]`` tokens parses them up front
-        via :func:`parse_zone_selection`; this method takes only the resolved
-        form and never re-parses a token). An **empty** selection means *no*
-        stratification: the reduction is over the whole basin, producing a single
-        cell per date whose ``zone`` tuple is empty (the K=0 case of the crossed
-        index). Each selected zone layer is read live, windowed to the AOI, and
-        assigned to per-pixel ordinals; the crossed index is the cartesian
-        product of the axes. A query whose product would exceed ``max_zone_cells``
-        is rejected before any raster is read.
+        ``zones`` is the axes to cross. Each element is either an already-resolved
+        :class:`ZoneSelection` (the programmatic form) or a CLI/HTTP
+        ``LAYER[:PARAM=VALUE]`` string token, parsed here against this query's zone
+        registry via :func:`parse_zone_selection` -- so callers (the reader, the
+        CLI, the API) never touch the registry themselves. An **empty** selection
+        means *no* stratification: the reduction is over the whole basin, producing
+        a single cell per date whose ``zone`` tuple is empty (the K=0 case of the
+        crossed index). Each selected zone layer is read live, windowed to the AOI,
+        and assigned to per-pixel ordinals; the crossed index is the cartesian
+        product of the axes.
+
+        Token parsing and axis resolution happen before any raster is read, so a
+        malformed token or unknown layer raises a clean :class:`QueryParameterError`
+        up front -- never after paying for I/O. A query whose product would exceed
+        ``max_zone_cells`` is likewise rejected before any raster read.
+
+        ``registry`` is the one zone registry for this query; a caller that already
+        built it to fail-fast on a bad token *before* constructing ``rasters`` (the
+        reader -- whose ``RasterCollection`` build itself does dataset I/O) passes it
+        in so it is built exactly once. Direct callers omit it and it is built here.
 
         ``max_concurrent_rasters`` caps how many per-raster reductions run at once
         (a semaphore over the fan-out); it bounds peak memory / fetch fan-out only
         and does not affect results.
         """
         spec = dataset.spec
-        selections = list(zones)
 
-        # Resolve each axis (registry + per-selection scheme overrides). The zone
-        # geometry (which pixel is in which crossed cell, and each cell's total
-        # area) depends only on the AOI mask + the zone layers -- not on any
-        # variable or date -- so it is computed once here and reused by every
-        # reduction. This is the query's one registry build: a caller that already
-        # parsed string tokens (the reader) built its own registry to do so and
-        # does not pass it in, since a fresh dict from the same dataset providers
-        # is equivalent and this keeps `calculate` self-sufficient for its direct
-        # (non-reader) callers.
-        registry = available_zones(dataset.providers.values())
+        # One zone registry per query. The zone geometry (which pixel is in which
+        # crossed cell, and each cell's total area) depends only on the AOI mask +
+        # the zone layers -- not on any variable or date -- so it is resolved once
+        # here and reused by every reduction. A string token is parsed against this
+        # registry; an already-resolved ZoneSelection passes through untouched.
+        if registry is None:
+            registry = available_zones(dataset.providers.values())
+        selections = [
+            zone
+            if isinstance(zone, ZoneSelection)
+            else parse_zone_selection(zone, registry)
+            for zone in zones
+        ]
         resolved = [
             resolve_zone_axis(selection, registry, spec) for selection in selections
         ]
@@ -434,13 +447,12 @@ class ZonalStats:
         # Read each selected zone layer live (windowed to the AOI), concurrently.
         async def _read_axis(available: AvailableZone) -> numpy.typing.NDArray:
             layer = available.layer
-            values = numpy.full(aoi.array.shape, layer.nodata, dtype=layer.dtype)
-            await aoi.load_raster_tiles_into_array(
+            return await aoi.read_window(
                 dataset.zones[available.provider.name].raster(layer),
-                values,
-                cache,
+                dtype=layer.dtype,
+                fill=layer.nodata,
+                cache=cache,
             )
-            return values
 
         axis_arrays = await asyncio.gather(
             *(_read_axis(available) for available, _ in resolved),
@@ -502,10 +514,12 @@ class ZonalStats:
         (date, variable). Cell areas are date-invariant and carried on the zone
         index, so they are not recomputed here.
         """
-        values_array = numpy.empty_like(aoi.array, dtype=variable.dtype)
-        values_array[:] = variable.nodata
-
-        await aoi.load_raster_tiles_into_array(raster, values_array, cache)
+        values_array = await aoi.read_window(
+            raster,
+            dtype=variable.dtype,
+            fill=variable.nodata,
+            cache=cache,
+        )
 
         # The reduction runs only over in-zone pixels that actually have data;
         # everything else (zone geometry, cell areas) was precomputed once.

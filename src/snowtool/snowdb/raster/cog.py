@@ -1,8 +1,10 @@
 """Shared helpers for writing Cloud-Optimized GeoTIFFs with rasterio.
 
 rasterio's bundled GDAL supports writing the ``COG`` driver directly, so these
-wrap that with the project's creation options and embed band statistics (read
-back later by :meth:`AOIRaster.open` via the ``STATISTICS_*`` tags).
+wrap that with the project's creation options and can embed band statistics as
+``STATISTICS_*`` tags. Those stats are write-only metadata for external GIS tools
+(QGIS et al.) -- nothing in the read path reads them back (``write_aoi_raster``
+passes ``compute_stats=False``); they are a convenience for humans opening the COG.
 """
 
 from __future__ import annotations

@@ -61,24 +61,18 @@ class SnowDbReader:
         self: Self,
         db: SnowDb,
         cache: TiffCache | None = None,
-        max_zone_cells: int | None = None,
-        max_concurrent_rasters: int | None = None,
+        max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
+        max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> None:
         self.db = db
         self.cache = cache if cache is not None else TiffCache()
         # Output-size guard for a crossed query (product of the selected zone axes);
         # a read-path cap held here like the cache, not threaded per query.
-        self.max_zone_cells = (
-            DEFAULT_MAX_ZONE_CELLS if max_zone_cells is None else max_zone_cells
-        )
+        self.max_zone_cells = max_zone_cells
         # Fan-out cap on concurrent per-raster reductions (transient window
         # allocations + unbounded fetch batches); a read-path knob beside the cache,
         # not threaded per query. Bounds peak memory only, never results.
-        self.max_concurrent_rasters = (
-            DEFAULT_MAX_CONCURRENT_RASTERS
-            if max_concurrent_rasters is None
-            else max_concurrent_rasters
-        )
+        self.max_concurrent_rasters = max_concurrent_rasters
 
     @staticmethod
     def _resolve_variables(
@@ -124,12 +118,14 @@ class SnowDbReader:
         defaults to every variable the dataset defines. ``zones`` defaults to none
         (a whole-basin reduction); each element is either an already-resolved
         :class:`~snowtool.snowdb.zonal_stats.ZoneSelection` (the programmatic form)
-        or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here -- building
-        the zone registry once via
-        :func:`~snowtool.snowdb.zones.zone_layer.available_zones` and mapping each
-        string through :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection` --
-        so callers never touch the registry themselves. Raises a clean error when
-        the dataset/variable is unknown, a zone token is malformed or names an
+        or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here against the
+        query's one zone registry -- built up front so a malformed token or unknown
+        layer fails fast, before the ``RasterCollection`` build's dataset I/O. The
+        parsed selections and the registry are handed to
+        :meth:`ZonalStats.calculate` (which owns axis *resolution* and also
+        accepts raw tokens for direct callers), so neither is redone. Raises a
+        clean error
+        when the dataset/variable is unknown, a zone token is malformed or names an
         unknown layer, the pourpoint is not covered
         (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
         has not been rasterized (:class:`FileNotFoundError`).
@@ -143,18 +139,17 @@ class SnowDbReader:
             allow_partial=allow_partial,
         )
 
-        # The registry is built once here (only when a string token needs parsing)
-        # and used for every token in this query; an already-resolved
-        # ZoneSelection passes through untouched.
-        registry = None
-        zone_selections: list[ZoneSelection] = []
-        for zone in zones:
-            if isinstance(zone, ZoneSelection):
-                zone_selections.append(zone)
-                continue
-            if registry is None:
-                registry = available_zones(dataset.providers.values())
-            zone_selections.append(parse_zone_selection(zone, registry))
+        # Build the one zone registry for this query and parse the zone tokens
+        # against it up front, before the RasterCollection build below touches the
+        # dataset on disk -- so a bad token surfaces as a clean QueryParameterError
+        # rather than being masked by a later data-integrity error. The parsed
+        # selections and the registry are handed to calculate so neither the
+        # parse nor the registry build happens twice.
+        registry = available_zones(dataset.providers.values())
+        zone_selections = [
+            parse_zone_selection(zone, registry) if isinstance(zone, str) else zone
+            for zone in zones
+        ]
 
         variables = self._resolve_variables(dataset, variable_keys)
         aoi_raster = dataset.load_aoi_raster(triplet)
@@ -168,6 +163,7 @@ class SnowDbReader:
             self.cache,
             dataset,
             zone_selections,
+            registry=registry,
             max_zone_cells=self.max_zone_cells,
             max_concurrent_rasters=self.max_concurrent_rasters,
         )

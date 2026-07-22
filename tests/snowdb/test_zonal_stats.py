@@ -98,8 +98,8 @@ class _FakeAOI:
         self.array = area
         self._values = values
 
-    async def load_raster_tiles_into_array(self, raster, values_array, cache):
-        values_array[:] = self._values
+    async def read_window(self, raster, *, dtype, fill, cache):
+        return numpy.array(self._values, dtype=dtype)
 
 
 @dataclass
@@ -124,7 +124,7 @@ def _calc_results(aoi, variable, raster, zone_index):
     """Run ``_calc`` and pair each cell value with its zone tuple and area.
 
     Untyped like ``_run_calc`` so mypy does not flag the deliberate ``cache=None``
-    (the ``_FakeAOI`` overrides ``load_raster_tiles_into_array``, so the cache is
+    (the ``_FakeAOI`` overrides ``read_window``, so the cache is
     never touched) -- matching the pre-existing test convention here.
     """
     values = asyncio.run(
