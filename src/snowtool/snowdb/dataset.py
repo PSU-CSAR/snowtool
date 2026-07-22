@@ -23,7 +23,6 @@ from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.aoi_raster import AOIRaster, aoi_provenance, write_aoi_raster
 from snowtool.snowdb.atomic import staged_dir
 from snowtool.snowdb.constants import AOI_HASH_TAG
-from snowtool.snowdb.grid import grid_extent_4326
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files
@@ -42,10 +41,8 @@ if TYPE_CHECKING:
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zones.zone_layer import (
-        GenerationOptions,
         ZoneLayerProvider,
         ZoneLayerSet,
-        ZoneLayerSource,
         ZoneLayerTarget,
     )
 
@@ -157,9 +154,9 @@ class Dataset:
         """Create the dataset's directory skeleton.
 
         Zone layers (terrain, land cover, ...) are *not* built here: each needs a
-        source and is generated separately by :meth:`generate_zone_layers` (so
-        generation can share one source read across every dataset -- see
-        :meth:`SnowDb.generate_zone_layers`).
+        source and is generated separately by
+        :meth:`SnowDbManager.generate_zone_layers_for` (so generation can share one
+        source read across every dataset).
         """
         self = cls(spec, path, nodata_mask=nodata_mask)
 
@@ -190,34 +187,6 @@ class Dataset:
             tile_size=self.spec.grid_params.tile_size,
             directory=self.zones[provider.name].directory,
         )
-
-    def generate_zone_layers(
-        self: Self,
-        provider: ZoneLayerProvider,
-        source: ZoneLayerSource,
-        *,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> str:
-        """Generate this dataset's zone-layer set for ``provider`` from ``source``.
-
-        A single-grid pass over the source (binning only into this grid); for the
-        multi-grid shared-source pass, see :meth:`SnowDb.generate_zone_layers`.
-        ``options`` carries engine knobs (e.g. terrain's ``workers``/
-        ``block_size``); ``progress`` reports the long step. Returns the set's
-        provenance hash.
-        """
-        bounds = grid_extent_4326(self.grid)
-        hashes = provider.generate(
-            source,
-            [self.zone_target(provider)],
-            bounds,
-            force=force,
-            options=options,
-            progress=progress,
-        )
-        return hashes[self.spec.name]
 
     @staticmethod
     def _format_date(date: date) -> str:

@@ -401,7 +401,13 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
     assert 'terrain.elevation' in zones
     assert 'landcover.forest_cover' not in zones
     # Generation for a provider no dataset enables targets nothing.
-    assert manager.generate_zone_layers('landcover', db.datasets.values()) == {}
+    assert (
+        manager.generate_zone_layers_for(
+            db.datasets.values(),
+            provider_names=['landcover'],
+        )
+        == {}
+    )
 
 
 def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):

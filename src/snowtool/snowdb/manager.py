@@ -61,7 +61,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zones.zone_layer import (
         GenerationOptions,
         ZoneLayerProvider,
-        ZoneLayerSource,
     )
 
 # Re-exported for backward compatibility: these result dataclasses moved to
@@ -562,52 +561,6 @@ class SnowDbManager(PourpointOpsMixin):
             )
         return CreatedDataset(staged=staged, registered=registered)
 
-    def generate_zone_layers(
-        self: Self,
-        provider_name: str,
-        datasets: Iterable[Dataset],
-        *,
-        source: ZoneLayerSource | None = None,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> dict[str, str]:
-        """Generate a provider's zone layers for several datasets in one pass.
-
-        Reads ``source`` (default: this database's resolved source for
-        ``provider_name``) once over the combined extent of ``datasets``' grids and
-        bins it into all of them -- e.g. terrain's aspect must be computed at the
-        source resolution, so sharing the read is the whole point. ``datasets`` are
-        passed as objects (registered or merely staged), so *activation is
-        irrelevant here*: zone layers live under ``data/<name>/`` regardless of
-        whether the root config links the dataset. Only the datasets that *enable*
-        ``provider_name`` are targeted (the rest have no such zone layer).
-        ``options`` carries engine knobs (e.g. terrain's ``workers``/
-        ``block_size``). Returns each generated dataset's provenance hash, keyed by
-        name.
-        """
-        from snowtool.snowdb.grid import grid_extent_4326
-
-        provider = self.db.zone_layer_providers[provider_name]
-        # Only datasets whose config enables this provider have the layer to build.
-        selected = [ds for ds in datasets if provider_name in ds.providers]
-        if not selected:
-            return {}
-
-        if source is None:
-            source = self.db.zone_layer_sources[provider_name]
-        targets = [ds.zone_target(provider) for ds in selected]
-        bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in selected)
-
-        return provider.generate(
-            source,
-            targets,
-            bounds,
-            force=force,
-            options=options,
-            progress=progress,
-        )
-
     def generate_zone_layers_for(
         self: Self,
         datasets: Iterable[Dataset],
@@ -620,19 +573,26 @@ class SnowDbManager(PourpointOpsMixin):
     ) -> dict[str, dict[str, str]]:
         """Generate zone layers across ``datasets`` with one shared read per provider.
 
-        The many-datasets orchestrator over :meth:`generate_zone_layers`: for each
-        selected provider it resolves the source once (an override from
+        For each selected provider it resolves the source once (an override from
         ``source_overrides``, else the configured default) and reads it a single time
         over the combined extent of every dataset that enables that provider -- so
         standing up N datasets that share a provider pays that provider's expensive
-        source read *once*, not N times. ``provider_names`` limits the providers
-        (default: the union of every dataset's enabled providers); an unknown
-        name -- selected or overridden -- raises
-        :class:`~snowtool.exceptions.UnknownZoneLayerProviderError`.
-        ``progress_factory`` builds a per-provider reporter (default: silent).
-        Returns ``{provider_name: {dataset_name: hash}}``, with provider keys
-        that targeted no dataset omitted.
+        source read *once*, not N times (terrain's aspect, for instance, must be
+        computed at the source resolution, so sharing the read is the whole point).
+        ``datasets`` are passed as objects (registered or merely staged), so
+        *activation is irrelevant here*: zone layers live under ``data/<name>/``
+        regardless of whether the root config links the dataset; only the datasets
+        that *enable* a provider are targeted (the rest have no such zone layer).
+        ``provider_names`` limits the providers (default: the union of every
+        dataset's enabled providers); an unknown name -- selected or overridden --
+        raises :class:`~snowtool.exceptions.UnknownZoneLayerProviderError`.
+        ``options`` carries engine knobs (e.g. terrain's ``workers``/
+        ``block_size``). ``progress_factory`` builds a per-provider reporter
+        (default: silent). Returns ``{provider_name: {dataset_name: hash}}``, with
+        provider keys that targeted no dataset omitted.
         """
+        from snowtool.snowdb.grid import grid_extent_4326
+
         datasets = list(datasets)
         source_overrides = source_overrides or {}
         selected = (
@@ -651,6 +611,11 @@ class SnowDbManager(PourpointOpsMixin):
         results: dict[str, dict[str, str]] = {}
         for provider_name in selected:
             provider = self.db.zone_layer_providers[provider_name]
+            # Only datasets whose config enables this provider have the layer to build.
+            targeted = [ds for ds in datasets if provider_name in ds.providers]
+            if not targeted:
+                continue
+
             source = (
                 provider.local_source(source_overrides[provider_name])
                 if provider_name in source_overrides
@@ -661,14 +626,14 @@ class SnowDbManager(PourpointOpsMixin):
                 if progress_factory is not None
                 else NULL_PROGRESS
             )
-            hashes = self.generate_zone_layers(
-                provider_name,
-                datasets,
-                source=source,
+            targets = [ds.zone_target(provider) for ds in targeted]
+            bounds = _combined_extent(grid_extent_4326(ds.grid) for ds in targeted)
+            results[provider_name] = provider.generate(
+                source,
+                targets,
+                bounds,
                 force=force,
                 options=options,
                 progress=progress,
             )
-            if hashes:
-                results[provider_name] = hashes
         return results
