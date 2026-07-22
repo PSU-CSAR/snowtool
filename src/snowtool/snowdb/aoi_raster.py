@@ -222,8 +222,7 @@ def write_aoi_raster(
     geometry_hash: str,
     *,
     cell_area: float | None,
-    nodata_mask: Path | None = None,
-    nodata_mask_hash: str | None = None,
+    nodata_mask: tuple[Path, str] | None = None,
 ) -> None:
     """Burn ``geometry`` to a per-pixel cell-area AOI COG over its tile-bbox window.
 
@@ -246,22 +245,15 @@ def write_aoi_raster(
     elevation/terrain are read live at query time, so a terrain rebuild never
     invalidates an AOI raster.
 
-    ``nodata_mask``/``nodata_mask_hash`` are the dataset's optional valid-domain
-    raster and its file digest (see ``DatasetConfig.nodata_mask``,
-    ``Dataset.nodata_mask_hash``): the mask's 0/nodata pixels are burned out of
-    the AOI (zero area weight). ``nodata_mask_hash`` is taken as given (not
-    hashed from ``nodata_mask`` here) so a convergence loop over many pourpoints
-    still hashes the mask file once, not once per AOI -- the two must agree on
-    whether a mask is configured (one ``None`` and the other not is a caller
-    bug, not a valid maskless call, and is rejected rather than silently
-    computing maskless provenance for a masked raster).
+    ``nodata_mask`` pairs the dataset's optional valid-domain raster with its
+    file digest (see ``DatasetConfig.nodata_mask``, ``Dataset.nodata_mask_hash``):
+    the mask's 0/nodata pixels are burned out of the AOI (zero area weight), and
+    the digest is taken as given (not re-hashed here) so a convergence loop over
+    many pourpoints hashes the mask file once, not once per AOI. Passing the path
+    and hash as one tuple makes the half-specified state unrepresentable.
     """
-    if (nodata_mask is None) != (nodata_mask_hash is None):
-        raise ValueError(
-            'nodata_mask and nodata_mask_hash must both be given or both be '
-            f'None (got nodata_mask={nodata_mask!r}, '
-            f'nodata_mask_hash={nodata_mask_hash!r})',
-        )
+    mask_path = nodata_mask[0] if nodata_mask is not None else None
+    mask_hash = nodata_mask[1] if nodata_mask is not None else None
     start_tile, end_tile = bounding_tiles(grid, geometry.bounds)
     # Re-parsing grid.crs (rather than threading Dataset.grid_crs through) is
     # safe here: DatasetSpec.crs is the single source both grid.crs and
@@ -286,13 +278,13 @@ def write_aoi_raster(
         out_shape=(height, width),
         transform=transform,
     )
-    if nodata_mask is not None:
+    if mask_path is not None:
         # Pixels outside the dataset's valid domain (e.g. SNODAS open water)
         # get zero area weight: they are excluded from stats areas exactly as
         # they are excluded from the means, so band stats recombine to
         # whole-basin stats.
         aoi_mask &= _read_nodata_mask_window(
-            nodata_mask,
+            mask_path,
             base_grid,
             start,
             height,
@@ -308,7 +300,7 @@ def write_aoi_raster(
         # Records the geometry + format version this raster was burned from, so a
         # changed basin OR a format bump is detected (and re-rasterized) by a cheap
         # tag read.
-        AOI_HASH_TAG: aoi_provenance(geometry_hash, nodata_mask_hash),
+        AOI_HASH_TAG: aoi_provenance(geometry_hash, mask_hash),
     }
 
     write_cog(

@@ -142,6 +142,24 @@ class Dataset:
             )
         return hash_files([self.nodata_mask])
 
+    @property
+    def nodata_mask_pair(self: Self) -> tuple[Path, str] | None:
+        """The nodata mask paired with its provenance hash, or ``None``.
+
+        Both halves come from the same config field, so the pair is never
+        half-specified; this couples them into the one value ``write_aoi_raster``
+        wants (path + digest) instead of two positionally-tied arguments.
+        """
+        mask = self.nodata_mask
+        if mask is None:
+            return None
+        # A configured mask always has a hash (missing file raises in
+        # `nodata_mask_hash`); the local narrows it from `str | None` to `str`.
+        hash_ = self.nodata_mask_hash
+        if hash_ is None:  # pragma: no cover - unreachable given `mask is None`
+            return None
+        return (mask, hash_)
+
     @classmethod
     def create(
         cls: type[Self],
@@ -266,8 +284,7 @@ class Dataset:
             self.grid,
             pourpoint.geometry_hash,
             cell_area=cell_area,
-            nodata_mask=self.nodata_mask,
-            nodata_mask_hash=self.nodata_mask_hash,
+            nodata_mask=self.nodata_mask_pair,
         )
 
         return AOIRaster.open(path, self.grid)
