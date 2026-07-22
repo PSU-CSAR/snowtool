@@ -197,28 +197,3 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
         # tags round-trip into the written COG
         assert cog.tags()['SOURCE_DATASET'] == 'swann-800m'
         assert cog.tags()['SOURCE_VARIABLE'] == 'swe'
-
-
-def test_swann_raster_refuses_overwrite_without_force(tmp_path):
-    array = numpy.zeros((32, 32), dtype='int16')
-    transform = from_origin(-125.0, 50.0, 0.01, 0.01)
-    crs = rasterio.crs.CRS.from_epsg(4269)
-    src = tmp_path / 'src.tif'
-    _geotiff_source(src, array, transform, crs)
-
-    raster = SwannRaster(
-        str(src),
-        'swe.tif',
-        transform=transform,
-        crs=crs,
-        tile_size=16,
-        nodata=-999.0,
-    )
-    out_dir = tmp_path / 'd'
-    out_dir.mkdir()
-    raster.write_cog(out_dir)
-
-    with pytest.raises(FileExistsError, match='already exists'):
-        raster.write_cog(out_dir)
-    # force overwrites
-    raster.write_cog(out_dir, force=True)

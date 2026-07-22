@@ -23,7 +23,7 @@ import rasterio
 
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.ingest import DateIngest
-from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
+from snowtool.snowdb.raster.cog import source_tags, write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -107,14 +107,13 @@ class SwannRaster:
         self.nodata = nodata
         self.tags = tags
 
-    def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
+    def write_cog(self: Self, output_dir: Path) -> None:
         with rasterio.open(self.source_uri) as src:
             array = src.read(1)
 
-        write_cog_guarded(
+        write_cog(
             output_dir / self.out_name,
             array,
-            force=force,
             transform=self.transform,
             crs=self.crs,
             nodata=self.nodata,

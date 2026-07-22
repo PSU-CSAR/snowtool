@@ -89,7 +89,7 @@ class _FakeRaster:
         self.source_hash = source_hash
         self.written_to = None
 
-    def write_cog(self, output_dir, force: bool = False) -> None:
+    def write_cog(self, output_dir) -> None:
         _write_marker_cog(output_dir / self.out_name, self.source_hash)
         self.written_to = output_dir
 
@@ -106,7 +106,7 @@ class _MisfilingRaster:
         self.out_name = out_name
         self._actual = actual_name
 
-    def write_cog(self, output_dir, force: bool = False) -> None:
+    def write_cog(self, output_dir) -> None:
         (output_dir / self._actual).write_text('cog')
 
 
@@ -433,7 +433,7 @@ def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
             self.out_name = f'{swe_name}.tif'
             self.source_hash = source_hash
 
-        def write_cog(self, output_dir, force: bool = False) -> None:
+        def write_cog(self, output_dir) -> None:
             _write_marker_cog(output_dir / self.out_name, self.source_hash)
 
     class _FakeSet:

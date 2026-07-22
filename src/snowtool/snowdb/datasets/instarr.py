@@ -34,7 +34,7 @@ from pydantic import TypeAdapter
 
 from snowtool.exceptions import SnowtoolError
 from snowtool.snowdb.ingest import DateIngest
-from snowtool.snowdb.raster.cog import source_tags, write_cog_guarded
+from snowtool.snowdb.raster.cog import source_tags, write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -192,7 +192,7 @@ class InstarrMosaicRaster:
         self.crs = crs
         self.tags = tags
 
-    def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
+    def write_cog(self: Self, output_dir: Path) -> None:
         gp = self.grid_params
         array = numpy.full(
             (gp.rows, gp.cols),
@@ -211,10 +211,9 @@ class InstarrMosaicRaster:
             rows, cols = data.shape
             array[row_off : row_off + rows, col_off : col_off + cols] = data
 
-        write_cog_guarded(
+        write_cog(
             output_dir / self.out_name,
             array,
-            force=force,
             transform=self.transform,
             crs=self.crs,
             nodata=self.variable.nodata,

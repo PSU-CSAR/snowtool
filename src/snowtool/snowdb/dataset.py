@@ -451,9 +451,7 @@ class Dataset:
             ) as task,
         ):
             for raster in rasters:
-                # The staging dir is fresh and empty, so nothing can be clobbered;
-                # ``force`` just keeps a raster's own existence guard from tripping.
-                raster.write_cog(output_dir=staging, force=True)
+                raster.write_cog(output_dir=staging)
                 task.advance()
 
             # Post-validate in the staged dir before the swap: every spec variable

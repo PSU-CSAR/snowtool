@@ -14,8 +14,6 @@ import rasterio
 
 from rasterio.crs import CRS
 
-from snowtool.exceptions import ArtifactExistsError
-
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import date
@@ -94,42 +92,6 @@ def write_cog(
                 dst.set_band_description(idx + 1, description)
         if compute_stats:
             _embed_stats(dst, array, nodata)
-
-
-def write_cog_guarded(
-    path,
-    array: numpy.ndarray,
-    *,
-    force: bool,
-    transform: Affine,
-    tile_size: int,
-    crs: CRS = WGS84,
-    nodata: float | int | None = None,
-    tags: dict[str, str] | None = None,
-    predictor: int | None = None,
-) -> None:
-    """:func:`write_cog` with the shared ingest existence-guard.
-
-    Every ingester writes its COGs the same way: refuse to clobber an existing
-    file unless ``force``, then write with ``predictor`` passed through to
-    :func:`write_cog`'s dtype-derived default (2 for integers, 3 for floats).
-    This keeps the guard message in one place.
-    """
-    if not force and path.exists():
-        raise ArtifactExistsError(
-            f'Unable to write COG: {path} already exists. '
-            'Remove file and try again or use `force=True`.',
-        )
-    write_cog(
-        path,
-        array,
-        transform=transform,
-        tile_size=tile_size,
-        crs=crs,
-        nodata=nodata,
-        predictor=predictor,
-        tags=tags,
-    )
 
 
 def source_tags(

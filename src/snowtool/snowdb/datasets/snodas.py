@@ -27,7 +27,7 @@ import rasterio
 
 from snowtool.exceptions import IngestSourceError, SnowtoolError
 from snowtool.snowdb.ingest import DateIngest
-from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog_guarded
+from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -233,7 +233,7 @@ class SNODASInputRaster:
         # is the filename); satisfies the WritableRaster.out_name contract.
         return f'{self.name}.tif'
 
-    def write_cog(self: Self, output_dir: Path, force: bool = False) -> None:
+    def write_cog(self: Self, output_dir: Path) -> None:
         # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
         self.trim_header(self.path)
 
@@ -243,10 +243,9 @@ class SNODASInputRaster:
             crs = src.crs or WGS84
             nodata = src.nodata
 
-        write_cog_guarded(
+        write_cog(
             output_dir / self.out_name,
             array,
-            force=force,
             transform=transform,
             crs=crs,
             nodata=nodata,
