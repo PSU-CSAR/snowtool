@@ -1,11 +1,13 @@
 """Materialize a remote pourpoint source to a local directory for import/sync.
 
-The ``pourpoint import``/``sync`` pipeline on
-:class:`~snowtool.snowdb.manager.SnowDbManager` is purely local: it classifies and
-copies ``*.geojson`` files from a path on disk.
-This module is the thin adapter that lets the CLI point those commands at an
-``http(s)`` source instead, by fetching the remote file(s) into a temporary
-directory that is then handed to the *unchanged* local pipeline.
+CLI transport, not a domain concept: the ``pourpoint import``/``sync`` pipeline on
+:class:`~snowtool.snowdb.manager.SnowDbManager` is purely local -- it classifies and
+copies ``*.geojson`` files from a path on disk. This module lives in the CLI shell
+because it is the thin adapter that lets the ``pourpoint`` commands point those
+domain operations at an ``http(s)`` source instead, by fetching the remote file(s)
+into a temporary directory that is then handed to the *unchanged* local pipeline.
+It constructs no domain objects -- only local paths -- so GitHub tree-URL parsing
+and ``GITHUB_TOKEN`` handling stay out of ``snowdb/``.
 
 Two shapes are supported, chosen from the URL:
 

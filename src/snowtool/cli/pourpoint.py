@@ -23,8 +23,8 @@ from snowtool.cli._datasets import (
     resolve_datasets,
 )
 from snowtool.cli._progress import RichProgress
+from snowtool.cli._remote import materialize_dir, materialize_file
 from snowtool.cli._render import emit, emit_record, format_option
-from snowtool.snowdb.pourpoint_remote import materialize_dir, materialize_file
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -224,16 +224,11 @@ def remove_pourpoint(
     yes: bool,
 ) -> None:
     """Remove a stored pourpoint and its per-dataset rasters (cascade)."""
-
-    def _remove(*, dry_run: bool = False) -> bool:
-        if dry_run:
-            return manager.remove_pourpoint(triplet, dry_run=True)
-        return manager.remove_pourpoint(triplet, progress=RichProgress())
-
     run_removal(
         triplet,
         f'Remove {triplet} and its per-dataset rasters?',
-        _remove,
+        preview=lambda: manager.remove_pourpoint(triplet, dry_run=True),
+        execute=lambda: manager.remove_pourpoint(triplet, progress=RichProgress()),
         dry_run=dry_run,
         yes=yes,
     )

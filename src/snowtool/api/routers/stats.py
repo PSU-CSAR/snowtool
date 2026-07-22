@@ -31,7 +31,7 @@ from snowtool.api.models.stats import (
     stats_csv_response,
 )
 from snowtool.api.tags import Tags
-from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery
+from snowtool.snowdb.query import DateRangeQuery, DOYQuery
 
 if TYPE_CHECKING:
     from snowtool.snowdb.reader import SnowDbReader
@@ -114,5 +114,4 @@ async def stats_doy(
     reader: ReaderDep,
     params: Annotated[DOYStatsQuery, Query()],
 ) -> CompactStatsResponse | StreamingResponse:
-    query = DOYQuery(**params.model_dump(include=set(DOYFields.model_fields)))
-    return await _run(reader, dataset, triplet, query, params)
+    return await _run(reader, dataset, triplet, params.to_query(), params)

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.pourpoint import Pourpoint
-    from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
+    from snowtool.snowdb.pourpoint_index import PourpointIndexEntry
 
 
 class PourpointProperties(BaseModel):
@@ -153,37 +153,29 @@ def build_pourpoint_collection(
 ) -> PourpointFeatureCollection:
     """One page of the index (triplet-sorted, optionally ``bbox``-filtered) + links.
 
-    ``bbox`` always filters on the pourpoint point (cheap, straight from the
-    index). With ``basin_geometry`` the page's basin polygons are loaded per record
-    (the expensive view -- the index stores points only), so the route uses a
-    smaller default page. Pagination links (``paginate_offset``) rewrite only
-    ``offset``/``limit``, preserving the ``bbox``/``geometry`` filters across pages.
+    The scan/filter/count/slice and per-record basin load live on
+    :meth:`SnowDb.pourpoint_page`; this shaping layer only turns the returned
+    ``(entry, basin)`` pairs into features (basin geometry when loaded, else the
+    point) and wraps them with pagination/root links. ``bbox`` always filters on
+    the pourpoint point (its ``contains`` predicate is passed straight through);
+    ``basin_geometry`` selects the expensive per-record polygon view.
+    Pagination links (``paginate_offset``) rewrite only ``offset``/``limit``,
+    preserving the ``bbox``/``geometry`` filters across pages.
     """
-    index: PourpointIndex = snowdb.pourpoint_index()
-    entries = [
-        entry
-        for entry in index  # PourpointIndex iterates entries sorted by triplet
-        if bbox is None or bbox.contains(*entry.point.coordinates[:2])
-    ]
-    total = len(entries)
-    page = entries[offset : offset + limit]
-
-    items: list[PourpointFeature] = []
-    for entry in page:
-        geometry: Point | Polygon | MultiPolygon
-        if basin_geometry:
-            # The index has no polygon by design; `load_basin` loads the record
-            # and enforces the indexed => basin-bearing invariant (raises).
-            geometry = snowdb.load_basin(entry.triplet, index=index)
-        else:
-            geometry = entry.point
-        items.append(
-            _pourpoint_feature(
-                entry,
-                geometry,
-                _active_coverage(entry, snowdb.datasets),
-            ),
+    page, total = snowdb.pourpoint_page(
+        offset=offset,
+        limit=limit,
+        with_basins=basin_geometry,
+        contains=None if bbox is None else bbox.contains,
+    )
+    items = [
+        _pourpoint_feature(
+            entry,
+            basin if basin is not None else entry.point,
+            _active_coverage(entry, snowdb.datasets),
         )
+        for entry, basin in page
+    ]
 
     return PourpointFeatureCollection(
         items=items,

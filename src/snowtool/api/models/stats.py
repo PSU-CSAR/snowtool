@@ -85,7 +85,20 @@ class DateRangeStatsQuery(StatsQueryBase):
 
 
 class DOYStatsQuery(StatsQueryBase, DOYFields):
-    pass
+    def to_query(self) -> DOYQuery:
+        """The domain :class:`DOYQuery` for this request's day-of-year fields.
+
+        Constructs the four DOY fields explicitly (rather than reflectively
+        dumping/splatting the shared :class:`DOYFields`), so the HTTP->domain
+        contract is a named field list the type checker sees, not a runtime
+        field-name intersection.
+        """
+        return DOYQuery(
+            month=self.month,
+            day=self.day,
+            start_year=self.start_year,
+            end_year=self.end_year,
+        )
 
 
 class CompactStatsResponse(CompactStats):

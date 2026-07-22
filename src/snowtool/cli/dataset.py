@@ -14,7 +14,6 @@ import click
 
 from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
-from snowtool.cli._datasets import get_dataset
 from snowtool.cli._dates import DATE
 from snowtool.cli._progress import RichProgress
 from snowtool.cli._render import emit, emit_record, format_option
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from snowtool.snowdb.db import SnowDb
+    from snowtool.snowdb.diagnostics import DatasetInfoReport
     from snowtool.snowdb.manager import SnowDbManager
 
 
@@ -70,12 +70,69 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     """
     from snowtool.snowdb.diagnostics import dataset_info_report
 
-    ds = get_dataset(snowdb, name)
+    ds = snowdb.registered_dataset(name)
     report = dataset_info_report(snowdb, ds)
 
     # Prose forms belong to the table only -- json/csv keep the typed fields.
-    record = report.to_table_record() if fmt == 'table' else report.to_record()
+    record = _info_table_record(report) if fmt == 'table' else _info_record(report)
     emit_record(record, fmt)
+
+
+def _info_record(report: DatasetInfoReport) -> dict[str, object]:
+    """Flatten a :class:`DatasetInfoReport` to the ``dataset info`` output record.
+
+    Spreads the nested ``status``/``grid`` reports back to the top level
+    (dropping their redundant ``name``/``artifacts``) so json/csv output is a
+    single flat record with a stable key order. ``date_count`` -> ``dates`` (the
+    CLI's public name); ``extent``/``variables`` to plain lists (json/csv
+    friendly); ``first_date``/``last_date`` to ISO strings (or ``None``). This is
+    a render concern, so it lives with the command, not on the domain report;
+    :func:`_info_table_record` layers the table-only prose on top.
+    """
+    status = report.status
+    grid = report.grid
+    return {
+        'name': report.name,
+        'active': report.active,
+        'present': status.present,
+        'crs': grid.crs,
+        'is_geographic': grid.is_geographic,
+        'rows': grid.rows,
+        'cols': grid.cols,
+        'tile_size': grid.tile_size,
+        'cell_area_m2': grid.cell_area_m2,
+        'px_size': grid.px_size,
+        'n_tiles': grid.n_tiles,
+        'extent': list(grid.extent),
+        'zones': report.zones,
+        'min_elevation_m': report.min_elevation_m,
+        'max_elevation_m': report.max_elevation_m,
+        'variables': list(report.variables),
+        'zone_layers': report.zone_layers,
+        'cogs': status.artifacts.cogs,
+        'aoi_rasters': status.artifacts.aoi_rasters,
+        'dates': status.date_count,
+        'first_date': status.first_date.isoformat() if status.first_date else None,
+        'last_date': status.last_date.isoformat() if status.last_date else None,
+    }
+
+
+def _info_table_record(report: DatasetInfoReport) -> dict[str, object]:
+    """The ``info`` record with the table-only prose substitutions.
+
+    The ``table`` format alone shows the geographic ``cell_area_m2`` placeholder
+    (``varies (geographic)``) and collapses the two numeric elevation fields into
+    a single ``MIN .. MAX`` bracket; json/csv keep the typed fields
+    (``cell_area_m2: float | None``, numeric ``min/max_elevation_m``).
+    """
+    record = _info_record(report)
+    if report.grid.cell_area_m2 is None:
+        record['cell_area_m2'] = 'varies (geographic)'
+    record['elevation_bracket_m'] = (
+        f'{report.min_elevation_m} .. {report.max_elevation_m}'
+    )
+    del record['min_elevation_m'], record['max_elevation_m']
+    return record
 
 
 @dataset.command('dates')
@@ -109,7 +166,7 @@ def dataset_dates(
     """
     from snowtool.snowdb import diagnostics
 
-    ds = get_dataset(snowdb, name)
+    ds = snowdb.registered_dataset(name)
     if missing:
         dates = diagnostics.missing_dates(ds, start=start, end=end)
     else:
@@ -138,7 +195,7 @@ def dataset_values(
     """Per-variable min/max/mean (unit-scaled) and nodata % for one date."""
     from snowtool.snowdb import diagnostics
 
-    ds = get_dataset(snowdb, name)
+    ds = snowdb.registered_dataset(name)
     rows = [
         {
             'variable': result.variable,
@@ -434,13 +491,11 @@ def remove_date(
     ds = manager.resolve_dataset(name)
     iso = removal_date.isoformat()
 
-    def _remove(*, dry_run: bool = False) -> bool:
-        return ds.remove_date(removal_date, dry_run=dry_run)
-
     run_removal(
         f'{name} {iso}',
         f'Remove {name} {iso}? This deletes its COGs.',
-        _remove,
+        preview=lambda: ds.remove_date(removal_date, dry_run=True),
+        execute=lambda: ds.remove_date(removal_date),
         dry_run=dry_run,
         yes=yes,
     )

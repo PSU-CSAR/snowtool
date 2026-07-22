@@ -252,7 +252,7 @@ class IndexedPourpointMissingBasinError(SnowtoolError, ValueError):
 class RemoteSourceError(SnowtoolError):
     """Raised when a remote pourpoint source cannot be fetched or enumerated.
 
-    Covers the ``http(s)`` import/sync path (``snowtool.snowdb.pourpoint_remote``):
+    Covers the ``http(s)`` import/sync path (``snowtool.cli._remote``):
     an HTTP failure fetching a file, a GitHub tree listing that came back truncated
     or empty, or filename collisions that make the flat temp directory ambiguous.
     Distinct from :class:`GeoJSONValidationError` (a *parsed* file that is invalid)

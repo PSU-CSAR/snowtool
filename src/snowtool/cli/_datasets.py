@@ -30,23 +30,6 @@ dataset_option = click.option(
 )
 
 
-def get_dataset(snowdb: SnowDb, name: str) -> Dataset:
-    """Resolve a dataset by name, or raise a clean CLI error listing the options.
-
-    Anything *registered* resolves -- the management/diagnostics surface,
-    where activation is irrelevant (``stats`` is the one reader-surface
-    caller, and it resolves through ``SnowDb.__getitem__`` directly instead,
-    so its registered-but-inactive name gets that surface's own pointed
-    "activate it" hint).
-    """
-    if name in snowdb.registered:
-        return snowdb.registered[name]
-    registered = ', '.join(sorted(snowdb.registered)) or '(none)'
-    raise click.ClickException(
-        f'No such dataset: {name!r}. Registered datasets: {registered}.',
-    )
-
-
 def resolve_datasets(
     snowdb: SnowDb,
     names: tuple[str, ...],
@@ -66,4 +49,4 @@ def resolve_datasets(
     if not names:
         pool = snowdb.registered if include_inactive else snowdb.datasets
         return [pool[name] for name in sorted(pool)]
-    return [get_dataset(snowdb, name) for name in names]
+    return [snowdb.registered_dataset(name) for name in names]

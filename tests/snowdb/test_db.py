@@ -40,6 +40,7 @@ from ..conftest import (
     make_snowdb,
     make_spec,
     register_dataset_config,
+    write_pourpoint_record,
     write_swe_cog,
 )
 
@@ -392,6 +393,74 @@ def test_coverage_fallback_none_for_dataset_predating_index(
         db.pourpoint_dataset_coverage('12345:MT:USGS', 'unregistered')
 
 
+# --- pourpoint_page (catalog read behind GET /pourpoints) --------------------
+
+
+def _seed_three_pourpoints(tmp_path, spec):
+    """Import three basin-bearing pourpoints with distinct points; return the db.
+
+    Each basin is a small rectangle inside the first tile with its outflow point
+    at a distinct longitude, so a point-in-box predicate can pick a subset.
+    """
+    manager = make_manager(tmp_path, [spec])
+    src = tmp_path / 'src'
+    src.mkdir()
+    # (triplet, point-lon); the basin box is placed around each point's lon.
+    for triplet, lon in [
+        ('11111:MT:USGS', -119.8),
+        ('22222:MT:USGS', -119.5),
+        ('33333:MT:USGS', -119.2),
+    ]:
+        write_pourpoint_record(
+            src / f'{triplet.replace(":", "_")}.geojson',
+            triplet=triplet,
+            box=(lon - 0.05, 44.9, lon + 0.05, 44.0),
+            point=(lon, 44.45),
+        )
+    manager.import_pourpoints(src)
+    return manager.db
+
+
+def test_pourpoint_page_totals_and_pages(tmp_path, spec):
+    db = _seed_three_pourpoints(tmp_path, spec)
+
+    # A first page of two: the filtered total is the whole set (3), not the slice.
+    page, total = db.pourpoint_page(offset=0, limit=2)
+    assert total == 3
+    assert [entry.triplet for entry, _ in page] == ['11111:MT:USGS', '22222:MT:USGS']
+    # No basins requested -> geometry slot is None (caller uses the point).
+    assert all(basin is None for _, basin in page)
+
+    # The second page carries the remainder; the total is unchanged.
+    page2, total2 = db.pourpoint_page(offset=2, limit=2)
+    assert total2 == 3
+    assert [entry.triplet for entry, _ in page2] == ['33333:MT:USGS']
+
+
+def test_pourpoint_page_filters_on_the_point_predicate(tmp_path, spec):
+    db = _seed_three_pourpoints(tmp_path, spec)
+
+    # A predicate selecting only the two westernmost points (lon <= -119.5).
+    def contains(lon, lat):
+        return lon <= -119.5
+
+    page, total = db.pourpoint_page(offset=0, limit=100, contains=contains)
+    assert total == 2  # total is the *filtered* count, before the slice
+    assert [entry.triplet for entry, _ in page] == ['11111:MT:USGS', '22222:MT:USGS']
+
+
+def test_pourpoint_page_loads_basins_when_requested(tmp_path, spec):
+    db = _seed_three_pourpoints(tmp_path, spec)
+
+    page, total = db.pourpoint_page(offset=0, limit=1, with_basins=True)
+    assert total == 3
+    ((entry, basin),) = page
+    assert entry.triplet == '11111:MT:USGS'
+    # The basin polygon is loaded (the expensive view), not left as None.
+    assert basin is not None
+    assert basin.type == 'Polygon'
+
+
 # --- mtime-revalidated index cache (3b) --------------------------------------
 
 
@@ -624,10 +693,10 @@ def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):
     # ... and its explicit config path resolves (name from the parent dir) ...
     assert manager.resolve_dataset(str(config_path)).spec.name == 'staged'
     # ... but the bare NAME does not: names never probe the filesystem.
-    with pytest.raises(ValueError, match="No registered dataset 'staged'"):
+    with pytest.raises(ValueError, match="No such dataset 'staged'"):
         manager.resolve_dataset('staged')
 
-    with pytest.raises(ValueError, match="No registered dataset 'nope'"):
+    with pytest.raises(ValueError, match="No such dataset 'nope'"):
         manager.resolve_dataset('nope')
 
 
@@ -657,7 +726,7 @@ def test_resolve_dataset_name_is_never_shadowed_by_a_file(tmp_path, monkeypatch,
         manager.resolve_dataset('./test')
 
     # An unregistered bare name raises even though a file of that name exists.
-    with pytest.raises(ValueError, match="No registered dataset 'ghost'"):
+    with pytest.raises(ValueError, match="No such dataset 'ghost'"):
         manager.resolve_dataset('ghost')
 
 
@@ -709,6 +778,37 @@ def test_getitem_raises_unknown_dataset_error_for_an_unregistered_name(tmp_path,
         match=r"No such dataset 'nope'\. Active datasets: test\.",
     ):
         db['nope']
+
+
+def test_registered_dataset_resolves_active_and_inactive_names(tmp_path, spec):
+    # registered_dataset serves the management surface: it resolves anything
+    # registered, active or not, unlike __getitem__ (which serves only active).
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, spec.name, config_from_spec(spec), active=False)
+    db = SnowDb.open(tmp_path)
+
+    assert spec.name not in db.datasets  # inactive -> __getitem__ would refuse it
+    assert db.registered_dataset(spec.name).spec.name == spec.name
+
+
+def test_registered_dataset_raises_with_the_registered_listing(tmp_path, spec):
+    db = make_snowdb(tmp_path, [spec])
+
+    with pytest.raises(
+        UnknownDatasetError,
+        match=r"No such dataset 'nope'\. Registered datasets: test\.",
+    ):
+        db.registered_dataset('nope')
+
+
+def test_registered_dataset_appends_a_caller_hint(tmp_path, spec):
+    db = make_snowdb(tmp_path, [spec])
+
+    with pytest.raises(
+        UnknownDatasetError,
+        match=r'Registered datasets: test\. pass a path',
+    ):
+        db.registered_dataset('nope', hint=' pass a path')
 
 
 def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spec):

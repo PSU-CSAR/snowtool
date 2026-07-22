@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import pytest
 
-from snowtool.snowdb.pourpoint_remote import (
+from snowtool.cli._remote import (
     GitHubTree,
     _fetch_single_file,
     _list_geojson,

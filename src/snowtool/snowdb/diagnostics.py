@@ -426,10 +426,10 @@ class DatasetInfoReport:
     :func:`grid_report` (grid geometry) rather than flat-copying their fields,
     alongside the spec-level fields (variables, zone config, active flag) and
     per-provider zone-layer presence/provenance -- one scan each, no duplicated
-    filesystem walks. :meth:`to_record` flattens both back out for the CLI by
-    hand-listing every key (:meth:`to_table_record` adds table-only prose on
-    top), so a new field on either nested report needs adding here *and* in
-    :meth:`to_record`.
+    filesystem walks. Flattening this structured report into the ``dataset
+    info`` output record (and the table-only prose substitutions) is the CLI's
+    job (:mod:`snowtool.cli.dataset`), so the domain layer stays free of output
+    formats.
     ``grid.cell_area_m2`` is ``None`` on a geographic grid (per-pixel area
     raster, see :class:`GridReport`); ``min_elevation_m``/``max_elevation_m``
     are the shared elevation bracket
@@ -447,67 +447,6 @@ class DatasetInfoReport:
     max_elevation_m: float
     variables: tuple[str, ...]
     zone_layers: dict[str, dict[str, object]]  # provider -> {present, hash}
-
-    def to_record(self) -> dict[str, object]:
-        """Flatten to the ``dataset info`` record: renamed/ISO-converted fields.
-
-        Spreads ``status``/``grid`` back to the top level (dropping their
-        redundant ``name``/``artifacts``) so json/csv output is unchanged by
-        the nesting: same keys, same order as the pre-nesting flat record.
-        ``date_count`` -> ``dates`` (the CLI's public name); ``extent``/
-        ``variables`` to plain lists (json/csv-friendly); ``first_date``/
-        ``last_date`` to ISO strings (or ``None``). Table-only prose (the
-        geographic ``cell_area_m2`` placeholder, the collapsed elevation
-        bracket) is *not* applied here -- json/csv keep the typed fields;
-        :meth:`to_table_record` layers that prose on for the table format only.
-        """
-        return {
-            'name': self.name,
-            'active': self.active,
-            'present': self.status.present,
-            'crs': self.grid.crs,
-            'is_geographic': self.grid.is_geographic,
-            'rows': self.grid.rows,
-            'cols': self.grid.cols,
-            'tile_size': self.grid.tile_size,
-            'cell_area_m2': self.grid.cell_area_m2,
-            'px_size': self.grid.px_size,
-            'n_tiles': self.grid.n_tiles,
-            'extent': list(self.grid.extent),
-            'zones': self.zones,
-            'min_elevation_m': self.min_elevation_m,
-            'max_elevation_m': self.max_elevation_m,
-            'variables': list(self.variables),
-            'zone_layers': self.zone_layers,
-            'cogs': self.status.artifacts.cogs,
-            'aoi_rasters': self.status.artifacts.aoi_rasters,
-            'dates': self.status.date_count,
-            'first_date': (
-                self.status.first_date.isoformat() if self.status.first_date else None
-            ),
-            'last_date': (
-                self.status.last_date.isoformat() if self.status.last_date else None
-            ),
-        }
-
-    def to_table_record(self) -> dict[str, object]:
-        """The ``to_record`` fields with the table-only prose substitutions.
-
-        The ``table`` format alone shows the geographic ``cell_area_m2``
-        placeholder (``varies (geographic)``) and collapses the two numeric
-        elevation fields into a single ``MIN .. MAX`` bracket; json/csv keep the
-        typed fields (``cell_area_m2: float | None``, numeric
-        ``min/max_elevation_m``). This owns those substitutions so the CLI
-        callback just picks a method per format.
-        """
-        record = self.to_record()
-        if self.grid.cell_area_m2 is None:
-            record['cell_area_m2'] = 'varies (geographic)'
-        record['elevation_bracket_m'] = (
-            f'{self.min_elevation_m} .. {self.max_elevation_m}'
-        )
-        del record['min_elevation_m'], record['max_elevation_m']
-        return record
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:

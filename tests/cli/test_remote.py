@@ -1,14 +1,13 @@
 """Remote pourpoint source resolution: URL parsing, flattening, local passthrough.
 
 The HTTP fetch paths are exercised by the ``network``-marked tests in
-``test_pourpoint_remote_network.py``; here we pin the pure logic that needs no
+``test_remote_network.py``; here we pin the pure logic that needs no
 network -- URL parsing, the flat-name collision guard, and the local passthrough.
 """
 
 import pytest
 
-from snowtool.exceptions import RemoteSourceError
-from snowtool.snowdb.pourpoint_remote import (
+from snowtool.cli._remote import (
     GitHubTree,
     _flat_names,
     is_http_url,
@@ -16,6 +15,7 @@ from snowtool.snowdb.pourpoint_remote import (
     materialize_file,
     parse_github_url,
 )
+from snowtool.exceptions import RemoteSourceError
 
 
 @pytest.mark.parametrize(

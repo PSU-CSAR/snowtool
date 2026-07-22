@@ -50,10 +50,11 @@ from snowtool.snowdb.spec import DatasetSpec, load_dataset_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from geojson_pydantic import MultiPolygon, Polygon
 
+    from snowtool.snowdb.pourpoint_index import PourpointIndexEntry
     from snowtool.snowdb.zones.zone_layer import (
         AvailableZone,
         ZoneLayerProvider,
@@ -403,6 +404,43 @@ class SnowDb:
             self._index_mtime = mtime
         return self._index
 
+    def pourpoint_page(
+        self: Self,
+        *,
+        offset: int,
+        limit: int,
+        with_basins: bool = False,
+        contains: Callable[[float, float], bool] | None = None,
+    ) -> tuple[list[tuple[PourpointIndexEntry, Polygon | MultiPolygon | None]], int]:
+        """One page of the (triplet-sorted) index: entries paired with geometry.
+
+        The catalog read behind ``GET /pourpoints``, kept in the domain so the
+        response model shrinks to pure feature/link shaping. ``contains``, when
+        given, filters entries on their point ``(lon, lat)`` -- the caller
+        supplies the predicate (e.g. an OGC ``bbox`` containment test), keeping
+        this method free of any HTTP query type. The *filtered* count is the
+        ``total`` (second return value), computed before the ``offset``/``limit``
+        slice so pagination reports the full match count. Each page entry is
+        paired with its basin polygon when ``with_basins`` -- a per-record
+        :meth:`load_basin` (the expensive view; the index stores points only),
+        which enforces the ``indexed => basin-bearing`` invariant -- or ``None``
+        otherwise (the caller uses the entry's point).
+        """
+        index = self.pourpoint_index()
+        entries = [
+            entry
+            for entry in index  # PourpointIndex iterates entries sorted by triplet
+            if contains is None or contains(*entry.point.coordinates[:2])
+        ]
+        total = len(entries)
+        page: list[tuple[PourpointIndexEntry, Polygon | MultiPolygon | None]] = []
+        for entry in entries[offset : offset + limit]:
+            geometry = (
+                self.load_basin(entry.triplet, index=index) if with_basins else None
+            )
+            page.append((entry, geometry))
+        return page, total
+
     def pourpoint_dataset_coverage(
         self: Self,
         triplet: types.StationTriplet,
@@ -497,6 +535,28 @@ class SnowDb:
             active = ', '.join(sorted(self.datasets)) or '(none)'
             raise UnknownDatasetError(
                 f'No such dataset {name!r}. Active datasets: {active}.',
+            ) from None
+
+    def registered_dataset(self: Self, name: str, *, hint: str = '') -> Dataset:
+        """Look up a *registered* dataset ``name`` (active or not).
+
+        The management/diagnostics counterpart to :meth:`__getitem__`: it
+        resolves anything registered (activation is irrelevant to ingest, zone
+        generation, and the report surfaces), where ``__getitem__`` serves only
+        the active subset. A miss raises
+        :class:`~snowtool.exceptions.UnknownDatasetError` listing the registered
+        names, mirroring ``__getitem__``'s wording. ``hint`` is an optional
+        trailing clause a caller with more context appends (e.g.
+        :meth:`SnowDbManager.resolve_dataset` pointing an unregistered name at
+        the path form) -- so both the CLI helper and the manager resolve through
+        this one lookup-with-error home instead of each rebuilding the message.
+        """
+        try:
+            return self.registered[name]
+        except KeyError:
+            registered = ', '.join(sorted(self.registered)) or '(none)'
+            raise UnknownDatasetError(
+                f'No such dataset {name!r}. Registered datasets: {registered}.{hint}',
             ) from None
 
     def __iter__(self: Self) -> Iterator[str]:

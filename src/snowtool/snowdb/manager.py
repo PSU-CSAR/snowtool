@@ -479,13 +479,12 @@ class SnowDbManager:
             if not path.is_file():
                 raise UnknownDatasetError(f'No dataset config file at {path}.')
             return self._build_staged_dataset(path.parent.name, path)
-        if token in self.db.registered:
-            return self.db.registered[token]
-        registered = ', '.join(sorted(self.db.registered)) or '(none)'
-        raise UnknownDatasetError(
-            f'No registered dataset {token!r}. Registered datasets: '
-            f'{registered}. To target an unregistered dataset config, pass '
-            "its path (e.g. './dataset.json' or 'data/x/dataset.json').",
+        return self.db.registered_dataset(
+            token,
+            hint=(
+                ' To target an unregistered dataset config, pass its path '
+                "(e.g. './dataset.json' or 'data/x/dataset.json')."
+            ),
         )
 
     def stage_dataset(
