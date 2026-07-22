@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+> **Live databases:** no on-disk format changes in this release — existing
+> snowdbs are unaffected, and no rebuild or migration is needed. Every
+> provenance hash and format version is unchanged across the branch (the
+> parallel land-cover generation below produces bit-identical output and
+> generation hashes).
+
 ### Added
 
 - A compact, normalized zonal-stats representation — zones and variables are
@@ -97,9 +103,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   (default 16, alongside `max_zone_cells`) bounding how many per-raster
   zonal-stats reductions run concurrently — it bounds peak memory/fetch
   fan-out only, never results.
+- Land-cover zone-layer generation now runs on the same parallel, tiled
+  engine as terrain: it honors `--workers`/`--block-size` and reports binning
+  progress. Output rasters and their generation hashes are bit-identical to
+  the previous serial pass, so this is a performance change only — no existing
+  layer reads as stale.
+- **API schema:** the OpenAPI stats-format component is renamed
+  `_StatsFormat` → `StatsFormat` (a client-visible schema name only; the `?f=`
+  wire behavior is unchanged).
+- `dataset create` now lists the valid `--template` values in `--help`, and an
+  unknown `--template` exits `2` with click's `Choice` error (was a plain
+  exit `1`).
 
 ### Removed
 
+- **Breaking:** `windows iis install`'s `--protocol` option is removed; https
+  is now the only deployment shape. The rendered `web.config` unconditionally
+  301-redirects http → https, so `--protocol http` produced a site that
+  redirected every request to an https binding that was never created —
+  removing the flag removes the trap.
 - The verbose per-date zonal-stats JSON representation and its per-dataset
   response schemas, the CLI `--format json-compact` value (folded into `json`),
   and the per-dataset stats query-parameter compiler. Zone selection is the
