@@ -1,7 +1,5 @@
 """API tests for the pourpoint listing + detail routes over a synthetic snowdb."""
 
-import json
-
 import pytest
 
 from fastapi.testclient import TestClient
@@ -17,6 +15,8 @@ from snowtool.api.models.pourpoint import _pourpoint_stats_links
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.pourpoint import Pourpoint
 
+from ..conftest import write_pourpoint_record
+
 TRIPLET = '12345:MT:USGS'
 
 # The generic stats query surface, as the RFC 6570 form-query template its links
@@ -30,28 +30,15 @@ _DOY_QUERY_TEMPLATE = _DATE_RANGE_QUERY_TEMPLATE.replace(
 )
 
 
-def _aoi_feature(triplet: str, west: float, south: float) -> dict:
+def _write_aoi_feature(path, triplet: str, west: float, south: float):
     """A polygon-bearing pourpoint inside the synthetic grid (so it indexes)."""
-    return {
-        'type': 'GeometryCollection',
-        'id': triplet,
-        'geometries': [
-            {'type': 'Point', 'coordinates': [west + 0.25, south + 0.25]},
-            {
-                'type': 'Polygon',
-                'coordinates': [
-                    [
-                        [west, south + 0.5],
-                        [west + 0.5, south + 0.5],
-                        [west + 0.5, south],
-                        [west, south],
-                        [west, south + 0.5],
-                    ],
-                ],
-            },
-        ],
-        'properties': {'name': triplet, 'source': 'test'},
-    }
+    return write_pourpoint_record(
+        path,
+        triplet,
+        box=(west, south + 0.5, west + 0.5, south),
+        point=(west + 0.25, south + 0.25),
+        properties={'name': triplet, 'source': 'test'},
+    )
 
 
 @pytest.fixture
@@ -70,8 +57,12 @@ def many_aois_client(test_settings, spec, tmp_path):
     src.mkdir()
     for i in range(3):
         triplet = f'{1000 + i}:MT:USGS'
-        feature = _aoi_feature(triplet, west=-119.0 + i * 0.5, south=44.0 - i * 0.5)
-        (src / f'{1000 + i}_MT_USGS.geojson').write_text(json.dumps(feature))
+        _write_aoi_feature(
+            src / f'{1000 + i}_MT_USGS.geojson',
+            triplet,
+            west=-119.0 + i * 0.5,
+            south=44.0 - i * 0.5,
+        )
     manager.import_pourpoints(src)
 
     with TestClient(get_app(settings=test_settings)) as client:
@@ -244,14 +235,7 @@ def test_list_basin_geometry_raises_on_data_integrity_broken_record(
     from snowtool.snowdb.db import SnowDb
 
     db = SnowDb.open(synthetic_settings.snowdb_config)
-    record_path = db.pourpoint_record_path(TRIPLET)
-    point_only_record = {
-        'type': 'Feature',
-        'id': TRIPLET,
-        'geometry': {'type': 'Point', 'coordinates': [-119.45, 44.45]},
-        'properties': {'name': 'Test Basin', 'source': 'test'},
-    }
-    record_path.write_text(json.dumps(point_only_record))
+    write_pourpoint_record(db.pourpoint_record_path(TRIPLET), TRIPLET, point_only=True)
 
     with (
         TestClient(get_app(settings=synthetic_settings)) as client,

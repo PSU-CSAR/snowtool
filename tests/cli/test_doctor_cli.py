@@ -12,7 +12,7 @@ from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.terrain import ELEVATION
 
-from ..conftest import SIZE, SWE_VALUE, TILE, snodas_swe_name
+from ..conftest import TILE, snodas_swe_name
 
 
 def _doctor(runner, cli_obj, *args):
@@ -34,18 +34,6 @@ def _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset):
     )
     assert generated.exit_code == 0, generated.output
     return generated
-
-
-def _write_swe(root, grid, date_str='20180427'):
-    cogs = root / 'data' / 'test' / 'cogs' / date_str
-    cogs.mkdir(parents=True, exist_ok=True)
-    write_cog(
-        cogs / f'{snodas_swe_name(date_str)}.tif',
-        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-        transform=grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
 
 
 def test_clean_db_exits_zero_with_empty_findings(

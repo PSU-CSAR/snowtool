@@ -20,7 +20,7 @@ from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec
 
-from ..conftest import CapturingProgress, make_manager
+from ..conftest import CapturingProgress, make_manager, write_pourpoint_record
 
 _POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
 
@@ -39,24 +39,20 @@ _POLYGON = _box()
 
 def _write_aoi(directory, triplet, *, with_polygon=True, polygon=None):
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f'{triplet.replace(":", "_")}.geojson'
-    properties = {'name': triplet, 'source': 'test', 'active': True, 'basinarea': 5.2}
-    if with_polygon:
-        feature = {
-            'type': 'GeometryCollection',
-            'id': triplet,
-            'geometries': [_POINT, polygon or _POLYGON],
-            'properties': properties,
-        }
-    else:
-        feature = {
-            'type': 'Feature',
-            'id': triplet,
-            'geometry': _POINT,
-            'properties': properties,
-        }
-    path.write_text(json.dumps(feature))
-    return path
+    ring = (polygon or _POLYGON)['coordinates'][0]
+    return write_pourpoint_record(
+        directory / f'{triplet.replace(":", "_")}.geojson',
+        triplet,
+        point=_POINT['coordinates'],
+        polygon=ring,
+        point_only=not with_polygon,
+        properties={
+            'name': triplet,
+            'source': 'test',
+            'active': True,
+            'basinarea': 5.2,
+        },
+    )
 
 
 @pytest.fixture

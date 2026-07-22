@@ -4,7 +4,6 @@ import json
 
 from datetime import date
 
-import numpy
 import pytest
 
 from snowtool.cli import cli
@@ -16,9 +15,8 @@ from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.raster.cog import write_cog
 
-from ..conftest import SIZE, SWE_VALUE, TILE, register_dataset_config, snodas_swe_name
+from ..conftest import register_dataset_config, write_swe_cog
 
 
 def _json(result):
@@ -35,16 +33,8 @@ def _generate_zones(runner, cli_obj, source_dem):
     )
 
 
-def _write_swe(root, grid, date_str='20180427'):
-    cogs = root / 'data' / 'test' / 'cogs' / date_str
-    cogs.mkdir(parents=True, exist_ok=True)
-    write_cog(
-        cogs / f'{snodas_swe_name(date_str)}.tif',
-        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-        transform=grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
+def _write_swe(cli_obj, date_str='20180427'):
+    write_swe_cog(cli_obj.manager.db['test'], date_str)
 
 
 # --- list / info -------------------------------------------------------------
@@ -111,8 +101,8 @@ def test_info_after_create(
 # --- dates / values ------------------------------------------------------------
 
 
-def test_dates_lists_ingested_dates(runner, cli_obj, initialized_root, grid):
-    _write_swe(initialized_root, grid)
+def test_dates_lists_ingested_dates(runner, cli_obj, initialized_root):
+    _write_swe(cli_obj)
 
     result = runner.invoke(cli, ['dataset', 'dates', 'test'], obj=cli_obj)
 
@@ -120,8 +110,8 @@ def test_dates_lists_ingested_dates(runner, cli_obj, initialized_root, grid):
     assert '2018-04-27' in result.output
 
 
-def test_dates_filters_by_range(runner, cli_obj, initialized_root, grid):
-    _write_swe(initialized_root, grid)
+def test_dates_filters_by_range(runner, cli_obj, initialized_root):
+    _write_swe(cli_obj)
 
     result = runner.invoke(
         cli,
@@ -261,12 +251,11 @@ def test_values_with_data(
     cli_obj,
     source_dem,
     initialized_root,
-    grid,
     stage_test_dataset,
 ):
     stage_test_dataset(cli_obj, initialized_root)
     _generate_zones(runner, cli_obj, source_dem)
-    _write_swe(initialized_root, grid)
+    _write_swe(cli_obj)
 
     result = runner.invoke(
         cli,

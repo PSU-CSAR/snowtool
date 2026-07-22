@@ -9,6 +9,8 @@ from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 
+from ..conftest import write_pourpoint_record
+
 
 def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
     """A rectangular Polygon geometry inside the synthetic grid's first tile."""
@@ -54,30 +56,18 @@ def _write_pourpoint(
     active=True,
     basinarea=5.2,
 ):
-    point = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
-    polygon = _box()
-    properties = {
-        'name': name,
-        'source': source,
-        'active': active,
-        'basinarea': basinarea,
-    }
-    if with_polygon:
-        feature = {
-            'type': 'GeometryCollection',
-            'id': triplet,
-            'geometries': [point, polygon],
-            'properties': properties,
-        }
-    else:
-        feature = {
-            'type': 'Feature',
-            'id': triplet,
-            'geometry': point,
-            'properties': properties,
-        }
-    path.write_text(json.dumps(feature))
-    return path
+    return write_pourpoint_record(
+        path,
+        triplet,
+        polygon=_box()['coordinates'][0],
+        point_only=not with_polygon,
+        properties={
+            'name': name,
+            'source': source,
+            'active': active,
+            'basinarea': basinarea,
+        },
+    )
 
 
 # --- Pourpoint.geometry_hash -------------------------------------------------------

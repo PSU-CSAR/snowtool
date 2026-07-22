@@ -1,7 +1,5 @@
 """The pure dataset_coverage kernel: full / partial / none, across CRSs."""
 
-import json
-
 import pytest
 
 from snowtool.exceptions import PourpointCoverageError
@@ -15,20 +13,17 @@ from snowtool.snowdb.datasets.instarr import INSTARR_SPEC
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
 
+from ..conftest import write_pourpoint_record
+
 
 def _aoi(tmp_path, polygon, triplet='12345:MT:USGS'):
     """An AOI parsed from a minimal point+polygon pourpoint geojson."""
-    feature = {
-        'type': 'GeometryCollection',
-        'id': triplet,
-        'geometries': [
-            {'type': 'Point', 'coordinates': polygon[0]},
-            {'type': 'Polygon', 'coordinates': [polygon]},
-        ],
-        'properties': {'name': 'Test Basin', 'source': 'test'},
-    }
-    path = tmp_path / f'{triplet.replace(":", "_")}.geojson'
-    path.write_text(json.dumps(feature))
+    path = write_pourpoint_record(
+        tmp_path / f'{triplet.replace(":", "_")}.geojson',
+        triplet,
+        polygon=polygon,
+        point=polygon[0],
+    )
     return Pourpoint.from_geojson(path)
 
 

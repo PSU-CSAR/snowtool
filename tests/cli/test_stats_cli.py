@@ -8,24 +8,12 @@ against the same root via the injected ``cli_obj`` context.
 
 import json
 
-from datetime import date
-
-import numpy
 import pytest
 
 from snowtool.cli import cli
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.raster.cog import write_cog
 
-from ..conftest import (
-    SIZE,
-    SWE_VALUE,
-    TILE,
-    snodas_swe_name,
-    write_landcover,
-    write_terrain,
-)
+from ..conftest import SWE_VALUE, populate_bound_root
 
 TRIPLET = '12345:MT:USGS'
 DATE = '20180427'
@@ -35,28 +23,11 @@ CSV_HEADER = (
 )
 
 
-def _ingest_swe_cog(dataset) -> None:
-    out_dir = dataset.date_dir(date(2018, 4, 27))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    write_cog(
-        out_dir / f'{snodas_swe_name(DATE)}.tif',
-        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-        transform=dataset.grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
-
-
 @pytest.fixture
-def populated_root(initialized_root, pourpoint_geojson):
+def populated_root(initialized_root, spec, pourpoint_geojson):
     """The synthetic root populated end-to-end for a stats query."""
     manager = SnowDbManager.open(initialized_root)
-    manager.import_pourpoints(pourpoint_geojson)
-    dataset = manager.db['test']
-    write_terrain(dataset)
-    write_landcover(dataset)
-    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
-    _ingest_swe_cog(dataset)
+    populate_bound_root(manager, spec, pourpoint_geojson)
     return initialized_root
 
 

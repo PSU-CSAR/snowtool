@@ -148,6 +148,34 @@ def init_with_builtins(root):
     return manager
 
 
+def populate_bound_root(
+    manager,
+    spec,
+    pourpoint_geojson,
+    *,
+    rasterize=True,
+    ingest=True,
+):
+    """Populate an already-initialized, dataset-bound ``manager`` for a query.
+
+    The init-independent population step shared by :func:`populate_synthetic_root`
+    and ``test_stats_cli``'s ``populated_root``: imports the AOI, writes uniform
+    terrain + land cover, burns the AOI raster, and (optionally) ingests a uniform
+    SWE COG for 2018-04-27. Returns the catalog ``SnowDb``.
+    """
+    from snowtool.snowdb.pourpoint import Pourpoint
+
+    manager.import_pourpoints(pourpoint_geojson)
+    dataset = manager.db[spec.name]
+    write_terrain(dataset)
+    write_landcover(dataset)
+    if rasterize:
+        dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
+    if ingest:
+        write_swe_cog(dataset)
+    return manager.db
+
+
 def populate_synthetic_root(
     root,
     spec,
@@ -159,40 +187,23 @@ def populate_synthetic_root(
     """Populate ``root`` end-to-end with the synthetic ``spec`` dataset.
 
     The shared builder behind the reader and API stats tests: it initializes the
-    root, registers + binds the dataset, imports the AOI, writes uniform terrain +
-    land cover, burns the AOI raster, and (optionally) ingests a uniform SWE COG
-    for 2018-04-27. Returns the catalog ``SnowDb`` (its ``root`` is ``root``).
+    root, registers + binds the dataset, then runs the shared population step
+    (:func:`populate_bound_root`). Returns the catalog ``SnowDb``.
     """
-    from datetime import date
-
-    import numpy
-
     from snowtool.snowdb.datasets import config_from_spec
     from snowtool.snowdb.manager import SnowDbManager
-    from snowtool.snowdb.pourpoint import Pourpoint
-    from snowtool.snowdb.raster.cog import write_cog
 
     manager = SnowDbManager.initialize(root)
     register_dataset_config(manager, spec.name, config_from_spec(spec))
     # Reopen so the freshly-registered dataset is bound.
     manager = SnowDbManager.open(root)
-    manager.import_pourpoints(pourpoint_geojson)
-    dataset = manager.db[spec.name]
-    write_terrain(dataset)
-    write_landcover(dataset)
-    if rasterize:
-        dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
-    if ingest:
-        out_dir = dataset.date_dir(date(2018, 4, 27))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        write_cog(
-            out_dir / f'{snodas_swe_name()}.tif',
-            numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-            transform=dataset.grid.base_grid.transform,
-            tile_size=TILE,
-            predictor=2,
-        )
-    return manager.db
+    return populate_bound_root(
+        manager,
+        spec,
+        pourpoint_geojson,
+        rasterize=rasterize,
+        ingest=ingest,
+    )
 
 
 @pytest.fixture
@@ -418,32 +429,81 @@ def dataset(tmp_path, spec):
     return ds
 
 
+# The synthetic-grid canonical basin: a rectangle well inside the first tile
+# (lon -119.9..-119.0, lat 44.9..44.0) with its outflow point at the centre.
+_DEFAULT_BOX = (-119.9, 44.9, -119.0, 44.0)
+_DEFAULT_POINT = (-119.45, 44.45)
+
+
+def _rect_ring(box):
+    """A closed rectangular ring (lon/lat) from an ``(x0, y0, x1, y1)`` box."""
+    x0, y0, x1, y1 = box
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+
+
+def write_pourpoint_record(
+    path,
+    triplet='10371000:NV:USGS',
+    *,
+    box=None,
+    point=None,
+    polygon=None,
+    point_only=False,
+    properties=None,
+):
+    """Write a pourpoint-record geojson file and return its path.
+
+    The shared record factory: emits the canonical synthetic-grid shape -- a
+    ``GeometryCollection`` of an outflow point plus a basin polygon, ``id`` set to
+    ``triplet`` -- or, when ``point_only``, a point-only ``Feature`` (no basin).
+    Callers pass their triplet/corners; ``box`` is an ``(x0, y0, x1, y1)`` rectangle
+    (default the canonical basin), or pass ``polygon`` for an explicit closed ring.
+    """
+    point = _DEFAULT_POINT if point is None else point
+    point_geom = {'type': 'Point', 'coordinates': list(point)}
+    if properties is None:
+        properties = {'name': 'Test Basin', 'source': 'test'}
+    if point_only:
+        feature = {
+            'type': 'Feature',
+            'id': triplet,
+            'geometry': point_geom,
+            'properties': properties,
+        }
+    else:
+        ring = polygon if polygon is not None else _rect_ring(box or _DEFAULT_BOX)
+        feature = {
+            'type': 'GeometryCollection',
+            'id': triplet,
+            'geometries': [
+                point_geom,
+                {'type': 'Polygon', 'coordinates': [ring]},
+            ],
+            'properties': properties,
+        }
+    path.write_text(json.dumps(feature))
+    return path
+
+
+def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):
+    """Write a uniform int16 SWE COG for ``date_str`` into ``dataset``'s cogs dir."""
+    out_dir = dataset._cogs / date_str
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f'{snodas_swe_name(date_str)}.tif'
+    write_cog(
+        path,
+        numpy.full((SIZE, SIZE), value, dtype=numpy.int16),
+        transform=dataset.grid.base_grid.transform,
+        tile_size=TILE,
+        predictor=2,
+    )
+    return path
+
+
 @pytest.fixture
 def pourpoint_geojson(tmp_path):
     """A pourpoint with a polygon inside tile (0, 0)."""
-    # lon -119.9..-119.0, lat 44.9..44.0 -> well inside the first tile.
-    polygon = {
-        'type': 'Polygon',
-        'coordinates': [
-            [
-                [-119.9, 44.9],
-                [-119.0, 44.9],
-                [-119.0, 44.0],
-                [-119.9, 44.0],
-                [-119.9, 44.9],
-            ],
-        ],
-    }
-    point = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
-    feature = {
-        'type': 'GeometryCollection',
-        'id': '12345:MT:USGS',
-        'geometries': [point, polygon],
-        'properties': {'name': 'Test Basin', 'source': 'test'},
-    }
-    path = tmp_path / 'pourpoint.geojson'
-    path.write_text(json.dumps(feature))
-    return path
+    return write_pourpoint_record(tmp_path / 'pourpoint.geojson', '12345:MT:USGS')
 
 
 def snodas_swe_name(date_str: str = '20180427') -> str:
@@ -454,18 +514,6 @@ def snodas_swe_name(date_str: str = '20180427') -> str:
 
 
 @pytest.fixture
-def swe_cog(dataset, grid):
+def swe_cog(dataset):
     """Write a uniform SWE COG for 2018-04-27 into the db's cogs dir."""
-    date_str = '20180427'
-    out_dir = dataset._cogs / date_str
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f'{snodas_swe_name(date_str)}.tif'
-    array = numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16)
-    write_cog(
-        path,
-        array,
-        transform=grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
-    return path
+    return write_swe_cog(dataset)

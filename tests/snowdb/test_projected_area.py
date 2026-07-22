@@ -6,8 +6,6 @@ area, so ``spec.cell_area`` is burned uniformly into every in-basin pixel of the
 AOI raster. There is no separate area raster either way.
 """
 
-import json
-
 import numpy
 import pytest
 import rasterio
@@ -20,6 +18,7 @@ from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.terrain import ELEVATION
 
+from ..conftest import write_pourpoint_record
 from .conftest import write_terrain
 
 PX = 1000.0  # 1 km square pixels -> constant 1e6 m^2 cells
@@ -93,17 +92,13 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
     ]
     centroid = list(to_wgs84.transform((east0 + east1) / 2, (north0 + north1) / 2))
 
-    feature = {
-        'type': 'GeometryCollection',
-        'id': '99:NV:USGS',
-        'geometries': [
-            {'type': 'Point', 'coordinates': centroid},
-            {'type': 'Polygon', 'coordinates': [ring]},
-        ],
-        'properties': {'name': 'Projected Basin', 'source': 'test'},
-    }
-    geojson = tmp_path / 'projected_pourpoint.geojson'
-    geojson.write_text(json.dumps(feature))
+    geojson = write_pourpoint_record(
+        tmp_path / 'projected_pourpoint.geojson',
+        '99:NV:USGS',
+        polygon=ring,
+        point=centroid,
+        properties={'name': 'Projected Basin', 'source': 'test'},
+    )
 
     aoi_raster = dataset.rasterize_aoi(Pourpoint.from_geojson(geojson))
 

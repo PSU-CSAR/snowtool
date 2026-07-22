@@ -1,6 +1,5 @@
 """Unit tests for the read-only report builders in snowdb.diagnostics."""
 
-import json
 import shutil
 
 from datetime import date
@@ -21,26 +20,25 @@ from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.zones.landcover import FOREST_COVER
 from snowtool.snowdb.zones.terrain import ELEVATION
 
-from ..conftest import make_snowdb, snodas_swe_name, write_landcover, write_terrain
+from ..conftest import (
+    make_snowdb,
+    snodas_swe_name,
+    write_landcover,
+    write_pourpoint_record,
+    write_terrain,
+)
 from .conftest import TILE
 
 
 def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
     """Write an AOI record with a rectangular basin to ``records_dir``."""
-    point = {'type': 'Point', 'coordinates': [(x0 + x1) / 2, (y0 + y1) / 2]}
-    polygon = {
-        'type': 'Polygon',
-        'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
-    }
-    feature = {
-        'type': 'GeometryCollection',
-        'id': triplet,
-        'geometries': [point, polygon],
-        'properties': {'name': 'Basin', 'source': 'test'},
-    }
-    path = records_dir / f'{triplet.replace(":", "_")}.geojson'
-    path.write_text(json.dumps(feature))
-    return path
+    return write_pourpoint_record(
+        records_dir / f'{triplet.replace(":", "_")}.geojson',
+        triplet,
+        box=(x0, y0, x1, y1),
+        point=((x0 + x1) / 2, (y0 + y1) / 2),
+        properties={'name': 'Basin', 'source': 'test'},
+    )
 
 
 # --- coverage / completeness -------------------------------------------------

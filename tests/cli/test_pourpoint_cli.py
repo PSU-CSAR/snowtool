@@ -4,40 +4,22 @@ import json
 
 from snowtool.cli import cli
 
-_POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
-
-
-def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
-    """A rectangular Polygon geometry inside the synthetic grid's first tile."""
-    return {
-        'type': 'Polygon',
-        'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
-    }
-
-
-_POLYGON = _box()
+from ..conftest import write_pourpoint_record
 
 
 def _write_aoi(directory, triplet, *, with_polygon=True):
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f'{triplet.replace(":", "_")}.geojson'
-    properties = {'name': triplet, 'source': 'test', 'active': True, 'basinarea': 5.2}
-    if with_polygon:
-        feature = {
-            'type': 'GeometryCollection',
-            'id': triplet,
-            'geometries': [_POINT, _POLYGON],
-            'properties': properties,
-        }
-    else:
-        feature = {
-            'type': 'Feature',
-            'id': triplet,
-            'geometry': _POINT,
-            'properties': properties,
-        }
-    path.write_text(json.dumps(feature))
-    return path
+    return write_pourpoint_record(
+        directory / f'{triplet.replace(":", "_")}.geojson',
+        triplet,
+        point_only=not with_polygon,
+        properties={
+            'name': triplet,
+            'source': 'test',
+            'active': True,
+            'basinarea': 5.2,
+        },
+    )
 
 
 # --- import / sync -----------------------------------------------------------

@@ -8,7 +8,6 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-import numpy
 import pytest
 
 from snowtool.exceptions import (
@@ -31,19 +30,16 @@ from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.query import DateRangeQuery
-from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 from ..conftest import (
-    SIZE,
     SWE_VALUE,
-    TILE,
     CapturingProgress,
     make_manager,
     make_snowdb,
     register_dataset_config,
-    snodas_swe_name,
+    write_swe_cog,
 )
 
 
@@ -496,15 +492,7 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
 
     # Working stats: ingest a uniform SWE COG over the covered basin and reduce it.
     ds = reopened['test']
-    out_dir = ds.date_dir(date(2018, 4, 27))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    write_cog(
-        out_dir / f'{snodas_swe_name()}.tif',
-        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-        transform=ds.grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
+    write_swe_cog(ds)
     stats = asyncio.run(
         SnowDbReader(reopened).zonal_stats(
             '12345:MT:USGS',
