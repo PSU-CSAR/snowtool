@@ -126,15 +126,19 @@ def make_manager(root, specs, **kwargs):
     return SnowDbManager(make_snowdb(root, specs, **kwargs))
 
 
-def register_dataset_config(manager, name, config):
-    """Stage ``config`` at ``data/<name>/dataset.json`` and register its link."""
+def register_dataset_config(manager, name, config, *, active=True):
+    """Stage ``config`` at ``data/<name>/dataset.json`` and register its link.
+
+    ``active`` forwards to :meth:`SnowDbManager.register_dataset` so a test can
+    register a dataset the reader does not serve (a registered-but-inactive link).
+    """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
     ds_dir = manager.db.dataset_dir(name, config)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)
-    manager.register_dataset(name, config_path)
+    manager.register_dataset(name, config_path, active=active)
     return config_path
 
 

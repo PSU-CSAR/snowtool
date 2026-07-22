@@ -18,8 +18,7 @@ from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.terrain import ELEVATION
 
-from ..conftest import write_pourpoint_record
-from .conftest import write_terrain
+from ..conftest import write_pourpoint_record, write_terrain
 
 PX = 1000.0  # 1 km square pixels -> constant 1e6 m^2 cells
 SIZE = 128

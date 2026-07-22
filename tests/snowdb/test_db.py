@@ -112,16 +112,6 @@ def test_initialize_creates_the_base_layout(tmp_path):
     assert (tmp_path / 'data').is_dir()
 
 
-def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
-    """Stage ``spec`` as an on-disk dataset config and register its link."""
-    config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir(spec.name, config)
-    ds_dir.mkdir(parents=True, exist_ok=True)
-    config_path = ds_dir / DATASET_CONFIG_FILENAME
-    config.save(config_path)
-    manager.register_dataset(spec.name, config_path)
-
-
 def test_initialize_writes_a_loadable_root_config(tmp_path):
     SnowDbManager.initialize(tmp_path)
 
@@ -149,43 +139,28 @@ def test_open_requires_a_root_config(tmp_path):
         SnowDb.open(tmp_path)
 
 
-@pytest.mark.parametrize(
-    'content',
-    [
-        b'{ "resource": "snowtool.snowdb/v1", "created_at": "2024-01',
-        b'\xff\xfe not even utf-8 text',
-        b'{"resource": "snowtool.snowdb/v1"}',  # valid JSON, missing created_at
-    ],
-    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
-)
-def test_open_malformed_root_config_is_a_config_error(tmp_path, content):
-    # A file exists but doesn't parse/validate as a root config -- truncated JSON,
-    # bytes that aren't even text, or valid JSON missing a required field -- is
-    # always a clean SnowDbConfigError (which the CLI renders), never a raw
-    # pydantic ValidationError or UnicodeDecodeError.
-    (tmp_path / CONFIG_FILENAME).write_bytes(content)
+def test_open_malformed_root_config_is_a_config_error(tmp_path):
+    # A file exists but doesn't parse/validate as a root config is always a clean
+    # SnowDbConfigError (which the CLI renders), never a raw pydantic
+    # ValidationError or UnicodeDecodeError. The 3-way taxonomy (truncated JSON,
+    # non-utf-8 bytes, valid-JSON-wrong-shape) is pinned at the loader level in
+    # test_config.py; here one representative case proves the wrap surfaces
+    # through SnowDb.open.
+    (tmp_path / CONFIG_FILENAME).write_bytes(b'{ "resource": "snowtool.snowdb/v1"')
     with pytest.raises(SnowDbConfigError, match='not a readable snowdb root config'):
         SnowDb.open(tmp_path)
 
 
-@pytest.mark.parametrize(
-    'content',
-    [
-        b'{ "resource": "snowtool.dataset/v1", "grid": {',
-        b'\xff\xfe not even utf-8 text',
-        b'{"resource": "snowtool.dataset/v1"}',  # valid JSON, missing grid/variables
-    ],
-    ids=['truncated_json', 'non_json_bytes', 'valid_json_wrong_shape'],
-)
-def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path, content):
-    # The same class of malformed content, but in a *linked* dataset config rather
-    # than the root: still a clean SnowDbConfigError naming the offending config
-    # file (raised by the canonical DatasetConfig.load), not a raw pydantic
-    # ValidationError or UnicodeDecodeError.
+def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path):
+    # The same wrap, but in a *linked* dataset config rather than the root: still a
+    # clean SnowDbConfigError naming the offending config file (raised by the
+    # canonical DatasetConfig.load). The 3-way taxonomy is pinned at the loader
+    # level in test_dataset_config.py; here one representative case proves it
+    # surfaces through SnowDb.open.
     manager = SnowDbManager.initialize(tmp_path)
-    _register(manager, _spec('snodas'))
+    register_dataset_config(manager, 'snodas', config_from_spec(_spec('snodas')))
     linked = manager.db.data_path / 'snodas' / 'dataset.json'
-    linked.write_bytes(content)
+    linked.write_bytes(b'{ "resource": "snowtool.dataset/v1", "grid": {')
 
     with pytest.raises(SnowDbConfigError, match='not a usable dataset config'):
         SnowDb.open(tmp_path)
@@ -201,14 +176,14 @@ def test_open_sees_no_datasets_after_bare_init(tmp_path):
 
 def test_open_binds_registered_datasets(tmp_path):
     manager = SnowDbManager.initialize(tmp_path)
-    _register(manager, _spec('snodas'))
+    register_dataset_config(manager, 'snodas', config_from_spec(_spec('snodas')))
 
     assert list(SnowDb.open(tmp_path)) == ['snodas']
 
 
 def test_open_accepts_the_config_file_directly(tmp_path):
     manager = SnowDbManager.initialize(tmp_path)
-    _register(manager, _spec('snodas'))
+    register_dataset_config(manager, 'snodas', config_from_spec(_spec('snodas')))
 
     opened = SnowDb.open(tmp_path / CONFIG_FILENAME)
 
@@ -218,7 +193,7 @@ def test_open_accepts_the_config_file_directly(tmp_path):
 
 def test_open_errors_on_a_dangling_link(tmp_path):
     manager = SnowDbManager.initialize(tmp_path)
-    _register(manager, _spec('snodas'))
+    register_dataset_config(manager, 'snodas', config_from_spec(_spec('snodas')))
     # Remove the linked config out of band -> open must fail cleanly.
     (manager.db.data_path / 'snodas' / 'dataset.json').unlink()
 
@@ -623,12 +598,7 @@ def test_register_dataset_rejects_pathlike_names(tmp_path, name):
 
 def test_inactive_dataset_is_registered_but_not_served(tmp_path, spec):
     manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir(spec.name, config)
-    ds_dir.mkdir(parents=True, exist_ok=True)
-    config_path = ds_dir / DATASET_CONFIG_FILENAME
-    config.save(config_path)
-    manager.register_dataset(spec.name, config_path, active=False)
+    register_dataset_config(manager, spec.name, config_from_spec(spec), active=False)
 
     db = SnowDb.open(tmp_path)
     # Registered (the management surface binds it) but not served (readers skip it).
@@ -659,12 +629,7 @@ def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spe
     # but it gets a pointed "activate it" hint instead of the generic miss, since
     # the fix differs (this benefits every caller: CLI stats, the HTTP API).
     manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir(spec.name, config)
-    ds_dir.mkdir(parents=True, exist_ok=True)
-    config_path = ds_dir / DATASET_CONFIG_FILENAME
-    config.save(config_path)
-    manager.register_dataset(spec.name, config_path, active=False)
+    register_dataset_config(manager, spec.name, config_from_spec(spec), active=False)
 
     db = SnowDb.open(tmp_path)
 

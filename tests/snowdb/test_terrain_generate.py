@@ -48,6 +48,23 @@ def _terrain_set(directory):
     return TerrainProvider().layer_set(directory)
 
 
+def _read_layers(directory):
+    """Read a terrain set's five layers as ``(elevation, majority, northness,
+    eastness, entropy)`` band arrays."""
+    terrain = _terrain_set(directory)
+    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
+        elevation = ds.read(1)
+    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
+        majority = ds.read(1)
+    with rasterio.open(terrain.layer_path(NORTHNESS)) as ds:
+        northness = ds.read(1)
+    with rasterio.open(terrain.layer_path(EASTNESS)) as ds:
+        eastness = ds.read(1)
+    with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
+        entropy = ds.read(1)
+    return elevation, majority, northness, eastness, entropy
+
+
 WORK_EPSG = 5070
 ORIGIN_X = -500_000.0
 ORIGIN_Y = 2_000_000.0
@@ -155,16 +172,7 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
     assert terrain.present()
     assert set(hashes) == {'t'}
 
-    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
-        elevation = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
-        majority = ds.read(1)
-    with rasterio.open(terrain.layer_path(NORTHNESS)) as ds:
-        northness = ds.read(1)
-    with rasterio.open(terrain.layer_path(EASTNESS)) as ds:
-        eastness = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
-        entropy = ds.read(1)
+    elevation, majority, northness, eastness, entropy = _read_layers(target.directory)
 
     # Interior cells avoid the Horn/edge border that has no defined aspect.
     interior = (slice(20, 108), slice(20, 108))
@@ -304,21 +312,6 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
         generate_terrain(src, [target], force=True)
         with pytest.raises(FileExistsError, match='already has'):
             generate_terrain(src, [target], force=False)
-
-
-def _read_layers(directory):
-    terrain = _terrain_set(directory)
-    with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
-        elevation = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_MAJORITY)) as ds:
-        majority = ds.read(1)
-    with rasterio.open(terrain.layer_path(NORTHNESS)) as ds:
-        northness = ds.read(1)
-    with rasterio.open(terrain.layer_path(EASTNESS)) as ds:
-        eastness = ds.read(1)
-    with rasterio.open(terrain.layer_path(ASPECT_ENTROPY)) as ds:
-        entropy = ds.read(1)
-    return elevation, majority, northness, eastness, entropy
 
 
 @pytest.mark.parametrize('workers', [2, 4, 8])

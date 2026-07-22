@@ -21,13 +21,13 @@ from snowtool.snowdb.zones.landcover import FOREST_COVER
 from snowtool.snowdb.zones.terrain import ELEVATION
 
 from ..conftest import (
+    TILE,
     make_snowdb,
     snodas_swe_name,
     write_landcover,
     write_pourpoint_record,
     write_terrain,
 )
-from .conftest import TILE
 
 
 def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):

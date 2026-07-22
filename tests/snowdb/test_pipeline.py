@@ -23,13 +23,16 @@ from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 from snowtool.snowdb.zones.terrain import ELEVATION
 
 from ..conftest import (
+    DEM_ELEVATION_M,
     ORIGIN_X,
     ORIGIN_Y,
     PX,
+    SIZE,
+    SWE_VALUE,
+    TILE,
     snodas_swe_name,
     write_terrain,
 )
-from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 # The synthetic SWE COG is ingested for this date; a closed one-day range selects it.
 QUERY = DateRangeQuery(start_date=date(2018, 4, 27), end_date=date(2018, 4, 27))

@@ -8,7 +8,6 @@ check reads it back), which is enough to exercise the filename-set completeness,
 hash-based skip-if-current, and stale-cleanup logic without a full dataset fixture.
 """
 
-from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
 import pytest
@@ -22,7 +21,7 @@ from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
-from ..conftest import snodas_swe_name, write_marker_cog
+from ..conftest import CapturingProgress, snodas_swe_name, write_marker_cog
 
 _MM = Unit(name='mm', scale_factor=1)
 
@@ -179,31 +178,8 @@ def test_write_date_cogs_force_rebuilds_current_dir(two_var_dataset):
     assert all(r.written_to is not None for r in rerun)
 
 
-class _RecordingProgress:
-    """A ProgressReporter that records each tracked task's (label, total) and advances.
-
-    Injected through the ``progress`` seam (no mocks) so a test can assert the write
-    loop opens one task per rebuilt date and advances it once per COG.
-    """
-
-    def __init__(self) -> None:
-        # One (label, total, advances) triple per track() context opened.
-        self.tasks: list[tuple[str, int | None, int]] = []
-
-    @contextmanager
-    def track(self, label, *, total=None):
-        entry = [label, total, 0]
-
-        class _Task:
-            def advance(self, n: int = 1) -> None:
-                entry[2] += n
-
-        self.tasks.append(entry)
-        yield _Task()
-
-
 def test_write_date_cogs_reports_progress_per_cog(two_var_dataset):
-    progress = _RecordingProgress()
+    progress = CapturingProgress()
     d = date(2020, 1, 5)
 
     two_var_dataset.write_date_cogs(
@@ -215,7 +191,9 @@ def test_write_date_cogs_reports_progress_per_cog(two_var_dataset):
 
     # One task for the rebuilt date, advanced once per written COG (swe + depth),
     # labelled with the dataset name and ISO date.
-    assert progress.tasks == [['test 2020-01-05', 2, 2]]
+    assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
+        ('test 2020-01-05', 2, 2),
+    ]
 
 
 def test_write_date_cogs_skip_reports_no_progress(two_var_dataset):
@@ -223,7 +201,7 @@ def test_write_date_cogs_skip_reports_no_progress(two_var_dataset):
     two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
 
     # An already-current date returns before the write loop, so no task is opened.
-    progress = _RecordingProgress()
+    progress = CapturingProgress()
     assert (
         two_var_dataset.write_date_cogs(
             d,

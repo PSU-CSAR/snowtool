@@ -11,54 +11,36 @@ def d(day: int) -> date:
     return date(2018, 4, day)
 
 
-def test_no_dates_has_no_gaps():
-    assert date_gaps([]) == []
-
-
-def test_single_date_has_no_gaps():
-    assert date_gaps([d(1)]) == []
-
-
-def test_contiguous_dates_have_no_gaps():
-    assert date_gaps([d(1), d(2), d(3)]) == []
-
-
-def test_single_missing_day_is_a_one_day_gap():
-    assert date_gaps([d(1), d(3)]) == [(d(2), d(2))]
-
-
-def test_multi_day_gap_is_inclusive_run():
-    assert date_gaps([d(1), d(5)]) == [(d(2), d(4))]
-
-
-def test_several_gaps_reported_in_order():
-    assert date_gaps([d(1), d(3), d(4), d(8)]) == [(d(2), d(2)), (d(5), d(7))]
-
-
-def test_unordered_and_duplicate_dates_are_normalized():
-    assert date_gaps([d(8), d(1), d(3), d(3), d(4)]) == [(d(2), d(2)), (d(5), d(7))]
-
-
-def test_only_interior_gaps_reported():
-    # Nothing before the first or after the last date is a "gap".
-    span = [d(2), d(3), d(4)]
-    assert date_gaps(span) == []
-
-
-def test_gap_spanning_a_month_boundary():
-    assert date_gaps([date(2018, 1, 30), date(2018, 2, 2)]) == [
-        (date(2018, 1, 31), date(2018, 2, 1)),
-    ]
-
-
 @pytest.mark.parametrize(
     ('dates', 'expected'),
     [
-        ([d(1), d(2)], []),
-        ([d(1), d(4)], [(d(2), d(3))]),
+        ([], []),
+        ([d(1)], []),
+        ([d(1), d(2), d(3)], []),
+        ([d(1), d(3)], [(d(2), d(2))]),
+        ([d(1), d(5)], [(d(2), d(4))]),
+        ([d(1), d(3), d(4), d(8)], [(d(2), d(2)), (d(5), d(7))]),
+        ([d(8), d(1), d(3), d(3), d(4)], [(d(2), d(2)), (d(5), d(7))]),
+        # Nothing before the first or after the last date is a "gap".
+        ([d(2), d(3), d(4)], []),
+        (
+            [date(2018, 1, 30), date(2018, 2, 2)],
+            [(date(2018, 1, 31), date(2018, 2, 1))],
+        ),
+    ],
+    ids=[
+        'no_dates',
+        'single_date',
+        'contiguous',
+        'single_missing_day',
+        'multi_day_run',
+        'several_gaps_in_order',
+        'unordered_and_duplicate',
+        'only_interior_gaps',
+        'month_boundary',
     ],
 )
-def test_parametrized_small_cases(dates, expected):
+def test_date_gaps(dates, expected):
     assert date_gaps(dates) == expected
 
 
