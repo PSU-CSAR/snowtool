@@ -18,9 +18,13 @@ from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.spec import DatasetSpec
 
-from ..conftest import CapturingProgress, make_manager, write_pourpoint_record
+from ..conftest import (
+    CapturingProgress,
+    make_manager,
+    make_spec,
+)
+from ..conftest import write_aoi_record as _write_aoi
 
 _POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
 
@@ -35,24 +39,6 @@ def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
 
 # A polygon well inside the synthetic grid's first tile (see top-level conftest).
 _POLYGON = _box()
-
-
-def _write_aoi(directory, triplet, *, with_polygon=True, polygon=None):
-    directory.mkdir(parents=True, exist_ok=True)
-    ring = (polygon or _POLYGON)['coordinates'][0]
-    return write_pourpoint_record(
-        directory / f'{triplet.replace(":", "_")}.geojson',
-        triplet,
-        point=_POINT['coordinates'],
-        polygon=ring,
-        point_only=not with_polygon,
-        properties={
-            'name': triplet,
-            'source': 'test',
-            'active': True,
-            'basinarea': 5.2,
-        },
-    )
 
 
 @pytest.fixture
@@ -405,11 +391,7 @@ def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spe
     # A second registered dataset changes the coverage key set, so the reuse
     # guard fails and the entry is rebuilt from disk on the next import --
     # picking up both the new coverage key and the record's current content.
-    other = DatasetSpec(
-        name='other',
-        grid_params=spec.grid_params,
-        variables=spec.variables.values(),
-    )
+    other = make_spec('other', spec)
     manager2 = make_manager(tmp_path, [spec, other])
     manager2.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
 
@@ -647,11 +629,7 @@ def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, sp
     _write_aoi(src, '55555:MT:USGS', polygon=_OUTSIDE)
     manager.import_pourpoints(src)
 
-    other = DatasetSpec(
-        name='other',
-        grid_params=spec.grid_params,
-        variables=spec.variables.values(),
-    )
+    other = make_spec('other', spec)
     config = config_from_spec(other)
     ds_dir = manager.db.dataset_dir('other', config)
     ds_dir.mkdir(parents=True, exist_ok=True)

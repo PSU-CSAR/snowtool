@@ -21,6 +21,7 @@ from click.testing import CliRunner
 
 from snowtool.cli import _console
 from snowtool.cli._context import CliContext
+from snowtool.snowdb import datasets as datasets_mod
 from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
 from snowtool.snowdb.manager import SnowDbManager
@@ -32,6 +33,46 @@ from ..conftest import (
     write_uniform_landcover,
     write_uniform_terrain,
 )
+
+
+class _RecordingIngester:
+    """A fake ``Ingester`` whose per-run ``plan`` is supplied by the test.
+
+    Records each ``plan`` call's ``(source, dataset.spec.name)`` so a test can
+    assert the driver invoked it once (and with what source), while delegating the
+    actual ``DateIngest`` sequence to the injected ``plan_fn`` -- the only part
+    that differs between the ingest CLI tests.
+    """
+
+    def __init__(self, plan_fn):
+        self._plan_fn = plan_fn
+        self.calls = []
+
+    def plan(self, source, dataset):
+        self.calls.append((source, dataset.spec.name))
+        yield from self._plan_fn(source, dataset)
+
+
+@pytest.fixture
+def register_fake_ingester(monkeypatch, tmp_path, spec):
+    """Register a fake 'fake' ingester on the synthetic 'test' dataset.
+
+    Collapses the repeated ingest-CLI setup (register 'fake' in the INGESTERS
+    map, initialize the root, stage a spec config naming it) into one seam: call
+    it with a ``plan_fn(source, dataset)`` generator and it returns the wired-up
+    :class:`_RecordingIngester`. The INGESTERS monkeypatch happens here, once.
+    """
+
+    def _register(plan_fn):
+        fake = _RecordingIngester(plan_fn)
+        monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
+        manager = SnowDbManager.initialize(tmp_path)
+        config = config_from_spec(spec)
+        config.ingester = 'fake'
+        register_dataset_config(manager, 'test', config)
+        return fake
+
+    return _register
 
 
 @pytest.fixture(autouse=True)

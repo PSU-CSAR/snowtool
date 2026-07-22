@@ -289,10 +289,33 @@ def test_windows_group_is_hidden_but_still_reachable_off_platform():
     assert group_help.exit_code == 0
 
 
-def test_add_to_path_fails_cleanly_on_non_windows():
-    # Genuinely exercised: this suite runs on macOS/Linux, so the platform
-    # guard fires for real here rather than being simulated.
-    result = CliRunner().invoke(cli, ['windows', 'add-to-path'])
+@pytest.mark.parametrize(
+    'argv',
+    [
+        pytest.param(lambda tmp: ['windows', 'add-to-path'], id='add-to-path'),
+        pytest.param(
+            lambda tmp: [
+                'windows',
+                'iis',
+                'install',
+                str(tmp / 'site'),
+                '--hostname',
+                'snow.example.org',
+                '--config',
+                str(tmp),
+            ],
+            id='iis-install',
+        ),
+        pytest.param(
+            lambda tmp: ['windows', 'iis', 'remove', str(tmp / 'site'), '-C', str(tmp)],
+            id='iis-remove',
+        ),
+    ],
+)
+def test_windows_only_command_fails_cleanly_on_non_windows(tmp_path, argv):
+    # Genuinely exercised: this suite runs on macOS/Linux, so the platform guard
+    # fires for real here (past option parsing) rather than being simulated.
+    result = CliRunner().invoke(cli, argv(tmp_path))
 
     assert result.exit_code != 0
     assert 'Windows' in result.output
@@ -340,37 +363,6 @@ def test_install_requires_config(monkeypatch, tmp_path):
 
     assert result.exit_code != 0
     assert '--config' in result.output
-
-
-def test_install_fails_cleanly_on_non_windows(tmp_path):
-    # Genuinely exercised: this suite runs on macOS/Linux, so the platform
-    # guard fires for real here rather than being simulated.
-    result = CliRunner().invoke(
-        cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-            '--config',
-            str(tmp_path),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert 'Windows' in result.output
-
-
-def test_remove_fails_cleanly_on_non_windows(tmp_path):
-    result = CliRunner().invoke(
-        cli,
-        ['windows', 'iis', 'remove', str(tmp_path / 'site'), '-C', str(tmp_path)],
-    )
-
-    assert result.exit_code != 0
-    assert 'Windows' in result.output
 
 
 def test_install_help_documents_only_option():

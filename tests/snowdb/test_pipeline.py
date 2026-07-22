@@ -30,7 +30,7 @@ from ..conftest import (
     SIZE,
     SWE_VALUE,
     TILE,
-    snodas_swe_name,
+    write_swe_cog,
     write_terrain,
 )
 
@@ -316,17 +316,7 @@ def _banded_dataset(directory, band_step_ft):
     )
     ds = Dataset.create(spec, directory)
     write_terrain(ds)
-
-    date_str = '20180427'
-    out_dir = ds._cogs / date_str
-    out_dir.mkdir(parents=True, exist_ok=True)
-    write_cog(
-        out_dir / f'{snodas_swe_name(date_str)}.tif',
-        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
-        transform=ds.grid.base_grid.transform,
-        tile_size=TILE,
-        predictor=2,
-    )
+    write_swe_cog(ds)
     return ds
 
 

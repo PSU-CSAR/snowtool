@@ -41,35 +41,59 @@ def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
     )
 
 
+@pytest.fixture
+def created_db(tmp_path, spec):
+    """An initialized root with the synthetic dataset created + bound (read side).
+
+    The shared "initialize + Dataset.create + bind a SnowDb" trio for the
+    coverage reports: returns ``(db, ds)`` where ``ds`` is the created dataset and
+    ``db`` the reader over the same root.
+    """
+    SnowDbManager.initialize(tmp_path)
+    ds = Dataset.create(spec, tmp_path / 'data' / 'test')
+    return make_snowdb(tmp_path, [spec]), ds
+
+
 # --- coverage / completeness -------------------------------------------------
 
 
-def test_missing_dates_defaults_to_first_ingested_through_today(dataset):
-    for name in ('20180101', '20180103'):
+@pytest.mark.parametrize(
+    ('ingested', 'kwargs', 'expected'),
+    [
+        # No explicit start -> defaults to the first ingested date, through end;
+        # the interior gap and the (absent) end date are both reported.
+        pytest.param(
+            ('20180101', '20180103'),
+            {'end': date(2018, 1, 4)},
+            [date(2018, 1, 2), date(2018, 1, 4)],
+            id='defaults-start-to-first-ingested',
+        ),
+        # A fully contiguous span has no gap -> nothing missing.
+        pytest.param(
+            ('20180101', '20180102', '20180103'),
+            {'start': date(2018, 1, 1), 'end': date(2018, 1, 3)},
+            [],
+            id='contiguous-is-empty',
+        ),
+        # An inverted window (start after end) yields no dates at all.
+        pytest.param(
+            ('20180101',),
+            {'start': date(2018, 1, 5), 'end': date(2018, 1, 1)},
+            [],
+            id='start-after-end-is-empty',
+        ),
+    ],
+)
+def test_missing_dates(dataset, ingested, kwargs, expected):
+    for name in ingested:
         (dataset._cogs / name).mkdir()
 
-    result = diagnostics.missing_dates(dataset, end=date(2018, 1, 4))
-
-    assert result == [date(2018, 1, 2), date(2018, 1, 4)]
+    assert diagnostics.missing_dates(dataset, **kwargs) == expected
 
 
 def test_missing_dates_requires_start_when_no_ingested_dates(dataset):
     with pytest.raises(ValueError, match='no ingested dates'):
         diagnostics.missing_dates(dataset, end=date(2018, 1, 1))
-
-
-def test_missing_dates_start_after_end_is_empty(dataset):
-    for name in ('20180101',):
-        (dataset._cogs / name).mkdir()
-
-    assert (
-        diagnostics.missing_dates(
-            dataset,
-            start=date(2018, 1, 5),
-            end=date(2018, 1, 1),
-        )
-        == []
-    )
 
 
 def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
@@ -146,15 +170,8 @@ def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
 # --- pourpoint-coverage ------------------------------------------------------------
 
 
-def test_pourpoint_coverage_unrasterized_then_covered(
-    tmp_path,
-    spec,
-    pourpoint_geojson,
-):
-
-    SnowDbManager.initialize(tmp_path)
-    ds = Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = make_snowdb(tmp_path, [spec])
+def test_pourpoint_coverage_unrasterized_then_covered(created_db, pourpoint_geojson):
+    db, ds = created_db
     shutil.copy(
         pourpoint_geojson,
         db.pourpoint_records_path / '12345_MT_USGS.geojson',
@@ -169,10 +186,8 @@ def test_pourpoint_coverage_unrasterized_then_covered(
     assert after.unrasterized == ()
 
 
-def test_pourpoint_coverage_flags_orphan_raster(tmp_path, spec, pourpoint_geojson):
-    SnowDbManager.initialize(tmp_path)
-    ds = Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = make_snowdb(tmp_path, [spec])  # no global AOIs
+def test_pourpoint_coverage_flags_orphan_raster(created_db, pourpoint_geojson):
+    db, ds = created_db  # no global AOIs
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
     result = diagnostics.pourpoint_coverage_report(db, ds)
@@ -180,15 +195,9 @@ def test_pourpoint_coverage_flags_orphan_raster(tmp_path, spec, pourpoint_geojso
     assert result.orphan_rasters == ('12345:MT:USGS',)
 
 
-def test_pourpoint_coverage_classifies_full_partial_none(
-    tmp_path,
-    spec,
-    pourpoint_geojson,
-):
+def test_pourpoint_coverage_classifies_full_partial_none(created_db):
     # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
-    SnowDbManager.initialize(tmp_path)
-    Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = make_snowdb(tmp_path, [spec])
+    db, _ds = created_db
     records = db.pourpoint_records_path
     # Fully inside.
     _write_basin(records, '100:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
@@ -207,11 +216,9 @@ def test_pourpoint_coverage_classifies_full_partial_none(
 
 
 @pytest.fixture
-def guard_db(tmp_path, spec):
+def guard_db(created_db):
     """A SnowDb with three AOIs: full, partial, and uncovered by the grid."""
-    SnowDbManager.initialize(tmp_path)
-    Dataset.create(spec, tmp_path / 'data' / 'test')
-    db = make_snowdb(tmp_path, [spec])
+    db, _ds = created_db
     records = db.pourpoint_records_path
     _write_basin(records, 'full:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
     _write_basin(records, 'part:MT:USGS', x0=-120.5, y0=44.9, x1=-119.5, y1=44.0)

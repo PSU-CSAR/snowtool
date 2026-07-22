@@ -15,7 +15,7 @@ from snowtool.api.models.pourpoint import _pourpoint_stats_links
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.pourpoint import Pourpoint
 
-from ..conftest import write_pourpoint_record
+from ..conftest import write_aoi_record, write_pourpoint_record
 
 TRIPLET = '12345:MT:USGS'
 
@@ -30,10 +30,10 @@ _DOY_QUERY_TEMPLATE = _DATE_RANGE_QUERY_TEMPLATE.replace(
 )
 
 
-def _write_aoi_feature(path, triplet: str, west: float, south: float):
+def _write_aoi_feature(directory, triplet: str, west: float, south: float):
     """A polygon-bearing pourpoint inside the synthetic grid (so it indexes)."""
-    return write_pourpoint_record(
-        path,
+    return write_aoi_record(
+        directory,
         triplet,
         box=(west, south + 0.5, west + 0.5, south),
         point=(west + 0.25, south + 0.25),
@@ -58,7 +58,7 @@ def many_aois_client(test_settings, spec, tmp_path):
     for i in range(3):
         triplet = f'{1000 + i}:MT:USGS'
         _write_aoi_feature(
-            src / f'{1000 + i}_MT_USGS.geojson',
+            src,
             triplet,
             west=-119.0 + i * 0.5,
             south=44.0 - i * 0.5,
@@ -78,18 +78,13 @@ def inactive_dataset_client(test_settings, spec, pourpoint_geojson):
     """
     from snowtool.snowdb.datasets import config_from_spec
     from snowtool.snowdb.manager import SnowDbManager
-    from snowtool.snowdb.spec import DatasetSpec
 
-    from ..conftest import register_dataset_config
+    from ..conftest import make_spec, register_dataset_config
 
     root = test_settings.snowdb_config
     manager = SnowDbManager.initialize(root)
     register_dataset_config(manager, spec.name, config_from_spec(spec))
-    other = DatasetSpec(
-        name='other',
-        grid_params=spec.grid_params,
-        variables=spec.variables.values(),
-    )
+    other = make_spec('other', spec)
     register_dataset_config(manager, 'other', config_from_spec(other))
     manager = SnowDbManager.open(root)  # rebind so both datasets are served
     manager.import_pourpoints(pourpoint_geojson)

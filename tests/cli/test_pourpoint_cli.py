@@ -4,23 +4,7 @@ import json
 
 from snowtool.cli import cli
 
-from ..conftest import write_pourpoint_record
-
-
-def _write_aoi(directory, triplet, *, with_polygon=True):
-    directory.mkdir(parents=True, exist_ok=True)
-    return write_pourpoint_record(
-        directory / f'{triplet.replace(":", "_")}.geojson',
-        triplet,
-        point_only=not with_polygon,
-        properties={
-            'name': triplet,
-            'source': 'test',
-            'active': True,
-            'basinarea': 5.2,
-        },
-    )
-
+from ..conftest import write_aoi_record as _write_aoi
 
 # --- import / sync -----------------------------------------------------------
 

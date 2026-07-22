@@ -8,7 +8,6 @@ import pytest
 
 from snowtool.cli import cli
 from snowtool.cli._context import CliContext
-from snowtool.snowdb import datasets as datasets_mod
 from snowtool.snowdb.config import CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
@@ -17,7 +16,6 @@ from snowtool.snowdb.manager import SnowDbManager
 
 from ..conftest import (
     full_marker_rasters,
-    register_dataset_config,
     write_swe_cog,
 )
 
@@ -38,6 +36,13 @@ def _generate_zones(runner, cli_obj, source_dem):
 
 def _write_swe(cli_obj, date_str='20180427'):
     write_swe_cog(cli_obj.manager.db['test'], date_str)
+
+
+def _make_date_dirs(root, name, *date_strs):
+    """Create empty ``data/<name>/cogs/<YYYYMMDD>/`` dirs (ingested-date stand-ins)."""
+    cogs = root / 'data' / name / 'cogs'
+    for date_str in date_strs:
+        (cogs / date_str).mkdir(parents=True)
 
 
 # --- list / info -------------------------------------------------------------
@@ -127,9 +132,10 @@ def test_dates_filters_by_range(runner, cli_obj, initialized_root):
 
 
 def test_dates_missing_lists_gap_with_explicit_range(runner, cli_obj, initialized_root):
-    cogs = initialized_root / 'data' / 'test' / 'cogs'
-    for name in ('20180101', '20180103'):
-        (cogs / name).mkdir(parents=True)
+    # Plumbing only: the domain semantics of missing_dates (gap computation,
+    # default-start, inverted-window) are pinned in test_report_diagnostics; here
+    # we assert the option wiring renders one real gap as the JSON payload.
+    _make_date_dirs(initialized_root, 'test', '20180101', '20180103')
 
     result = runner.invoke(
         cli,
@@ -150,85 +156,6 @@ def test_dates_missing_lists_gap_with_explicit_range(runner, cli_obj, initialize
 
     assert result.exit_code == 0, result.output
     assert _json(result) == [{'date': '2018-01-02'}, {'date': '2018-01-04'}]
-
-
-def test_dates_missing_defaults_start_to_first_ingested(
-    runner,
-    cli_obj,
-    initialized_root,
-):
-    cogs = initialized_root / 'data' / 'test' / 'cogs'
-    for name in ('20180101', '20180103'):
-        (cogs / name).mkdir(parents=True)
-
-    result = runner.invoke(
-        cli,
-        [
-            'dataset',
-            'dates',
-            'test',
-            '--missing',
-            '--end',
-            '20180103',
-            '--format',
-            'json',
-        ],
-        obj=cli_obj,
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _json(result) == [{'date': '2018-01-02'}]
-
-
-def test_dates_missing_empty_when_contiguous(runner, cli_obj, initialized_root):
-    cogs = initialized_root / 'data' / 'test' / 'cogs'
-    for name in ('20180101', '20180102', '20180103'):
-        (cogs / name).mkdir(parents=True)
-
-    result = runner.invoke(
-        cli,
-        [
-            'dataset',
-            'dates',
-            'test',
-            '--missing',
-            '--start',
-            '20180101',
-            '--end',
-            '20180103',
-            '--format',
-            'json',
-        ],
-        obj=cli_obj,
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _json(result) == []
-
-
-def test_dates_missing_start_after_end_is_empty(runner, cli_obj, initialized_root):
-    cogs = initialized_root / 'data' / 'test' / 'cogs'
-    (cogs / '20180101').mkdir(parents=True)
-
-    result = runner.invoke(
-        cli,
-        [
-            'dataset',
-            'dates',
-            'test',
-            '--missing',
-            '--start',
-            '20180105',
-            '--end',
-            '20180101',
-            '--format',
-            'json',
-        ],
-        obj=cli_obj,
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _json(result) == []
 
 
 def test_dates_missing_no_dates_no_start_errors(runner, cli_obj, initialized_root):
@@ -526,37 +453,23 @@ def test_ingest_without_ingester_errors(runner, cli_obj, source_dem):
 
 
 def test_ingest_delegates_to_spec_ingester(
-    monkeypatch,
     runner,
     tmp_path,
-    spec,
     source_dem,
+    register_fake_ingester,
 ):
+    # The fake plans two dates, each yielding real marker COGs (one per spec
+    # variable) so the run drives the genuine atomic write path and reports both
+    # planned dates as ingested. `register_fake_ingester` wires it into INGESTERS.
+    def plan(source, dataset):
+        for d in (date(2020, 1, 1), date(2020, 1, 2)):
+            yield DateIngest(
+                date=d,
+                source_files=[source],
+                build_rasters=lambda h: full_marker_rasters(dataset, h),
+            )
 
-    class _FakeIngester:
-        def __init__(self):
-            self.calls = []
-
-        def plan(self, source, dataset):
-            self.calls.append((source, dataset.spec.name))
-            for d in (date(2020, 1, 1), date(2020, 1, 2)):
-                yield DateIngest(
-                    date=d,
-                    source_files=[source],
-                    build_rasters=lambda h: full_marker_rasters(dataset, h),
-                )
-
-    fake = _FakeIngester()
-    # Ingesters are code, referenced by registry name: register the fake so a
-    # config naming it resolves to it. Its build_rasters yield real marker COGs
-    # (one per spec variable) so the run drives the genuine atomic write path and
-    # reports both planned dates as ingested.
-    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-
-    manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    config.ingester = 'fake'
-    register_dataset_config(manager, 'test', config)
+    fake = register_fake_ingester(plan)
 
     result = runner.invoke(
         cli,
@@ -584,31 +497,23 @@ def test_ingest_delegates_to_spec_ingester(
 
 
 def test_ingest_converges_and_force_reingests(
-    monkeypatch,
     runner,
     tmp_path,
-    spec,
     source_dem,
+    register_fake_ingester,
 ):
     # Converge-by-default: a run whose source hash matches reports "up to date";
     # --force re-ingests. Driven through the real per-date skip/force contract by
     # real marker COGs -- a first ingest establishes the current date, a second
     # unchanged run converges, and --force rebuilds it.
-    class _ConvergingIngester:
-        def plan(self, source, dataset):
-            yield DateIngest(
-                date=date(2020, 1, 1),
-                source_files=[source],
-                build_rasters=lambda h: full_marker_rasters(dataset, h),
-            )
+    def plan(source, dataset):
+        yield DateIngest(
+            date=date(2020, 1, 1),
+            source_files=[source],
+            build_rasters=lambda h: full_marker_rasters(dataset, h),
+        )
 
-    fake = _ConvergingIngester()
-    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-
-    manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    config.ingester = 'fake'
-    register_dataset_config(manager, 'test', config)
+    register_fake_ingester(plan)
 
     # A first ingest lands the date on disk (source hash stamped) so the next,
     # unchanged run can be recognised as already current.
@@ -651,30 +556,19 @@ def test_ingest_converges_and_force_reingests(
     ]
 
 
-def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
+def test_ingest_accepts_a_directory_source(runner, tmp_path, register_fake_ingester):
     # The instarr shape: SOURCE may be a directory (a date's tiles are mosaicked
     # together, so the whole directory is one ingest call).
-    class _FakeIngester:
-        def __init__(self):
-            self.sources = []
+    def plan(source, dataset):
+        # A directory SOURCE fans out to per-date files (the instarr shape);
+        # the driver hashes the files, not the directory.
+        yield DateIngest(
+            date=date(2020, 1, 1),
+            source_files=sorted(source.glob('*.nc')),
+            build_rasters=lambda h: full_marker_rasters(dataset, h),
+        )
 
-        def plan(self, source, dataset):
-            self.sources.append(source)
-            # A directory SOURCE fans out to per-date files (the instarr shape);
-            # the driver hashes the files, not the directory.
-            yield DateIngest(
-                date=date(2020, 1, 1),
-                source_files=sorted(source.glob('*.nc')),
-                build_rasters=lambda h: full_marker_rasters(dataset, h),
-            )
-
-    fake = _FakeIngester()
-    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', fake)
-
-    manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    config.ingester = 'fake'
-    register_dataset_config(manager, 'test', config)
+    fake = register_fake_ingester(plan)
     src_dir = tmp_path / 'tiles'
     src_dir.mkdir()
     (src_dir / 'tile.nc').write_bytes(b'tile bytes')
@@ -694,7 +588,7 @@ def test_ingest_accepts_a_directory_source(monkeypatch, runner, tmp_path, spec):
             'source': str(src_dir),
         },
     ]
-    assert fake.sources == [src_dir]
+    assert fake.calls == [(src_dir, 'test')]
 
 
 def test_ingest_takes_exactly_one_source(runner, cli_obj, source_dem, source_nlcd):
@@ -710,29 +604,22 @@ def test_ingest_takes_exactly_one_source(runner, cli_obj, source_dem, source_nlc
 
 
 def test_inactive_dataset_is_manageable_but_not_queryable(
-    monkeypatch,
     runner,
     tmp_path,
-    spec,
     source_dem,
+    register_fake_ingester,
 ):
     # The register/activate contract end-to-end: a deactivated dataset stays fully
     # manageable by name (ingest), reports active=false, and the read surface
     # (stats) refuses it with a pointed "activate it" error.
-    class _FakeIngester:
-        def plan(self, source, dataset):
-            yield DateIngest(
-                date=date(2020, 1, 1),
-                source_files=[source],
-                build_rasters=lambda h: full_marker_rasters(dataset, h),
-            )
+    def plan(source, dataset):
+        yield DateIngest(
+            date=date(2020, 1, 1),
+            source_files=[source],
+            build_rasters=lambda h: full_marker_rasters(dataset, h),
+        )
 
-    monkeypatch.setitem(datasets_mod.INGESTERS, 'fake', _FakeIngester())
-
-    manager = SnowDbManager.initialize(tmp_path)
-    config = config_from_spec(spec)
-    config.ingester = 'fake'
-    register_dataset_config(manager, 'test', config)
+    register_fake_ingester(plan)
 
     # A fresh CliContext per invocation: each real CLI process opens the root
     # config anew, so post-deactivate commands must see the flipped flag.
@@ -856,12 +743,6 @@ def test_generate_landcover_is_idempotent(runner, cli_obj, source_nlcd):
 
 
 # --- remove-date ---------------------------------------------------------------
-
-
-def _make_date_dirs(root, name, *date_strs):
-    cogs = root / 'data' / name / 'cogs'
-    for date_str in date_strs:
-        (cogs / date_str).mkdir(parents=True)
 
 
 def test_remove_date_dry_run_keeps_data(runner, cli_obj, initialized_root):

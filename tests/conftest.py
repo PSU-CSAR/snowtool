@@ -211,6 +211,22 @@ def populate_synthetic_root(
     )
 
 
+def make_spec(name, base, **overrides):
+    """A second DatasetSpec sharing ``base``'s grid (and variables), renamed.
+
+    The shared "another dataset on the same grid" builder: by default it reuses
+    ``base``'s grid params and variables, so a test only names the new dataset and
+    overrides what it cares about (e.g. ``variables=()`` for a bare spec).
+    """
+    fields = {
+        'name': name,
+        'grid_params': base.grid_params,
+        'variables': base.variables.values(),
+    }
+    fields.update(overrides)
+    return DatasetSpec(**fields)
+
+
 @pytest.fixture
 def spec():
     """A tiny synthetic DatasetSpec (2x2 tile geographic grid)."""
@@ -488,6 +504,45 @@ def write_pourpoint_record(
         }
     path.write_text(json.dumps(feature))
     return path
+
+
+def write_aoi_record(
+    directory,
+    triplet,
+    *,
+    with_polygon=True,
+    polygon=None,
+    box=None,
+    point=None,
+    properties=None,
+):
+    """Write a station AOI record named ``<triplet>.geojson`` into ``directory``.
+
+    The shared AOI-record writer for the suite: a thin ``directory``-oriented
+    adapter over :func:`write_pourpoint_record` that names the file from the
+    triplet and, by default, stamps the canonical station properties
+    (``active``/``basinarea``). ``polygon`` may be a Polygon geometry dict (its
+    ring is unwrapped) or a raw ring; ``box``/``point`` follow
+    ``write_pourpoint_record``. Pass ``properties`` to override the defaults.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    if properties is None:
+        properties = {
+            'name': triplet,
+            'source': 'test',
+            'active': True,
+            'basinarea': 5.2,
+        }
+    ring = polygon['coordinates'][0] if isinstance(polygon, dict) else polygon
+    return write_pourpoint_record(
+        directory / f'{triplet.replace(":", "_")}.geojson',
+        triplet,
+        box=box,
+        point=point,
+        polygon=ring,
+        point_only=not with_polygon,
+        properties=properties,
+    )
 
 
 def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):

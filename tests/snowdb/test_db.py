@@ -38,6 +38,7 @@ from ..conftest import (
     CapturingProgress,
     make_manager,
     make_snowdb,
+    make_spec,
     register_dataset_config,
     write_swe_cog,
 )
@@ -318,7 +319,7 @@ def test_coverage_fallback_none_for_dataset_predating_index(
     manager = make_manager(tmp_path, [spec])
     manager.import_pourpoints(pourpoint_geojson)
 
-    other = DatasetSpec(name='other', grid_params=spec.grid_params)
+    other = make_spec('other', spec, variables=())
     db = make_snowdb(tmp_path, [spec, other])
 
     assert db.pourpoint_dataset_coverage('12345:MT:USGS', 'other') is Coverage.NONE
