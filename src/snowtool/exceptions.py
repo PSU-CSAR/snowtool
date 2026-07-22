@@ -207,28 +207,14 @@ class IncompleteDatasetDataError(SnowtoolError):
     date, not issuing a different request); the CLI renders it as a clean
     ``ClickException`` via its ``SnowtoolError`` base.
 
-    ``dataset``/``date``/``missing_keys`` locate the affected data; all three are
-    optional so the same type can also cover a corrupt burned-AOI raster (missing
-    tile metadata), which has no variable set. Prefer :meth:`for_variables` for the
+    The same type also covers a corrupt burned-AOI raster (missing tile
+    metadata), which has no variable set. Prefer :meth:`for_variables` for the
     common date-is-missing/duplicated-variables case.
     """
 
-    def __init__(
-        self: Self,
-        detail: str,
-        *,
-        dataset: str | None = None,
-        date: object | None = None,
-        missing_keys: Iterable[str] | None = None,
-    ) -> None:
-        self.dataset = dataset
-        self.date = date
-        self.missing_keys = sorted(missing_keys) if missing_keys is not None else None
-        super().__init__(detail)
-
     @classmethod
     def for_variables(
-        cls: type[Self],
+        cls,
         dataset: str,
         date: object,
         missing_keys: Iterable[str],
@@ -242,9 +228,6 @@ class IncompleteDatasetDataError(SnowtoolError):
         return cls(
             f'Incomplete data for {date} in dataset {dataset!r}: cannot resolve '
             f'variable(s) {keys} (missing or duplicated COGs).',
-            dataset=dataset,
-            date=date,
-            missing_keys=keys,
         )
 
 
@@ -275,14 +258,13 @@ class RemoteSourceError(SnowtoolError):
 class PourpointPruneDestinationRequiredError(SnowtoolError):
     """Raised when ``pourpoint sync`` would remove stored records but has no archive.
 
-    Carries the triplets that would be pruned so the caller can report the count.
-    Removal is destructive, so it is gated behind an explicit ``--prune-to``
-    archive destination (or ``--dry-run`` to preview without removing).
+    The message reports how many records would be pruned. Removal is
+    destructive, so it is gated behind an explicit ``--prune-to`` archive
+    destination (or ``--dry-run`` to preview without removing).
     """
 
     def __init__(self, triplets: list[str]) -> None:
-        self.triplets = list(triplets)
         super().__init__(
-            f'{len(self.triplets)} stored pourpoint(s) would be removed; pass '
+            f'{len(triplets)} stored pourpoint(s) would be removed; pass '
             '--prune-to ARCHIVE to archive them first, or --dry-run to preview.',
         )

@@ -32,7 +32,7 @@ from gazebo.pagination import paginate_offset
 from gazebo.rels import MediaType, Rel
 from pydantic import BaseModel, Field
 
-from snowtool.api.models.dataset import stats_links
+from snowtool.api.models.dataset import pourpoint_stats_links
 from snowtool.snowdb.coverage import Coverage
 
 if TYPE_CHECKING:
@@ -105,13 +105,13 @@ def _pourpoint_stats_links(
     active datasets) whose coverage is FULL or PARTIAL -- a NONE dataset always
     409s, so its link would advertise a dead end. Each pair binds the triplet
     and carries the dataset name (see
-    :func:`snowtool.api.models.dataset.stats_links`).
+    :func:`snowtool.api.models.dataset.pourpoint_stats_links`).
     """
     return [
         link
         for name in sorted(coverage)
         if coverage[name] is not Coverage.NONE
-        for link in stats_links(name, pourpoint.station_triplet)
+        for link in pourpoint_stats_links(name, pourpoint.station_triplet)
     ]
 
 

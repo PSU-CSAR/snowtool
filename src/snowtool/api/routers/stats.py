@@ -26,26 +26,24 @@ from snowtool.api.models.stats import (
     CompactStatsResponse,
     DateRangeStatsQuery,
     DOYStatsQuery,
-    _StatsFormat,
-    _StatsQueryBase,
+    StatsFormat,
+    StatsQueryBase,
     stats_csv_response,
 )
 from snowtool.api.tags import Tags
 from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery
 
 if TYPE_CHECKING:
-    from gazebo.negotiation import Representation
-
     from snowtool.snowdb.reader import SnowDbReader
 
 
-REPRESENTATIONS = _StatsFormat.representations()
+REPRESENTATIONS = StatsFormat.representations()
 
 # Document every negotiated media type on the route's 200, from the same enum that
 # drives ``?f=``/``Accept`` -- one source of truth. ``application/json`` is omitted
 # so the ``response_model`` keeps owning it (its ``$ref`` is preserved); the streamed
 # ``text/csv`` gets a string-body schema.
-_STATS_RESPONSES = _StatsFormat.openapi_responses(schemas={MediaType.JSON: None})
+_STATS_RESPONSES = StatsFormat.openapi_responses(schemas={MediaType.JSON: None})
 
 router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/stats')
 
@@ -55,9 +53,9 @@ async def _run(
     dataset: str,
     triplet: types.StationTriplet,
     query: DateRangeQuery | DOYQuery,
-    params: _StatsQueryBase,
-    rep: Representation,
+    params: StatsQueryBase,
 ) -> CompactStatsResponse | StreamingResponse:
+    rep = negotiate(REPRESENTATIONS, f=params.f)
     stats = await reader.zonal_stats(
         triplet,
         dataset,
@@ -94,14 +92,12 @@ async def stats_date_range(
     reader: ReaderDep,
     params: Annotated[DateRangeStatsQuery, Query()],
 ) -> CompactStatsResponse | StreamingResponse:
-    rep = negotiate(REPRESENTATIONS, f=params.f)
     return await _run(
         reader,
         dataset,
         triplet,
         DateRangeQuery.from_interval(params.datetime),
         params,
-        rep,
     )
 
 
@@ -118,6 +114,5 @@ async def stats_doy(
     reader: ReaderDep,
     params: Annotated[DOYStatsQuery, Query()],
 ) -> CompactStatsResponse | StreamingResponse:
-    rep = negotiate(REPRESENTATIONS, f=params.f)
     query = DOYQuery(**params.model_dump(include=set(DOYFields.model_fields)))
-    return await _run(reader, dataset, triplet, query, params, rep)
+    return await _run(reader, dataset, triplet, query, params)

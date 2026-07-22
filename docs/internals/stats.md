@@ -216,7 +216,7 @@ pourpoint, the date span, and a `_zonal_<n>` suffix when zones are crossed.
 
 - **API:** content negotiation. `?f=json` (the default) or `?f=csv`, or an
   `Accept: application/json` / `Accept: text/csv` header —
-  `_StatsFormat`/`negotiate` in `api/routers/stats.py`. The JSON envelope
+  `StatsFormat`/`negotiate` in `api/routers/stats.py`. The JSON envelope
   advertises the CSV as an `alternate` link.
 - **CLI:** `--format json` (the default) or `--format csv` on the `stats`
   command.

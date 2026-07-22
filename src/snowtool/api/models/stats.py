@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zonal_stats import ZonalStats
 
 
-class _StatsFormat(FormatEnum):
+class StatsFormat(FormatEnum):
     """The ``?f=`` keys the stats route serves, each carrying its media type."""
 
     json = 'json', 'application/json'
@@ -65,18 +65,18 @@ _DATETIME_EXAMPLES = [
 ]
 
 
-class _StatsQueryBase(BaseModel):
+class StatsQueryBase(BaseModel):
     zone: list[str] = Field(default_factory=list, description=_ZONE_DESC)
     variable: list[str] = Field(default_factory=list, description=_VARIABLE_DESC)
     allow_partial: bool = Field(default=False, description=_ALLOW_PARTIAL_DESC)
     include_empty_zones: bool = Field(default=False, description=_INCLUDE_EMPTY_DESC)
-    f: _StatsFormat | None = Field(
+    f: StatsFormat | None = Field(
         default=None,
-        description=f_description(_StatsFormat),
+        description=f_description(StatsFormat),
     )
 
 
-class DateRangeStatsQuery(_StatsQueryBase):
+class DateRangeStatsQuery(StatsQueryBase):
     datetime: DatetimeQuery = Field(
         default=None,
         examples=_DATETIME_EXAMPLES,
@@ -84,7 +84,7 @@ class DateRangeStatsQuery(_StatsQueryBase):
     )
 
 
-class DOYStatsQuery(_StatsQueryBase, DOYFields):
+class DOYStatsQuery(StatsQueryBase, DOYFields):
     pass
 
 

@@ -2080,6 +2080,15 @@
         "title": "ProblemType",
         "type": "object"
       },
+      "StatsFormat": {
+        "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
+        "enum": [
+          "json",
+          "csv"
+        ],
+        "title": "StatsFormat",
+        "type": "string"
+      },
       "ThresholdZoneInfo": {
         "description": "A threshold-split axis: overridable split point within its measured range.",
         "properties": {
@@ -2343,15 +2352,6 @@
         ],
         "title": "ZoneClassDescription",
         "type": "object"
-      },
-      "_StatsFormat": {
-        "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
-        "enum": [
-          "json",
-          "csv"
-        ],
-        "title": "_StatsFormat",
-        "type": "string"
       }
     }
   },
@@ -2553,7 +2553,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/_StatsFormat"
+                  "$ref": "#/components/schemas/StatsFormat"
                 },
                 {
                   "type": "null"
@@ -2757,7 +2757,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/_StatsFormat"
+                  "$ref": "#/components/schemas/StatsFormat"
                 },
                 {
                   "type": "null"
