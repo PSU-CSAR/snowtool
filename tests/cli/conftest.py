@@ -122,8 +122,20 @@ def _fake_terrain_engine(
     }
 
 
-def _fake_landcover_engine(src, targets, *, force=False):
-    """Stand in for generate_landcover: a uniform forest layer per target."""
+def _fake_landcover_engine(
+    src,
+    targets,
+    *,
+    workers=None,
+    block_size=None,
+    force=False,
+    progress=None,
+):
+    """Stand in for generate_landcover: a uniform forest layer per target.
+
+    Matches the real engine's signature so it drops into ``LandCoverProvider`` via
+    the ``engine=`` seam; only CLI wiring is under test here.
+    """
     return {
         target.name: write_uniform_landcover(
             target.directory,

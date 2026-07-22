@@ -87,8 +87,10 @@ from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.generate_common import (
+    Block,
     cells_for_points,
     finalize_and_stamp,
+    iter_blocks,
     pixel_centre_coords,
     require_absent_layers,
 )
@@ -551,16 +553,6 @@ def _read_haloed_block(
 
 
 @dataclass(frozen=True)
-class _Block:
-    """A nominal (un-haloed) work-grid block, in row-major streaming order."""
-
-    c0: int
-    r0: int
-    bw: int
-    bh: int
-
-
-@dataclass(frozen=True)
 class _BlockResult:
     """One block's binnable contribution: shared per-pixel arrays + per-target coords.
 
@@ -627,24 +619,6 @@ class _TerrainStreamer:
         # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
         self._read_lock = threading.Lock()
 
-    def _blocks(self: Self) -> list[_Block]:
-        bs = self._block_size
-        nbx = math.ceil(self._dst_w / bs)
-        nby = math.ceil(self._dst_h / bs)
-        blocks = []
-        for by in range(nby):
-            for bx in range(nbx):
-                c0, r0 = bx * bs, by * bs
-                blocks.append(
-                    _Block(
-                        c0=c0,
-                        r0=r0,
-                        bw=min(bs, self._dst_w - c0),
-                        bh=min(bs, self._dst_h - r0),
-                    ),
-                )
-        return blocks
-
     def _transformers(self: Self) -> list[Transformer]:
         """Per-thread work-CRS -> target-CRS Transformers (built once per thread)."""
         tfs: list[Transformer] | None = getattr(self._local, 'tfs', None)
@@ -656,7 +630,7 @@ class _TerrainStreamer:
             self._local.tfs = tfs
         return tfs
 
-    def _compute(self: Self, block: _Block, cancel: CancelToken) -> _BlockResult | None:
+    def _compute(self: Self, block: Block, cancel: CancelToken) -> _BlockResult | None:
         """Worker step: read, derive terrain, reproject. Pure, no shared writes.
 
         ``None`` means "no contribution" to the reducer -- true for an all-nodata
@@ -750,7 +724,7 @@ class _TerrainStreamer:
         WarpedVRT after this returns. See :mod:`snowtool.snowdb.zones.parallel`.
         """
         ordered_parallel_map(
-            self._blocks(),
+            iter_blocks(self._dst_w, self._dst_h, self._block_size),
             self._compute,
             self._reduce,
             workers=workers,

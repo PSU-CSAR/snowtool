@@ -119,11 +119,13 @@ class LandCoverProvider(ZoneLayerProvider):
     ) -> dict[str, str]:
         """Stream the NLCD ``source`` once, binning forest cover into every target.
 
-        ``options`` is accepted for the uniform provider contract but unused: land
-        cover has no block-level parallelism knobs. ``progress`` reports the source's
-        download (the heavy step for the default ~1.5 GB Annual NLCD source).
+        ``options`` carries the engine's block-level parallelism knobs
+        (``workers``, ``block_size``). ``progress`` reports the source's download
+        (the heavy step for the default ~1.5 GB Annual NLCD source) and then the
+        engine's per-block binning.
         """
         from snowtool.snowdb.zones.landcover_source import LandCoverSource
+        from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
         engine = self._engine
         if engine is None:
@@ -135,5 +137,13 @@ class LandCoverProvider(ZoneLayerProvider):
             raise TypeError(
                 f'land-cover generation needs a LandCoverSource, got {source!r}',
             )
+        options = options or GenerationOptions()
         with source.open(bounds, progress=progress) as src:
-            return engine(src, targets, force=force)
+            return engine(
+                src,
+                targets,
+                workers=options.workers,
+                block_size=options.block_size,
+                force=force,
+                progress=progress,
+            )

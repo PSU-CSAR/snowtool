@@ -176,6 +176,53 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
         assert forest_pct[10, -5] == 0  # east half
 
 
+@pytest.mark.parametrize('workers', [2, 4])
+@pytest.mark.parametrize('block_size', [64, 256])
+def test_landcover_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
+    # The determinism guard: binning runs serially in block order regardless of
+    # worker count, so a parallel pass must reproduce the serial pass exactly --
+    # including the nlcd_hash, which digests the finalized forest-pct bytes. A
+    # small block size makes this source span many blocks so the parallel
+    # pipeline's windowing/out-of-order completion is genuinely exercised; 256 is
+    # deliberately a non-divisor of the 512-px source, exercising ragged edges.
+    array = numpy.full((SRC_N, SRC_N), NONFOREST, dtype='uint8')
+    array[:, : SRC_N // 2] = FOREST
+    array[:8, :8] = NODATA
+    array[::2, ::3] = FOREST  # scatter so cells hold mixed fractional values
+    src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)
+    serial_t = _target(tmp_path / 'serial')
+    parallel_t = _target(tmp_path / 'parallel')
+
+    with rasterio.open(src_path) as src:
+        serial_hash = generate_landcover(
+            src,
+            [serial_t],
+            workers=1,
+            block_size=block_size,
+            force=True,
+        )
+    with rasterio.open(src_path) as src:
+        parallel_hash = generate_landcover(
+            src,
+            [parallel_t],
+            workers=workers,
+            block_size=block_size,
+            force=True,
+        )
+
+    assert serial_hash['t'] == parallel_hash['t']
+
+    with rasterio.open(
+        _landcover_set(serial_t.directory).layer_path(FOREST_COVER),
+    ) as ds:
+        serial_forest = ds.read(1)
+    with rasterio.open(
+        _landcover_set(parallel_t.directory).layer_path(FOREST_COVER),
+    ) as ds:
+        parallel_forest = ds.read(1)
+    numpy.testing.assert_array_equal(serial_forest, parallel_forest)
+
+
 def test_generate_refuses_to_overwrite_without_force(tmp_path):
     array = numpy.full((SRC_N, SRC_N), FOREST, dtype='uint8')
     src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)

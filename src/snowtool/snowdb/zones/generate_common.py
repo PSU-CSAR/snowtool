@@ -14,7 +14,9 @@ copy any of it a third time.
 from __future__ import annotations
 
 import hashlib
+import math
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 import numpy
@@ -50,6 +52,55 @@ class GenerationAccumulator(Protocol):
     target: ZoneLayerTarget
 
     def finalize(self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
+
+
+@dataclass(frozen=True)
+class Block:
+    """A nominal streaming block, in row-major enumeration order.
+
+    ``(c0, r0)`` is the block's col/row origin within the grid (or window) being
+    streamed; ``bw``/``bh`` are its width/height, clamped at the trailing edge.
+    Shared by both generation engines so their block enumeration is identical.
+    """
+
+    c0: int
+    r0: int
+    bw: int
+    bh: int
+
+
+def iter_blocks(
+    width: int,
+    height: int,
+    block_size: int,
+    *,
+    col_off: int = 0,
+    row_off: int = 0,
+) -> list[Block]:
+    """Enumerate ``width`` x ``height`` (from ``col_off``/``row_off``) in blocks.
+
+    Row-major order (``for by ... for bx ...``), exactly matching both engines'
+    prior inline enumeration, so switching either engine onto this helper leaves
+    its output -- and generation hash -- bit-identical. ``col_off``/``row_off``
+    cover landcover's source-window offset; terrain streams from the origin and
+    passes the defaults.
+    """
+    nbx = math.ceil(width / block_size)
+    nby = math.ceil(height / block_size)
+    blocks: list[Block] = []
+    for by in range(nby):
+        for bx in range(nbx):
+            c0 = col_off + bx * block_size
+            r0 = row_off + by * block_size
+            blocks.append(
+                Block(
+                    c0=c0,
+                    r0=r0,
+                    bw=min(block_size, col_off + width - c0),
+                    bh=min(block_size, row_off + height - r0),
+                ),
+            )
+    return blocks
 
 
 def require_absent_layers(
