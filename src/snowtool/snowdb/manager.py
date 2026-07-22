@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool import types
 from snowtool.exceptions import (
+    ArtifactExistsError,
     InvalidDatasetNameError,
     SnowDbConfigError,
     UnknownDatasetError,
@@ -252,7 +253,6 @@ class SnowDbManager:
     def initialize(
         cls: type[Self],
         path: Path,
-        specs: Iterable[DatasetSpec] = (),
         *,
         zone_layer_providers: Iterable[ZoneLayerProvider] = (
             DEFAULT_ZONE_LAYER_PROVIDERS
@@ -263,21 +263,17 @@ class SnowDbManager:
         The one entry point that creates the root structure -- the
         ``snowdb_conf.json`` root config (with *no* datasets registered; a dataset
         exists only once :meth:`register_dataset` links it, and is served only
-        while its link is active), ``pourpoints/``, ``data/``, and a ``data/<name>/``
-        directory per ``specs`` entry (a convenience for staging; the CLI ``init``
-        passes none). Idempotent: an existing config is loaded and left as is (its
-        creation stamp and datasets preserved). Returns a manager over the root --
-        its read database is empty unless datasets were already registered.
+        while its link is active), ``pourpoints/``, and ``data/``. Idempotent: an
+        existing config is loaded and left as is (its creation stamp and datasets
+        preserved). Returns a manager over the root -- its read database is empty
+        unless datasets were already registered.
         """
-        specs = list(specs)
         path = Path(path)
         # pourpoints/ holds the index.geojson manifest; pourpoints/records/ the
         # per-pourpoint record files.
         (path / 'pourpoints' / 'records').mkdir(parents=True, exist_ok=True)
         data_path = path / 'data'
         data_path.mkdir(parents=True, exist_ok=True)
-        for spec in specs:
-            (data_path / spec.name).mkdir(parents=True, exist_ok=True)
         config_path = path / CONFIG_FILENAME
         if config_path.is_file():
             config = RootConfig.load(config_path)
@@ -538,7 +534,7 @@ class SnowDbManager:
         try:
             Dataset.create(dataset.spec, dataset.path)
             created = True
-        except FileExistsError:
+        except ArtifactExistsError:
             # Already staged (skeleton exists); the rasterize below is
             # idempotent, so continue rather than clobber existing artifacts.
             created = False

@@ -16,7 +16,6 @@ use it -- the API at app-lifespan scope, the CLI inside its ``asyncio.run``.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 
@@ -194,32 +193,3 @@ class SnowDbReader:
         )
 
         return stats
-
-    def zonal_stats_sync(
-        self: Self,
-        triplet: types.StationTriplet,
-        dataset_name: str,
-        query: DateQuery,
-        *,
-        variable_keys: Iterable[str] | None = None,
-        zones: Sequence[ZoneSelection | str] = (),
-        allow_partial: bool = False,
-    ) -> ZonalStats:
-        """Synchronous facade over :meth:`zonal_stats`: ``asyncio.run``, nothing else.
-
-        For callers with no running loop -- the CLI ``stats`` command -- so they
-        need no ``asyncio.run``/closure ceremony of their own. The reader's cache is
-        loop-affine (bound to the loop that first awaits it), so this is for a
-        fresh reader used once; do not call this and then await :meth:`zonal_stats`
-        on the same instance from a different loop.
-        """
-        return asyncio.run(
-            self.zonal_stats(
-                triplet,
-                dataset_name,
-                query,
-                variable_keys=variable_keys,
-                zones=zones,
-                allow_partial=allow_partial,
-            ),
-        )

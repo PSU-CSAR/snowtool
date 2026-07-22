@@ -48,7 +48,7 @@ def _geographic_domain():
         tile_size=256,
         crs=4326,
     )
-    return CoverageDomain.from_grid(grid)
+    return CoverageDomain.from_grid(grid, grid.crs)
 
 
 # --- matching-CRS (geographic) ----------------------------------------------
@@ -105,7 +105,8 @@ def test_instarr_excludes_the_empty_h10v05_tile(tmp_path):
     # extent, none once the empty tile is carved out.
     grid = INSTARR_SPEC.grid
     aoi = _aoi(tmp_path, _ring(-91.65, 35.05, -91.55, 34.95))
-    assert dataset_coverage(aoi, CoverageDomain.from_grid(grid)) is Coverage.FULL
+    domain = CoverageDomain.from_grid(grid, grid.crs)
+    assert dataset_coverage(aoi, domain) is Coverage.FULL
     assert dataset_coverage(aoi, INSTARR_SPEC.coverage_domain) is Coverage.NONE
 
 

@@ -57,6 +57,33 @@ class ResourceModel(BaseModel):
 
     resource: str
 
+    @classmethod
+    def _load_checked(
+        cls: type[Self],
+        path: Path,
+        describing_phrase: str,
+    ) -> Self:
+        """Parse and validate a persisted config, wrapping decode/validation errors.
+
+        A file that exists but doesn't parse/validate (malformed/truncated JSON,
+        a schema mismatch, or bytes that aren't even text) raises a clean
+        :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path``
+        (``describing_phrase`` names the kind, e.g. ``'a usable dataset
+        config'``) rather than leaking a raw pydantic/decode error.
+        """
+        path = Path(path)
+        try:
+            return cls.model_validate_json(path.read_text())
+        except (ValidationError, UnicodeDecodeError) as e:
+            raise SnowDbConfigError(
+                path,
+                f'{path} is not {describing_phrase}: {e}',
+            ) from e
+
+    def save(self: Self, path: Path) -> None:
+        """Write the config as indented JSON with a trailing newline (atomically)."""
+        atomic_write_text(Path(path), self.model_dump_json(indent=2) + '\n')
+
 
 class _ZoneParams(BaseModel):
     """Base for the per-scheme zone-layer param models below.
@@ -179,25 +206,13 @@ class DatasetConfig(ResourceModel):
     def load(cls: type[Self], path: Path) -> Self:
         """Parse and validate a dataset config file.
 
-        A file that exists but doesn't parse/validate (malformed/truncated JSON,
-        a schema mismatch, or bytes that aren't even text) raises a clean
+        A file that exists but doesn't parse/validate raises a clean
         :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
         than leaking a raw pydantic/decode error -- every call site (a linked
         dataset config, a staged config resolved by path, a to-be-registered
-        config) wants the same treatment.
+        config) wants the same treatment. See :meth:`ResourceModel._load_checked`.
         """
-        path = Path(path)
-        try:
-            return cls.model_validate_json(path.read_text())
-        except (ValidationError, UnicodeDecodeError) as e:
-            raise SnowDbConfigError(
-                path,
-                f'{path} is not a usable dataset config: {e}',
-            ) from e
-
-    def save(self: Self, path: Path) -> None:
-        """Write the config as indented JSON with a trailing newline (atomically)."""
-        atomic_write_text(Path(path), self.model_dump_json(indent=2) + '\n')
+        return cls._load_checked(path, 'a usable dataset config')
 
 
 class PathDatasetLink(BaseModel):
@@ -286,24 +301,18 @@ class RootConfig(ResourceModel):
     def load(cls: type[Self], path: Path) -> Self:
         """Parse a root config file and remember where it was loaded from.
 
-        A file that exists but isn't a valid root config (malformed/truncated
-        JSON, a schema mismatch, or bytes that aren't even text) is still "not a
-        snowdb this version understands", so this raises
+        A file that exists but isn't a valid root config is still "not a snowdb
+        this version understands", so this raises
         :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
-        than leaking a raw pydantic/decode error.
+        than leaking a raw pydantic/decode error. See
+        :meth:`ResourceModel._load_checked`.
         """
         path = Path(path)
-        try:
-            config = cls.model_validate_json(path.read_text())
-        except (ValidationError, UnicodeDecodeError) as e:
-            raise SnowDbConfigError(
-                path,
-                detail=f'{path} is not a readable snowdb root config: {e}',
-            ) from e
+        config = cls._load_checked(path, 'a readable snowdb root config')
         config.path = path
         return config
 
     def save(self: Self, path: Path) -> None:
         """Write the config as indented JSON, remembering where it was written."""
-        atomic_write_text(Path(path), self.model_dump_json(indent=2) + '\n')
+        super().save(path)
         self.path = Path(path)

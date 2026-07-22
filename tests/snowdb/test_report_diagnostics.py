@@ -154,7 +154,7 @@ def test_pourpoint_coverage_unrasterized_then_covered(
     pourpoint_geojson,
 ):
 
-    SnowDbManager.initialize(tmp_path, [spec])
+    SnowDbManager.initialize(tmp_path)
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
     shutil.copy(
@@ -172,7 +172,7 @@ def test_pourpoint_coverage_unrasterized_then_covered(
 
 
 def test_pourpoint_coverage_flags_orphan_raster(tmp_path, spec, pourpoint_geojson):
-    SnowDbManager.initialize(tmp_path, [spec])
+    SnowDbManager.initialize(tmp_path)
     ds = Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])  # no global AOIs
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
@@ -188,7 +188,7 @@ def test_pourpoint_coverage_classifies_full_partial_none(
     pourpoint_geojson,
 ):
     # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
-    SnowDbManager.initialize(tmp_path, [spec])
+    SnowDbManager.initialize(tmp_path)
     Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
     records = db.pourpoint_records_path
@@ -211,7 +211,7 @@ def test_pourpoint_coverage_classifies_full_partial_none(
 @pytest.fixture
 def guard_db(tmp_path, spec):
     """A SnowDb with three AOIs: full, partial, and uncovered by the grid."""
-    SnowDbManager.initialize(tmp_path, [spec])
+    SnowDbManager.initialize(tmp_path)
     Dataset.create(spec, tmp_path / 'data' / 'test')
     db = make_snowdb(tmp_path, [spec])
     records = db.pourpoint_records_path

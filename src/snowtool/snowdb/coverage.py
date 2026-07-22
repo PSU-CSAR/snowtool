@@ -81,18 +81,18 @@ class CoverageDomain:
     def from_grid(
         cls: type[Self],
         grid: TiledAffineGrid,
+        crs: CRS,
         *,
         footprint: shapely.Geometry | None = None,
     ) -> Self:
-        """Build a domain from a grid, using ``footprint`` if given else the extent.
+        """Build a domain from a grid and its (already-narrowed) ``crs``.
 
-        ``footprint`` (in the grid's CRS, the same space the extent rectangle is
-        built in) *is* the served region when supplied; omitted, the domain
-        defaults to the full grid-extent rectangle.
+        Uses ``footprint`` if given else the grid extent. ``footprint`` (in the
+        grid's CRS, the same space the extent rectangle is built in) *is* the
+        served region when supplied; omitted, the domain defaults to the full
+        grid-extent rectangle. ``crs`` is passed in by the caller (which already
+        holds the grid's narrowed CRS) rather than re-derived here.
         """
-        crs = grid.crs
-        if crs is None:  # pragma: no cover - make_grid always sets a CRS
-            raise ValueError('grid has no CRS')
         polygon = footprint if footprint is not None else _grid_extent_polygon(grid)
         return cls(crs, polygon)
 

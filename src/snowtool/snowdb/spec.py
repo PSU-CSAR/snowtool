@@ -195,7 +195,7 @@ class DatasetSpec:
             if self.footprint is not None
             else None
         )
-        return CoverageDomain.from_grid(self.grid, footprint=footprint)
+        return CoverageDomain.from_grid(self.grid, self.crs, footprint=footprint)
 
     @cached_property
     def is_geographic(self) -> bool:

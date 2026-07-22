@@ -10,6 +10,7 @@ the two query surfaces share one syntax (see :mod:`snowtool.cli._dates`).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 
@@ -100,13 +101,17 @@ def stats(
 
     reader = SnowDbReader(snowdb)
     with _console.err().status(f'querying {dataset_name} for {triplet}...'):
-        result = reader.zonal_stats_sync(
-            triplet,
-            dataset_name,
-            date_query,
-            variable_keys=variables or None,
-            zones=zones,
-            allow_partial=allow_partial,
+        # A fresh reader used once in a CLI process that has no prior event loop,
+        # so drive the async query directly.
+        result = asyncio.run(
+            reader.zonal_stats(
+                triplet,
+                dataset_name,
+                date_query,
+                variable_keys=variables or None,
+                zones=zones,
+                allow_partial=allow_partial,
+            ),
         )
 
     if fmt == 'json':

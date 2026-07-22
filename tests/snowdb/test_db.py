@@ -109,11 +109,11 @@ def test_relative_path_without_root_raises(tmp_path):
 
 
 def test_initialize_creates_the_base_layout(tmp_path):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
 
     assert (tmp_path / 'pourpoints').is_dir()
+    assert (tmp_path / 'pourpoints' / 'records').is_dir()
     assert (tmp_path / 'data').is_dir()
-    assert (tmp_path / 'data' / 'snodas').is_dir()
 
 
 def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
@@ -127,7 +127,7 @@ def _register(manager: SnowDbManager, spec: DatasetSpec) -> None:
 
 
 def test_initialize_writes_a_loadable_root_config(tmp_path):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
 
     config = RootConfig.load(tmp_path / CONFIG_FILENAME)
     # No datasets are registered by init -- a dataset exists only once its link
@@ -138,11 +138,11 @@ def test_initialize_writes_a_loadable_root_config(tmp_path):
 
 
 def test_initialize_preserves_an_existing_config(tmp_path):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
     config_path = tmp_path / CONFIG_FILENAME
     created_at = RootConfig.load(config_path).created_at
 
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])  # idempotent re-init
+    SnowDbManager.initialize(tmp_path)  # idempotent re-init
 
     assert RootConfig.load(config_path).created_at == created_at
 
@@ -186,7 +186,7 @@ def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path, conten
     # than the root: still a clean SnowDbConfigError naming the offending config
     # file (raised by the canonical DatasetConfig.load), not a raw pydantic
     # ValidationError or UnicodeDecodeError.
-    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    manager = SnowDbManager.initialize(tmp_path)
     _register(manager, _spec('snodas'))
     linked = manager.db.data_path / 'snodas' / 'dataset.json'
     linked.write_bytes(content)
@@ -196,7 +196,7 @@ def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path, conten
 
 
 def test_open_sees_no_datasets_after_bare_init(tmp_path):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
 
     # init registers nothing, so open (which follows links) binds no datasets even
     # though a data/<name>/ dir was staged.
@@ -204,14 +204,14 @@ def test_open_sees_no_datasets_after_bare_init(tmp_path):
 
 
 def test_open_binds_registered_datasets(tmp_path):
-    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    manager = SnowDbManager.initialize(tmp_path)
     _register(manager, _spec('snodas'))
 
     assert list(SnowDb.open(tmp_path)) == ['snodas']
 
 
 def test_open_accepts_the_config_file_directly(tmp_path):
-    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    manager = SnowDbManager.initialize(tmp_path)
     _register(manager, _spec('snodas'))
 
     opened = SnowDb.open(tmp_path / CONFIG_FILENAME)
@@ -221,7 +221,7 @@ def test_open_accepts_the_config_file_directly(tmp_path):
 
 
 def test_open_errors_on_a_dangling_link(tmp_path):
-    manager = SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    manager = SnowDbManager.initialize(tmp_path)
     _register(manager, _spec('snodas'))
     # Remove the linked config out of band -> open must fail cleanly.
     (manager.db.data_path / 'snodas' / 'dataset.json').unlink()
@@ -231,11 +231,11 @@ def test_open_errors_on_a_dangling_link(tmp_path):
 
 
 def test_initialize_is_idempotent(tmp_path):
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
     # A second init against the same root must not raise.
-    SnowDbManager.initialize(tmp_path, [_spec('snodas')])
+    SnowDbManager.initialize(tmp_path)
 
-    assert (tmp_path / 'data' / 'snodas').is_dir()
+    assert (tmp_path / 'data').is_dir()
 
 
 def test_rasterize_aoi_burns_every_active_dataset(
@@ -297,7 +297,7 @@ def test_aoi_paths_empty_without_records_dir(tmp_path):
 
 
 def test_aoi_paths_lists_and_sorts_geojson(tmp_path, pourpoint_geojson):
-    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
+    db = SnowDbManager.initialize(tmp_path).db
     shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'b.geojson')
     shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'a.geojson')
     # A non-geojson file is ignored.
@@ -310,7 +310,7 @@ def test_aoi_paths_lists_and_sorts_geojson(tmp_path, pourpoint_geojson):
 
 
 def test_aois_parse_global_geojson(tmp_path, pourpoint_geojson):
-    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
+    db = SnowDbManager.initialize(tmp_path).db
     shutil.copy(pourpoint_geojson, db.pourpoint_records_path / 'pourpoint.geojson')
 
     pourpoints = list(db.pourpoints())
@@ -324,7 +324,7 @@ def test_aoi_triplets(tmp_path, pourpoint_geojson):
     # the record must be named for its own triplet -- unlike test_aois_parse_
     # global_geojson above, which proves content-based parsing works under an
     # arbitrary filename.
-    db = SnowDbManager.initialize(tmp_path, [_spec('snodas')]).db
+    db = SnowDbManager.initialize(tmp_path).db
     shutil.copy(
         pourpoint_geojson,
         db.pourpoint_records_path / '12345_MT_USGS.geojson',

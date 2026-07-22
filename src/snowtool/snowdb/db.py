@@ -338,14 +338,10 @@ class SnowDb:
         if index is None:
             index = self.pourpoint_index()
         if triplet not in index:
-            raise PourpointNotFoundError(
-                f'No stored pourpoint for triplet {triplet!r}.',
-            )
+            raise PourpointNotFoundError.for_triplet(triplet)
         path = self.pourpoint_record_path(triplet)
         if not path.is_file():
-            raise PourpointNotFoundError(
-                f'No stored pourpoint for triplet {triplet!r}.',
-            )
+            raise PourpointNotFoundError.for_triplet(triplet)
         return Pourpoint.from_geojson(path)
 
     def load_basin(
@@ -420,16 +416,12 @@ class SnowDb:
         dataset is unknown, or :class:`~snowtool.exceptions.PourpointNotFoundError`
         if the pourpoint is unindexed.
         """
-        if dataset_name not in self.datasets:
-            active = ', '.join(sorted(self.datasets)) or '(none)'
-            raise UnknownDatasetError(
-                f'No such dataset {dataset_name!r}. Active datasets: {active}.',
-            )
+        # Route the dataset check through __getitem__ so an inactive-but-registered
+        # name gets its pointed "activate it" hint rather than a generic miss.
+        self[dataset_name]
         index = self.pourpoint_index()
         if triplet not in index:
-            raise PourpointNotFoundError(
-                f'No stored pourpoint for triplet {triplet!r}.',
-            )
+            raise PourpointNotFoundError.for_triplet(triplet)
         return index[triplet].coverage.get(dataset_name, Coverage.NONE)
 
     def require_pourpoint_coverage(
@@ -469,9 +461,7 @@ class SnowDb:
         """
         source = self.pourpoint_record_path(triplet)
         if not source.is_file():
-            raise PourpointNotFoundError(
-                f'No stored pourpoint for triplet {triplet!r}.',
-            )
+            raise PourpointNotFoundError.for_triplet(triplet)
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / source.name

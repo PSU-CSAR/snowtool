@@ -95,6 +95,11 @@ class PourpointNotFoundError(SnowtoolError, FileNotFoundError):
     API maps *only* this type to 404 and lets a generic ``FileNotFoundError`` 500.
     """
 
+    @classmethod
+    def for_triplet(cls, triplet: object) -> Self:
+        """The canonical 'no such stored pourpoint' error for a ``triplet``."""
+        return cls(f'No stored pourpoint for triplet {triplet!r}.')
+
 
 class AOIRasterNotFoundError(SnowtoolError, FileNotFoundError):
     """Raised when an AOI's burned raster has not been built for a dataset.

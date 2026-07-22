@@ -166,7 +166,6 @@ class Dataset:
         spec: DatasetSpec,
         path: Path,
         *,
-        exist_ok: bool = False,
         nodata_mask: Path | None = None,
     ) -> Self:
         """Create the dataset's directory skeleton.
@@ -182,15 +181,14 @@ class Dataset:
             # The dataset dir itself may already exist as an empty skeleton from
             # `snowtool init`, so tolerate it; whether the dataset is already
             # *populated* is enforced by the artifact guards below (the
-            # aoi-rasters/cogs dirs), which still refuse to clobber existing data
-            # without exist_ok.
+            # aoi-rasters/cogs dirs), which refuse to clobber existing data.
             self.path.mkdir(parents=True, exist_ok=True)
-            self._aoi_rasters.mkdir(exist_ok=exist_ok)
-            self._cogs.mkdir(exist_ok=exist_ok)
+            self._aoi_rasters.mkdir()
+            self._cogs.mkdir()
         except FileExistsError as e:
             raise ArtifactExistsError(
                 f'Could not create {self.spec.name} dataset: {self.path} already '
-                'exists. Remove and try again or use `exist_ok=True`.',
+                'exists. Remove and try again.',
             ) from e
 
         return self
@@ -269,10 +267,8 @@ class Dataset:
 
         # The AOI is stored in WGS84; reproject it into this grid's CRS so its
         # tile extent and pixel mask are computed in the grid's own coordinates.
-        crs = self.grid.crs
-        if crs is None:  # pragma: no cover - make_grid always sets a CRS
-            raise ValueError('grid has no CRS')
-        geometry = pourpoint.geometry_in_crs(crs)
+        # `spec.crs` is the single narrowed-CRS source (Optional resolved once).
+        geometry = pourpoint.geometry_in_crs(self.spec.crs)
 
         # A projected grid burns its constant cell area; a geographic grid burns
         # per-row geodesic area, computed from the base grid (cell_area=None).

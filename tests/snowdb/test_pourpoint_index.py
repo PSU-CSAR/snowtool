@@ -39,8 +39,8 @@ def _grids():
         crs=4326,
     )
     return {
-        'covers': CoverageDomain.from_grid(covers),
-        'disjoint': CoverageDomain.from_grid(disjoint),
+        'covers': CoverageDomain.from_grid(covers, covers.crs),
+        'disjoint': CoverageDomain.from_grid(disjoint, disjoint.crs),
     }
 
 
