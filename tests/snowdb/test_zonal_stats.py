@@ -520,7 +520,6 @@ _DUMP_DAY = date(2018, 4, 27)
 
 
 def _stats_from_cells(
-    spec,
     variable,
     zone_layers,
     cells,
@@ -535,7 +534,7 @@ def _stats_from_cells(
     areas)`` per (date, variable). The specs are turned into cell-aligned value and
     area vectors (matching ``cells`` order) and written in one call.
     """
-    stats = ZonalStats(spec, {variable}, zone_layers, cells, (day,))
+    stats = ZonalStats({variable}, zone_layers, cells, (day,))
     cell_index = {cell: idx for idx, cell in enumerate(cells)}
     values = numpy.empty(len(cells), dtype=numpy.float64)
     areas = numpy.empty(len(cells), dtype=numpy.float64)
@@ -631,7 +630,6 @@ def test_dump_to_csv_expands_each_axis_kind(
 ):
     variable = _variable(Reducer.MEAN)
     stats = _stats_from_cells(
-        _spec_with(variable),
         variable,
         zone_layers,
         cells,
@@ -660,7 +658,6 @@ def _two_band_stats() -> ZonalStats:
     variable = _variable(Reducer.MEAN)
     cells = ((_band(0, 1000),), (_band(1000, 2000),))
     return _stats_from_cells(
-        _spec_with(variable),
         variable,
         ('terrain.elevation',),
         cells,
@@ -729,7 +726,6 @@ def test_dump_compact_whole_basin_cell_is_never_dropped():
     # The K=0 (unstratified) cell always has area and must survive the default filter.
     variable = _variable(Reducer.MEAN)
     stats = _stats_from_cells(
-        _spec_with(variable),
         variable,
         (),
         ((),),

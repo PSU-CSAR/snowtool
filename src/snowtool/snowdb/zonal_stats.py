@@ -150,13 +150,11 @@ def parse_zone_selection(
 class ZonalStats:
     def __init__(
         self: Self,
-        spec: DatasetSpec,
         variables: set[DatasetVariable],
         zone_layers: tuple[str, ...],
         zone_cells: tuple[tuple[Zone, ...], ...],
         dates: tuple[date, ...],
     ) -> None:
-        self.spec = spec
         # The crossed zone axes (registry keys, in selection order) and the flat
         # list of product cells (each a per-axis zone tuple, in mixed-radix order).
         self.zone_layers = zone_layers
@@ -166,9 +164,9 @@ class ZonalStats:
                 sorted(variables, key=lambda v: v.key),
             )
         }
-        # Cells arrive in flat product order from the zone index; the index
-        # preserves that order rather than re-sorting.
-        self._cells_index = {cell: idx for idx, cell in enumerate(zone_cells)}
+        # Cells arrive in flat product order from the zone index; keep that order
+        # rather than re-sorting.
+        self._cells = zone_cells
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
         # float64, not float32: the per-cell reduction runs in float64
         # (_ZoneIndex.reduce), and area/total stats reach ~1e9-scale values that
@@ -186,7 +184,7 @@ class ZonalStats:
         self._array = numpy.zeros(
             (
                 len(self._dates_index),
-                len(self._cells_index),
+                len(self._cells),
                 len(self._variables_index) + 1,
             ),
             dtype=numpy.float64,
@@ -196,7 +194,7 @@ class ZonalStats:
     def n_cells(self: Self) -> int:
         """The crossed-zone product size (cells per date); 1 for a whole-basin
         (K=0) query."""
-        return len(self._cells_index)
+        return len(self._cells)
 
     def fill(
         self: Self,
@@ -260,7 +258,7 @@ class ZonalStats:
         """
         if not self._dates_index:
             return []
-        all_cells = list(range(len(self._cells_index)))
+        all_cells = list(range(len(self._cells)))
         if include_empty_zones:
             return all_cells
         areas = self._array[0, :, 0]
@@ -281,7 +279,7 @@ class ZonalStats:
         nothing without a date row); ``zone_layers`` and ``variables`` are always
         reported.
         """
-        cells = list(self._cells_index)
+        cells = self._cells
         variables = [variable.stat_name for variable in self._variables_index]
         emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
 
@@ -316,7 +314,7 @@ class ZonalStats:
         cell is a faithful template. There is always at least one cell (every scheme
         yields at least one zone).
         """
-        return next(iter(self._cells_index))
+        return self._cells[0]
 
     def iter_csv(self: Self, *, include_empty_zones: bool = False) -> Iterator[str]:
         """Return an iterator over CSV chunks for this result (one header or row each).
@@ -348,7 +346,7 @@ class ZonalStats:
         headers.extend(variable.stat_name for variable in self._variables_index)
         yield _flush(headers)
 
-        cells = list(self._cells_index)
+        cells = self._cells
         emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
         # The zone columns depend only on the cell, not the date; format them once
         # per emitted cell and reuse across every date's row.
@@ -456,7 +454,6 @@ class ZonalStats:
         zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array)
 
         stats = cls(
-            spec,
             rasters.variables,
             tuple(zone_layers),
             zone_index.cell_zones,
