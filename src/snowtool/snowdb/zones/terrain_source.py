@@ -325,6 +325,22 @@ def build_mosaic_vrt(tiles: list[MosaicTile], out_path: Path) -> Path:
     nodata = tiles[0].nodata
     crs_wkt = tiles[0].crs_wkt
 
+    # The VRT header is taken wholesale from tile 0, so a heterogeneous mosaic would
+    # silently mis-place or mis-type the odd tile. Enforce the documented precondition
+    # (same CRS + resolution + dtype + nodata) instead of assuming it.
+    for i, t in enumerate(tiles[1:], start=1):
+        if (t.crs_wkt, t.px, t.py, t.dtype, t.nodata) != (
+            crs_wkt,
+            px,
+            py,
+            dtype,
+            nodata,
+        ):
+            raise ValueError(
+                'Cannot build a VRT mosaic from heterogeneous tiles: tile '
+                f'{i} disagrees with tile 0 on CRS/resolution/dtype/nodata.',
+            )
+
     xmin = min(t.origin_x for t in tiles)
     ymax = max(t.origin_y for t in tiles)
     xmax = max(t.origin_x + t.width * t.px for t in tiles)

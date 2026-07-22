@@ -29,7 +29,7 @@ from snowtool.snowdb.zones.landcover_layers import (
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
 )
-from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
+from snowtool.snowdb.zones.zone_layer import GenerationOptions, ZoneLayerProvider
 
 # The layer/constant definitions live in ``landcover_layers`` so the generation
 # engine can import them without importing this provider (this module imports the
@@ -128,7 +128,6 @@ class LandCoverProvider(ZoneLayerProvider):
         engine's per-block binning.
         """
         from snowtool.snowdb.zones.landcover_source import LandCoverSource
-        from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
         if not isinstance(source, LandCoverSource):  # pragma: no cover - defensive
             raise TypeError(

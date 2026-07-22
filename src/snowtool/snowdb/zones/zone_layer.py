@@ -283,15 +283,21 @@ class ZoneLayerProvider(ABC):
 
 @dataclass(frozen=True)
 class AvailableZone:
-    """A query-able zone layer: its provider, layer, and zoning scheme.
+    """A query-able zone layer: its provider and layer.
 
     Keyed in :func:`available_zones` by ``'<provider>.<layer.key>'`` (e.g.
-    ``'terrain.elevation'``) -- the stable id a query references.
+    ``'terrain.elevation'``) -- the stable id a query references. The zoning
+    :attr:`scheme` is the layer's own, exposed as a property so it is not carried
+    (and kept in sync) as a duplicate field.
     """
 
     provider: ZoneLayerProvider
     layer: ZoneLayer
-    scheme: ZoneScheme
+
+    @property
+    def scheme(self: Self) -> ZoneScheme:
+        """This zone's :class:`ZoneScheme` -- the layer's own zoning."""
+        return self.layer.zoning
 
 
 def available_zones(
@@ -305,9 +311,5 @@ def available_zones(
     zones: dict[str, AvailableZone] = {}
     for provider in providers:
         for layer in provider.layers:
-            zones[f'{provider.name}.{layer.key}'] = AvailableZone(
-                provider,
-                layer,
-                layer.zoning,
-            )
+            zones[f'{provider.name}.{layer.key}'] = AvailableZone(provider, layer)
     return zones
