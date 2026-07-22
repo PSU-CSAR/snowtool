@@ -9,9 +9,10 @@ commands and library admin code build a manager. "The management layer has a
 snowdb, not the other way around."
 
 The pourpoint import/sync/lifecycle operations live in
-:mod:`snowtool.snowdb.manager_pourpoints` as :class:`PourpointOpsMixin` -- a pure
-file-size decomposition, not a public seam. ``SnowDbManager`` inherits that mixin,
-so the write surface is still a single type; its result dataclasses
+:mod:`snowtool.snowdb.pourpoint_ops` as module-level functions over a
+:class:`~snowtool.snowdb.db.SnowDb` -- a pure file-size decomposition, not a
+public seam. ``SnowDbManager`` keeps same-named one-line delegators, so the write
+surface is still a single type; those functions' result dataclasses
 (:class:`PourpointImportResult`, :class:`PourpointSyncResult`,
 :class:`AOIRasterizeResult`) are re-exported here so existing imports keep working.
 """
@@ -31,6 +32,7 @@ from snowtool.exceptions import (
     UnknownDatasetError,
     UnknownZoneLayerProviderError,
 )
+from snowtool.snowdb import pourpoint_ops
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -38,17 +40,16 @@ from snowtool.snowdb.config import (
     PathDatasetLink,
     RootConfig,
 )
-from snowtool.snowdb.coverage import Coverage, dataset_coverage
+from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.manager_pourpoints import (
-    AOIRasterizeResult,
-    PourpointImportResult,
-    PourpointOpsMixin,
-    PourpointSyncResult,
-)
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.pourpoint_ops import (
+    AOIRasterizeResult,
+    PourpointImportResult,
+    PourpointSyncResult,
+)
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
     )
 
 # Re-exported for backward compatibility: these result dataclasses moved to
-# manager_pourpoints alongside the operations that produce them, but importers
+# pourpoint_ops alongside the operations that produce them, but importers
 # still reach them via ``snowtool.snowdb.manager``.
 __all__ = [
     'AOIRasterizeResult',
@@ -140,7 +141,7 @@ class CreatedDataset:
     registered: bool
 
 
-class SnowDbManager(PourpointOpsMixin):
+class SnowDbManager:
     """Owns every write against a held :class:`SnowDb` (its read/query surface).
 
     Built around an already-constructed :class:`SnowDb` (reachable as
@@ -158,6 +159,77 @@ class SnowDbManager(PourpointOpsMixin):
 
     def __init__(self: Self, db: SnowDb) -> None:
         self.db = db
+
+    # Pourpoint import/sync/lifecycle: one-line delegators to the module-level
+    # functions in :mod:`snowtool.snowdb.pourpoint_ops` (a file-size split, not a
+    # public seam). Keeping the method names lets the CLI's ``pass_manager`` call
+    # sites stay unchanged.
+    def reindex_pourpoints(
+        self: Self,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> PourpointIndex:
+        return pourpoint_ops.reindex_pourpoints(self.db, progress=progress)
+
+    def import_pourpoints(
+        self: Self,
+        src: Path,
+        *,
+        dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> PourpointImportResult:
+        return pourpoint_ops.import_pourpoints(
+            self.db,
+            src,
+            dry_run=dry_run,
+            progress=progress,
+        )
+
+    def sync_pourpoints(
+        self: Self,
+        src: Path,
+        *,
+        prune_to: Path | None = None,
+        dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> PourpointSyncResult:
+        return pourpoint_ops.sync_pourpoints(
+            self.db,
+            src,
+            prune_to=prune_to,
+            dry_run=dry_run,
+            progress=progress,
+        )
+
+    def remove_pourpoint(
+        self: Self,
+        triplet: types.StationTriplet,
+        *,
+        dry_run: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> bool:
+        return pourpoint_ops.remove_pourpoint(
+            self.db,
+            triplet,
+            dry_run=dry_run,
+            progress=progress,
+        )
+
+    def rasterize_aois(
+        self: Self,
+        pourpoints: Iterable[Pourpoint],
+        datasets: Iterable[Dataset],
+        *,
+        rebuild: bool = False,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> AOIRasterizeResult:
+        return pourpoint_ops.rasterize_aois(
+            self.db,
+            pourpoints,
+            datasets,
+            rebuild=rebuild,
+            progress=progress,
+        )
 
     @classmethod
     def open(
@@ -437,13 +509,15 @@ class SnowDbManager(PourpointOpsMixin):
         :attr:`StagedDataset.coverage`).
 
         ``progress`` reports each slow phase as a sequential tracked task: parsing
-        the pourpoint records, the per-pourpoint coverage computation, and the
-        AOI rasterize pass. Coverage is computed *first* and recorded for every
-        basin-bearing pourpoint regardless of grid fit, but every one of them is
-        still handed to :meth:`rasterize_aois` -- an off-grid basin (``NONE``
-        coverage) has no window to burn, so *its own* ``Coverage.NONE`` check
-        skips it (reported in the returned ``rasterized.skipped``, alongside
+        the pourpoint records, then the AOI rasterize pass. Coverage is not a
+        separate phase: every basin-bearing pourpoint is handed to
+        :meth:`rasterize_aois` regardless of grid fit -- an off-grid basin
+        (``NONE`` coverage) has no window to burn, so *its own* ``Coverage.NONE``
+        check skips it (reported in the returned ``rasterized.skipped``, alongside
         already-current rasters), rather than this method filtering it out first.
+        That same pass computes each basin's geometric coverage of the new grid
+        and surfaces it on :attr:`AOIRasterizeResult.coverage`, which this method
+        reads back into :attr:`StagedDataset.coverage` -- no second coverage pass.
         Converge-by-default, like ingest: an existing skeleton is tolerated, and
         rasterization rebuilds an AOI raster only when it is absent or its
         provenance tag reads stale (a changed basin polygon or a format-version
@@ -473,27 +547,19 @@ class SnowDbManager(PourpointOpsMixin):
                 if pourpoint.polygon is not None:
                     basin_pourpoints.append(pourpoint)
                 task.advance()
-        domain = dataset.coverage_domain
-        coverage: dict[types.StationTriplet, Coverage] = {}
-        with progress.track(
-            f'computing coverage for {len(basin_pourpoints)} pourpoint(s)',
-            total=len(basin_pourpoints),
-        ) as task:
-            for pourpoint in basin_pourpoints:
-                coverage[pourpoint.station_triplet] = dataset_coverage(
-                    pourpoint,
-                    domain,
-                )
-                task.advance()
         # Every basin-bearing pourpoint goes to rasterize_aois regardless of its
-        # just-computed coverage: an off-grid basin (NONE) has no tile window on
-        # this grid, so rasterize_aois's own Coverage.NONE check skips it (into
-        # `rasterized.skipped`) rather than this method pre-filtering it out.
+        # coverage: an off-grid basin (NONE) has no tile window on this grid, so
+        # rasterize_aois's own Coverage.NONE check skips it (into
+        # `rasterized.skipped`) rather than this method pre-filtering it out. That
+        # same pass computes each basin's geometric coverage for the skip and
+        # surfaces it, so the coverage the index needs is read back off the
+        # result rather than computed a second time here.
         rasterized = self.rasterize_aois(
             basin_pourpoints,
             [dataset],
             progress=progress,
         )
+        coverage = {triplet: cov for (triplet, _), cov in rasterized.coverage.items()}
         return StagedDataset(
             dataset=dataset,
             created=created,
