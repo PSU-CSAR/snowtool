@@ -6,28 +6,43 @@ source once and bin it into every target grid, but disagree on everything about
 *what* gets derived per pixel (slope/aspect vs. a forest/valid count). What they
 share is the machinery around that: a pre-flight existence guard, the
 generation-digest-then-stamp pass that turns per-target finalized arrays into one
-provenance hash, and the point-in-cell binning arithmetic (cell assignment,
-pixel-centre coordinates). Extracted here so a third provider does not have to
-copy any of it a third time.
+provenance hash, the point-in-cell binning arithmetic (cell assignment,
+pixel-centre coordinates), the per-target accumulator prologue
+(:class:`BinAccumulator`), and the whole streaming concurrency scaffold
+(:class:`StreamingBinner`: the read lock, the thread-local per-target
+Transformers, the cancel/re-check-under-lock dance, the coordinate
+broadcast/mask/per-target-transform epilogue, the serial ordered reduce, and the
+``ordered_parallel_map`` wiring). Extracted here so a third provider does not
+have to copy any of it a third time -- and, critically, so the safety-critical
+comments guarding those invariants live in exactly one place.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import threading
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, Self
 
 import numpy
 import rasterio
 
+from pyproj import Transformer
+
 from snowtool.exceptions import ArtifactExistsError
+from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
+from snowtool.snowdb.zones.parallel import (
+    CancelToken,
+    ordered_parallel_map,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     import numpy.typing
 
@@ -52,6 +67,56 @@ class GenerationAccumulator(Protocol):
     target: ZoneLayerTarget
 
     def finalize(self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
+
+
+class BinAccumulator(ABC):
+    """Per-target point-in-cell accumulator: the shared bin-geometry prologue.
+
+    Both engines' accumulators pin one target grid and bin fine source pixels
+    into its cells; all that differs is *what* is summed per cell (terrain: class
+    counts + cos/sin/z sums; land cover: forest/valid counts). This base owns the
+    identical prologue -- the target, its ``rows``/``cols``/``transform``/``crs``,
+    the inverse affine ``_inv`` its ``bin_into`` needs, and the ``_ncell`` flat
+    size -- so a subclass only allocates its own count arrays and defines
+    ``bin_into``/``finalize``. It satisfies :class:`GenerationAccumulator`
+    structurally (``target`` + ``finalize``), so :func:`finalize_and_stamp`
+    consumes subclasses unchanged.
+    """
+
+    def __init__(self: Self, target: ZoneLayerTarget) -> None:
+        self.target = target
+        self.height = target.rows
+        self.width = target.cols
+        self.transform = target.transform
+        # The streamer builds (thread-local) source/work-CRS -> this-CRS
+        # Transformers, so ``bin_into`` receives coords already in this grid's CRS.
+        self.crs = target.crs
+        self._inv = ~self.transform
+
+    @property
+    def _ncell(self: Self) -> int:
+        return self.height * self.width
+
+    @abstractmethod
+    def bin_into(
+        self: Self,
+        xt: numpy.typing.NDArray[numpy.float64],
+        yt: numpy.typing.NDArray[numpy.float64],
+        *payload: numpy.typing.NDArray,
+    ) -> None:
+        """Bin one block's already-reprojected (this grid's CRS) pixels into cells.
+
+        ``xt``/``yt`` are the kept pixel centres in this grid's CRS; ``payload`` is
+        the engine's per-pixel arrays (the tuple the streamer splats in), aligned
+        with them. Runs serially on the main thread in fixed block order, so the
+        accumulation order is identical to the serial pass -- keeping the
+        generation hash reproducible regardless of worker count.
+        """
+
+    @abstractmethod
+    def finalize(
+        self: Self,
+    ) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
 
 
 @dataclass(frozen=True)
@@ -238,3 +303,142 @@ def pixel_centre_coords(
     x = transform.c + (cols + 0.5) * transform.a + (rows + 0.5) * transform.b
     y = transform.f + (cols + 0.5) * transform.d + (rows + 0.5) * transform.e
     return x, y
+
+
+type _F64 = numpy.typing.NDArray[numpy.float64]
+# A block's per-pixel payload arrays the reducer splats into ``bin_into`` (terrain:
+# cls/cos/sin/wt/z; land cover: is_forest), flattened and masked to the kept pixels.
+type Payload = tuple[numpy.typing.NDArray, ...]
+# What every :meth:`StreamingBinner._load` returns: the payload, the broadcastable
+# pixel-centre x/y (in the source CRS, shape (h,1)/(1,w) per pixel_centre_coords),
+# and a per-pixel keep-mask -- or None for a block that contributes nothing. The
+# base masks/reprojects the kept centres, so the payload must already be masked to
+# match ``keep``.
+type Loaded = tuple[Payload, _F64, _F64, numpy.typing.NDArray[numpy.bool_]] | None
+# One block's binnable contribution as it reaches the serial reducer: the payload
+# plus, per target (accumulator order), the kept pixel centres already reprojected
+# into that target's CRS.
+type BlockResult = tuple[Payload, list[tuple[_F64, _F64]]]
+
+
+class StreamingBinner[Acc: BinAccumulator](ABC):
+    """Streams one source in blocks, binning into every target accumulator.
+
+    The concurrency scaffold shared by every input-driven scatter engine
+    (terrain, land cover, ...). The expensive per-block work -- the subclass's
+    read/derivation plus the per-target pyproj reprojection -- is pure and runs on
+    a worker pool. The only shared mutable state is the accumulators, so binning is
+    done serially on the main thread in streaming block order; that keeps
+    accumulation order independent of worker count, so the generation hash is
+    reproducible (parallel == serial bit for bit). Each worker thread gets its own
+    Transformers (a Transformer is not safe to share concurrently).
+
+    Block reads must run under :attr:`_read_lock` (via :meth:`_locked_read`): a
+    GDAL dataset (and any shared WarpedVRT over it) is not safe for concurrent
+    reads. The read is a small fraction of the per-block cost (the reprojection
+    dominates and still runs fully in parallel), so serialising it costs little.
+
+    The parallel-map / serial-reduce machinery -- the sliding window, the
+    warm-gate, and the ctrl+c-proof teardown that guarantees no worker is left
+    inside the source dataset the caller closes on return -- lives in
+    :mod:`snowtool.snowdb.zones.parallel`; :meth:`run` just wires
+    :meth:`_compute`/:meth:`_reduce` into it.
+
+    A subclass supplies only what differs: ``_source_crs`` (the CRS the derived
+    pixel centres are in, transformed to each target), the block enumeration
+    (:meth:`_blocks`), the per-block read+derive (:meth:`_load`), and the progress
+    label (:attr:`_label`).
+    """
+
+    #: Progress-bar label for this engine's streaming pass.
+    _label: str
+
+    def __init__(
+        self: Self,
+        source_crs: str,
+        accumulators: list[Acc],
+    ) -> None:
+        self._source_crs = source_crs
+        self._accumulators = accumulators
+        self._local = threading.local()
+        # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
+        self._read_lock = threading.Lock()
+
+    def _transformers(self: Self) -> list[Transformer]:
+        """Per-thread source-CRS -> target-CRS Transformers (built once per thread)."""
+        tfs: list[Transformer] | None = getattr(self._local, 'tfs', None)
+        if tfs is None:
+            tfs = [
+                Transformer.from_crs(self._source_crs, acc.crs, always_xy=True)
+                for acc in self._accumulators
+            ]
+            self._local.tfs = tfs
+        return tfs
+
+    def _locked_read[R](
+        self: Self,
+        cancel: CancelToken,
+        read: Callable[[], R],
+    ) -> R | None:
+        """Run ``read`` under the read lock, or ``None`` if the run is aborting.
+
+        Bail before queueing on the lock: once the run is aborting, blocks waiting
+        their turn must not each still pay a read. The re-check under the lock
+        closes the race for a worker that passed the first check just before
+        cancellation and acquired the lock just after it.
+        """
+        if cancel.cancelled:
+            return None
+        with self._read_lock:
+            if cancel.cancelled:
+                return None
+            return read()
+
+    @abstractmethod
+    def _blocks(self: Self) -> list[Block]:
+        """The blocks to stream, in row-major order (see :func:`iter_blocks`)."""
+
+    @abstractmethod
+    def _load(self: Self, block: Block, cancel: CancelToken) -> Loaded:
+        """Read (via :meth:`_locked_read`) and derive one block. Pure, no shared writes.
+
+        Returns a :data:`Loaded` -- ``(payload, x, y, keep)`` or ``None``. The base
+        broadcasts ``x``/``y`` to the block shape, masks by ``keep``, and transforms
+        the kept centres into every target's CRS, then splats ``payload`` into each
+        accumulator's ``bin_into``. ``None`` means no contribution (an all-invalid
+        block, or a read the cancel short-circuited).
+        """
+
+    def _compute(self: Self, block: Block, cancel: CancelToken) -> BlockResult | None:
+        """Worker step: read (locked), derive, reproject. Pure, no shared writes."""
+        loaded = self._load(block, cancel)
+        if loaded is None:
+            return None
+        payload, x, y, keep = loaded
+        keep = keep.ravel()
+        shape = (x.shape[0], y.shape[1])
+        xf = numpy.broadcast_to(x, shape).ravel()[keep]
+        yf = numpy.broadcast_to(y, shape).ravel()[keep]
+        coords = [tf.transform(xf, yf) for tf in self._transformers()]
+        return payload, coords
+
+    def _reduce(self: Self, result: BlockResult) -> None:
+        """Main-thread step: bin one block into every accumulator (serial, ordered)."""
+        payload, coords = result
+        for acc, (xt, yt) in zip(self._accumulators, coords, strict=True):
+            acc.bin_into(xt, yt, *payload)
+
+    def run(
+        self: Self,
+        workers: int,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> None:
+        """Stream all blocks through the ordered parallel-map engine (see class doc)."""
+        ordered_parallel_map(
+            self._blocks(),
+            self._compute,
+            self._reduce,
+            workers=workers,
+            progress=progress,
+            label=self._label,
+        )

@@ -24,16 +24,13 @@ target grids, not the whole national raster.
 from __future__ import annotations
 
 import math
-import threading
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
 import rasterio
 
-from pyproj import Transformer
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
@@ -45,7 +42,10 @@ from snowtool.snowdb.constants import (
 from snowtool.snowdb.grid import grid_extent_4326
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.generate_common import (
+    BinAccumulator,
     Block,
+    Loaded,
+    StreamingBinner,
     cells_for_points,
     finalize_and_stamp,
     iter_blocks,
@@ -60,7 +60,6 @@ from snowtool.snowdb.zones.landcover_layers import (
 from snowtool.snowdb.zones.parallel import (
     CancelToken,
     effective_workers,
-    ordered_parallel_map,
 )
 
 if TYPE_CHECKING:
@@ -71,43 +70,34 @@ if TYPE_CHECKING:
 BLOCK = 2048
 
 
-class _ForestAccumulator:
+class _ForestAccumulator(BinAccumulator):
     """Per-cell forest/valid pixel counts for one target grid.
 
     Each valid fine NLCD pixel is binned into its grid cell; the per-cell forest
     and valid counts give the percent-forest value. Exact across source block
-    boundaries because every fine pixel is placed independently.
+    boundaries because every fine pixel is placed independently. The
+    target/grid/CRS prologue lives on
+    :class:`~snowtool.snowdb.zones.generate_common.BinAccumulator`.
     """
 
     def __init__(self: Self, target: ZoneLayerTarget) -> None:
-        self.target = target
-        self.height = target.rows
-        self.width = target.cols
-        self.transform = target.transform
-        # The streamer builds (thread-local) source-CRS -> this-CRS Transformers.
-        self.crs = target.crs
-        n = self.height * self.width
+        super().__init__(target)
+        n = self._ncell
         self.forest = numpy.zeros(n, dtype=numpy.int64)
         self.valid = numpy.zeros(n, dtype=numpy.int64)
-        self._inv = ~self.transform
-
-    @property
-    def _ncell(self: Self) -> int:
-        return self.height * self.width
 
     def bin_into(
         self: Self,
         xt: numpy.typing.NDArray[numpy.float64],
         yt: numpy.typing.NDArray[numpy.float64],
-        is_forest: numpy.typing.NDArray[numpy.bool_],
+        *payload: numpy.typing.NDArray,
     ) -> None:
-        """Bin already-reprojected (this grid's CRS) valid source pixels into cells.
+        """Bin already-reprojected valid source pixels into cells.
 
-        Coordinate transform (source CRS -> this grid's CRS) happens in the
-        worker, so this runs serially on the main thread in fixed block order --
-        the count accumulation order is identical to the serial pass, keeping the
-        generation hash reproducible regardless of worker count.
+        ``payload`` is ``(is_forest,)`` (the tuple the streamer splats). See
+        :meth:`BinAccumulator.bin_into` for the serial-order contract.
         """
+        (is_forest,) = payload
         cell_all, inb = cells_for_points(self._inv, xt, yt, self.width, self.height)
         if not inb.any():
             return
@@ -232,42 +222,18 @@ def _source_window(
     return clipped
 
 
-@dataclass(frozen=True)
-class _BlockResult:
-    """One block's binnable contribution: forest mask + per-target coords.
-
-    ``coords`` holds, per target (same order as the streamer's accumulators), the
-    valid fine-pixel centres already reprojected into that target's CRS.
-    Everything is flattened and pre-masked to the valid pixels, so the serial
-    reducer only has to bin. ``is_forest`` is aligned with those kept pixels.
-    """
-
-    is_forest: numpy.typing.NDArray[numpy.bool_]
-    coords: list[
-        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]
-    ]
-
-
-class _LandCoverStreamer:
+class _LandCoverStreamer(StreamingBinner[_ForestAccumulator]):
     """Streams one NLCD window in blocks, binning into every target accumulator.
 
-    The expensive per-block work -- the per-target pyproj reprojection -- is pure
-    and runs on a worker pool. The only shared mutable state is the accumulators,
-    so binning is done serially on the main thread in streaming block order; that
-    keeps count accumulation order independent of worker count, so the generation
-    hash is reproducible (parallel == serial bit for bit). Each worker thread gets
-    its own Transformers (a Transformer is not safe to share concurrently).
-
-    The block reads run under a lock: a GDAL dataset is not safe for concurrent
-    reads. The read is a small fraction of the per-block cost (the reprojection
-    dominates and still runs fully in parallel), so serialising it costs little.
-
-    The parallel-map / serial-reduce machinery -- the sliding window, the
-    warm-gate, and the ctrl+c-proof teardown that guarantees no worker is left
-    inside the source dataset the caller closes on return -- lives in
-    :mod:`snowtool.snowdb.zones.parallel`; ``run`` just wires
-    ``_compute``/``_reduce`` into it.
+    The concurrency scaffold (read lock, per-thread Transformers, cancel dance,
+    coordinate epilogue, serial reduce, ``ordered_parallel_map`` wiring) lives on
+    :class:`~snowtool.snowdb.zones.generate_common.StreamingBinner`. This engine
+    supplies only the land-cover-specific ``_load``: the windowed source read (the
+    source window offsets its block enumeration) and the forest/valid mask. Its
+    payload is ``(is_forest,)`` per :meth:`_ForestAccumulator.bin_into`.
     """
+
+    _label = 'binning land cover'
 
     def __init__(
         self: Self,
@@ -280,49 +246,39 @@ class _LandCoverStreamer:
         source_crs: str,
         block_size: int,
     ) -> None:
+        super().__init__(source_crs, accumulators)
         self._source = source
         self._transform = transform
         self._window = window
         self._forest = forest_classes
         self._src_nodata = src_nodata
-        self._accumulators = accumulators
-        self._source_crs = source_crs
         self._block_size = block_size
-        self._local = threading.local()
-        # GDAL reads are not concurrency-safe; serialise just the read.
-        self._read_lock = threading.Lock()
 
-    def _transformers(self: Self) -> list[Transformer]:
-        """Per-thread source-CRS -> target-CRS Transformers (built once per thread)."""
-        tfs: list[Transformer] | None = getattr(self._local, 'tfs', None)
-        if tfs is None:
-            tfs = [
-                Transformer.from_crs(self._source_crs, acc.crs, always_xy=True)
-                for acc in self._accumulators
-            ]
-            self._local.tfs = tfs
-        return tfs
+    def _blocks(self: Self) -> list[Block]:
+        col_off, row_off = int(self._window.col_off), int(self._window.row_off)
+        win_w, win_h = int(self._window.width), int(self._window.height)
+        return iter_blocks(
+            win_w,
+            win_h,
+            self._block_size,
+            col_off=col_off,
+            row_off=row_off,
+        )
 
-    def _compute(self: Self, block: Block, cancel: CancelToken) -> _BlockResult | None:
-        """Worker step: read, mask, reproject. Pure, no shared writes.
+    def _load(self: Self, block: Block, cancel: CancelToken) -> Loaded:
+        """Read one NLCD block, then mask forest/valid pixels.
 
-        ``None`` means "no contribution" to the reducer -- true for an all-invalid
-        block and for a block abandoned because the run is being cancelled.
+        ``None`` for an all-invalid block or a read the cancel short-circuited.
         """
-        # Bail before queueing on the read lock: once the run is aborting, blocks
-        # waiting their turn must not each still pay a read. The re-check under
-        # the lock closes the race for a worker that passed the first check just
-        # before cancellation and acquired the lock just after it.
-        if cancel.cancelled:
-            return None
-        with self._read_lock:
-            if cancel.cancelled:
-                return None
-            values = self._source.read(
+        values = self._locked_read(
+            cancel,
+            lambda: self._source.read(
                 1,
                 window=Window(block.c0, block.r0, block.bw, block.bh),
-            )
-
+            ),
+        )
+        if values is None:
+            return None
         valid = values != 0
         if self._src_nodata is not None:
             valid &= values != self._src_nodata
@@ -342,44 +298,4 @@ class _LandCoverStreamer:
         )
 
         keep = valid.ravel()
-        xf = numpy.broadcast_to(x, values.shape).ravel()[keep]
-        yf = numpy.broadcast_to(y, values.shape).ravel()[keep]
-        ff = is_forest.ravel()[keep]
-        coords = [tf.transform(xf, yf) for tf in self._transformers()]
-        return _BlockResult(is_forest=ff, coords=coords)
-
-    def _reduce(self: Self, result: _BlockResult) -> None:
-        """Main-thread step: bin one block into every accumulator (serial, ordered)."""
-        for acc, (xt, yt) in zip(self._accumulators, result.coords, strict=True):
-            acc.bin_into(xt, yt, result.is_forest)
-
-    def run(
-        self: Self,
-        workers: int,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> None:
-        """Stream every block through the ordered parallel-map engine.
-
-        The engine maps ``_compute`` (read + reproject; pure) over the blocks on
-        ``workers`` threads and folds each result through ``_reduce`` serially, in
-        block order, on this thread -- so the binning (and the generation hash) is
-        reproducible regardless of worker count, and no worker survives inside the
-        source dataset after this returns. See
-        :mod:`snowtool.snowdb.zones.parallel`.
-        """
-        col_off, row_off = int(self._window.col_off), int(self._window.row_off)
-        win_w, win_h = int(self._window.width), int(self._window.height)
-        ordered_parallel_map(
-            iter_blocks(
-                win_w,
-                win_h,
-                self._block_size,
-                col_off=col_off,
-                row_off=row_off,
-            ),
-            self._compute,
-            self._reduce,
-            workers=workers,
-            progress=progress,
-            label='binning land cover',
-        )
+        return (is_forest.ravel()[keep],), x, y, valid

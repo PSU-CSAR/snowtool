@@ -67,17 +67,14 @@ lives in :mod:`snowtool.snowdb.zones.generate_common`.
 from __future__ import annotations
 
 import math
-import threading
 import warnings
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
 import numpy
 import numpy.typing
 import rasterio
 
-from pyproj import Transformer
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import Resampling, calculate_default_transform, transform_bounds
 from rasterio.windows import Window
@@ -87,7 +84,10 @@ from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.generate_common import (
+    BinAccumulator,
     Block,
+    Loaded,
+    StreamingBinner,
     cells_for_points,
     finalize_and_stamp,
     iter_blocks,
@@ -97,7 +97,6 @@ from snowtool.snowdb.zones.generate_common import (
 from snowtool.snowdb.zones.parallel import (
     CancelToken,
     effective_workers,
-    ordered_parallel_map,
 )
 from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_COMPONENT_NODATA,
@@ -207,51 +206,37 @@ def _classify(
     return cls
 
 
-class _GridAccumulator:
+class _GridAccumulator(BinAccumulator):
     """Per-cell terrain accumulators for one target grid.
 
     Each fine source pixel is binned into its grid cell; the cardinal counts give
     the majority, the cos/sin sums give the orientation mean, and the elevation
     sum gives mean elevation. Exact across source block boundaries because every
-    fine pixel is placed independently.
+    fine pixel is placed independently. The target/grid/CRS prologue lives on
+    :class:`~snowtool.snowdb.zones.generate_common.BinAccumulator`.
     """
 
     def __init__(self: Self, target: ZoneLayerTarget) -> None:
-        self.target = target
-        self.height = target.rows
-        self.width = target.cols
-        self.transform = target.transform
-        # The streamer builds (thread-local) work-CRS -> this-CRS Transformers.
-        self.crs = target.crs
-        n = self.height * self.width
+        super().__init__(target)
+        n = self._ncell
         self.counts = numpy.zeros(_N_CLASSES * n, dtype=numpy.int64)
         self.sum_cos = numpy.zeros(n, dtype=numpy.float64)
         self.sum_sin = numpy.zeros(n, dtype=numpy.float64)
         self.sum_wt = numpy.zeros(n, dtype=numpy.float64)
         self.sum_z = numpy.zeros(n, dtype=numpy.float64)
-        self._inv = ~self.transform
-
-    @property
-    def _ncell(self: Self) -> int:
-        return self.height * self.width
 
     def bin_into(
         self: Self,
         xt: numpy.typing.NDArray[numpy.float64],
         yt: numpy.typing.NDArray[numpy.float64],
-        cls: numpy.typing.NDArray[numpy.int64],
-        cos: numpy.typing.NDArray[numpy.float64],
-        sin: numpy.typing.NDArray[numpy.float64],
-        wt: numpy.typing.NDArray[numpy.float64],
-        z: numpy.typing.NDArray[numpy.float64],
+        *payload: numpy.typing.NDArray,
     ) -> None:
-        """Bin already-reprojected fine-pixel centres (this grid's CRS) into cells.
+        """Bin already-reprojected fine-pixel centres into cells.
 
-        Coordinate transform (work CRS -> this grid's CRS) happens in the worker,
-        so this runs serially on the main thread in fixed block order -- the float
-        accumulation order is identical to the serial pass, keeping the generation
-        hash reproducible regardless of worker count.
+        ``payload`` is ``(cls, cos, sin, wt, z)`` (the tuple the streamer splats).
+        See :meth:`BinAccumulator.bin_into` for the serial-order contract.
         """
+        cls, cos, sin, wt, z = payload
         cell_all, inb = cells_for_points(self._inv, xt, yt, self.width, self.height)
         if not inb.any():
             return
@@ -552,47 +537,19 @@ def _read_haloed_block(
     return z
 
 
-@dataclass(frozen=True)
-class _BlockResult:
-    """One block's binnable contribution: shared per-pixel arrays + per-target coords.
-
-    ``coords`` holds, per target (same order as the streamer's accumulators), the
-    fine-pixel centres already reprojected into that target's CRS. Everything is
-    flattened and pre-masked to the valid (``cls >= 0``) pixels, so the serial
-    reducer only has to bin.
-    """
-
-    cls: numpy.typing.NDArray[numpy.int64]
-    cos: numpy.typing.NDArray[numpy.float64]
-    sin: numpy.typing.NDArray[numpy.float64]
-    wt: numpy.typing.NDArray[numpy.float64]
-    z: numpy.typing.NDArray[numpy.float64]
-    coords: list[
-        tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]
-    ]
-
-
-class _TerrainStreamer:
+class _TerrainStreamer(StreamingBinner[_GridAccumulator]):
     """Streams one work grid in blocks, binning into every target accumulator.
 
-    The expensive per-block work -- the Horn slope/aspect and the per-target pyproj
-    reprojection -- is pure and runs on a worker pool. The only shared mutable state
-    is the accumulators, so binning is done serially on the main thread in streaming
-    block order; that keeps float accumulation order independent of worker count, so
-    the generation hash is reproducible (parallel == serial bit for bit). Each worker
-    thread gets its own Transformers (a Transformer is not safe to share concurrently).
-
-    The haloed reads run under a lock: a GDAL dataset (and the shared
-    :class:`WarpedVRT` over it) is not safe for concurrent reads. The read is a small
-    fraction of the per-block cost (the reprojection dominates and still runs fully in
-    parallel), so serialising it costs little.
-
-    The parallel-map / serial-reduce machinery -- the sliding window, the warm-gate,
-    and the ctrl+c-proof teardown that guarantees no worker is left inside the
-    WarpedVRT the caller closes on return -- lives in
-    :mod:`snowtool.snowdb.zones.parallel`; ``run`` just wires ``_compute``/``_reduce``
-    into it.
+    The concurrency scaffold (read lock, per-thread Transformers, cancel dance,
+    coordinate epilogue, serial reduce, ``ordered_parallel_map`` wiring) lives on
+    :class:`~snowtool.snowdb.zones.generate_common.StreamingBinner`. This engine
+    supplies only the terrain-specific ``_load``: the haloed WarpedVRT read (so
+    the 3x3 Horn window is exact across block edges) and the Horn slope/aspect
+    derivation. Its payload is ``(cls, cos, sin, wt, z)`` per
+    :meth:`_GridAccumulator.bin_into`.
     """
+
+    _label = 'reprojecting DEM'
 
     def __init__(
         self: Self,
@@ -606,46 +563,26 @@ class _TerrainStreamer:
         work_crs: str,
         block_size: int,
     ) -> None:
+        super().__init__(work_crs, accumulators)
         self._wvrt = wvrt
         self._dst_transform = dst_transform
         self._dst_w = dst_w
         self._dst_h = dst_h
         self._px = px
         self._py = py
-        self._accumulators = accumulators
-        self._work_crs = work_crs
         self._block_size = block_size
-        self._local = threading.local()
-        # GDAL/WarpedVRT reads are not concurrency-safe; serialise just the read.
-        self._read_lock = threading.Lock()
 
-    def _transformers(self: Self) -> list[Transformer]:
-        """Per-thread work-CRS -> target-CRS Transformers (built once per thread)."""
-        tfs: list[Transformer] | None = getattr(self._local, 'tfs', None)
-        if tfs is None:
-            tfs = [
-                Transformer.from_crs(self._work_crs, acc.crs, always_xy=True)
-                for acc in self._accumulators
-            ]
-            self._local.tfs = tfs
-        return tfs
+    def _blocks(self: Self) -> list[Block]:
+        return iter_blocks(self._dst_w, self._dst_h, self._block_size)
 
-    def _compute(self: Self, block: Block, cancel: CancelToken) -> _BlockResult | None:
-        """Worker step: read, derive terrain, reproject. Pure, no shared writes.
+    def _load(self: Self, block: Block, cancel: CancelToken) -> Loaded:
+        """Read a haloed block (:data:`HALO` per side), then Horn slope/aspect.
 
-        ``None`` means "no contribution" to the reducer -- true for an all-nodata
-        block and for a block abandoned because the run is being cancelled.
+        ``None`` for an all-nodata block or a read the cancel short-circuited.
         """
-        # Bail before queueing on the read lock: once the run is aborting, blocks
-        # waiting their turn must not each still pay a read. The re-check under
-        # the lock closes the race for a worker that passed the first check just
-        # before cancellation and acquired the lock just after it.
-        if cancel.cancelled:
-            return None
-        with self._read_lock:
-            if cancel.cancelled:
-                return None
-            z = _read_haloed_block(
+        z = self._locked_read(
+            cancel,
+            lambda: _read_haloed_block(
                 self._wvrt,
                 block.c0,
                 block.r0,
@@ -653,8 +590,9 @@ class _TerrainStreamer:
                 block.bh,
                 self._dst_w,
                 self._dst_h,
-            )
-        if not numpy.isfinite(z).any():
+            ),
+        )
+        if z is None or not numpy.isfinite(z).any():
             return None
 
         slope_deg, aspect_deg, vint, zint = _slope_aspect(z, self._px, self._py)
@@ -685,49 +623,11 @@ class _TerrainStreamer:
         )
 
         keep = cls.ravel() >= 0
-        xf = numpy.broadcast_to(x, cls.shape).ravel()[keep]
-        yf = numpy.broadcast_to(y, cls.shape).ravel()[keep]
-        coords = [tf.transform(xf, yf) for tf in self._transformers()]
-        return _BlockResult(
-            cls=cls.ravel()[keep].astype(numpy.int64),
-            cos=cos.ravel()[keep],
-            sin=sin.ravel()[keep],
-            wt=wt.ravel()[keep],
-            z=zint.ravel()[keep],
-            coords=coords,
+        payload = (
+            cls.ravel()[keep].astype(numpy.int64),
+            cos.ravel()[keep],
+            sin.ravel()[keep],
+            wt.ravel()[keep],
+            zint.ravel()[keep],
         )
-
-    def _reduce(self: Self, result: _BlockResult) -> None:
-        """Main-thread step: bin one block into every accumulator (serial, ordered)."""
-        for acc, (xt, yt) in zip(self._accumulators, result.coords, strict=True):
-            acc.bin_into(
-                xt,
-                yt,
-                result.cls,
-                result.cos,
-                result.sin,
-                result.wt,
-                result.z,
-            )
-
-    def run(
-        self: Self,
-        workers: int,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> None:
-        """Stream every block through the ordered parallel-map engine.
-
-        The engine maps ``_compute`` (read + Horn + reproject; pure) over the blocks
-        on ``workers`` threads and folds each result through ``_reduce`` serially, in
-        block order, on this thread -- so the binning (and the generation hash) is
-        reproducible regardless of worker count, and no worker survives inside the
-        WarpedVRT after this returns. See :mod:`snowtool.snowdb.zones.parallel`.
-        """
-        ordered_parallel_map(
-            iter_blocks(self._dst_w, self._dst_h, self._block_size),
-            self._compute,
-            self._reduce,
-            workers=workers,
-            progress=progress,
-            label='reprojecting DEM',
-        )
+        return payload, x, y, cls >= 0
