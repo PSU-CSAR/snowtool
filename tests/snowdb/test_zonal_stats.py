@@ -26,6 +26,7 @@ import pytest
 
 from pydantic import ValidationError
 
+from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.config import BandStepParams, ThresholdParams
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -36,6 +37,7 @@ from snowtool.snowdb.zonal_stats import (
     ZoneSelection,
     _ZoneIndex,
     parse_zone_selection,
+    resolve_zone_axis,
 )
 from snowtool.snowdb.zones.terrain import ELEVATION_NODATA
 from snowtool.snowdb.zones.zone_layer import available_zones
@@ -400,11 +402,10 @@ def _spec_with(variable: DatasetVariable) -> DatasetSpec:
     )
 
 
-def test_scheme_resolution_folds_dataset_defaults_then_explicit_override():
-    # Each axis' scheme is resolved by folding the dataset's configured default for
-    # *its* layer (band_step_ft for elevation, threshold_pct for forest cover) into
-    # a configured instance; an explicit per-query override always wins on top.
-
+def test_resolve_zone_axis_folds_dataset_default_then_override():
+    # resolve_zone_axis folds the dataset's configured default for the layer into a
+    # configured scheme (band_step_ft for elevation, threshold_pct for forest cover)
+    # and lets an explicit per-query override win on top.
     spec = DatasetSpec(
         name='t',
         grid_params=GridParams(
@@ -424,46 +425,44 @@ def test_scheme_resolution_folds_dataset_defaults_then_explicit_override():
     elevation = registry['terrain.elevation']
     forest = registry['landcover.forest_cover']
 
-    def resolve(available, selection):
-        scheme = available.scheme.configured(
-            spec.zone_params(available.provider.name, available.layer.key),
-        )
-        if selection.override is not None:
-            scheme = scheme.with_override(selection.override)
-        return scheme
-
-    # Elevation inherits the dataset's band_step_ft...
-    assert (
-        resolve(
-            elevation,
-            ZoneSelection('terrain.elevation'),
-        ).default_step
-        == 2000
+    # Elevation inherits the dataset's band_step_ft; the returned available is the
+    # registry entry unchanged.
+    available, scheme = resolve_zone_axis(
+        ZoneSelection('terrain.elevation'),
+        registry,
+        spec,
     )
+    assert available is elevation
+    assert scheme.default_step == 2000
     # ...but an explicit step always wins.
-    assert (
-        resolve(
-            elevation,
-            ZoneSelection('terrain.elevation', override=500),
-        ).default_step
-        == 500
+    _, scheme = resolve_zone_axis(
+        ZoneSelection('terrain.elevation', override=500),
+        registry,
+        spec,
     )
+    assert scheme.default_step == 500
     # Forest cover inherits the dataset's threshold_pct.
-    assert (
-        resolve(
-            forest,
-            ZoneSelection('landcover.forest_cover'),
-        ).default_threshold
-        == 50
+    _, scheme = resolve_zone_axis(
+        ZoneSelection('landcover.forest_cover'),
+        registry,
+        spec,
     )
+    assert scheme.default_threshold == 50
     # A threshold override passes straight through.
-    assert (
-        resolve(
-            forest,
-            ZoneSelection('landcover.forest_cover', override=30),
-        ).default_threshold
-        == 30
+    available, scheme = resolve_zone_axis(
+        ZoneSelection('landcover.forest_cover', override=30),
+        registry,
+        spec,
     )
+    assert available is forest
+    assert scheme.default_threshold == 30
+
+
+def test_resolve_zone_axis_unknown_layer_raises():
+    spec = _spec_with(_variable())
+    registry = available_zones(DEFAULT_ZONE_LAYER_PROVIDERS)
+    with pytest.raises(QueryParameterError, match='Unknown zone layer'):
+        resolve_zone_axis(ZoneSelection('terrain.nope'), registry, spec)
 
 
 # --- parse_zone_selection (the --zone token parser) --------------------------

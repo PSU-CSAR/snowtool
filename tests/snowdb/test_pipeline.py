@@ -9,16 +9,26 @@ import pytest
 import rasterio
 
 from snowtool.snowdb.aoi_raster import AOIRaster
+from snowtool.snowdb.config import BandStepParams
 from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.query import DateRangeQuery
 from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.raster.tiff_cache import TiffCache
+from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
 from snowtool.snowdb.zones.terrain import ELEVATION
 
-from ..conftest import write_terrain
+from ..conftest import (
+    ORIGIN_X,
+    ORIGIN_Y,
+    PX,
+    snodas_swe_name,
+    write_terrain,
+)
 from .conftest import DEM_ELEVATION_M, SIZE, SWE_VALUE, TILE
 
 # The synthetic SWE COG is ingested for this date; a closed one-day range selects it.
@@ -279,6 +289,72 @@ def test_zonal_stats_crosses_northness_band(dataset, pourpoint_geojson, swe_cog)
     (matrix,) = compact.results.values()
     assert matrix == [[pytest.approx(SWE_VALUE)]]
     assert zone.area_m2 == pytest.approx(float(aoi_raster.array.sum()))
+
+
+def _banded_dataset(directory, band_step_ft):
+    """A synthetic dataset whose terrain.elevation configures a non-default band step.
+
+    Mirrors the ``dataset``/``swe_cog`` fixtures but plumbs a ``zones`` config so the
+    real ZonalStats path folds the dataset's configured ``band_step_ft`` into the
+    elevation scheme, exercising :func:`resolve_zone_axis` on the production path.
+    """
+    spec = DatasetSpec(
+        name='test',
+        grid_params=GridParams(
+            origin_x=ORIGIN_X,
+            origin_y=ORIGIN_Y,
+            px_size=PX,
+            cols=SIZE,
+            rows=SIZE,
+            tile_size=TILE,
+        ),
+        variables=SNODAS_VARIABLES,
+        zones={'terrain': {'elevation': BandStepParams(band_step_ft=band_step_ft)}},
+    )
+    ds = Dataset.create(spec, directory)
+    write_terrain(ds)
+
+    date_str = '20180427'
+    out_dir = ds._cogs / date_str
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_cog(
+        out_dir / f'{snodas_swe_name(date_str)}.tif',
+        numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
+        transform=ds.grid.base_grid.transform,
+        tile_size=TILE,
+        predictor=2,
+    )
+    return ds
+
+
+def _band_bounds(dataset, pourpoint_geojson, selections):
+    """The (layer, min, max) of the single populated elevation band."""
+    _, stats = _crossed_stats(dataset, pourpoint_geojson, selections)
+    (zone,) = stats.dump_compact().zones
+    (elev_ref,) = zone.zone
+    return (elev_ref.layer, elev_ref.min, elev_ref.max)
+
+
+def test_configured_band_step_folds_on_the_real_query_path(tmp_path, pourpoint_geojson):
+    # The uniform DEM is 1000 m (~3280 ft). With the dataset configuring a 2000-ft
+    # band step, that lands in the (2000, 4000) band; with a per-query override of
+    # 500 ft it lands in (3000, 3500) instead -- proving resolve_zone_axis folds the
+    # dataset default then lets the explicit override win, on the real pipeline.
+    # (Two datasets because rasterize_aoi is converge-by-default: a second query
+    # against the same dataset+pourpoint finds the AOI raster already current.)
+    default_ds = _banded_dataset(tmp_path / 'default', band_step_ft=2000)
+    assert _band_bounds(
+        default_ds,
+        pourpoint_geojson,
+        [ZoneSelection('terrain.elevation')],
+    ) == ('terrain.elevation', 2000, 4000)
+
+    override_ds = _banded_dataset(tmp_path / 'override', band_step_ft=2000)
+    assert _band_bounds(
+        override_ds,
+        pourpoint_geojson,
+        [ZoneSelection('terrain.elevation', override=500)],
+    ) == ('terrain.elevation', 3000, 3500)
 
 
 def test_aoi_raster_open_reads_area_without_dem(tmp_path, grid):

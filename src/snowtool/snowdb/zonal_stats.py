@@ -75,6 +75,37 @@ def _unknown_layer(
     )
 
 
+def resolve_zone_axis(
+    selection: ZoneSelection,
+    registry: Mapping[str, AvailableZone],
+    spec: DatasetSpec,
+) -> tuple[AvailableZone, ZoneScheme]:
+    """Resolve one query axis to its registry entry and fully configured scheme.
+
+    Looks ``selection.layer_key`` up in ``registry`` (raising a uniform
+    :class:`QueryParameterError` on an unknown layer), folds the dataset's
+    configured params for that layer into a configured scheme, then applies the
+    selection's explicit override (if any). After this the scheme carries
+    everything; ``zones()``/``assign()`` take no kwargs. A dataset-config
+    :class:`ZoneParamsError` is re-wrapped to name the offending ``zones`` entry.
+    """
+    available = registry.get(selection.layer_key)
+    if available is None:
+        raise _unknown_layer(selection.layer_key, registry)
+    try:
+        scheme = available.scheme.configured(
+            spec.zone_params(available.provider.name, available.layer.key),
+        )
+    except ZoneParamsError as e:
+        raise ZoneParamsError(
+            f'dataset {spec.name!r} zones'
+            f'[{available.provider.name!r}][{available.layer.key!r}]: {e}',
+        ) from e
+    if selection.override is not None:
+        scheme = scheme.with_override(selection.override)
+    return available, scheme
+
+
 def parse_zone_selection(
     token: str,
     registry: Mapping[str, AvailableZone],
@@ -386,26 +417,9 @@ class ZonalStats:
         # is equivalent and this keeps `calculate` self-sufficient for its direct
         # (non-reader) callers.
         registry = available_zones(dataset.providers.values())
-        resolved: list[tuple[AvailableZone, ZoneScheme]] = []
-        for selection in selections:
-            available = registry.get(selection.layer_key)
-            if available is None:
-                raise _unknown_layer(selection.layer_key, registry)
-            # Fold the dataset's configured params for this layer into a configured
-            # scheme, then apply the selection's explicit override (if any). After
-            # this the scheme carries everything; zones()/assign() take no kwargs.
-            try:
-                scheme = available.scheme.configured(
-                    spec.zone_params(available.provider.name, available.layer.key),
-                )
-            except ZoneParamsError as e:
-                raise ZoneParamsError(
-                    f'dataset {spec.name!r} zones'
-                    f'[{available.provider.name!r}][{available.layer.key!r}]: {e}',
-                ) from e
-            if selection.override is not None:
-                scheme = scheme.with_override(selection.override)
-            resolved.append((available, scheme))
+        resolved = [
+            resolve_zone_axis(selection, registry, spec) for selection in selections
+        ]
 
         # The axes' zones (hence the crossed product size) are known from the
         # schemes alone, with no raster reads -- so guard against a runaway product
