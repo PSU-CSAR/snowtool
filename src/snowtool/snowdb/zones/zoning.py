@@ -254,54 +254,13 @@ class ZoneScheme(ABC):
     ordinals (``-1`` = out of zone, which uniformly covers layer-nodata and
     out-of-domain values) -- both from the instance's own fields, taking no kwargs.
 
-    A scheme that takes a single overridable param (banded, bucketed, threshold)
-    declares that shape via the ``_param_*`` ClassVars below instead of
-    overriding :meth:`configured`/:meth:`parse_override` itself: which params
-    model configures it (``_param_model``; a property, since
-    :class:`ThresholdZoning` picks between two depending on its own
-    ``param_key``), which of its own fields that model's value replaces
-    (``_param_field``), the noun :meth:`configured`'s mismatch message names it
-    by (``_param_noun``), and the numeric type + word :meth:`parse_override`
-    parses a token as (``_param_number_type``, ``_param_word``). The base
-    (unset, ``None``) means "no param" -- categorical's shape, kept as the
-    literal no-op/raise below rather than folded into the data-driven path,
-    since it never runs an ``isinstance``/``replace`` at all. The params
-    model's overridable field is always named identically to ``param_key``
-    (``band_step_ft``, ``buckets``, ``threshold_pct``/``entropy_threshold``),
-    so :meth:`configured` reads the incoming value via
-    ``getattr(params, self.param_key)`` rather than a further ClassVar.
+    The base implements the categorical shape (no configured param, no query
+    override): :meth:`configured` returns itself when unconfigured and raises on
+    any params; :meth:`parse_override` raises on any token. A scheme that takes a
+    single overridable param (banded, bucketed, threshold) overrides
+    :meth:`configured`/:meth:`parse_override` concretely with its own ~8-line
+    implementation.
     """
-
-    # The scheme's own field :meth:`configured`/:meth:`with_override` replace.
-    _param_field: ClassVar[str | None] = None
-    # The noun phrase naming this scheme in :meth:`configured`'s mismatch message,
-    # e.g. "a banded zone layer".
-    _param_noun: ClassVar[str | None] = None
-    # The numeric type and word :meth:`parse_override` parses a token's raw value
-    # as/names it by, e.g. (int, 'band step').
-    _param_number_type: ClassVar[type[int] | type[float] | None] = None
-    _param_word: ClassVar[str | None] = None
-
-    @property
-    def param_key(self: Self) -> str:
-        """The dataset/query param name that configures this scheme.
-
-        Unreachable on the base (a scheme without ``_param_model`` never reads
-        it). A plain ``ClassVar[str]`` on :class:`BandedZoning`/
-        :class:`EvenBucketZoning`; a per-instance dataclass field on
-        :class:`ThresholdZoning`, which picks between two param names.
-        """
-        raise NotImplementedError
-
-    @property
-    def _param_model(self: Self) -> type[ZoneLayerParams] | None:
-        """The params model this scheme's :meth:`configured` accepts.
-
-        ``None`` for the base (no param, e.g. categorical). A plain ClassVar for
-        every scheme but :class:`ThresholdZoning`, which overrides this property
-        to pick between its two params models by its own ``param_key``.
-        """
-        return None
 
     @abstractmethod
     def zones(self: Self) -> tuple[Zone, ...]:
@@ -329,26 +288,17 @@ class ZoneScheme(ABC):
         """A copy of this scheme with the dataset's configured param applied.
 
         ``params`` arrives as the specific member model the config parsed to
-        (``None`` = unconfigured / no params). The base scheme (``_param_model``
-        unset) takes none (a categorical axis), so configured params are a
-        config error -- the member models make a misplaced param detectable
-        instead of silently ignorable. A scheme that declares ``_param_model``
-        checks ``params`` is that model and folds its value onto
-        ``_param_field`` via :func:`dataclasses.replace`.
+        (``None`` = unconfigured / no params). The base scheme takes none (a
+        categorical axis), so configured params are a config error -- the member
+        models make a misplaced param detectable instead of silently ignorable.
+        An overridable scheme overrides this to check ``params`` is its model and
+        fold its value onto its own field via :func:`dataclasses.replace`.
         """
         if params is None:
             return self
-        if self._param_model is None:
-            raise ZoneParamsError(
-                f'this zone layer takes no params; got {type(params).__name__}',
-            )
-        if not isinstance(params, self._param_model):
-            raise ZoneParamsError(
-                f'{self._param_noun} is configured by {self.param_key!r}; '
-                f'got {type(params).__name__}',
-            )
-        value = getattr(params, self.param_key)
-        return replace(self, **{self._param_field: value})  # type: ignore[type-var,arg-type]
+        raise ZoneParamsError(
+            f'this zone layer takes no params; got {type(params).__name__}',
+        )
 
     def with_override(self: Self, override: int | float) -> Self:
         """A copy of this scheme with an explicit per-query ``override`` applied.
@@ -362,23 +312,13 @@ class ZoneScheme(ABC):
 
     def parse_override(self: Self, layer_key: str, raw: str) -> int | float:
         """Parse a query's ``:override`` token (the CLI ``--zone`` flag) for this
-        scheme. The base scheme (``_param_number_type`` unset) takes none, so any
-        token is an error -- a categorical axis has nothing to override. A scheme
-        that declares ``_param_number_type``/``_param_word`` parses ``raw`` as
-        that type, naming itself by that word on failure."""
-        if self._param_number_type is None:
-            raise QueryParameterError(
-                f'zone {layer_key!r} takes no override (it is a categorical axis); '
-                f'drop the ":{raw}".',
-            )
-        try:
-            return self._param_number_type(raw)
-        except ValueError as e:
-            raise QueryParameterError(
-                f'zone {layer_key!r} {self._param_word} must be '
-                f'{"an integer" if self._param_number_type is int else "a number"}, '
-                f'got {raw!r}.',
-            ) from e
+        scheme. The base scheme takes none, so any token is an error -- a
+        categorical axis has nothing to override. An overridable scheme overrides
+        this to parse ``raw`` as its own numeric type."""
+        raise QueryParameterError(
+            f'zone {layer_key!r} takes no override (it is a categorical axis); '
+            f'drop the ":{raw}".',
+        )
 
 
 def _as_number(value: float) -> int | float:
@@ -444,17 +384,30 @@ class BandedZoning(ZoneScheme):
     layer_nodata: float
     # The dataset/query param that configures this scheme's band width.
     param_key: ClassVar[str] = 'band_step_ft'
-    _param_model: ClassVar[type[ZoneLayerParams]] = BandStepParams
-    _param_field: ClassVar[str] = 'default_step'
-    _param_noun: ClassVar[str] = 'a banded zone layer'
-    _param_number_type: ClassVar[type[int]] = int
-    _param_word: ClassVar[str] = 'band step'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_step, int) or self.default_step <= 0:
             raise ValueError(
                 f'band step must be a positive int, got {self.default_step!r}',
             )
+
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
+        if not isinstance(params, BandStepParams):
+            raise ZoneParamsError(
+                f'a banded zone layer is configured by {self.param_key!r}; '
+                f'got {type(params).__name__}',
+            )
+        return replace(self, default_step=params.band_step_ft)
+
+    def parse_override(self: Self, layer_key: str, raw: str) -> int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} band step must be an integer, got {raw!r}.',
+            ) from e
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_step=override)  # type: ignore[arg-type]
@@ -519,17 +472,30 @@ class EvenBucketZoning(ZoneScheme):
     layer_nodata: float
     # The dataset/query param that configures this layer's bucket count.
     param_key: ClassVar[str] = 'buckets'
-    _param_model: ClassVar[type[ZoneLayerParams]] = BucketParams
-    _param_field: ClassVar[str] = 'default_buckets'
-    _param_noun: ClassVar[str] = 'a bucketed zone layer'
-    _param_number_type: ClassVar[type[int]] = int
-    _param_word: ClassVar[str] = 'bucket count'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_buckets, int) or self.default_buckets < 1:
             raise ValueError(
                 f'bucket count must be a positive int, got {self.default_buckets!r}',
             )
+
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
+        if not isinstance(params, BucketParams):
+            raise ZoneParamsError(
+                f'a bucketed zone layer is configured by {self.param_key!r}; '
+                f'got {type(params).__name__}',
+            )
+        return replace(self, default_buckets=params.buckets)
+
+    def parse_override(self: Self, layer_key: str, raw: str) -> int:
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} bucket count must be an integer, got {raw!r}.',
+            ) from e
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_buckets=int(override))
@@ -602,22 +568,31 @@ class ThresholdZoning(ZoneScheme):
     # Which threshold param configures this split: forest cover uses
     # ``threshold_pct``; normalised aspect entropy uses ``entropy_threshold``.
     param_key: Literal['threshold_pct', 'entropy_threshold'] = 'threshold_pct'
-    _param_field: ClassVar[str] = 'default_threshold'
-    _param_noun: ClassVar[str] = 'this threshold zone layer'
-    _param_number_type: ClassVar[type[float]] = float
-    _param_word: ClassVar[str] = 'threshold'
 
-    @property
-    def _param_model(self: Self) -> type[ZoneLayerParams]:
-        """Picks between the two threshold params models by ``param_key``.
-
-        Forest cover's split is configured by ``threshold_pct``; normalised
-        aspect entropy's by ``entropy_threshold`` -- the one two-value branch
-        :meth:`ZoneScheme.configured` cannot data-drive via a plain ClassVar.
-        """
+    def configured(self: Self, params: ZoneLayerParams | None) -> Self:
+        if params is None:
+            return self
         if self.param_key == 'entropy_threshold':
-            return EntropyThresholdParams
-        return ThresholdParams
+            if not isinstance(params, EntropyThresholdParams):
+                raise ZoneParamsError(
+                    f'this threshold zone layer is configured by {self.param_key!r}; '
+                    f'got {type(params).__name__}',
+                )
+            return replace(self, default_threshold=params.entropy_threshold)
+        if not isinstance(params, ThresholdParams):
+            raise ZoneParamsError(
+                f'this threshold zone layer is configured by {self.param_key!r}; '
+                f'got {type(params).__name__}',
+            )
+        return replace(self, default_threshold=params.threshold_pct)
+
+    def parse_override(self: Self, layer_key: str, raw: str) -> float:
+        try:
+            return float(raw)
+        except ValueError as e:
+            raise QueryParameterError(
+                f'zone {layer_key!r} threshold must be a number, got {raw!r}.',
+            ) from e
 
     def with_override(self: Self, override: int | float) -> Self:
         return replace(self, default_threshold=float(override))
