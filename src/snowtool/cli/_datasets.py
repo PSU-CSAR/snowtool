@@ -1,9 +1,10 @@
 """Shared dataset-selection helpers and common options for the CLI groups.
 
 The ``dataset``, ``doctor``, and ``pourpoint`` groups all resolve datasets by
-name (or default to a whole-database sweep) and share the ``--format`` /
-``--dataset`` options; those live here so a command body stays a thin wrapper
-over the domain API. The read surface (``dataset dates``/``values``/``info``)
+name (or default to a whole-database sweep) and share the ``--dataset`` option;
+it lives here so a command body stays a thin wrapper over the domain API (the
+``--format`` option lives with its emitter in :mod:`snowtool.cli._render`). The
+read surface (``dataset dates``/``values``/``info``)
 resolves everything registered (active or not); the API is what restricts
 readers to active datasets.
 """
@@ -14,30 +15,9 @@ from typing import TYPE_CHECKING
 
 import click
 
-from snowtool.cli._render import FORMATS
-
 if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.db import SnowDb
-
-format_option = click.option(
-    '--format',
-    'fmt',
-    type=click.Choice(FORMATS),
-    default='table',
-    help='Output format.',
-)
-
-# The same --format flag for commands whose output is nested (e.g. `stats`):
-# there is no table form, so the choice is the two flat serializations. ``json``
-# is the compact/normalized stats body (see ZonalStats.dump_compact).
-nested_format_option = click.option(
-    '--format',
-    'fmt',
-    type=click.Choice(('csv', 'json')),
-    default='json',
-    help='Output format (json = compact stats body; csv = flat rows).',
-)
 
 dataset_option = click.option(
     '--dataset',

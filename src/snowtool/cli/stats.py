@@ -20,8 +20,8 @@ import click
 
 from snowtool.cli import _console
 from snowtool.cli._context import config_option, pass_snowdb
-from snowtool.cli._datasets import nested_format_option
 from snowtool.cli._dates import parse_dates_query
+from snowtool.cli._render import nested_format_option
 from snowtool.snowdb.reader import SnowDbReader
 
 if TYPE_CHECKING:

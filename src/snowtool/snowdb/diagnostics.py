@@ -61,6 +61,34 @@ class DatasetStatus:
     first_date: date | None
     last_date: date | None
 
+    def to_row(self, *, active: bool) -> dict[str, object]:
+        """Flatten to one ``snowtool status`` row.
+
+        ``active`` (reader visibility) is not an on-disk fact this scan carries,
+        so the caller passes it. The row interleaves a dynamic column per
+        configured zone-layer provider (terrain, landcover, ...) between the
+        presence columns and the artifact counts; ``first``/``last`` are ISO
+        strings (empty when the dataset has no ingested dates).
+        """
+        row: dict[str, object] = {
+            'dataset': self.name,
+            'active': active,
+            'present': self.present,
+        }
+        # One column per configured zone-layer provider (terrain, landcover, ...).
+        for provider_name, present in sorted(self.artifacts.zone_layers.items()):
+            row[provider_name] = present
+        row.update(
+            {
+                'cogs': self.artifacts.cogs,
+                'aoi_rasters': self.artifacts.aoi_rasters,
+                'dates': self.date_count,
+                'first': self.first_date.isoformat() if self.first_date else '',
+                'last': self.last_date.isoformat() if self.last_date else '',
+            },
+        )
+        return row
+
 
 def dataset_status(dataset: Dataset) -> DatasetStatus:
     """Scan a dataset's directory into a :class:`DatasetStatus` snapshot."""
@@ -399,8 +427,9 @@ class DatasetInfoReport:
     alongside the spec-level fields (variables, zone config, active flag) and
     per-provider zone-layer presence/provenance -- one scan each, no duplicated
     filesystem walks. :meth:`to_record` flattens both back out for the CLI by
-    hand-listing every key, so a new field on either nested report needs
-    adding here *and* in :meth:`to_record`.
+    hand-listing every key (:meth:`to_table_record` adds table-only prose on
+    top), so a new field on either nested report needs adding here *and* in
+    :meth:`to_record`.
     ``grid.cell_area_m2`` is ``None`` on a geographic grid (per-pixel area
     raster, see :class:`GridReport`); ``min_elevation_m``/``max_elevation_m``
     are the shared elevation bracket
@@ -429,8 +458,8 @@ class DatasetInfoReport:
         ``variables`` to plain lists (json/csv-friendly); ``first_date``/
         ``last_date`` to ISO strings (or ``None``). Table-only prose (the
         geographic ``cell_area_m2`` placeholder, the collapsed elevation
-        bracket) is *not* applied here -- json/csv keep the typed fields, and
-        the CLI layers that prose on for the table format only.
+        bracket) is *not* applied here -- json/csv keep the typed fields;
+        :meth:`to_table_record` layers that prose on for the table format only.
         """
         return {
             'name': self.name,
@@ -460,6 +489,25 @@ class DatasetInfoReport:
                 self.status.last_date.isoformat() if self.status.last_date else None
             ),
         }
+
+    def to_table_record(self) -> dict[str, object]:
+        """The ``to_record`` fields with the table-only prose substitutions.
+
+        The ``table`` format alone shows the geographic ``cell_area_m2``
+        placeholder (``varies (geographic)``) and collapses the two numeric
+        elevation fields into a single ``MIN .. MAX`` bracket; json/csv keep the
+        typed fields (``cell_area_m2: float | None``, numeric
+        ``min/max_elevation_m``). This owns those substitutions so the CLI
+        callback just picks a method per format.
+        """
+        record = self.to_record()
+        if self.grid.cell_area_m2 is None:
+            record['cell_area_m2'] = 'varies (geographic)'
+        record['elevation_bracket_m'] = (
+            f'{self.min_elevation_m} .. {self.max_elevation_m}'
+        )
+        del record['min_elevation_m'], record['max_elevation_m']
+        return record
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:

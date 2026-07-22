@@ -444,8 +444,9 @@ def test_create_unknown_template_errors(runner, tmp_path):
         obj=ctx,
     )
 
-    assert result.exit_code != 0
-    assert 'No such template' in result.output
+    # click.Choice rejects an unknown --template at parse time (usage error).
+    assert result.exit_code == 2
+    assert "Invalid value for '--template'" in result.output
 
 
 def test_register_registers_an_external_config(runner, cli_obj, initialized_root):

@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING
 import click
 
 from snowtool.cli._context import CliContext, config_option, pass_snowdb
-from snowtool.cli._datasets import format_option
-from snowtool.cli._render import _emit
+from snowtool.cli._render import emit, format_option
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -23,29 +22,11 @@ def status(snowdb: SnowDb, fmt: str) -> None:
     """Overview of every registered dataset: active flag, artifacts, date span."""
     from snowtool.snowdb.diagnostics import dataset_status
 
-    rows = []
-    for name in sorted(snowdb.registered):
-        status = dataset_status(snowdb.registered[name])
-        artifacts = status.artifacts
-        row = {
-            'dataset': status.name,
-            'active': name in snowdb.datasets,
-            'present': status.present,
-        }
-        # One column per configured zone-layer provider (terrain, landcover, ...).
-        for provider_name, present in sorted(artifacts.zone_layers.items()):
-            row[provider_name] = present
-        row.update(
-            {
-                'cogs': artifacts.cogs,
-                'aoi_rasters': artifacts.aoi_rasters,
-                'dates': status.date_count,
-                'first': status.first_date.isoformat() if status.first_date else '',
-                'last': status.last_date.isoformat() if status.last_date else '',
-            },
-        )
-        rows.append(row)
-    _emit(rows, fmt)
+    rows = [
+        dataset_status(snowdb.registered[name]).to_row(active=name in snowdb.datasets)
+        for name in sorted(snowdb.registered)
+    ]
+    emit(rows, fmt)
 
 
 @click.command('init')

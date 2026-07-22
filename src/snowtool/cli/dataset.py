@@ -14,10 +14,11 @@ import click
 
 from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
-from snowtool.cli._datasets import format_option, get_dataset
+from snowtool.cli._datasets import get_dataset
 from snowtool.cli._dates import DATE
 from snowtool.cli._progress import RichProgress
-from snowtool.cli._render import _emit, _emit_record
+from snowtool.cli._render import emit, emit_record, format_option
+from snowtool.snowdb.datasets import DATASET_TEMPLATES
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ def list_datasets(snowdb: SnowDb, fmt: str) -> None:
     One row per dataset the root config registers, active or not -- for
     presence, date spans, and artifact counts, see ``snowtool status``.
     """
-    _emit(
+    emit(
         [
             {'dataset': name, 'active': name in snowdb.datasets}
             for name in sorted(snowdb.registered)
@@ -72,17 +73,9 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     ds = get_dataset(snowdb, name)
     report = dataset_info_report(snowdb, ds)
 
-    record = report.to_record()
-    if fmt == 'table':
-        # Prose forms belong to the table only -- json/csv keep the typed fields
-        # (`cell_area_m2: float | None`, numeric `min/max_elevation_m`).
-        if report.grid.cell_area_m2 is None:
-            record['cell_area_m2'] = 'varies (geographic)'
-        record['elevation_bracket_m'] = (
-            f'{report.min_elevation_m} .. {report.max_elevation_m}'
-        )
-        del record['min_elevation_m'], record['max_elevation_m']
-    _emit_record(record, fmt)
+    # Prose forms belong to the table only -- json/csv keep the typed fields.
+    record = report.to_table_record() if fmt == 'table' else report.to_record()
+    emit_record(record, fmt)
 
 
 @dataset.command('dates')
@@ -121,7 +114,7 @@ def dataset_dates(
         dates = diagnostics.missing_dates(ds, start=start, end=end)
     else:
         dates = ds.available_dates(start=start, end=end)
-    _emit([{'date': d.isoformat()} for d in dates], fmt)
+    emit([{'date': d.isoformat()} for d in dates], fmt)
 
 
 @dataset.command('values')
@@ -157,7 +150,7 @@ def dataset_values(
         }
         for result in diagnostics.value_ranges_report(ds, on_date)
     ]
-    _emit(rows, fmt)
+    emit(rows, fmt)
 
 
 @dataset.command('create')
@@ -165,8 +158,8 @@ def dataset_values(
 @click.option(
     '--template',
     required=True,
-    help='Stamp a built-in dataset template (e.g. snodas, swann-800m, instarr) as '
-    'the new dataset NAME.',
+    type=click.Choice(sorted(DATASET_TEMPLATES)),
+    help='Stamp a built-in dataset template as the new dataset NAME.',
 )
 @config_option
 @pass_manager
@@ -193,13 +186,7 @@ def create_dataset(
     link are preserved). To force-rebuild AOI rasters regardless, use
     ``pourpoint rasterize --all --rebuild -d NAME``.
     """
-    from snowtool.snowdb.datasets import DATASET_TEMPLATES, template_nodata_mask
-
-    if template not in DATASET_TEMPLATES:
-        known = ', '.join(sorted(DATASET_TEMPLATES))
-        raise click.ClickException(
-            f'No such template: {template!r}. Known templates: {known}.',
-        )
+    from snowtool.snowdb.datasets import template_nodata_mask
 
     created = manager.create_dataset(
         name,
@@ -348,7 +335,7 @@ def ingest_dataset(
         )
         for d in dates
     ]
-    _emit(rows, fmt)
+    emit(rows, fmt)
 
 
 @dataset.command('generate-zones')

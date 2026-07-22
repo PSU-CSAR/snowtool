@@ -20,11 +20,10 @@ from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._datasets import (
     dataset_option,
-    format_option,
     resolve_datasets,
 )
 from snowtool.cli._progress import RichProgress
-from snowtool.cli._render import _emit, _emit_record
+from snowtool.cli._render import emit, emit_record, format_option
 from snowtool.snowdb.pourpoint_remote import materialize_dir, materialize_file
 
 if TYPE_CHECKING:
@@ -152,7 +151,7 @@ def list_pourpoints(snowdb: SnowDb, fmt: str) -> None:
         }
         for entry in snowdb.pourpoint_index()
     ]
-    _emit(rows, fmt)
+    emit(rows, fmt)
 
 
 @pourpoint.command('show')
@@ -179,7 +178,7 @@ def show_pourpoint(snowdb: SnowDb, triplet: str, fmt: str) -> None:
         'point_lat': lat,
         'geometry_hash': entry.geometry_hash,
     }
-    _emit_record(record, fmt)
+    emit_record(record, fmt)
 
 
 @pourpoint.command('dump')
@@ -290,7 +289,7 @@ def rasterize_aois(
         for action, pairs in (('built', result.built), ('skipped', result.skipped))
         for t, ds_name in pairs
     ]
-    _emit(rows, fmt)
+    emit(rows, fmt)
     _console.err().print(
         f'built {len(result.built)}, skipped {len(result.skipped)} (already current)',
     )

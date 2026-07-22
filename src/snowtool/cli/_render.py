@@ -1,9 +1,11 @@
-"""Shared CLI rendering: the ``--format`` emitter.
+"""Shared CLI rendering: the ``--format`` option and emitter.
 
 Commands compute plain rows (lists of dicts / dumped pydantic models) on the
-domain side and hand them to :func:`_emit`, which is the only place output
+domain side and hand them to :func:`emit`, which is the only place output
 formatting lives -- so every command renders ``table``/``json``/``csv``
-identically.
+identically. The ``--format`` option decorators (:data:`format_option`,
+:data:`nested_format_option`) live here beside :data:`FORMATS` so a command
+imports its option and emitter from one place.
 """
 
 from __future__ import annotations
@@ -28,8 +30,27 @@ if TYPE_CHECKING:
 # The shared --format choices; commands reuse this for their option.
 FORMATS = ('table', 'json', 'csv')
 
+format_option = click.option(
+    '--format',
+    'fmt',
+    type=click.Choice(FORMATS),
+    default='table',
+    help='Output format.',
+)
 
-def _emit(rows: Iterable[Mapping[str, Any]], fmt: str = 'table') -> None:
+# The same --format flag for commands whose output is nested (e.g. `stats`):
+# there is no table form, so the choice is the two flat serializations. ``json``
+# is the compact/normalized stats body (see ZonalStats.dump_compact).
+nested_format_option = click.option(
+    '--format',
+    'fmt',
+    type=click.Choice(('csv', 'json')),
+    default='json',
+    help='Output format (json = compact stats body; csv = flat rows).',
+)
+
+
+def emit(rows: Iterable[Mapping[str, Any]], fmt: str = 'table') -> None:
     """Render ``rows`` (uniform string-keyed mappings) to stdout in ``fmt``.
 
     ``json`` always emits (an empty list as ``[]``); ``table``/``csv`` use the
@@ -78,7 +99,7 @@ def _scalar(value: Any) -> str:
     return str(value)
 
 
-def _emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
+def emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
     """Render a single record (one entity, e.g. ``dataset info``) in ``fmt``.
 
     ``json`` dumps the mapping as-is (lists preserved); ``table`` prints a

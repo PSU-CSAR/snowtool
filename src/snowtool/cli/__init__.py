@@ -27,7 +27,7 @@ destructive commands (``dataset remove-date``, ``pourpoint remove``) gate on
 ``confirm_destructive`` (``_confirm.py``) unless ``--yes`` is passed. Command
 bodies stay thin -- they resolve a SnowDb (via
 :func:`snowtool.cli._context.pass_snowdb`), call a domain method, and render
-with :func:`snowtool.cli._render._emit`. New logic belongs on
+with :func:`snowtool.cli._render.emit`. New logic belongs on
 ``SnowDb``/``Dataset`` or in ``snowdb/diagnostics.py``, not in click callbacks.
 
 Error handling is centralized: every operator-facing domain error is a

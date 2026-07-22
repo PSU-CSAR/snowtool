@@ -22,9 +22,9 @@ import click
 
 from snowtool.cli import _console
 from snowtool.cli._context import config_option, pass_snowdb
-from snowtool.cli._datasets import dataset_option, format_option, resolve_datasets
+from snowtool.cli._datasets import dataset_option, resolve_datasets
 from snowtool.cli._progress import RichProgress
-from snowtool.cli._render import _emit
+from snowtool.cli._render import emit, format_option
 from snowtool.snowdb import diagnostics
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ def doctor(
         progress=RichProgress(),
     )
 
-    _emit(findings, fmt)
+    emit(findings, fmt)
     if findings:
         _console.err().print(f'[red]{len(findings)} problem(s) found[/red]')
         raise SystemExit(1)
