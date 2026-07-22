@@ -233,13 +233,6 @@ def test_initialize_is_idempotent(tmp_path):
     assert (tmp_path / 'data' / 'snodas').is_dir()
 
 
-def test_duplicate_spec_names_rejected():
-    # A root config keys datasets by name, so duplicates can't be expressed in
-    # one; the constructor's guard is asserted directly here.
-    with pytest.raises(ValueError, match='Duplicate dataset spec name'):
-        SnowDb._index_specs([_spec('snodas'), _spec('snodas')])
-
-
 def test_rasterize_aoi_burns_every_active_dataset(
     tmp_path,
     spec,

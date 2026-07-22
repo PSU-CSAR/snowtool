@@ -91,13 +91,25 @@ class SnowDb:
         self.pourpoint_records_path = self._resolve_path(config.pourpoint_records)
         self.pourpoint_index_path = self._resolve_path(config.pourpoint_index)
 
-        # Resolve every registered dataset (inline or referenced) into a spec,
-        # keeping each config with its resolution base so `bind_dataset` -- the
-        # one place a config's paths become a bound Dataset -- can resolve them.
+        # The zone-layer providers (terrain, land cover, ...) every dataset is
+        # built/read with. Injected (not a global) so tests/entrypoints can supply
+        # their own set; adding a kind is one entry in the default registry.
+        # `bind_dataset` reads these, so they must be set before the bind loop.
+        self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
+
+        # Resolve and bind every registered dataset (inline or referenced) in one
+        # pass: config link -> (DatasetConfig, base) -> DatasetSpec -> bound Dataset.
         # Inline uses the root (base None: the `data/<name>` convention); a
-        # referenced one resolves and defaults beside its own config file.
-        specs: list[DatasetSpec] = []
-        self._dataset_links: dict[str, tuple[DatasetConfig, Path | None]] = {}
+        # referenced one resolves and defaults beside its own config file. Each
+        # dataset is always bound to its directory, present or not: a dataset with
+        # no directory simply has no data yet, which keeps the read path resilient
+        # to an un-initialized root. `registered` is everything the root config
+        # knows (the management surface: ingest, zone generation, diagnostics);
+        # `datasets` is the active subset -- the read surface
+        # (query/API/available_zones) sees only those, so a link's `active` flag
+        # is the visibility toggle. Duplicate names are impossible: config.datasets
+        # is a dict, so its keys are already unique.
+        self.registered: dict[str, Dataset] = {}
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
                 dataset_config = link.dataset
@@ -114,22 +126,13 @@ class SnowDb:
                 # validate; nothing further to wrap here.
                 dataset_config = DatasetConfig.load(resolved)
                 base = resolved.parent
-            self._dataset_links[name] = (dataset_config, base)
-            specs.append(DatasetSpec.from_config(dataset_config, name))
-
-        self._specs = self._index_specs(specs)
-        # The zone-layer providers (terrain, land cover, ...) every dataset is
-        # built/read with. Injected (not a global) so tests/entrypoints can supply
-        # their own set; adding a kind is one entry in the default registry.
-        self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
-        # Each configured dataset is always bound to its directory, present or not.
-        # A dataset with no directory simply has no data yet, which keeps the read
-        # path resilient to an un-initialized root. `registered` is everything the
-        # root config knows (the management surface: ingest, zone generation,
-        # diagnostics); `datasets` is the active subset -- the read surface
-        # (query/API/available_zones) sees only those, so a link's `active` flag
-        # is the visibility toggle.
-        self.registered = self._bind_datasets()
+            spec = DatasetSpec.from_config(dataset_config, name)
+            self.registered[name] = self.bind_dataset(
+                name,
+                spec,
+                dataset_config,
+                base=base,
+            )
         self.datasets = {
             name: ds
             for name, ds in self.registered.items()
@@ -236,22 +239,6 @@ class SnowDb:
             self.zone_layer_providers.values(),
             nodata_mask=self.dataset_nodata_mask(dataset_config, base=base),
         )
-
-    @staticmethod
-    def _index_specs(specs: Iterable[DatasetSpec]) -> dict[str, DatasetSpec]:
-        indexed: dict[str, DatasetSpec] = {}
-        for spec in specs:
-            if spec.name in indexed:
-                raise ValueError(f'Duplicate dataset spec name: {spec.name!r}')
-            indexed[spec.name] = spec
-        return indexed
-
-    def _bind_datasets(self: Self) -> dict[str, Dataset]:
-        datasets: dict[str, Dataset] = {}
-        for name, spec in self._specs.items():
-            dataset_config, base = self._dataset_links[name]
-            datasets[name] = self.bind_dataset(name, spec, dataset_config, base=base)
-        return datasets
 
     @classmethod
     def open(
