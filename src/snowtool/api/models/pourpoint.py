@@ -172,19 +172,9 @@ def build_pourpoint_collection(
     for entry in page:
         geometry: Point | Polygon | MultiPolygon
         if basin_geometry:
-            # The index has no polygon by design; load the record for the basin.
-            # The entry is indexed, so the invariant (indexed => basin-bearing)
-            # guarantees `.polygon` is set; a `None` here is a data-integrity bug
-            # in the stored record, not a case to paper over by silently swapping
-            # in the point (a different geometry type than the client asked
-            # for) -- let it raise a bare, unmapped error (a genuine server 500,
-            # per the convention in api/exceptions.py) instead.
-            basin = snowdb.load_pourpoint(entry.triplet, index=index).polygon
-            if basin is None:
-                raise ValueError(
-                    f'Indexed pourpoint {entry.triplet!r} has no basin polygon.',
-                )
-            geometry = basin
+            # The index has no polygon by design; `load_basin` loads the record
+            # and enforces the indexed => basin-bearing invariant (raises).
+            geometry = snowdb.load_basin(entry.triplet, index=index)
         else:
             geometry = entry.point
         items.append(

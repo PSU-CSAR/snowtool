@@ -248,6 +248,19 @@ class IncompleteDatasetDataError(SnowtoolError):
         )
 
 
+class IndexedPourpointMissingBasinError(SnowtoolError, ValueError):
+    """Raised when an *indexed* pourpoint's stored record has no basin polygon.
+
+    The index only lists basin-bearing pourpoints, so loading an indexed
+    triplet's basin and finding ``None`` is a data-integrity bug in the stored
+    record (an out-of-band ``records/`` edit not followed by ``pourpoint
+    reindex``), not a client error. Deliberately **not** registered in
+    ``api/exceptions.py``, so -- like a bare ``ValueError`` -- it surfaces as a
+    genuine server 500 rather than a mapped client problem. Subclasses
+    ``ValueError`` so existing ``except ValueError`` call sites keep catching it.
+    """
+
+
 class RemoteSourceError(SnowtoolError):
     """Raised when a remote pourpoint source cannot be fetched or enumerated.
 

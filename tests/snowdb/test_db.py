@@ -11,7 +11,12 @@ from pathlib import Path
 import numpy
 import pytest
 
-from snowtool.exceptions import SnowDbConfigError, UnknownDatasetError
+from snowtool.exceptions import (
+    IndexedPourpointMissingBasinError,
+    PourpointNotFoundError,
+    SnowDbConfigError,
+    UnknownDatasetError,
+)
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -398,6 +403,45 @@ def test_index_cache_is_stable_then_revalidates_on_mtime(
     os.utime(idx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
 
     assert reader.pourpoint_index().triplets() == set()
+
+
+def test_load_basin_raises_on_indexed_point_only_record(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    # The index only lists basin-bearing pourpoints, so an indexed triplet whose
+    # on-disk record has been swapped out-of-band to a point-only Feature (no
+    # reindex) is a data-integrity bug: `load_basin` raises the typed error
+    # rather than returning `None` or the point.
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+
+    db = SnowDb.open(tmp_path)
+    triplet = '12345:MT:USGS'
+    assert triplet in db.pourpoint_index()  # still indexed as basin-bearing
+
+    db.pourpoint_record_path(triplet).write_text(
+        json.dumps(
+            {
+                'type': 'Feature',
+                'id': triplet,
+                'geometry': {'type': 'Point', 'coordinates': [-119.45, 44.45]},
+                'properties': {'name': 'Test Basin', 'source': 'test'},
+            },
+        ),
+    )
+
+    with pytest.raises(
+        IndexedPourpointMissingBasinError,
+        match='has no basin polygon',
+    ):
+        db.load_basin(triplet)
+
+    # An unindexed triplet still gates on the index first (PourpointNotFound).
+    with pytest.raises(PourpointNotFoundError):
+        db.load_basin('99999:MT:USGS')
 
 
 # --- staged dataset registration (3c) ----------------------------------------

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool import types
 from snowtool.exceptions import (
+    IndexedPourpointMissingBasinError,
     PourpointNotFoundError,
     SnowDbConfigError,
     UnknownDatasetError,
@@ -48,6 +49,8 @@ from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVID
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
+
+    from geojson_pydantic import MultiPolygon, Polygon
 
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import (
@@ -344,6 +347,30 @@ class SnowDb:
                 f'No stored pourpoint for triplet {triplet!r}.',
             )
         return Pourpoint.from_geojson(path)
+
+    def load_basin(
+        self: Self,
+        triplet: types.StationTriplet,
+        *,
+        index: PourpointIndex | None = None,
+    ) -> Polygon | MultiPolygon:
+        """The basin polygon of an *indexed* pourpoint ``triplet``; raises if none.
+
+        Enforces the ``indexed => basin-bearing`` invariant on the read surface:
+        the index only lists basin-bearing pourpoints, so a ``None`` polygon on
+        an indexed record is a data-integrity bug (an out-of-band ``records/``
+        edit not followed by ``pourpoint reindex``), surfaced as the typed
+        :class:`IndexedPourpointMissingBasinError` (an unmapped -- server 500 --
+        condition) rather than silently swapping in the point. Gates on the index
+        first via :meth:`load_pourpoint`, so an unindexed triplet still raises
+        :class:`PourpointNotFoundError`.
+        """
+        polygon = self.load_pourpoint(triplet, index=index).polygon
+        if polygon is None:
+            raise IndexedPourpointMissingBasinError(
+                f'Indexed pourpoint {triplet!r} has no basin polygon.',
+            )
+        return polygon
 
     def pourpoint_index(self: Self) -> PourpointIndex:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
