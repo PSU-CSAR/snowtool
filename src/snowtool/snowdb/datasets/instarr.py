@@ -23,6 +23,7 @@ import re
 
 from collections import defaultdict
 from datetime import datetime
+from functools import partial
 from typing import TYPE_CHECKING, Self
 
 import numpy
@@ -268,55 +269,76 @@ class InstarrIngester:
                 "'SPIRES_NRT_h09v04_MOD09GA061_<YYYYMMDD>_V1.0.nc').",
             )
 
-        grid_params = dataset.spec.grid_params
-        transform = dataset.grid.base_grid.transform
-        crs = dataset.grid_crs
-
         for ingest_date, tile_matches in sorted(matches_by_date.items()):
             tile_paths = [path for path, _ in tile_matches]
             stem, collection, version = self._distilled_stem(tile_matches)
-            # Filesystem-visible provenance is the distilled stem; the COG tags
-            # carry the full record, including the exact contributing tiles.
-            files_tag = ' '.join(sorted(p.name for p in tile_paths))
-
-            def build_rasters(
-                source_hash: str,
-                *,
-                tile_paths: list[Path] = tile_paths,
-                stem: str = stem,
-                collection: str = collection,
-                version: str = version,
-                files_tag: str = files_tag,
-                ingest_date: date = ingest_date,
-            ) -> list[WritableRaster]:
-                return [
-                    InstarrMosaicRaster(
-                        variable,
-                        [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
-                        grid_params,
-                        out_name=f'{stem}__{variable.key}.tif',
-                        transform=transform,
-                        crs=crs,
-                        tags=source_tags(
-                            dataset=dataset.spec.name,
-                            date=ingest_date,
-                            variable=variable.key,
-                            files=files_tag,
-                            source_hash=source_hash,
-                            extra={
-                                'SOURCE_COLLECTION': collection,
-                                'SOURCE_VERSION': version,
-                            },
-                        ),
-                    )
-                    for variable in dataset.spec.variables.values()
-                ]
 
             yield DateIngest(
                 date=ingest_date,
                 source_files=tile_paths,
-                build_rasters=build_rasters,
+                # The mosaic COG names come from the distilled stem + spec alone, so
+                # the skip check has them without opening a tile.
+                out_names=frozenset(
+                    f'{stem}__{variable.key}.tif'
+                    for variable in dataset.spec.variables.values()
+                ),
+                build_rasters=partial(
+                    self._build_rasters,
+                    dataset,
+                    tile_paths,
+                    stem=stem,
+                    collection=collection,
+                    version=version,
+                    ingest_date=ingest_date,
+                ),
             )
+
+    @staticmethod
+    def _build_rasters(
+        dataset: Dataset,
+        tile_paths: list[Path],
+        source_hash: str,
+        *,
+        stem: str,
+        collection: str,
+        version: str,
+        ingest_date: date,
+    ) -> list[WritableRaster]:
+        """A date's mosaicked rasters, one per variable (the ``build_rasters`` body).
+
+        Bound per date via :func:`functools.partial` in :meth:`plan`, so each date's
+        parsed inputs are captured explicitly as arguments rather than by keyword
+        defaults dodging late binding. ``source_hash`` is supplied by the driver.
+        """
+        grid_params = dataset.spec.grid_params
+        transform = dataset.grid.base_grid.transform
+        crs = dataset.grid_crs
+        # Filesystem-visible provenance is the distilled stem; the COG tags carry
+        # the full record, including the exact contributing tiles.
+        files_tag = ' '.join(sorted(p.name for p in tile_paths))
+
+        return [
+            InstarrMosaicRaster(
+                variable,
+                [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
+                grid_params,
+                out_name=f'{stem}__{variable.key}.tif',
+                transform=transform,
+                crs=crs,
+                tags=source_tags(
+                    dataset=dataset.spec.name,
+                    date=ingest_date,
+                    variable=variable.key,
+                    files=files_tag,
+                    source_hash=source_hash,
+                    extra={
+                        'SOURCE_COLLECTION': collection,
+                        'SOURCE_VERSION': version,
+                    },
+                ),
+            )
+            for variable in dataset.spec.variables.values()
+        ]
 
     def _distilled_stem(
         self: Self,

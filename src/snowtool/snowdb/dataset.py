@@ -29,7 +29,7 @@ from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from griffine.grid import TiledAffineGrid
 
@@ -377,7 +377,8 @@ class Dataset:
     def write_date_cogs(
         self: Self,
         date: date,
-        rasters: Iterable[WritableRaster],
+        out_names: Iterable[str],
+        build_rasters: Callable[[], Iterable[WritableRaster]],
         *,
         source_hash: str,
         force: bool = False,
@@ -385,14 +386,16 @@ class Dataset:
     ) -> bool:
         """Write a date's already-on-grid rasters into ``cogs/<YYYYMMDD>/`` atomically.
 
-        The dataset-agnostic write side of ingest: it owns the date directory; the
-        rasters (produced by an :class:`~snowtool.snowdb.ingest.Ingester`) know how
-        to write themselves as COGs into it. ``source_hash`` is the versioned hash
-        of the source artifact this date came from (see
-        :data:`INGEST_FORMAT_VERSION`); it is both stamped on every COG (via the
-        ingester's ``SOURCE_HASH`` tag) and used by the skip check below. Returns
-        ``True`` if the date dir was (re)built, ``False`` if it was skipped as
-        already current.
+        The dataset-agnostic write side of ingest: it owns the date directory.
+        ``out_names`` are the COG filenames this date will land (the ingester derives
+        them cheaply from source metadata); ``build_rasters`` is a deferred callable
+        producing the rasters (which know how to write themselves as COGs) -- it is
+        invoked **only if the date is not skipped**, so an already-current date never
+        pays to read the source. ``source_hash`` is the versioned hash of the source
+        artifact this date came from (see :data:`INGEST_FORMAT_VERSION`); it is both
+        stamped on every COG (via the ingester's ``SOURCE_HASH`` tag) and used by the
+        skip check below. Returns ``True`` if the date dir was (re)built, ``False`` if
+        it was skipped as already current.
 
         The whole per-date directory is the unit of commit. Writes stage into a
         temp dir beside the target (:func:`~snowtool.snowdb.atomic.staged_dir`) and
@@ -403,7 +406,7 @@ class Dataset:
         unresolvable (the finding-5 duplicate-``__swe.tif`` bug).
 
         Completeness is enforced at date granularity. Before any filesystem work the
-        supplied rasters must cover every spec variable, so a source that is short a
+        declared ``out_names`` must cover every spec variable, so a source short a
         required input variable raises :class:`IncompleteDatasetDataError` up front;
         after writing, every spec variable must resolve to exactly one COG in the
         staged dir or the swap is abandoned and the existing date dir left untouched.
@@ -419,12 +422,11 @@ class Dataset:
         also reads as stale. Any divergence rebuilds the whole date dir; ``force``
         always rebuilds.
         """
-        rasters = list(rasters)
-        expected_names = {raster.out_name for raster in rasters}
+        expected_names = frozenset(out_names)
 
-        # Pre-validate the inputs before touching the filesystem: the produced
-        # rasters must cover every spec variable, so a source short an input
-        # variable fails fast rather than committing a partial date.
+        # Pre-validate the declared outputs before touching the filesystem (or
+        # reading the source): the names must cover every spec variable, so a source
+        # short an input variable fails fast rather than committing a partial date.
         missing = self._unresolved_variables(expected_names)
         if missing:
             raise IncompleteDatasetDataError.for_variables(
@@ -437,9 +439,11 @@ class Dataset:
 
         # Skip-if-current (per-date): an existing dir already holding exactly the
         # COGs this call would write *and* stamped with the same source hash is
-        # complete and up to date -- nothing to do. Any divergence (a missing
-        # member, a stale COG from an old source, or a same-name different-bytes
-        # re-release) falls through to a full, atomic rebuild below.
+        # complete and up to date -- nothing to do. Decided on the declared names +
+        # hash alone, *before* build_rasters runs, so an up-to-date date is skipped
+        # without reading (extracting) its source. Any divergence (a missing member,
+        # a stale COG from an old source, or a same-name different-bytes re-release)
+        # falls through to a full, atomic rebuild below.
         if (
             not force
             and output_dir.is_dir()
@@ -447,6 +451,9 @@ class Dataset:
             and self._date_source_hash(output_dir) == source_hash
         ):
             return False
+
+        # Not skipped: now build the rasters (this is where SNODAS extracts its tar).
+        rasters = list(build_rasters())
 
         # staged_dir stages beside the target, so the cogs/ parent must exist (a
         # management write may run before any date has been ingested).

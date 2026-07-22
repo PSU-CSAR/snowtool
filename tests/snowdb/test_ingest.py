@@ -8,7 +8,7 @@ check reads it back), which is enough to exercise the filename-set completeness,
 hash-based skip-if-current, and stale-cleanup logic without a full dataset fixture.
 """
 
-from datetime import UTC, date, datetime
+from datetime import date
 
 import pytest
 
@@ -21,7 +21,7 @@ from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
-from ..conftest import CapturingProgress, snodas_swe_name, write_marker_cog
+from ..conftest import CapturingProgress, write_marker_cog
 
 _MM = Unit(name='mm', scale_factor=1)
 
@@ -98,11 +98,28 @@ def _full(stem: str, source_hash: str = _HASH_A) -> list[_FakeRaster]:
     ]
 
 
+def _write(dataset, d, rasters, *, source_hash=_HASH_A, force=False, **kwargs):
+    """Drive write_date_cogs' (out_names, deferred build) contract from a raster list.
+
+    The write path now takes the declared ``out_names`` and a zero-arg
+    ``build_rasters`` (invoked only if the date is not skipped); this adapts a plain
+    list of fake rasters to that shape so the test bodies stay about behaviour.
+    """
+    return dataset.write_date_cogs(
+        d,
+        frozenset(r.out_name for r in rasters),
+        lambda: rasters,
+        source_hash=source_hash,
+        force=force,
+        **kwargs,
+    )
+
+
 def test_write_date_cogs_creates_date_dir_and_writes(two_var_dataset):
     rasters = _full('srcA')
     d = date(2020, 1, 5)
 
-    assert two_var_dataset.write_date_cogs(d, rasters, source_hash=_HASH_A)
+    assert _write(two_var_dataset, d, rasters)
 
     out = two_var_dataset.date_dir(d)
     assert out.is_dir()
@@ -114,38 +131,58 @@ def test_write_date_cogs_creates_date_dir_and_writes(two_var_dataset):
 def test_write_date_cogs_missing_variable_raises_before_writing(two_var_dataset):
     # A source short a required input variable is caught before any staging.
     with pytest.raises(IncompleteDatasetDataError, match='depth'):
-        two_var_dataset.write_date_cogs(
-            date(2020, 1, 5),
-            [_FakeRaster('srcA', 'swe')],
-            source_hash=_HASH_A,
-        )
+        _write(two_var_dataset, date(2020, 1, 5), [_FakeRaster('srcA', 'swe')])
 
     assert not two_var_dataset.date_dir(date(2020, 1, 5)).exists()
 
 
 def test_write_date_cogs_skips_when_current(two_var_dataset):
     d = date(2020, 1, 5)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
     out = two_var_dataset.date_dir(d)
     before = {p.name: p.stat().st_mtime_ns for p in out.iterdir()}
 
     # Re-run unchanged (same names, same hash) -> skipped wholesale, returns False.
     rerun = _full('srcA')
-    assert two_var_dataset.write_date_cogs(d, rerun, source_hash=_HASH_A) is False
+    assert _write(two_var_dataset, d, rerun) is False
 
     assert all(r.written_to is None for r in rerun)
     assert {p.name: p.stat().st_mtime_ns for p in out.iterdir()} == before
+
+
+def test_write_date_cogs_skip_does_not_build_rasters(two_var_dataset):
+    # The build callable is invoked only when a date is (re)built: an already-current
+    # date must be skipped without ever calling it (SNODAS never extracts its tar).
+    d = date(2020, 1, 5)
+    _write(two_var_dataset, d, _full('srcA'))
+
+    built = 0
+
+    def build():
+        nonlocal built
+        built += 1
+        return _full('srcA')
+
+    wrote = two_var_dataset.write_date_cogs(
+        d,
+        frozenset({'srcA__swe.tif', 'srcA__depth.tif'}),
+        build,
+        source_hash=_HASH_A,
+    )
+
+    assert wrote is False
+    assert built == 0
 
 
 def test_write_date_cogs_same_name_different_bytes_rebuilds(two_var_dataset):
     # A re-release under the *same* filename with different bytes keeps the name
     # set identical, so only the source-hash mismatch catches it.
     d = date(2020, 1, 5)
-    two_var_dataset.write_date_cogs(d, _full('srcA', _HASH_A), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA', _HASH_A))
     out = two_var_dataset.date_dir(d)
 
     rerun = _full('srcA', _HASH_B)
-    assert two_var_dataset.write_date_cogs(d, rerun, source_hash=_HASH_B) is True
+    assert _write(two_var_dataset, d, rerun, source_hash=_HASH_B) is True
 
     assert all(r.written_to is not None for r in rerun)
     assert two_var_dataset._date_source_hash(out) == _HASH_B
@@ -161,7 +198,7 @@ def test_write_date_cogs_missing_hash_tag_rebuilds(two_var_dataset):
         write_marker_cog(out / name, None)
 
     rerun = _full('srcA')
-    assert two_var_dataset.write_date_cogs(d, rerun, source_hash=_HASH_A) is True
+    assert _write(two_var_dataset, d, rerun) is True
 
     assert all(r.written_to is not None for r in rerun)
     assert two_var_dataset._date_source_hash(out) == _HASH_A
@@ -169,11 +206,11 @@ def test_write_date_cogs_missing_hash_tag_rebuilds(two_var_dataset):
 
 def test_write_date_cogs_force_rebuilds_current_dir(two_var_dataset):
     d = date(2020, 1, 5)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
 
     # force rebuilds even when names + hash both already match.
     rerun = _full('srcA')
-    assert two_var_dataset.write_date_cogs(d, rerun, source_hash=_HASH_A, force=True)
+    assert _write(two_var_dataset, d, rerun, force=True)
 
     assert all(r.written_to is not None for r in rerun)
 
@@ -182,12 +219,7 @@ def test_write_date_cogs_reports_progress_per_cog(two_var_dataset):
     progress = CapturingProgress()
     d = date(2020, 1, 5)
 
-    two_var_dataset.write_date_cogs(
-        d,
-        _full('srcA'),
-        source_hash=_HASH_A,
-        progress=progress,
-    )
+    _write(two_var_dataset, d, _full('srcA'), progress=progress)
 
     # One task for the rebuilt date, advanced once per written COG (swe + depth),
     # labelled with the dataset name and ISO date.
@@ -198,28 +230,20 @@ def test_write_date_cogs_reports_progress_per_cog(two_var_dataset):
 
 def test_write_date_cogs_skip_reports_no_progress(two_var_dataset):
     d = date(2020, 1, 5)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
 
     # An already-current date returns before the write loop, so no task is opened.
     progress = CapturingProgress()
-    assert (
-        two_var_dataset.write_date_cogs(
-            d,
-            _full('srcA'),
-            source_hash=_HASH_A,
-            progress=progress,
-        )
-        is False
-    )
+    assert _write(two_var_dataset, d, _full('srcA'), progress=progress) is False
     assert progress.tasks == []
 
 
 def test_write_date_cogs_changed_source_replaces_stale(two_var_dataset):
     d = date(2020, 1, 5)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
 
     # A differently-named source (e.g. a version bump): same keys, new stems.
-    two_var_dataset.write_date_cogs(d, _full('srcB', _HASH_B), source_hash=_HASH_B)
+    _write(two_var_dataset, d, _full('srcB', _HASH_B), source_hash=_HASH_B)
 
     out = two_var_dataset.date_dir(d)
     # The wholesale swap dropped srcA's stale COGs by construction.
@@ -231,12 +255,12 @@ def test_write_date_cogs_changed_source_replaces_stale(two_var_dataset):
 def test_write_date_cogs_force_clears_decoy_and_resolves(two_var_dataset):
     d = date(2020, 1, 5)
     out = two_var_dataset.date_dir(d)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
     # A stale decoy from a prior differently-named source also matches *__swe.tif,
     # which would make swe unresolvable on read.
     (out / 'otherstem__swe.tif').write_text('stale')
 
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A, force=True)
+    _write(two_var_dataset, d, _full('srcA'), force=True)
 
     assert {p.name for p in out.iterdir()} == {'srcA__swe.tif', 'srcA__depth.tif'}
     swe = two_var_dataset.spec.variables['swe']
@@ -246,7 +270,7 @@ def test_write_date_cogs_force_clears_decoy_and_resolves(two_var_dataset):
 def test_write_date_cogs_post_validate_discards_and_preserves(two_var_dataset):
     d = date(2020, 1, 5)
     out = two_var_dataset.date_dir(d)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
     good = {p.name for p in out.iterdir()}
 
     # depth's raster claims depth in out_name (passes pre-check) but writes a
@@ -256,7 +280,7 @@ def test_write_date_cogs_post_validate_discards_and_preserves(two_var_dataset):
         _MisfilingRaster('srcB__depth.tif', 'srcB__WRONG.tif'),
     ]
     with pytest.raises(IncompleteDatasetDataError, match='depth'):
-        two_var_dataset.write_date_cogs(d, bad, source_hash=_HASH_B, force=True)
+        _write(two_var_dataset, d, bad, source_hash=_HASH_B, force=True)
 
     # The prior, good date dir is left exactly as it was.
     assert {p.name for p in out.iterdir()} == good
@@ -265,7 +289,7 @@ def test_write_date_cogs_post_validate_discards_and_preserves(two_var_dataset):
 def test_variable_path_duplicate_raises_incomplete(two_var_dataset):
     d = date(2020, 1, 5)
     out = two_var_dataset.date_dir(d)
-    two_var_dataset.write_date_cogs(d, _full('srcA'), source_hash=_HASH_A)
+    _write(two_var_dataset, d, _full('srcA'))
     # A stale duplicate that slipped in out-of-band makes swe ambiguous.
     (out / 'otherstem__swe.tif').write_text('stale')
 
@@ -318,6 +342,7 @@ def test_ingest_delegates_to_ingester(tmp_path, spec):
             yield DateIngest(
                 date=date(2021, 3, 1),
                 source_files=[source],
+                out_names=frozenset({'srcA__swe.tif', 'srcA__depth.tif'}),
                 build_rasters=lambda _hash: _full('srcA'),
             )
 
@@ -338,7 +363,99 @@ def test_ingest_delegates_to_ingester(tmp_path, spec):
     assert recorder.calls == [(src, ds)]
 
 
-# --- SnodasIngester orchestration (no GDAL: archive parsing is faked) ---------
+# --- SnodasIngester orchestration ---------------------------------------------
+#
+# plan() now reads only the tar's *member names* -- no extraction, no GDAL -- so it
+# runs over a real archive built from real SNODAS filename stems. Extraction (the
+# SNODAS/GDAL boundary) is the one thing stubbed: `extract_archive` is a spy that
+# also drops empty header files, and each raster's rasterio-backed `write_cog` is
+# swapped for a marker write. So the whole plan -> skip -> build -> write pipeline
+# runs on real code, and the skip path is proven to trigger no extraction.
+
+
+def _snodas_stems(date_str: str = '20190202', hour: str = '05') -> list[str]:
+    """A full per-product set of parseable SNODAS filename stems for one date/hour.
+
+    Non-precip products are vcode-agnostic (any 4-char vcode parses), so they reuse
+    'lL00'; the two precip variants carry their real 'lL00'/'lL01' split -- yielding
+    exactly one stem per :class:`Product`, the complete set the ingester requires.
+    """
+    stems = []
+    for _product, (code, vcode, _unit) in _snodas_products().items():
+        vc = vcode or 'lL00'
+        stems.append(f'us_ssmv1{code}S{vc}T0001TTNATS{date_str}{hour}HP001')
+    return stems
+
+
+def _snodas_products():
+    from snowtool.snowdb.datasets.snodas import _PRODUCTS
+
+    return _PRODUCTS
+
+
+def _write_snodas_tar(path, stems: list[str], payload: bytes = b'placeholder') -> None:
+    """A real (gzipped-members) SNODAS tar carrying each stem's header + data.
+
+    The member names are what plan() reads; the members' *contents* are irrelevant
+    to it (extraction is stubbed), so tiny gzipped placeholders suffice. Header
+    members are ``.txt.gz`` (what ``header_stems`` keys on); data rides as ``.dat.gz``.
+    A differing ``payload`` yields the *same* member names with different tar bytes --
+    the same-name re-release the hash-based skip catches.
+    """
+    import gzip
+    import io
+    import tarfile
+
+    def _add(tar, name: str) -> None:
+        body = gzip.compress(payload)
+        info = tarfile.TarInfo(name)
+        info.size = len(body)
+        tar.addfile(info, io.BytesIO(body))
+
+    with tarfile.open(path, 'w') as tar:
+        for stem in stems:
+            _add(tar, f'{stem}.txt.gz')
+            _add(tar, f'{stem}.dat.gz')
+
+
+class _ExtractSpy:
+    """Records SNODAS extraction calls and drops empty header files per call.
+
+    Stubs the SNODAS/GDAL extraction boundary: it counts invocations (so the skip
+    path can assert zero) and writes an empty ``<stem>.txt`` per parsed name into the
+    extract dir, so build_rasters' stem->header match resolves without real bytes.
+    """
+
+    def __init__(self, stems: list[str]) -> None:
+        self.stems = stems
+        self.calls = 0
+
+    def __call__(self, source, extract_dir) -> None:
+        self.calls += 1
+        for stem in self.stems:
+            (extract_dir / f'{stem}.txt').write_text('')
+
+
+def _patch_snodas_boundaries(monkeypatch, spy: _ExtractSpy) -> None:
+    """Swap the two SNODAS/GDAL boundaries: extraction (spy) and the rasterio write.
+
+    plan()'s member-name read and build_rasters' stem-matching run for real; only
+    the archive extraction and the per-raster COG write (both needing the system
+    SNODAS/GDAL stack) are replaced -- the write drops a marker COG carrying the
+    (now required, immutable) source_hash the skip check reads back.
+    """
+    monkeypatch.setattr(
+        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.extract_archive',
+        staticmethod(spy),
+    )
+
+    def _marker_write(self, output_dir) -> None:
+        write_marker_cog(output_dir / self.out_name, self.source_hash)
+
+    monkeypatch.setattr(
+        'snowtool.snowdb.datasets.snodas.SNODASInputRaster.write_cog',
+        _marker_write,
+    )
 
 
 def test_snodas_spec_has_a_snodas_ingester():
@@ -355,108 +472,77 @@ def test_snodas_ingest_rejects_a_directory_source(tmp_path):
         ds.ingest(source)
 
 
-class _RevisionRaster:
-    """Minimal stand-in carrying just the time-step datetime the pin inspects."""
-
-    def __init__(self, hour: int) -> None:
-        self.datetime = datetime(2020, 1, 5, hour, tzinfo=UTC)
-
-
 def test_snodas_set_accepts_pinned_05_timestep():
-    # All rasters at the pinned 05 time-step (the daily product) -> no error.
-    SNODASInputRasterSet.validate_revision([_RevisionRaster(5), _RevisionRaster(5)])
+    # A full product set at the pinned 05 time-step (the daily product) -> no error.
+    rs = SNODASInputRasterSet.from_names(_snodas_stems(hour='05'))
+    assert rs.date == date(2019, 2, 2)
 
 
 def test_snodas_set_refuses_other_timestep_hours():
     # Any other time-step hour is refused so a date never mixes revisions.
     with pytest.raises(SnowtoolError, match='pins to the 05 time-step'):
-        SNODASInputRasterSet.validate_revision(
-            [_RevisionRaster(5), _RevisionRaster(18)],
-        )
+        SNODASInputRasterSet.from_names(_snodas_stems(hour='18'))
 
 
-def _patch_snodas_archive(monkeypatch, swe_name, ingest_date):
-    """Stub the SNODAS extract/parse seam with a fresh real-COG raster.
-
-    The archive parsing (which needs the system SNODAS/GDAL stack) is stubbed: the
-    extraction is a no-op and ``from_extracted`` returns a one-raster set parsed
-    once, whose ``build_rasters`` stamps the driver-computed source hash onto its
-    single raster before writing. So the driver's hashing, per-date skip, and write
-    orchestration run over real code.
-    """
-
-    class _FakeRasterFile:
-        def __init__(self) -> None:
-            self.out_name = f'{swe_name}.tif'
-            self.source_hash: str | None = None
-
-        def write_cog(self, output_dir) -> None:
-            write_marker_cog(output_dir / self.out_name, self.source_hash)
-
-    class _FakeSet:
-        def __init__(self) -> None:
-            self.date = ingest_date
-            self._raster = _FakeRasterFile()
-
-        def __iter__(self):
-            yield self._raster
-
-        def build_rasters(self, source_hash: str):
-            self._raster.source_hash = source_hash
-            return [self._raster]
-
-    monkeypatch.setattr(
-        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.extract_archive',
-        staticmethod(lambda source, extract_dir: None),
-    )
-    monkeypatch.setattr(
-        'snowtool.snowdb.datasets.snodas.SNODASInputRasterSet.from_extracted',
-        classmethod(lambda cls, extract_dir: _FakeSet()),
+def _snodas_spec(spec):
+    """A synthetic-grid snodas dataset spec carrying the real 8 SNODAS variables."""
+    return DatasetSpec(
+        name='snodas',
+        grid_params=spec.grid_params,
+        variables=tuple(SNODAS_SPEC.variables.values()),
+        ingester=SnodasIngester(),
     )
 
 
 def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
     """The SNODAS plan is driven through run_ingest into per-date COGs.
 
-    The archive parsing (which needs the system SNODAS/GDAL stack) is stubbed so
-    this exercises only the ingest orchestration on a single-variable synthetic
-    snodas dataset (so the fake set of one COG still satisfies date completeness).
+    Only the SNODAS/GDAL extraction + rasterio write are stubbed; plan reads the real
+    tar's member names, so the full product set + provenance-named COGs are exercised.
     """
-    mini = DatasetSpec(
-        name='snodas',
-        grid_params=spec.grid_params,
-        variables=(SNODAS_SPEC.variables['swe'],),
-        ingester=SnodasIngester(),
-    )
-    ds, _ = Dataset.create(mini, tmp_path / 'db')
-    swe_name = snodas_swe_name('20190202')
+    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
     d = date(2019, 2, 2)
-    # The driver hashes the source tar, so it must exist on disk.
+    stems = _snodas_stems('20190202')
     tar = tmp_path / 'snodas.tar'
-    tar.write_bytes(b'fake snodas archive bytes')
-    _patch_snodas_archive(monkeypatch, swe_name, d)
+    _write_snodas_tar(tar, stems)
+    spy = _ExtractSpy(stems)
+    _patch_snodas_boundaries(monkeypatch, spy)
 
     result = ds.ingest(tar)
 
     assert result == IngestResult(ingested=[d], skipped=[])
-    cog_path = ds.date_dir(d) / f'{swe_name}.tif'
-    assert cog_path.is_file()
-    # The driver stamped the versioned tar hash on the written COG.
+    # One provenance-named COG per product landed.
+    assert {p.name for p in ds.date_dir(d).iterdir()} == {f'{s}.tif' for s in stems}
+    # Extraction happened exactly once (the one date built).
+    assert spy.calls == 1
+    # The driver stamped the versioned tar hash on the written COGs.
     assert ds._date_source_hash(ds.date_dir(d)).startswith(
         f'v{INGEST_FORMAT_VERSION}:',
     )
 
 
-def _mini_snodas(tmp_path, spec):
-    return Dataset.create(
-        DatasetSpec(
-            name='snodas',
-            grid_params=spec.grid_params,
-            variables=(SNODAS_SPEC.variables['swe'],),
-            ingester=SnodasIngester(),
-        ),
-        tmp_path / 'db',
-    )[0]
+def test_snodas_skip_path_does_no_extraction(tmp_path, spec, monkeypatch):
+    """An already-current archive is skipped with ZERO tar extraction.
+
+    The converge-by-default bulk re-run: after the first ingest, re-ingesting the
+    identical tar must be skipped on the member-names + hash alone -- build_rasters
+    (the only extraction site) is never called, so the spy's call count does not rise.
+    """
+    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
+    d = date(2019, 2, 2)
+    stems = _snodas_stems('20190202')
+    tar = tmp_path / 'snodas.tar'
+    _write_snodas_tar(tar, stems)
+    spy = _ExtractSpy(stems)
+    _patch_snodas_boundaries(monkeypatch, spy)
+
+    assert ds.ingest(tar).ingested == [d]
+    assert spy.calls == 1  # the first, real build
+
+    # Re-ingest the identical archive -> skipped, and NO further extraction.
+    result = ds.ingest(tar)
+    assert result == IngestResult(ingested=[], skipped=[d])
+    assert spy.calls == 1  # unchanged: the skip path extracted nothing
 
 
 def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
@@ -466,26 +552,30 @@ def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
 ):
     # Converge-by-default: re-ingesting the identical tar is skipped; a same-name
     # tar with different bytes rebuilds; --force always rebuilds.
+    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
     d = date(2019, 2, 2)
-    swe_name = snodas_swe_name('20190202')
-    ds = _mini_snodas(tmp_path, spec)
-    _patch_snodas_archive(monkeypatch, swe_name, d)
+    stems = _snodas_stems('20190202')
     tar = tmp_path / 'snodas.tar'
-    tar.write_bytes(b'archive v1')
-    cog_path = ds.date_dir(d) / f'{swe_name}.tif'
+    _write_snodas_tar(tar, stems)
+    spy = _ExtractSpy(stems)
+    _patch_snodas_boundaries(monkeypatch, spy)
+    a_cog = ds.date_dir(d) / f'{stems[0]}.tif'
 
     assert ds.ingest(tar).ingested == [d]
-    first_mtime = cog_path.stat().st_mtime_ns
+    first_mtime = a_cog.stat().st_mtime_ns
 
-    # Same bytes -> skipped, file untouched.
+    # Same bytes -> skipped, files untouched, no re-extraction.
     result = ds.ingest(tar)
     assert result == IngestResult(ingested=[], skipped=[d])
-    assert cog_path.stat().st_mtime_ns == first_mtime
+    assert a_cog.stat().st_mtime_ns == first_mtime
+    assert spy.calls == 1
 
-    # Same name, different bytes -> rebuilt (hash mismatch).
-    tar.write_bytes(b'archive v2 -- re-released under the same name')
+    # Same names, different bytes -> rebuilt (hash mismatch), so a fresh extraction.
+    _write_snodas_tar(tar, stems, payload=b're-released under the same name')
     assert ds.ingest(tar).ingested == [d]
+    assert spy.calls == 2
 
     # force rebuilds even when the hash matches.
     result = ds.ingest(tar, force=True)
     assert result.ingested == [d]
+    assert spy.calls == 3

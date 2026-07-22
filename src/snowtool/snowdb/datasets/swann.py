@@ -179,16 +179,22 @@ class SwannIngester:
         crs = dataset.grid_crs
         tile_size = dataset.spec.grid_params.tile_size
 
+        # Name each COG after the source file (+ variable) so the provenance is
+        # visible in the filesystem; derived from the source path + spec alone, so
+        # the skip check has them without opening the NetCDF.
+        out_by_key = {
+            key: f'{source.stem}__{dataset.spec.variables[key].key}.tif'
+            for key in _SUBDATASET_TO_VARIABLE.values()
+        }
+
         def build_rasters(source_hash: str) -> list[WritableRaster]:
-            # Name each COG after the source file (+ variable) so the provenance is
-            # visible in the filesystem; the full record also goes into COG tags.
             rasters: list[WritableRaster] = []
             for subdataset, key in _SUBDATASET_TO_VARIABLE.items():
                 variable = dataset.spec.variables[key]
                 rasters.append(
                     SwannRaster(
                         f'netcdf:{source}:{subdataset}',
-                        f'{source.stem}__{variable.key}.tif',
+                        out_by_key[key],
                         transform=transform,
                         crs=crs,
                         tile_size=tile_size,
@@ -208,6 +214,7 @@ class SwannIngester:
         yield DateIngest(
             date=ingest_date,
             source_files=[source],
+            out_names=frozenset(out_by_key.values()),
             build_rasters=build_rasters,
         )
 

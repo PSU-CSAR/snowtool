@@ -1,13 +1,14 @@
 """The SNODAS dataset definition: variables, grid spec, and ingest.
 
 ``Product`` is the SNODAS variable enum, including its filename-code mapping
-(``to_glob`` / ``from_product_codes``). The SNODAS *filename parser* and the
-per-date raster set (``SNODASInputRaster`` / ``SNODASInputRasterSet``) live here
-too -- ingest is the only place that parses SNODAS filenames; the read path is
-dataset-agnostic (it finds a variable's file by its glob and gets the date from
-the ``cogs/<date>/`` directory). ``SNODAS_SPEC`` is the source of truth for the
-SNODAS grid/variables; it is collected into the registry in this package's
-``__init__``.
+(``to_glob`` / ``from_product_codes``). The SNODAS *filename parser* (``SNODASName``,
+a pure parse of a filename stem), its per-date validated set (``SNODASInputRasterSet``,
+built from tar member names alone), and the extracted-header writable raster
+(``SNODASInputRaster``) all live here -- ingest is the only place that parses SNODAS
+filenames; the read path is dataset-agnostic (it finds a variable's file by its glob
+and gets the date from the ``cogs/<date>/`` directory). ``SNODAS_SPEC`` is the source
+of truth for the SNODAS grid/variables; it is collected into the registry in this
+package's ``__init__``.
 """
 
 from __future__ import annotations
@@ -139,16 +140,15 @@ class Datatype(StrEnum):
     V1 = 'v1'  # model output
 
 
-class SNODASInputRaster:
-    """One parsed SNODAS header file, ready to write itself as a COG.
+class SNODASName:
+    """One parsed SNODAS filename stem -> its typed fields. Pure parse, no I/O.
 
-    Parses the SNODAS filename into its fields (region/model/datatype/product/
-    time-step) and implements the :class:`~snowtool.snowdb.ingest.WritableRaster`
-    contract. The filename is parsed once, at construction; ``source_hash`` -- the
-    driver-computed versioned hash of the source tar -- is stamped later, when
-    :meth:`SNODASInputRasterSet.build_rasters` runs, so a COG still can never be
-    written without its ``SOURCE_HASH`` provenance tag but the archive is not
-    re-parsed to apply it (see :meth:`write_cog`, which requires it be set).
+    The immutable parsed record at the heart of SNODAS ingest: it turns a filename
+    stem (region/model/datatype/product/time-step) into typed fields with no
+    filesystem access, so a whole date's product set can be identified, validated,
+    and named (:attr:`out_name`) straight from the tar's member names -- before a
+    single byte is extracted. :class:`SNODASInputRaster` pairs one of these with the
+    extracted header path (and the source hash) at write time.
     """
 
     regex: ClassVar[re.Pattern[str]] = re.compile(
@@ -173,13 +173,12 @@ class SNODASInputRaster:
         r'$',
     )
 
-    def __init__(self: Self, path: Path) -> None:
-        self.path = path
-        self.name = self.path.stem
-        # Stamped at build time by SNODASInputRasterSet.build_rasters; write_cog
-        # refuses to run until it is set.
-        self.source_hash: str | None = None
-        info = self._match(self.name).groupdict()
+    def __init__(self: Self, name: str) -> None:
+        self.name = name
+        match = self.regex.match(name)
+        if not match:
+            raise IngestSourceError('unable to parse SNODAS file path')
+        info = match.groupdict()
 
         try:
             self.region = Region(info['region'])
@@ -204,18 +203,63 @@ class SNODASInputRaster:
         except Exception as e:
             raise IngestSourceError('invalid value in SNODAS file name') from e
 
+    @property
+    def out_name(self: Self) -> str:
+        # SNODAS keeps its full parsed source stem as the COG name (its provenance
+        # is the filename); satisfies the WritableRaster.out_name contract.
+        return f'{self.name}.tif'
+
+    def provenance_tags(
+        self: Self,
+        source_files: str,
+        source_hash: str,
+    ) -> dict[str, str]:
+        # SNODAS already keeps its full source stem as the COG name; these tags
+        # add the parsed fields as a structured, queryable record in the file.
+        return source_tags(
+            dataset=SNODAS_SPEC.name,
+            date=self.datetime.date(),
+            variable=self.product.value,
+            files=source_files,
+            source_hash=source_hash,
+            extra={
+                'SOURCE_REGION': self.region.value,
+                'SOURCE_MODEL': self.model.value,
+                'SOURCE_DATATYPE': self.datatype.value,
+                'SOURCE_SCALED': str(self.scaled),
+                'SOURCE_VCODE': self.vcode,
+                'SOURCE_TIMECODE': self.timecode,
+                'SOURCE_INTERVAL': self.interval,
+                'SOURCE_OFFSET': self.offset,
+                'SOURCE_TIMESTEP': self.datetime.isoformat(),
+            },
+        )
+
+
+class SNODASInputRaster:
+    """One extracted SNODAS header file, ready to write itself as a COG.
+
+    Pairs a :class:`SNODASName` (the filename fields) with the extracted header
+    ``path`` and the driver-computed ``source_hash``, implementing the
+    :class:`~snowtool.snowdb.ingest.WritableRaster` contract. Constructed only at
+    build time (after the skip check), with the hash a *required* argument -- so a
+    COG can never land without its ``SOURCE_HASH`` provenance tag, and there is no
+    stamp-later mutation.
+    """
+
+    def __init__(self: Self, parsed: SNODASName, path: Path, source_hash: str) -> None:
         if path.suffix not in HDR_EXTS:
             raise IngestSourceError(
                 'SNODAS raster path must be to header file. '
                 f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
             )
+        self.parsed = parsed
+        self.path = path
+        self.source_hash = source_hash
 
-    @classmethod
-    def _match(cls: type[Self], string: str):
-        match = cls.regex.match(string)
-        if not match:
-            raise IngestSourceError('unable to parse SNODAS file path')
-        return match
+    @property
+    def out_name(self: Self) -> str:
+        return self.parsed.out_name
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
@@ -231,21 +275,7 @@ class SNODASInputRaster:
         with hdr.open('wb') as f:
             f.writelines(lines)
 
-    @property
-    def out_name(self: Self) -> str:
-        # SNODAS keeps its full parsed source stem as the COG name (its provenance
-        # is the filename); satisfies the WritableRaster.out_name contract.
-        return f'{self.name}.tif'
-
     def write_cog(self: Self, output_dir: Path) -> None:
-        source_hash = self.source_hash
-        if source_hash is None:
-            # Upholds the invariant a COG never lands without provenance: the set's
-            # build_rasters stamps the hash before handing rasters to the driver.
-            raise SnowtoolError(
-                'SNODAS raster written without a source hash; '
-                'build_rasters must stamp it first',
-            )
         # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
         self.trim_header(self.path)
 
@@ -262,61 +292,45 @@ class SNODASInputRaster:
             crs=crs,
             nodata=nodata,
             tile_size=SNODAS_SPEC.grid_params.tile_size,
-            tags=self._provenance_tags(source_hash),
-        )
-
-    def _provenance_tags(self: Self, source_hash: str) -> dict[str, str]:
-        # SNODAS already keeps its full source stem as the COG name; these tags
-        # add the parsed fields as a structured, queryable record in the file.
-        return source_tags(
-            dataset=SNODAS_SPEC.name,
-            date=self.datetime.date(),
-            variable=self.product.value,
-            files=self.path.name,
-            source_hash=source_hash,
-            extra={
-                'SOURCE_REGION': self.region.value,
-                'SOURCE_MODEL': self.model.value,
-                'SOURCE_DATATYPE': self.datatype.value,
-                'SOURCE_SCALED': str(self.scaled),
-                'SOURCE_VCODE': self.vcode,
-                'SOURCE_TIMECODE': self.timecode,
-                'SOURCE_INTERVAL': self.interval,
-                'SOURCE_OFFSET': self.offset,
-                'SOURCE_TIMESTEP': self.datetime.isoformat(),
-            },
+            tags=self.parsed.provenance_tags(self.path.name, self.source_hash),
         )
 
 
 class SNODASInputRasterSet:
-    """A date's validated set of SNODAS rasters, one per product.
+    """A date's validated set of parsed SNODAS names, one per product.
 
-    Built once by :meth:`from_extracted` from an extracted archive's header files:
-    it validates that the archive holds every product, is a single date, and sits
-    at the pinned time-step. The archive is parsed exactly once here; the driver's
-    ``source_hash`` is stamped onto the already-parsed rasters later, by
-    :meth:`build_rasters`, which returns them as the date's writable rasters.
+    Built from filename stems alone (:meth:`from_names`) -- the tar's member names,
+    no extraction -- it validates that the set holds every product, is a single
+    date, and sits at the pinned time-step, then exposes the date and the
+    :attr:`out_names` the write path needs for its skip check. Extraction is deferred
+    to :meth:`build_rasters`, which runs only when a date is not skipped: it unpacks
+    the archive and pairs each header with its already-parsed name (and the
+    driver-computed source hash) as a writable raster.
     """
 
     def __init__(
         self: Self,
-        rasters: Mapping[Product, SNODASInputRaster],
+        names: Mapping[Product, SNODASName],
     ) -> None:
-        missing = sorted(product.value for product in Product if product not in rasters)
+        missing = sorted(product.value for product in Product if product not in names)
         if missing:
             raise SnowtoolError(
                 f'SNODAS archive missing product(s): {missing}',
             )
-        self.rasters = dict(rasters)
-        self.date = self.validate_dates(self)
-        self.validate_revision(self)
+        self.names = dict(names)
+        self.date = self._validate_dates()
+        self._validate_revision()
 
-    def __iter__(self: Self) -> Iterator[SNODASInputRaster]:
-        return iter(self.rasters.values())
+    def __iter__(self: Self) -> Iterator[SNODASName]:
+        return iter(self.names.values())
 
-    @staticmethod
-    def validate_dates(rasters: Iterable[SNODASInputRaster]) -> date:
-        dates = {raster.datetime.date() for raster in rasters}
+    @property
+    def out_names(self: Self) -> frozenset[str]:
+        """The COG filenames this date will land -- from the parsed names alone."""
+        return frozenset(name.out_name for name in self)
+
+    def _validate_dates(self: Self) -> date:
+        dates = {name.datetime.date() for name in self}
         if len(dates) > 1:
             raise SnowtoolError(
                 'SNODAS rasters not all from same date per filenames',
@@ -333,20 +347,50 @@ class SNODASInputRasterSet:
     # (and its call in __init__) to allow other hours.
     PINNED_TIMESTEP_HOUR: ClassVar[int] = 5
 
-    @classmethod
-    def validate_revision(
-        cls: type[Self],
-        rasters: Iterable[SNODASInputRaster],
-    ) -> None:
-        pinned = cls.PINNED_TIMESTEP_HOUR
-        off = sorted({r.datetime.hour for r in rasters if r.datetime.hour != pinned})
+    def _validate_revision(self: Self) -> None:
+        pinned = self.PINNED_TIMESTEP_HOUR
+        off = sorted({n.datetime.hour for n in self if n.datetime.hour != pinned})
         if off:
             raise SnowtoolError(
                 f'Refusing SNODAS time-step hour(s) {off}: ingest pins to the '
-                f'{cls.PINNED_TIMESTEP_HOUR:02d} time-step (the standard daily '
+                f'{self.PINNED_TIMESTEP_HOUR:02d} time-step (the standard daily '
                 'product) so a date never mixes revisions. Remove the revision '
                 'pin to allow other hours.',
             )
+
+    @classmethod
+    def from_names(cls: type[Self], names: Iterable[str]) -> Self:
+        """The validated per-product set over filename stems (no I/O).
+
+        Each stem is parsed once into a :class:`SNODASName`; the resulting set is
+        keyed by product, so a duplicate product is a last-wins (the archive holds
+        one per product). Drives the cheap plan-time identification.
+        """
+        parsed: dict[Product, SNODASName] = {}
+        for name in names:
+            entry = SNODASName(name)
+            parsed[entry.product] = entry
+        return cls(parsed)
+
+    @staticmethod
+    def header_stems(member_names: Iterable[str]) -> list[str]:
+        """The SNODAS filename stems of an archive's header members.
+
+        Each raster is nested gzipped in the tar as ``<stem>.Hdr.gz`` /
+        ``<stem>.txt.gz`` (data files ride alongside as ``.dat.gz``). This strips the
+        ``.gz`` and keeps only the header members, returning the bare ``<stem>`` the
+        parser reads -- so a date's product set is known from ``tarfile.getnames()``
+        without touching the bytes.
+        """
+        stems: list[str] = []
+        for member in member_names:
+            name = Path(member).name
+            if not name.endswith('.gz'):
+                continue
+            inner = Path(name[: -len('.gz')])
+            if inner.suffix in HDR_EXTS:
+                stems.append(inner.stem)
+        return stems
 
     @staticmethod
     def extract_archive(snodas_tar: Path, extract_dir: Path) -> None:
@@ -366,34 +410,37 @@ class SNODASInputRasterSet:
                 with gzip.open(f, 'rb') as f_in, outpath.open('wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
 
-    @classmethod
-    def from_extracted(cls: type[Self], extract_dir: Path) -> Self:
-        """The validated per-product raster set over already-extracted headers.
-
-        Parses each header file once. The rasters carry no ``source_hash`` yet;
-        :meth:`build_rasters` stamps it before they are written.
-        """
-        rasters: dict[Product, SNODASInputRaster] = {}
-        for ext in HDR_EXTS:
-            for hdr in extract_dir.glob(f'*{ext}'):
-                file_info = SNODASInputRaster(hdr)
-                rasters[file_info.product] = file_info
-        return cls(rasters)
-
     def build_rasters(
         self: Self,
+        source: Path,
+        extract_dir: Path,
         source_hash: str,
     ) -> list[SNODASInputRaster]:
-        """Stamp the driver's source hash onto the parsed rasters, then return them.
+        """Extract ``source`` into ``extract_dir`` and pair each header with its name.
 
         The :class:`~snowtool.snowdb.ingest.DateIngest.build_rasters` callback for
-        SNODAS: no re-glob, no re-parse -- the archive was parsed once in
-        :meth:`from_extracted`; this just applies the hash the driver computed so
-        every COG lands with its ``SOURCE_HASH`` provenance tag.
+        SNODAS, run by the write path *only* when the date is not skipped: this is
+        the sole place the tar is extracted. ``extract_dir`` is the scratch dir the
+        ingester opened for this ingest (cleaned deterministically when ``plan``'s
+        context exits); each extracted header is matched by stem to the name already
+        parsed at plan time, then wrapped as a writable raster carrying the
+        driver-computed source hash (required, not stamped later).
         """
-        rasters = list(self)
-        for raster in rasters:
-            raster.source_hash = source_hash
+        self.extract_archive(source, extract_dir)
+
+        headers: dict[str, Path] = {}
+        for ext in HDR_EXTS:
+            for hdr in extract_dir.glob(f'*{ext}'):
+                headers[hdr.stem] = hdr
+
+        rasters: list[SNODASInputRaster] = []
+        for name in self:
+            path = headers.get(name.name)
+            if path is None:
+                raise IngestSourceError(
+                    f'SNODAS archive header missing on extraction for {name.name!r}',
+                )
+            rasters.append(SNODASInputRaster(name, path, source_hash))
         return rasters
 
 
@@ -404,12 +451,14 @@ class SnodasIngester:
     """Parses a SNODAS tar archive (one archive == one date) for the ingest driver.
 
     The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
-    :meth:`plan` extracts and parses the archive exactly once, validates the
-    date/product set, and yields a single
-    :class:`~snowtool.snowdb.ingest.DateIngest` whose ``build_rasters`` stamps the
-    driver-computed source hash onto those already-parsed rasters (each COG stamped
-    with that hash). The driver hashes the tar, drives the write, and builds the
-    result.
+    :meth:`plan` reads only the tar's *member names* (``tarfile.getnames()``) to
+    identify and validate the date's product set and derive its ``out_names`` -- no
+    extraction. It yields a single :class:`~snowtool.snowdb.ingest.DateIngest` whose
+    ``build_rasters`` extracts the archive (the one and only extraction) into a
+    scratch dir the plan holds open, and pairs each header with the driver-computed
+    source hash. The write path calls ``build_rasters`` only when the date is not
+    skipped, so an already-current archive is never unpacked -- the scratch dir stays
+    empty and is cleaned when the plan context exits.
     """
 
     def plan(
@@ -426,20 +475,30 @@ class SnodasIngester:
                 'invocation.',
             )
 
-        # Extract the archive once into a tempdir kept alive across the yield by
-        # this generator, and parse it once into the validated raster set. The
-        # date + product set are validated here; build_rasters stamps the driver's
-        # real source hash onto those same parsed rasters -- nothing is extracted
-        # or parsed twice.
+        # Read only the member names -- no extraction -- to identify and validate
+        # the date's product set. An already-current date is skipped having read
+        # only the tar's index.
+        with tarfile.open(source) as tar:
+            member_names = tar.getnames()
+        raster_set = SNODASInputRasterSet.from_names(
+            SNODASInputRasterSet.header_stems(member_names),
+        )
+
+        # An empty scratch dir for the extraction build_rasters may run, cleaned
+        # deterministically when this generator is exhausted/closed. Nothing is
+        # extracted here or before the write path decides to build -- so a skipped
+        # date leaves the dir empty (zero tar extraction).
         with tempfile.TemporaryDirectory() as _extract:
             extract_dir = Path(_extract)
-            SNODASInputRasterSet.extract_archive(source, extract_dir)
-            raster_set = SNODASInputRasterSet.from_extracted(extract_dir)
-
             yield DateIngest(
                 date=raster_set.date,
                 source_files=[source],
-                build_rasters=raster_set.build_rasters,
+                out_names=raster_set.out_names,
+                build_rasters=lambda source_hash: raster_set.build_rasters(
+                    source,
+                    extract_dir,
+                    source_hash,
+                ),
             )
 
 

@@ -10,20 +10,28 @@ only the kind-specific *parsing*.
 
 The seam is deliberately narrow: an ingester's sole job is to :meth:`~Ingester.plan`
 its source into one :class:`DateIngest` per date -- the date, the source files
-whose bytes hash that date's provenance, and a ``build_rasters`` callback that
-turns the (driver-computed) source hash into the date's on-grid rasters. The
-generic driver :func:`run_ingest` owns everything else: it computes the versioned
-:data:`~snowtool.snowdb.dataset.INGEST_FORMAT_VERSION` source hash, drives the
-write, and accumulates the :class:`IngestResult`. So a new dataset kind is a new
-``plan`` (pure parsing) -- no hashing, no write orchestration, no result
-bookkeeping. The driver covers both source shapes uniformly: one date per source
-(SNODAS tar, SWANN NetCDF -> a single ``DateIngest``) and many dates per source
-(an INSTARR tile tree -> one ``DateIngest`` per date).
+whose bytes hash that date's provenance, the COG filenames the date will land, and
+a ``build_rasters`` callback that turns the (driver-computed) source hash into the
+date's on-grid rasters. The generic driver :func:`run_ingest` owns everything else:
+it computes the versioned :data:`~snowtool.snowdb.dataset.INGEST_FORMAT_VERSION`
+source hash, drives the write, and accumulates the :class:`IngestResult`. So a new
+dataset kind is a new ``plan`` (pure parsing) -- no hashing, no write orchestration,
+no result bookkeeping. The driver covers both source shapes uniformly: one date per
+source (SNODAS tar, SWANN NetCDF -> a single ``DateIngest``) and many dates per
+source (an INSTARR tile tree -> one ``DateIngest`` per date).
+
+Planning stays cheap by design: an ingester derives ``out_names`` (and the date)
+from source *metadata* alone -- the tar member names, a NetCDF filename -- never by
+reading or extracting bytes. The per-date skip check
+(:meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`) needs only those names and
+the source hash, so an already-current date is skipped without ``build_rasters`` ever
+running. Only a date that must (re)build pays to open its source.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from snowtool.snowdb.progress import NULL_PROGRESS
@@ -78,13 +86,19 @@ class DateIngest:
     The whole ingester -> driver contract: ``date`` is the date this covers;
     ``source_files`` are the source artifacts whose bytes the driver hashes into
     that date's provenance (one tar/NetCDF, or a date's contributing tiles);
+    ``out_names`` are the COG filenames the date will land (the same
+    ``WritableRaster.out_name``\\ s ``build_rasters`` produces), derived cheaply from
+    source metadata so the per-date skip check can run *before* any bytes are read;
     ``build_rasters`` is called with the driver-computed versioned source hash and
     returns the date's on-grid rasters, tags already stamped -- so a COG can never
-    be written without its ``SOURCE_HASH``.
+    be written without its ``SOURCE_HASH``. ``build_rasters`` runs only when the date
+    is not skipped, so deferring the expensive source read into it (SNODAS tar
+    extraction) keeps an already-current date free of that cost.
     """
 
     date: date
     source_files: list[Path]
+    out_names: frozenset[str]
     build_rasters: Callable[[str], Iterable[WritableRaster]]
 
 
@@ -112,10 +126,12 @@ def run_ingest(
     """Drive ``ingester``'s per-date plan into COGs on ``dataset``.
 
     The one place ingest orchestration lives: for each :class:`DateIngest` the
-    ingester yields, compute the versioned source hash over its source files, ask
-    it to build the date's rasters from that hash, and commit them via the generic
-    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`. Accumulates and
-    returns the :class:`IngestResult` splitting dates written from those skipped as
+    ingester yields, compute the versioned source hash over its source files and hand
+    the date's ``out_names`` plus a hash-bound ``build_rasters`` to the generic
+    :meth:`~snowtool.snowdb.dataset.Dataset.write_date_cogs`, which runs the per-date
+    skip check on the names + hash alone and calls ``build_rasters`` only if it must
+    (re)build -- so an already-current date never pays to read its source. Accumulates
+    and returns the :class:`IngestResult` splitting dates written from those skipped as
     already current. ``progress`` reports each date's per-variable COG writes; it
     defaults to the no-op :data:`~snowtool.snowdb.progress.NULL_PROGRESS`.
     """
@@ -134,7 +150,11 @@ def run_ingest(
         )
         wrote = dataset.write_date_cogs(
             item.date,
-            item.build_rasters(source_hash),
+            item.out_names,
+            # Defer the build: write_date_cogs invokes this only when the date is not
+            # skipped, so the source is read at most once and never on the up-to-date
+            # path. partial binds the driver's hash into the zero-arg callable.
+            partial(item.build_rasters, source_hash),
             source_hash=source_hash,
             force=force,
             progress=progress,

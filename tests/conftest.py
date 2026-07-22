@@ -633,6 +633,18 @@ def _name_for_glob(glob: str) -> str:
     return ''.join(out)
 
 
+def full_marker_out_names(dataset) -> frozenset[str]:
+    """The COG filenames :func:`full_marker_rasters` will land, one per spec variable.
+
+    A fake ingester's ``DateIngest.out_names``: the write path's per-date skip check
+    reads these (with the source hash) *before* ``build_rasters`` runs, so they must
+    match what that build produces.
+    """
+    return frozenset(
+        _name_for_glob(variable.glob) for variable in dataset.spec.variables.values()
+    )
+
+
 def full_marker_rasters(dataset, source_hash: str) -> list[FakeRaster]:
     """One :class:`FakeRaster` per spec variable, covering every required variable.
 

@@ -106,10 +106,13 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
     captured: dict = {}
 
-    def fake_write(d, rasters, *, source_hash, force=False, **_):
+    def fake_write(d, out_names, build_rasters, *, source_hash, force=False, **_):
         captured.update(
             date=d,
-            rasters=list(rasters),
+            out_names=set(out_names),
+            # build_rasters is deferred: the write path builds only when not skipped,
+            # so invoke it here (as the real path would) to capture the rasters.
+            rasters=list(build_rasters()),
             force=force,
             source_hash=source_hash,
         )
@@ -129,6 +132,9 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
 
     rasters = {r.out_name: r for r in captured['rasters']}
     stem = 'UA_SWE_Depth_800m_v1_20240115_early'
+    # The declared out_names (read by the skip check before any build) match what
+    # build_rasters produced.
+    assert captured['out_names'] == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
     assert set(rasters) == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
     assert rasters[f'{stem}__swe.tif'].source_uri == f'netcdf:{source}:SWE'
     assert rasters[f'{stem}__depth.tif'].source_uri == f'netcdf:{source}:DEPTH'

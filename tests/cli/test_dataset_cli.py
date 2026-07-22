@@ -15,6 +15,7 @@ from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
 
 from ..conftest import (
+    full_marker_out_names,
     full_marker_rasters,
     write_swe_cog,
 )
@@ -466,6 +467,7 @@ def test_ingest_delegates_to_spec_ingester(
             yield DateIngest(
                 date=d,
                 source_files=[source],
+                out_names=full_marker_out_names(dataset),
                 build_rasters=lambda h: full_marker_rasters(dataset, h),
             )
 
@@ -510,6 +512,7 @@ def test_ingest_converges_and_force_reingests(
         yield DateIngest(
             date=date(2020, 1, 1),
             source_files=[source],
+            out_names=full_marker_out_names(dataset),
             build_rasters=lambda h: full_marker_rasters(dataset, h),
         )
 
@@ -565,6 +568,7 @@ def test_ingest_accepts_a_directory_source(runner, tmp_path, register_fake_inges
         yield DateIngest(
             date=date(2020, 1, 1),
             source_files=sorted(source.glob('*.nc')),
+            out_names=full_marker_out_names(dataset),
             build_rasters=lambda h: full_marker_rasters(dataset, h),
         )
 
@@ -616,6 +620,7 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
         yield DateIngest(
             date=date(2020, 1, 1),
             source_files=[source],
+            out_names=full_marker_out_names(dataset),
             build_rasters=lambda h: full_marker_rasters(dataset, h),
         )
 

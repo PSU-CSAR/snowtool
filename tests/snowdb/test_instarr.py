@@ -93,8 +93,12 @@ def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
     ds = Dataset(INSTARR_SPEC, tmp_path)
     calls: list = []
 
-    def fake_write(d, rasters, **k):
-        calls.append((d, list(rasters)))
+    def fake_write(d, out_names, build_rasters, **k):
+        # build_rasters is deferred (built only when not skipped); invoke it here as
+        # the real write path would, and check the declared names match its output.
+        rasters = list(build_rasters())
+        assert set(out_names) == {r.out_name for r in rasters}
+        calls.append((d, rasters))
         return True
 
     monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
