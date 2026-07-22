@@ -14,7 +14,6 @@ import rasterio
 from snowtool import types
 from snowtool.exceptions import (
     AOIRasterNotFoundError,
-    ArtifactExistsError,
     IncompleteDatasetDataError,
     NodataMaskError,
     SnowtoolError,
@@ -125,40 +124,40 @@ class Dataset:
         return rasterio.crs.CRS.from_user_input(self.spec.crs)
 
     @cached_property
-    def nodata_mask_hash(self: Self) -> str | None:
-        """sha256 of the configured nodata-mask file; ``None`` with no mask.
+    def nodata_mask_pair(self: Self) -> tuple[Path, str] | None:
+        """The nodata mask paired with its sha256 digest, or ``None`` with no mask.
+
+        The single source for both the mask path and its provenance hash: both
+        halves come from the same config field, so the pair is never
+        half-specified. It couples them into the one value ``write_aoi_raster``
+        wants (path + digest) instead of two positionally-tied arguments; the
+        digest alone is reachable via :attr:`nodata_mask_hash`. A configured mask
+        whose file is missing raises :class:`NodataMaskError`.
 
         Cached per instance so a convergence loop over hundreds of pourpoints
         hashes the file once, not once per AOI. Management ops build short-lived
         Datasets, so a swapped mask file is picked up by the next run.
         """
-        if self.nodata_mask is None:
-            return None
-        if not self.nodata_mask.is_file():
-            raise NodataMaskError(
-                f'dataset {self.spec.name!r}: configured nodata_mask '
-                f'{self.nodata_mask} is missing; restore the file or remove '
-                'nodata_mask from the dataset config',
-            )
-        return hash_files([self.nodata_mask])
-
-    @property
-    def nodata_mask_pair(self: Self) -> tuple[Path, str] | None:
-        """The nodata mask paired with its provenance hash, or ``None``.
-
-        Both halves come from the same config field, so the pair is never
-        half-specified; this couples them into the one value ``write_aoi_raster``
-        wants (path + digest) instead of two positionally-tied arguments.
-        """
         mask = self.nodata_mask
         if mask is None:
             return None
-        # A configured mask always has a hash (missing file raises in
-        # `nodata_mask_hash`); the local narrows it from `str | None` to `str`.
-        hash_ = self.nodata_mask_hash
-        if hash_ is None:  # pragma: no cover - unreachable given `mask is None`
-            return None
-        return (mask, hash_)
+        if not mask.is_file():
+            raise NodataMaskError(
+                f'dataset {self.spec.name!r}: configured nodata_mask '
+                f'{mask} is missing; restore the file or remove '
+                'nodata_mask from the dataset config',
+            )
+        return (mask, hash_files([mask]))
+
+    @property
+    def nodata_mask_hash(self: Self) -> str | None:
+        """sha256 of the configured nodata-mask file; ``None`` with no mask.
+
+        The digest half of :attr:`nodata_mask_pair` (the cache lives there), as
+        ``aoi_provenance`` wants just the hash.
+        """
+        pair = self.nodata_mask_pair
+        return pair[1] if pair is not None else None
 
     @classmethod
     def create(
@@ -167,8 +166,15 @@ class Dataset:
         path: Path,
         *,
         nodata_mask: Path | None = None,
-    ) -> Self:
-        """Create the dataset's directory skeleton.
+    ) -> tuple[Self, bool]:
+        """Create the dataset's directory skeleton; converge-by-default.
+
+        Idempotent: builds any missing part of the skeleton (the dataset dir plus
+        its ``aoi-rasters/`` and ``cogs/`` subdirs) with ``exist_ok=True`` and
+        never clobbers, so a fresh call and a re-run of a fully- or partially-built
+        skeleton both succeed. Returns ``(dataset, created)`` where ``created`` is
+        whether the skeleton was incomplete before this call (i.e. this call made
+        it) -- the caller uses it to report new-vs-existing.
 
         Zone layers (terrain, land cover, ...) are *not* built here: each needs a
         source and is generated separately by
@@ -176,22 +182,11 @@ class Dataset:
         source read across every dataset).
         """
         self = cls(spec, path, nodata_mask=nodata_mask)
-
-        try:
-            # The dataset dir itself may already exist as an empty skeleton from
-            # `snowtool init`, so tolerate it; whether the dataset is already
-            # *populated* is enforced by the artifact guards below (the
-            # aoi-rasters/cogs dirs), which refuse to clobber existing data.
-            self.path.mkdir(parents=True, exist_ok=True)
-            self._aoi_rasters.mkdir()
-            self._cogs.mkdir()
-        except FileExistsError as e:
-            raise ArtifactExistsError(
-                f'Could not create {self.spec.name} dataset: {self.path} already '
-                'exists. Remove and try again.',
-            ) from e
-
-        return self
+        created = not (self._aoi_rasters.is_dir() and self._cogs.is_dir())
+        self.path.mkdir(parents=True, exist_ok=True)
+        self._aoi_rasters.mkdir(exist_ok=True)
+        self._cogs.mkdir(exist_ok=True)
+        return self, created
 
     def zone_target(self: Self, provider: ZoneLayerProvider) -> ZoneLayerTarget:
         """This dataset's grid as a target for ``provider``'s generation engine."""
@@ -481,11 +476,6 @@ class Dataset:
                     missing,
                 )
         return True
-
-    def aoi_rasters(self: Self) -> Iterator[AOIRaster]:
-        yield from (
-            AOIRaster.open(path, self.grid) for path in self._aoi_rasters.glob('*.tif')
-        )
 
     def load_aoi_raster(
         self: Self,

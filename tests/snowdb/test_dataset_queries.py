@@ -109,7 +109,7 @@ def test_artifact_status_for_created_projected_dataset(tmp_path):
             crs=32611,
         ),
     )
-    dataset = Dataset.create(spec, tmp_path / 'utm')
+    dataset, _ = Dataset.create(spec, tmp_path / 'utm')
 
     status = dataset.artifact_status()
     assert status.aoi_rasters is True

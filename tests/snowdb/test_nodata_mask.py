@@ -116,7 +116,7 @@ def test_snowdb_resolves_nodata_mask_against_dataset_config_dir(
 
 
 def test_dataset_without_mask_has_none(tmp_path, spec):
-    ds = Dataset.create(spec, tmp_path / 'db')
+    ds, _ = Dataset.create(spec, tmp_path / 'db')
     assert ds.nodata_mask is None
 
 
@@ -137,7 +137,7 @@ def test_mask_add_change_remove_marks_aoi_stale(
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     root = tmp_path / 'db'
 
-    unmasked = Dataset.create(spec, root)
+    unmasked, _ = Dataset.create(spec, root)
     unmasked.rasterize_aoi(pp)
     assert unmasked.aoi_raster_is_current(pp)
 
@@ -166,12 +166,12 @@ def test_mask_burns_zero_area_outside_domain(
     nodata_mask,
 ):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
-    unmasked = Dataset.create(spec, tmp_path / 'plain').rasterize_aoi(pp)
+    unmasked = Dataset.create(spec, tmp_path / 'plain')[0].rasterize_aoi(pp)
     masked = Dataset.create(
         spec,
         tmp_path / 'masked',
         nodata_mask=nodata_mask,
-    ).rasterize_aoi(pp)
+    )[0].rasterize_aoi(pp)
 
     # Same polygon, same grid -> same tile window; the polygon sits in tile
     # (0, 0), so window col == grid col. The mask zeroes every grid col >=
@@ -188,7 +188,7 @@ def test_mask_burns_zero_area_outside_domain(
 def test_missing_mask_file_raises_nodata_mask_error(tmp_path, spec, pourpoint_geojson):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     missing = tmp_path / 'missing-mask.tif'
-    ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=missing)
+    ds, _ = Dataset.create(spec, tmp_path / 'db', nodata_mask=missing)
     with pytest.raises(NodataMaskError, match='nodata_mask'):
         ds.rasterize_aoi(pp)
 
@@ -211,7 +211,7 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
     ) as dst:
         dst.write(array, 1)
 
-    ds = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
+    ds, _ = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
     with pytest.raises(NodataMaskError, match='does not match the dataset grid'):
         ds.rasterize_aoi(pp)
 

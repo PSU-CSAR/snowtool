@@ -96,6 +96,26 @@ def test_in_code_config_with_absolute_paths_opens_without_root(tmp_path):
     assert db['snodas'].path == data_dir
 
 
+def test_inline_link_with_unknown_ingester_is_a_config_error(tmp_path):
+    # The inline-link branch has no path to load, so it resolves the carried
+    # config directly through from_config -- which raises a bare ValueError for an
+    # unknown ingester. SnowDb.__init__ must wrap that into a SnowDbConfigError
+    # (naming the root), exactly as the path-link branch does via load_dataset_spec.
+    dataset_config = config_from_spec(_spec('snodas')).model_copy(
+        update={'ingester': 'nope'},
+    )
+    config = RootConfig.create()
+    config.pourpoint_records = str(tmp_path / 'pourpoints' / 'records')
+    config.pourpoint_index = str(tmp_path / 'pourpoints' / 'index.geojson')
+    config.datasets['snodas'] = InlineDatasetLink(dataset=dataset_config)
+
+    with pytest.raises(
+        SnowDbConfigError,
+        match="inline dataset 'snodas' is not usable",
+    ):
+        SnowDb(config)
+
+
 def test_relative_path_without_root_raises(tmp_path):
     # The default pourpoint_records is relative; with no root it cannot resolve, so
     # construction fails with a precise error rather than a silent default.
@@ -167,6 +187,24 @@ def test_open_malformed_linked_dataset_config_is_a_config_error(tmp_path):
         SnowDb.open(tmp_path)
 
 
+def test_open_linked_config_with_unknown_ingester_is_a_config_error(tmp_path):
+    # A linked config that parses fine but names an ingester that does not
+    # resolve is *unusable*, not merely malformed: DatasetSpec.from_config raises
+    # a bare ValueError for it. SnowDb.open must wrap that into the same clean
+    # SnowDbConfigError a malformed config gets (the canonical loader does the
+    # wrapping), rather than leaking an untyped ValueError from the read path at
+    # every CLI invocation / API startup.
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(_spec('snodas'))
+    linked = register_dataset_config(manager, 'snodas', config)
+    # Rewrite the linked config (already committed) with an unknown ingester so
+    # the failure lands at open, not at register time.
+    config.model_copy(update={'ingester': 'nope'}).save(linked)
+
+    with pytest.raises(SnowDbConfigError, match='not a usable dataset config'):
+        SnowDb.open(tmp_path)
+
+
 def test_open_sees_no_datasets_after_bare_init(tmp_path):
     SnowDbManager.initialize(tmp_path)
 
@@ -223,7 +261,7 @@ def test_rasterize_aoi_burns_every_active_dataset(
     # `spec` (name='test') and `spec_b` (name='snodas') share the synthetic grid.
     data = tmp_path / 'data'
     data.mkdir()
-    Dataset.create(spec, data / spec.name)
+    Dataset.create(spec, data / spec.name)  # skeleton only; return unused
     Dataset.create(spec_b, data / spec_b.name)
 
     manager = make_manager(tmp_path, [spec, spec_b])
@@ -240,6 +278,30 @@ def test_rasterize_aoi_burns_every_active_dataset(
         raster_path = dataset.aoi_raster_path_from_triplet(pourpoint.station_triplet)
         assert raster_path.exists()
         assert raster_path.parent == data / name / 'aoi-rasters'
+
+
+def test_dataset_create_is_idempotent(tmp_path, spec):
+    # Dataset.create converges: a first call builds the skeleton and reports
+    # created=True; a re-run over the existing skeleton reports created=False and
+    # does not raise (no refuse-to-clobber). It also converges a *partial*
+    # skeleton (one subdir present) into the full one, still reporting created.
+    path = tmp_path / 'db'
+
+    ds, created = Dataset.create(spec, path)
+    assert created is True
+    assert ds._aoi_rasters.is_dir()
+    assert ds._cogs.is_dir()
+
+    _, again = Dataset.create(spec, path)
+    assert again is False
+
+    # A partial skeleton (cogs/ removed) is still "not fully present" -> created,
+    # and the missing half is rebuilt without clobbering the surviving half.
+    shutil.rmtree(ds._cogs)
+    _, repaired = Dataset.create(spec, path)
+    assert repaired is True
+    assert ds._aoi_rasters.is_dir()
+    assert ds._cogs.is_dir()
 
 
 def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, pourpoint_geojson):
@@ -519,6 +581,31 @@ def test_create_dataset_reregister_preserves_active_link(tmp_path, spec):
     assert second.staged.created is False
     # The active flag survives the re-create verbatim.
     assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets['test'].active is True
+
+
+def test_create_dataset_does_not_clobber_a_same_manager_registration(tmp_path, spec):
+    # The no-clobber invariant must hold within ONE manager instance too: a
+    # register_dataset then create_dataset on the *same* manager. self.db is a
+    # snapshot frozen at construction (no write refreshes it), so create_dataset
+    # checks the on-disk root config, not self.db.registered -- otherwise the
+    # just-registered active link would be silently re-registered inactive.
+    manager = SnowDbManager.initialize(tmp_path)
+    config = config_from_spec(spec)
+    config_path = register_dataset_config(manager, 'test', config, active=True)
+
+    result = manager.create_dataset('test', config)
+
+    # It saw the existing registration despite the stale snapshot: no re-register.
+    assert result.registered is False
+    on_disk = RootConfig.load(tmp_path / CONFIG_FILENAME).datasets['test']
+    assert on_disk.active is True
+    assert on_disk == PathDatasetLink(
+        path=Path('data/test/dataset.json'),
+        active=True,
+    )
+    # The link still points where register wrote it (not relinked out from under
+    # readers). config_path is the on-disk config create_dataset would have used.
+    assert config_path == tmp_path / 'data' / 'test' / DATASET_CONFIG_FILENAME
 
 
 def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):

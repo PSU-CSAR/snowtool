@@ -23,9 +23,11 @@ from typing import TYPE_CHECKING
 
 from pyproj import CRS
 
+from snowtool.exceptions import SnowDbConfigError
 from snowtool.snowdb.config import (
     BandStepParams,
     BucketParams,
+    DatasetConfig,
     EntropyThresholdParams,
     ThresholdParams,
     ZoneLayerParams,
@@ -34,17 +36,23 @@ from snowtool.snowdb.grid import GridParams, make_grid
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from pathlib import Path
 
     from geojson_pydantic.geometries import Geometry
 
-    from snowtool.snowdb.config import DatasetConfig
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import Ingester
     from snowtool.snowdb.variables import DatasetVariable
 
 # ``GridParams`` lives in ``grid.py`` (it is the grid's parameter set) but is
 # re-exported here, the canonical import path for a dataset's definition types.
-__all__ = ['DEFAULT_ZONES', 'DatasetSpec', 'GridParams', 'ZoneConfig']
+__all__ = [
+    'DEFAULT_ZONES',
+    'DatasetSpec',
+    'GridParams',
+    'ZoneConfig',
+    'load_dataset_spec',
+]
 
 
 # A dataset's zone configuration: provider name -> layer key -> the default
@@ -140,6 +148,12 @@ class DatasetSpec:
         concrete ingester from the registry (``None`` for a read-only/derived
         dataset). ``name`` is supplied separately because the config does not carry
         one -- it comes from where the config is registered.
+
+        Raises a *bare* :class:`ValueError` for an unknown ingester name.
+        :func:`load_dataset_spec` is the file-facing wrapper that pairs this with
+        :meth:`~snowtool.snowdb.config.DatasetConfig.load` and re-wraps that
+        ``ValueError`` into a :class:`~snowtool.exceptions.SnowDbConfigError`;
+        prefer it whenever a config path is in hand.
         """
         from snowtool.snowdb.datasets import INGESTERS
 
@@ -222,3 +236,28 @@ class DatasetSpec:
         planar_area = abs(self.grid.base_grid[0, 0].area)
         meters_per_unit = self.crs.axis_info[0].unit_conversion_factor
         return planar_area * meters_per_unit**2
+
+
+def load_dataset_spec(path: Path, name: str) -> tuple[DatasetConfig, DatasetSpec]:
+    """Load a dataset config from ``path`` and resolve it into a spec.
+
+    The single canonical "config file -> (config, spec)" sequence, shared by
+    every site that resolves a linked/staged/to-be-registered dataset config
+    (:meth:`SnowDb.__init__`'s path-link branch, the manager's staging build and
+    its register-time pre-validation). :meth:`DatasetConfig.load` already wraps a
+    malformed file into a :class:`~snowtool.exceptions.SnowDbConfigError` naming
+    ``path``; this additionally wraps :meth:`DatasetSpec.from_config`'s bare
+    ``ValueError`` (an unknown ingester name) into the same typed error, so a
+    linked config that parses but does not resolve fails consistently -- at
+    ``SnowDb.open``, at register time, everywhere -- rather than leaking an
+    untyped ``ValueError`` from the read path.
+    """
+    config = DatasetConfig.load(path)
+    try:
+        spec = DatasetSpec.from_config(config, name)
+    except ValueError as e:
+        raise SnowDbConfigError(
+            path.parent,
+            f'{path} is not a usable dataset config: {e}',
+        ) from e
+    return config, spec

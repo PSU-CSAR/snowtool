@@ -50,7 +50,7 @@ def created_db(tmp_path, spec):
     ``db`` the reader over the same root.
     """
     SnowDbManager.initialize(tmp_path)
-    ds = Dataset.create(spec, tmp_path / 'data' / 'test')
+    ds, _ = Dataset.create(spec, tmp_path / 'data' / 'test')
     return make_snowdb(tmp_path, [spec]), ds
 
 

@@ -49,7 +49,7 @@ def two_var_dataset(tmp_path, spec):
         grid_params=spec.grid_params,
         variables=(_var('swe'), _var('depth')),
     )
-    return Dataset.create(two, tmp_path / 'db')
+    return Dataset.create(two, tmp_path / 'db')[0]
 
 
 class _FakeRaster:
@@ -328,7 +328,7 @@ def test_ingest_delegates_to_ingester(tmp_path, spec):
         variables=(_var('swe'), _var('depth')),
         ingester=recorder,
     )
-    ds = Dataset.create(ingestable, tmp_path / 'db')
+    ds, _ = Dataset.create(ingestable, tmp_path / 'db')
     src = tmp_path / 'src.tar'
     src.write_bytes(b'source bytes')
 
@@ -428,7 +428,7 @@ def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
         variables=(SNODAS_SPEC.variables['swe'],),
         ingester=SnodasIngester(),
     )
-    ds = Dataset.create(mini, tmp_path / 'db')
+    ds, _ = Dataset.create(mini, tmp_path / 'db')
     swe_name = snodas_swe_name('20190202')
     d = date(2019, 2, 2)
     # The driver hashes the source tar, so it must exist on disk.
@@ -456,7 +456,7 @@ def _mini_snodas(tmp_path, spec):
             ingester=SnodasIngester(),
         ),
         tmp_path / 'db',
-    )
+    )[0]
 
 
 def test_snodas_ingester_skips_unchanged_source_and_force_reingests(

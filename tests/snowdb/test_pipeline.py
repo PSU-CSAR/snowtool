@@ -314,7 +314,7 @@ def _banded_dataset(directory, band_step_ft):
         variables=SNODAS_VARIABLES,
         zones={'terrain': {'elevation': BandStepParams(band_step_ft=band_step_ft)}},
     )
-    ds = Dataset.create(spec, directory)
+    ds, _ = Dataset.create(spec, directory)
     write_terrain(ds)
     write_swe_cog(ds)
     return ds

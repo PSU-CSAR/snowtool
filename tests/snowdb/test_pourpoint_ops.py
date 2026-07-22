@@ -48,7 +48,7 @@ def manager(tmp_path, spec):
     Writes go through this manager; reads use the derived ``db`` fixture.
     """
     SnowDbManager.initialize(tmp_path)
-    Dataset.create(spec, tmp_path / 'data' / 'test')
+    Dataset.create(spec, tmp_path / 'data' / 'test')  # skeleton only; return unused
     return make_manager(tmp_path, [spec])
 
 

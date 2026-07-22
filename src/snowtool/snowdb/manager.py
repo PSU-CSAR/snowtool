@@ -13,8 +13,10 @@ The pourpoint import/sync/lifecycle operations live in
 :class:`~snowtool.snowdb.db.SnowDb` -- a pure file-size decomposition, not a
 public seam. ``SnowDbManager`` keeps same-named one-line delegators, so the write
 surface is still a single type; those functions' result dataclasses
-(:class:`PourpointImportResult`, :class:`PourpointSyncResult`,
-:class:`AOIRasterizeResult`) are re-exported here so existing imports keep working.
+(:class:`~snowtool.snowdb.pourpoint_ops.PourpointImportResult`,
+:class:`~snowtool.snowdb.pourpoint_ops.PourpointSyncResult`,
+:class:`~snowtool.snowdb.pourpoint_ops.AOIRasterizeResult`) live there too,
+imported here only for the delegators' annotations.
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ from typing import TYPE_CHECKING, Self
 
 from snowtool import types
 from snowtool.exceptions import (
-    ArtifactExistsError,
     InvalidDatasetNameError,
     SnowDbConfigError,
     UnknownDatasetError,
@@ -52,7 +53,7 @@ from snowtool.snowdb.pourpoint_ops import (
     PourpointSyncResult,
 )
 from snowtool.snowdb.progress import NULL_PROGRESS
-from snowtool.snowdb.spec import DatasetSpec
+from snowtool.snowdb.spec import load_dataset_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -65,15 +66,7 @@ if TYPE_CHECKING:
         ZoneLayerProvider,
     )
 
-# Re-exported for backward compatibility: these result dataclasses moved to
-# pourpoint_ops alongside the operations that produce them, but importers
-# still reach them via ``snowtool.snowdb.manager``.
-__all__ = [
-    'AOIRasterizeResult',
-    'PourpointImportResult',
-    'PourpointSyncResult',
-    'SnowDbManager',
-]
+__all__ = ['SnowDbManager']
 
 
 def _combined_extent(
@@ -148,6 +141,12 @@ class SnowDbManager:
     Built around an already-constructed :class:`SnowDb` (reachable as
     :attr:`db`); :meth:`open` and :meth:`initialize` are the convenience
     constructors that build the read database (or its layout) and wrap it.
+
+    Snapshot contract: ``self.db`` is a read snapshot fixed at construction --
+    no manager write refreshes it. A write that must observe its own (or a
+    sibling's) prior write reads the on-disk root config afresh
+    (:meth:`_read_root_config`) rather than consulting ``self.db.registered``,
+    which reflects only the state at open time.
 
     Concurrency: config and index writes are read-modify-write with no
     cross-process locking, so they assume a single writer at a time -- two admin
@@ -297,9 +296,17 @@ class SnowDbManager:
             raise SnowDbConfigError(self.db.root)
         return config_path
 
-    def _read_root_config(self: Self) -> RootConfig:
-        """Load this root's on-disk config (raises if it is absent)."""
-        return RootConfig.load(self._root_config_path())
+    def _read_root_config(self: Self) -> tuple[RootConfig, Path]:
+        """Load this root's on-disk config, with its validated path (raises if
+        absent).
+
+        Returns the config paired with the on-disk path it loaded from -- the
+        same path :meth:`RootConfig.save` needs to commit it. The path is
+        validated once here (via :meth:`_root_config_path`), so a caller that
+        loads then saves does not re-derive (and re-``stat``) it.
+        """
+        config_path = self._root_config_path()
+        return RootConfig.load(config_path), config_path
 
     def register_dataset(
         self: Self,
@@ -337,13 +344,13 @@ class SnowDbManager:
         path) is rejected up front -- registration is the single choke point.
 
         For a ``path`` link that already exists on disk, the config it points at
-        is parsed and resolved (:meth:`~snowtool.snowdb.spec.DatasetSpec.from_config`)
-        before anything is written, so a caller cannot commit a link to a config
-        that exists but fails to parse or resolve; a malformed or unresolvable
-        config raises :class:`~snowtool.exceptions.SnowDbConfigError` (mirroring
-        how :meth:`SnowDb.open` wraps an unreadable linked config). A link to a
-        *missing* path is still committed as-is and only surfaces as the existing
-        "dangling link" error when a reader opens the database.
+        is parsed and resolved (:func:`~snowtool.snowdb.spec.load_dataset_spec`,
+        the same canonical loader :meth:`SnowDb.open` uses) before anything is
+        written, so a caller cannot commit a link to a config that exists but
+        fails to parse or resolve; a malformed or unresolvable config raises
+        :class:`~snowtool.exceptions.SnowDbConfigError`. A link to a *missing*
+        path is still committed as-is and only surfaces as the existing "dangling
+        link" error when a reader opens the database.
         """
         if _is_path_token(name):
             raise InvalidDatasetNameError(
@@ -351,25 +358,18 @@ class SnowDbManager:
                 "path separator or end with '.json' (it must be usable as a "
                 'bare dataset token and a directory name).',
             )
-        config = self._read_root_config()
-        config_path = self._root_config_path()
+        config, config_path = self._read_root_config()
         dataset_config_path = Path(dataset_config_path).resolve()
         # A missing path is deliberately not validated here: it defers to the
         # existing dangling-link error at SnowDb.open() time, preserving the
         # documented contract that register commits the link, not the target.
         if dataset_config_path.is_file():
-            # DatasetConfig.load already raises a clean SnowDbConfigError for a
-            # config that exists but doesn't parse/validate; only from_config's
-            # resolve step (e.g. an unknown ingester name) still raises a bare
-            # ValueError here, so that's the only one left to wrap.
-            dataset_config = DatasetConfig.load(dataset_config_path)
-            try:
-                DatasetSpec.from_config(dataset_config, name)
-            except ValueError as e:
-                raise SnowDbConfigError(
-                    self.db.root,
-                    f'{dataset_config_path} is not a usable dataset config: {e}',
-                ) from e
+            # Load + resolve the config through the canonical loader (discarding
+            # the result): it raises a clean SnowDbConfigError for a config that
+            # fails to parse *or* to resolve (an unknown ingester name), so a
+            # caller cannot commit a link to a config that would fail to bind at
+            # open time -- the same wrapping SnowDb.open applies to a linked config.
+            load_dataset_spec(dataset_config_path, name)
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
         # the dataset is staged elsewhere. Stored posix-normalized (via the
@@ -400,8 +400,7 @@ class SnowDbManager:
         config does not register. Idempotent -- setting the current state
         re-saves harmlessly.
         """
-        config = self._read_root_config()
-        config_path = self._root_config_path()
+        config, config_path = self._read_root_config()
         if name not in config.datasets:
             registered = ', '.join(sorted(config.datasets)) or '(none)'
             raise UnknownDatasetError(
@@ -450,16 +449,14 @@ class SnowDbManager:
         location as the resolution base (the same call a path link gets at
         ``SnowDb.open``), so a not-yet-registered dataset resolves exactly as it
         will once registered -- without appearing in ``self.db.datasets`` yet.
-        A malformed staged config (reached via a CLI path token, e.g.
-        ``resolve_dataset``) raises :class:`~snowtool.exceptions.SnowDbConfigError`
-        from :meth:`~snowtool.snowdb.config.DatasetConfig.load`, not a raw
-        pydantic/decode error.
+        A malformed or unresolvable staged config (reached via a CLI path token,
+        e.g. ``resolve_dataset``) raises
+        :class:`~snowtool.exceptions.SnowDbConfigError` from
+        :func:`~snowtool.snowdb.spec.load_dataset_spec`, not a raw pydantic/decode
+        or bare ``ValueError``.
         """
-        from snowtool.snowdb.spec import DatasetSpec
-
         resolved = Path(dataset_config_path).resolve()
-        config = DatasetConfig.load(resolved)
-        spec = DatasetSpec.from_config(config, name)
+        config, spec = load_dataset_spec(resolved, name)
         return self.db.bind_dataset(name, spec, config, base=resolved.parent)
 
     def resolve_dataset(self: Self, token: str) -> Dataset:
@@ -531,27 +528,14 @@ class SnowDbManager:
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
 
-        try:
-            Dataset.create(dataset.spec, dataset.path)
-            created = True
-        except ArtifactExistsError:
-            # Already staged (skeleton exists); the rasterize below is
-            # idempotent, so continue rather than clobber existing artifacts.
-            created = False
+        # Converge-by-default: Dataset.create builds any missing skeleton part and
+        # reports whether it had to (an already-staged skeleton is tolerated, since
+        # the rasterize below is idempotent), so there is nothing to catch.
+        _, created = Dataset.create(dataset.spec, dataset.path)
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
-        record_paths = self.db.pourpoint_paths()
-        basin_pourpoints: list[Pourpoint] = []
-        with progress.track(
-            f'parsing {len(record_paths)} pourpoint record(s)',
-            total=len(record_paths),
-        ) as task:
-            for path in record_paths:
-                pourpoint = Pourpoint.from_geojson(path)
-                if pourpoint.polygon is not None:
-                    basin_pourpoints.append(pourpoint)
-                task.advance()
+        basins = pourpoint_ops.basin_pourpoints(self.db, progress=progress)
         # Every basin-bearing pourpoint goes to rasterize_aois regardless of its
         # coverage: an off-grid basin (NONE) has no tile window on this grid, so
         # rasterize_aois's own Coverage.NONE check skips it (into
@@ -560,7 +544,7 @@ class SnowDbManager:
         # surfaces it, so the coverage the index needs is read back off the
         # result rather than computed a second time here.
         rasterized = self.rasterize_aois(
-            basin_pourpoints,
+            basins,
             [dataset],
             progress=progress,
         )
@@ -622,7 +606,13 @@ class SnowDbManager:
 
         staged = self.stage_dataset(name, config_path, progress=progress)
 
-        registered = name not in self.db.registered
+        # Check the on-disk root config, not `self.db.registered`: the latter is a
+        # snapshot frozen at SnowDb construction (no write refreshes it), so a
+        # prior register on this same manager instance would not show up there and
+        # this call would re-register -- relinking/deactivating a just-registered
+        # dataset. The sibling writes (register_dataset/set_dataset_active) commit
+        # against this same on-disk truth, so this is the invariant they enforce.
+        registered = name not in self._read_root_config()[0].datasets
         if registered:
             self.register_dataset(
                 name,

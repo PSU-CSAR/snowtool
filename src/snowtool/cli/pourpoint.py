@@ -28,7 +28,8 @@ from snowtool.snowdb.pourpoint_remote import materialize_dir, materialize_file
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.manager import PourpointImportResult, SnowDbManager
+    from snowtool.snowdb.manager import SnowDbManager
+    from snowtool.snowdb.pourpoint_ops import PourpointImportResult
 
 
 @click.group()

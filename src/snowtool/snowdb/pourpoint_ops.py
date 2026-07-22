@@ -5,9 +5,7 @@ module-level functions that each take the read database (``db``) as their first
 argument and reach the storage through it exactly as if they still lived on the
 manager. :class:`~snowtool.snowdb.manager.SnowDbManager` keeps same-named
 one-line delegators, so the write surface is still a single type; the functions
-here carry the logic. Result dataclasses live here beside the operations that
-produce them and are re-exported from
-:mod:`snowtool.snowdb.manager` for callers that import them from there.
+here carry the logic, and their result dataclasses live here beside them.
 """
 
 from __future__ import annotations
@@ -131,6 +129,34 @@ def _update_index(
     )
     index.save(db.pourpoint_index_path)
     return index
+
+
+def basin_pourpoints(
+    db: SnowDb,
+    *,
+    progress: ProgressReporter = NULL_PROGRESS,
+) -> list[Pourpoint]:
+    """Parse every stored record and keep only the basin-bearing pourpoints.
+
+    The rasterize/coverage passes work on basins only (a point-only pourpoint has
+    no polygon to burn), matching what the index holds. ``progress`` reports the
+    parse as one tracked task, advancing once per record. This is the db-records
+    counterpart to :func:`_classify_sources` (which reads a *source dir* and also
+    partitions invalid/point-only) -- kept separate because that one classifies
+    import candidates, while this one filters already-stored records.
+    """
+    record_paths = db.pourpoint_paths()
+    basins: list[Pourpoint] = []
+    with progress.track(
+        f'parsing {len(record_paths)} pourpoint record(s)',
+        total=len(record_paths),
+    ) as task:
+        for path in record_paths:
+            pourpoint = Pourpoint.from_geojson(path)
+            if pourpoint.polygon is not None:
+                basins.append(pourpoint)
+            task.advance()
+    return basins
 
 
 def _resolve_sources(src: Path) -> list[Path]:

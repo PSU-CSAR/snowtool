@@ -444,7 +444,7 @@ def source_nlcd(tmp_path, grid):
 @pytest.fixture
 def dataset(tmp_path, spec):
     """A fully created Dataset: directory, area raster, terrain + land-cover sets."""
-    ds = Dataset.create(spec, tmp_path / 'db')
+    ds, _ = Dataset.create(spec, tmp_path / 'db')
     write_terrain(ds)
     write_landcover(ds)
     return ds

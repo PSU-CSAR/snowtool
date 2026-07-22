@@ -36,6 +36,7 @@ from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DatasetConfig,
+    InlineDatasetLink,
     RootConfig,
 )
 from snowtool.snowdb.coverage import (
@@ -45,6 +46,7 @@ from snowtool.snowdb.coverage import (
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.spec import DatasetSpec, load_dataset_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -52,7 +54,6 @@ if TYPE_CHECKING:
 
     from geojson_pydantic import MultiPolygon, Polygon
 
-    from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.zones.zone_layer import (
         AvailableZone,
         ZoneLayerProvider,
@@ -80,9 +81,6 @@ class SnowDb:
         :class:`DatasetSpec` and bound to its data directory (see :meth:`dataset_dir`).
         The code follows the config rather than assuming paths.
         """
-        from snowtool.snowdb.config import InlineDatasetLink
-        from snowtool.snowdb.spec import DatasetSpec
-
         self.config = config
         self.config_path = config.path
         # The root is the config file's directory: the base relative links resolve
@@ -115,8 +113,19 @@ class SnowDb:
         self.registered: dict[str, Dataset] = {}
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
+                # An inline link carries its config directly (no path to load),
+                # so it resolves through `from_config`; the root names the error
+                # if the ingester does not resolve, mirroring what the file-facing
+                # `load_dataset_spec` does for a path link.
                 dataset_config = link.dataset
                 base = None
+                try:
+                    spec = DatasetSpec.from_config(dataset_config, name)
+                except ValueError as e:
+                    raise SnowDbConfigError(
+                        self.root,
+                        f'inline dataset {name!r} is not usable: {e}',
+                    ) from e
             else:  # PathDatasetLink
                 resolved = self._resolve_path(link.path)
                 if not resolved.is_file():
@@ -124,12 +133,11 @@ class SnowDb:
                         self.root,
                         f'dataset {name!r} link points at a missing config: {resolved}',
                     )
-                # DatasetConfig.load raises a clean SnowDbConfigError naming
-                # `resolved` if the linked config exists but doesn't parse/
-                # validate; nothing further to wrap here.
-                dataset_config = DatasetConfig.load(resolved)
+                # load_dataset_spec loads + resolves the linked config, wrapping
+                # both a malformed file and an unresolvable ingester into a clean
+                # SnowDbConfigError naming `resolved`; nothing further to wrap.
+                dataset_config, spec = load_dataset_spec(resolved, name)
                 base = resolved.parent
-            spec = DatasetSpec.from_config(dataset_config, name)
             self.registered[name] = self.bind_dataset(
                 name,
                 spec,
