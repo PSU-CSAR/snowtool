@@ -53,12 +53,6 @@ def iis() -> None:
 @click.option('--hostname', required=True, help='Hostname to bind the site to.')
 @click.option('--port', type=int, default=443, show_default=True, help='Port to bind.')
 @click.option(
-    '--protocol',
-    type=click.Choice(['http', 'https']),
-    default='https',
-    show_default=True,
-)
-@click.option(
     '--config',
     '-C',
     'snowdb_config',
@@ -77,7 +71,7 @@ def iis() -> None:
 @click.option(
     '--cert-thumbprint',
     default=None,
-    help='SSL certificate thumbprint to bind (https only). '
+    help='SSL certificate thumbprint to bind. '
     'Omit to bind the certificate manually afterward.',
 )
 @click.option(
@@ -105,7 +99,6 @@ def install(
     directory: Path,
     hostname: str,
     port: int,
-    protocol: str,
     snowdb_config: Path,
     site_name: str | None,
     cert_thumbprint: str | None,
@@ -141,7 +134,7 @@ def install(
         click.echo(f'Wrote {web_config}')
 
     if only != 'config':
-        if protocol == 'https' and not cert_thumbprint:
+        if not cert_thumbprint:
             click.echo(
                 'No --cert-thumbprint given; after install, bind the SSL '
                 f'certificate manually: IIS Manager > Sites > {site_name} > '
@@ -158,7 +151,6 @@ def install(
                 snowdb_path=snowdb_root(snowdb_config),
                 hostname=hostname,
                 port=port,
-                protocol=protocol,
                 cert_thumbprint=cert_thumbprint,
                 recycle_time=recycle_time,
                 access_log_dir=access_log_dir,

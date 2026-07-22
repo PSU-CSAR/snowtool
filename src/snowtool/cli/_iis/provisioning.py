@@ -73,7 +73,6 @@ def install_args(
     snowdb_path: Path,
     hostname: str,
     port: int,
-    protocol: str,
     cert_thumbprint: str | None,
     recycle_time: str,
     access_log_dir: Path | None,
@@ -100,7 +99,7 @@ def install_args(
         '-Port',
         str(port),
         '-Protocol',
-        protocol,
+        'https',
         '-RecycleTime',
         recycle_time,
     ]

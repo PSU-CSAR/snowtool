@@ -175,7 +175,6 @@ def test_install_args_builds_expected_powershell_invocation():
         snowdb_path=Path('/data/snowdb'),
         hostname='snow.example.org',
         port=443,
-        protocol='https',
         cert_thumbprint=None,
         recycle_time='03:00:00',
         access_log_dir=None,
@@ -196,6 +195,8 @@ def test_install_args_builds_expected_powershell_invocation():
     assert '/data/snowdb' in args
     assert '-Hostname' in args
     assert 'snow.example.org' in args
+    protocol_index = args.index('-Protocol')
+    assert args[protocol_index + 1] == 'https'
     assert '-BasePythonPath' not in args
     assert '-CertThumbprint' not in args
     assert '-AccessLogDir' not in args
@@ -210,7 +211,6 @@ def test_install_args_includes_optional_paths_and_thumbprint_when_given():
         snowdb_path=Path('/data/snowdb'),
         hostname='snow.example.org',
         port=443,
-        protocol='https',
         cert_thumbprint='ABCDEF0123456789',
         recycle_time='03:00:00',
         access_log_dir=Path('/var/log/snowtool'),
@@ -444,3 +444,24 @@ def test_install_rejects_removed_skip_flags(tmp_path):
     )
 
     assert result.exit_code == 2  # click: no such option
+
+
+def test_install_rejects_removed_protocol_flag(tmp_path):
+    result = CliRunner().invoke(
+        cli,
+        [
+            'windows',
+            'iis',
+            'install',
+            str(tmp_path / 'site'),
+            '--hostname',
+            'snow.example.org',
+            '--config',
+            str(tmp_path),
+            '--protocol',
+            'http',
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert 'No such option' in result.output
