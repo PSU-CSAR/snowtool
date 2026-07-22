@@ -420,10 +420,12 @@ class SnowDbManager:
         name: str,
         coverage: Mapping[types.StationTriplet, Coverage],
     ) -> None:
-        """Add ``name``'s per-pourpoint coverage to the persisted index in place.
+        """Add ``name``'s per-pourpoint coverage to the persisted index.
 
-        Loads the on-disk index, sets ``entry.coverage[name]`` for every entry (an
-        absent triplet reads as :attr:`Coverage.NONE`), and re-saves it atomically.
+        Loads the on-disk index and rebuilds every entry (frozen, so replaced via
+        :meth:`model_copy` rather than mutated) with ``name`` folded into its
+        ``coverage`` map (an absent triplet reads as :attr:`Coverage.NONE`), then
+        re-saves it atomically.
         A no-op when the index is empty -- there is nothing to annotate, and the
         coverage is re-derived for every dataset by the next reindex regardless.
         """
@@ -431,7 +433,14 @@ class SnowDbManager:
         if not index:
             return
         for triplet, entry in index.entries.items():
-            entry.coverage[name] = coverage.get(triplet, Coverage.NONE)
+            index.entries[triplet] = entry.model_copy(
+                update={
+                    'coverage': {
+                        **entry.coverage,
+                        name: coverage.get(triplet, Coverage.NONE),
+                    },
+                },
+            )
         index.save(self.db.pourpoint_index_path)
 
     def _build_staged_dataset(
