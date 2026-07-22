@@ -177,14 +177,16 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
 
 
 @pytest.mark.parametrize('workers', [2, 4])
-@pytest.mark.parametrize('block_size', [64, 256])
+@pytest.mark.parametrize('block_size', [64, 96])
 def test_landcover_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
     # The determinism guard: binning runs serially in block order regardless of
     # worker count, so a parallel pass must reproduce the serial pass exactly --
     # including the nlcd_hash, which digests the finalized forest-pct bytes. A
     # small block size makes this source span many blocks so the parallel
-    # pipeline's windowing/out-of-order completion is genuinely exercised; 256 is
-    # deliberately a non-divisor of the 512-px source, exercising ragged edges.
+    # pipeline's windowing/out-of-order completion is genuinely exercised. 64
+    # divides the 512-px source evenly; 96 does not (512 = 5*96 + 32), so its
+    # trailing blocks are ragged and exercise iter_blocks' clamp path -- which
+    # must still be bit-identical between serial and parallel.
     array = numpy.full((SRC_N, SRC_N), NONFOREST, dtype='uint8')
     array[:, : SRC_N // 2] = FOREST
     array[:8, :8] = NODATA
