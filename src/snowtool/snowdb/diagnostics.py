@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING
 
 from snowtool.exceptions import IncompleteDatasetDataError, QueryParameterError
 from snowtool.snowdb import triplet_naming
+from snowtool.snowdb.progress import NULL_PROGRESS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
     from pathlib import Path
 
     from affine import Affine
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.grid import Extent
+    from snowtool.snowdb.progress import ProgressReporter
 
 
 def date_gaps(dates: Iterable[date]) -> list[tuple[date, date]]:
@@ -566,21 +568,21 @@ def grid_validation_report(dataset: Dataset) -> list[str]:
 
 # --- doctor: the health-check registry + uniform finding rows ----------------
 
-type _Finding = dict[str, str]
+type Finding = dict[str, str]
 
 
-def _finding(check: str, dataset: str, target: str, issue: str) -> _Finding:
+def _finding(check: str, dataset: str, target: str, issue: str) -> Finding:
     return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
 
 
-def _grid_findings(dataset: Dataset) -> list[_Finding]:
+def _grid_findings(dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     return [
         _finding('grid', name, '', issue) for issue in grid_validation_report(dataset)
     ]
 
 
-def _dates_findings(dataset: Dataset) -> list[_Finding]:
+def _dates_findings(dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     return [
         _finding(
@@ -593,7 +595,7 @@ def _dates_findings(dataset: Dataset) -> list[_Finding]:
     ]
 
 
-def _files_findings(dataset: Dataset) -> list[_Finding]:
+def _files_findings(dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     findings = [
         _finding('files', name, artifact, 'missing')
@@ -612,7 +614,7 @@ def _files_findings(dataset: Dataset) -> list[_Finding]:
     return findings
 
 
-def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[_Finding]:
+def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     coverage = pourpoint_coverage_report(snowdb, dataset)
     findings = [
@@ -636,9 +638,9 @@ def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[_Finding]:
 # the other three take just the dataset. Rather than have every check accept
 # (and ignore) a ``snowdb`` it has no use for -- the accidental-protocol wart
 # this replaces -- each entry is wrapped to the one uniform calling convention
-# :func:`health_findings` dispatches through, so the *bodies* stay honest about
-# what they read. Order is the ``doctor`` output/CLI-help order.
-HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[_Finding]]] = {
+# :func:`run_health_checks` dispatches through, so the *bodies* stay honest
+# about what they read. Order is the ``doctor`` output/CLI-help order.
+HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[Finding]]] = {
     'grid': lambda _snowdb, dataset: _grid_findings(dataset),
     'dates': lambda _snowdb, dataset: _dates_findings(dataset),
     'files': lambda _snowdb, dataset: _files_findings(dataset),
@@ -649,19 +651,26 @@ HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[_Finding]]] = {
 HEALTH_CHECK_NAMES: tuple[str, ...] = tuple(HEALTH_CHECKS)
 
 
-def health_findings(
+def run_health_checks(
     snowdb: SnowDb,
-    dataset: Dataset,
-    checks: Iterable[str],
-) -> list[_Finding]:
-    """Run the named ``checks`` (see :data:`HEALTH_CHECK_NAMES`) against
-    ``dataset``, returning uniform finding rows for ``snowtool doctor``.
+    datasets: Sequence[Dataset],
+    checks: Sequence[str],
+    *,
+    progress: ProgressReporter = NULL_PROGRESS,
+) -> list[Finding]:
+    """Sweep ``checks`` across ``datasets``, returning the flat finding rows
+    ``snowtool doctor`` renders (empty means healthy).
 
-    ``checks`` must already be validated against ``HEALTH_CHECK_NAMES`` -- an
-    unknown name raises a plain ``KeyError``, which the CLI never reaches
-    because it checks first (for a clean usage error rather than a traceback).
+    Runs every (dataset, check) pair, advancing ``progress`` one tick per pair
+    (total ``len(datasets) * len(checks)``). ``checks`` must already be
+    validated against :data:`HEALTH_CHECK_NAMES` -- an unknown name raises a
+    plain ``KeyError``, which the CLI never reaches because it checks first
+    (for a clean usage error rather than a traceback).
     """
-    findings: list[_Finding] = []
-    for check in checks:
-        findings.extend(HEALTH_CHECKS[check](snowdb, dataset))
+    findings: list[Finding] = []
+    with progress.track('doctor', total=len(datasets) * len(checks)) as task:
+        for dataset in datasets:
+            for check in checks:
+                findings.extend(HEALTH_CHECKS[check](snowdb, dataset))
+                task.advance()
     return findings

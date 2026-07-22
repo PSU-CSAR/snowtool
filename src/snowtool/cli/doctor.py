@@ -29,7 +29,6 @@ from snowtool.snowdb import diagnostics
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.diagnostics import _Finding
 
 
 @click.command('doctor')
@@ -77,15 +76,12 @@ def doctor(
         include_inactive=include_inactive,
     )
 
-    findings: list[_Finding] = []
-    with RichProgress().track(
-        'doctor',
-        total=len(datasets) * len(selected),
-    ) as task:
-        for ds in datasets:
-            for check in selected:
-                findings.extend(diagnostics.health_findings(snowdb, ds, [check]))
-                task.advance()
+    findings = diagnostics.run_health_checks(
+        snowdb,
+        datasets,
+        selected,
+        progress=RichProgress(),
+    )
 
     _emit(findings, fmt)
     if findings:
