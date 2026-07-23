@@ -21,6 +21,10 @@ from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
+from snowtool.snowdb.zones.generate_common import (
+    finalize_and_stamp,
+    require_absent_layers,
+)
 from snowtool.snowdb.zones.terrain import (
     ASPECT_ENTROPY,
     ASPECT_MAJORITY,
@@ -594,3 +598,74 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
     # No source pixel fell in any cell -> everything nodata.
     assert (elevation == ELEVATION_NODATA).all()
     assert (majority == ASPECT_MAJORITY_NODATA).all()
+
+
+class _StubAccumulator:
+    """finalize_and_stamp's minimal contract: a target plus finalized artifacts."""
+
+    def __init__(self, target, artifacts):
+        self.target = target
+        self._artifacts = artifacts
+
+    def finalize(self):
+        return self._artifacts
+
+
+def test_finalize_and_stamp_commits_no_layer_until_every_write_succeeded(tmp_path):
+    # A crash mid-write must never strand final layer files: before the fix, a
+    # failure partway through the COG writes left earlier targets' layers on
+    # disk, and require_absent_layers then refused to regenerate without force.
+    # The write is two-phase (.part sidecars for every target, then renames), so
+    # a failure anywhere in the write phase leaves no final file at all.
+    good = _target(tmp_path)
+    bad = ZoneLayerTarget(
+        name='u',
+        grid=good.grid,
+        tile_size=TARGET_TILE,
+        directory=tmp_path / 'u' / 'terrain',
+    )
+    elevation = numpy.zeros((TARGET_N, TARGET_N), dtype=numpy.float32)
+    # write_cog rejects an object-dtype array, after the digest pass (which only
+    # reads each target's *first* artifact) and after good's sidecar is written.
+    unwritable = numpy.array([[object()]])
+
+    with pytest.raises(TypeError, match='invalid dtype'):
+        finalize_and_stamp(
+            [
+                _StubAccumulator(good, [(ELEVATION, elevation)]),
+                _StubAccumulator(
+                    bad,
+                    [(ELEVATION, elevation), (ASPECT_MAJORITY, unwritable)],
+                ),
+            ],
+            format_version=TERRAIN_FORMAT_VERSION,
+            hash_tag=DEM_HASH_TAG,
+        )
+
+    # good's COG was fully written -- but only as a sidecar. No final layer file
+    # exists anywhere, so a rerun is not blocked (the pre-fix failure mode).
+    assert (good.directory / (ELEVATION.filename + '.part')).is_file()
+    assert not (good.directory / ELEVATION.filename).exists()
+    assert not (bad.directory / ELEVATION.filename).exists()
+    require_absent_layers([good, bad], TERRAIN_LAYERS, 'terrain')
+
+    majority = numpy.zeros((TARGET_N, TARGET_N), dtype=numpy.uint8)
+    hashes = finalize_and_stamp(
+        [
+            _StubAccumulator(good, [(ELEVATION, elevation)]),
+            _StubAccumulator(
+                bad,
+                [(ELEVATION, elevation), (ASPECT_MAJORITY, majority)],
+            ),
+        ],
+        format_version=TERRAIN_FORMAT_VERSION,
+        hash_tag=DEM_HASH_TAG,
+    )
+
+    # The rerun overwrites the stale sidecars and commits: finals, no parts left.
+    assert set(hashes) == {'t', 'u'}
+    assert (good.directory / ELEVATION.filename).is_file()
+    assert (bad.directory / ELEVATION.filename).is_file()
+    assert (bad.directory / ASPECT_MAJORITY.filename).is_file()
+    assert not list(good.directory.glob('*.part'))
+    assert not list(bad.directory.glob('*.part'))

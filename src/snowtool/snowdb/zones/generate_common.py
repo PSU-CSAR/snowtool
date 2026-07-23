@@ -43,6 +43,7 @@ from snowtool.snowdb.zones.parallel import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from pathlib import Path
 
     import numpy.typing
 
@@ -215,6 +216,14 @@ def finalize_and_stamp(
     the digested array is definitionally the first pair each ``finalize``
     returns (terrain lists elevation first; land cover returns only the forest
     array), so each engine pins its digested array by ordering that list.
+
+    The write is two-phase so a crash cannot strand a partial layer set that
+    :func:`require_absent_layers` would then refuse to regenerate: every COG of
+    every target is first written to a ``.part`` sidecar, and only after all of
+    them exist are they renamed into place. A failure during the (long) write
+    phase leaves only sidecars -- no final layer file -- so the next run
+    regenerates cleanly, overwriting the stale sidecars. The commit phase is a
+    handful of atomic renames, never a partially-written file.
     """
     accs = list(accumulators)
     finalized: list[
@@ -228,8 +237,11 @@ def finalize_and_stamp(
         digest.update(artifacts[0][1].tobytes())
     generation_hash = versioned_hash(format_version, digest.hexdigest())
 
+    pending: list[tuple[Path, Path]] = []
     for acc, artifacts in finalized:
-        write_layers(acc.target, artifacts, generation_hash, hash_tag)
+        pending.extend(write_layers(acc.target, artifacts, generation_hash, hash_tag))
+    for part, final in pending:
+        part.replace(final)
     return dict.fromkeys((acc.target.name for acc in accs), generation_hash)
 
 
@@ -238,13 +250,21 @@ def write_layers(
     artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]],
     tag: str,
     hash_tag: str,
-) -> None:
-    """Write each finalized layer as its own COG, ``tag`` stamped at ``hash_tag``."""
+) -> list[tuple[Path, Path]]:
+    """Write each finalized layer as a ``.part`` sidecar COG, ``tag`` at ``hash_tag``.
+
+    Returns the ``(sidecar, final)`` path pairs for the caller
+    (:func:`finalize_and_stamp`) to commit once every target's sidecars exist,
+    so no final layer file ever appears before the whole generation succeeded.
+    """
     target.directory.mkdir(parents=True, exist_ok=True)
     rio_crs = rasterio.crs.CRS.from_wkt(target.crs.to_wkt())
+    pending: list[tuple[Path, Path]] = []
     for layer, array in artifacts:
+        final = target.directory / layer.filename
+        part = final.with_suffix(final.suffix + '.part')
         write_cog(
-            target.directory / layer.filename,
+            part,
             array,
             transform=target.transform,
             crs=rio_crs,
@@ -253,6 +273,8 @@ def write_layers(
             band_descriptions=layer.band_descriptions,
             tags={hash_tag: tag},
         )
+        pending.append((part, final))
+    return pending
 
 
 def cells_for_points(

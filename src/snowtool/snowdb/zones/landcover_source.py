@@ -23,6 +23,7 @@ deflate-compressed, so it is extracted to the cache rather than read in place --
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import urllib.request
 import zipfile
@@ -141,7 +142,14 @@ class AnnualNLCD(LandCoverSource):
             part.replace(zip_path)
 
         with zipfile.ZipFile(zip_path) as zf:
-            zf.extract(self._member, self.cache_dir)
+            # Extract through a .part sidecar and rename, like the download: an
+            # interrupted extract must never leave a truncated raster the
+            # is_file() check above accepts as complete -- the zip is deleted
+            # below, so there would be nothing left to recover from.
+            part = raster.with_suffix(raster.suffix + '.part')
+            with zf.open(self._member) as member, part.open('wb') as out:
+                shutil.copyfileobj(member, out)
+            part.replace(raster)
         # The raster is extracted; drop the ~1.5 GB zip to reclaim the space.
         zip_path.unlink(missing_ok=True)
         return raster

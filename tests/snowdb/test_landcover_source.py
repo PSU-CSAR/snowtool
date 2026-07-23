@@ -72,3 +72,28 @@ def test_ensure_local_is_cached_after_first_fetch(tmp_path):
     source._ensure_local(progress=progress)
 
     assert progress.tasks == []
+
+
+def test_recovers_from_an_interrupted_extract(tmp_path):
+    src_dir = tmp_path / 'remote'
+    src_dir.mkdir()
+    zip_path, payload = _make_bundle(src_dir)
+
+    # A previous run died mid-extract: the zip is cached, a truncated .part
+    # sidecar was stranded, and -- the point of extracting through a sidecar --
+    # no final raster exists for is_file() to wrongly accept as complete.
+    cache = tmp_path / 'cache'
+    cache.mkdir()
+    (cache / 'bundle.zip').write_bytes(zip_path.read_bytes())
+    (cache / 'bundle.tif.part').write_bytes(payload[:7])
+
+    source = AnnualNLCD(url=zip_path.as_uri(), cache_dir=cache)
+    progress = CapturingProgress()
+    raster = source._ensure_local(progress=progress)
+
+    # The cached zip is re-extracted (no re-download: no progress task), the
+    # stale sidecar is overwritten and renamed away, and the zip is dropped.
+    assert raster.read_bytes() == payload
+    assert progress.tasks == []
+    assert not (cache / 'bundle.tif.part').exists()
+    assert not (cache / 'bundle.zip').exists()
