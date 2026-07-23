@@ -15,8 +15,8 @@ from snowtool.snowdb.config import (
 )
 from snowtool.snowdb.constants import M_TO_FT
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.zones.landcover import FOREST_COVER
-from snowtool.snowdb.zones.terrain import (
+from snowtool.snowdb.zones.landcover_layers import FOREST_COVER
+from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_COMPONENT_NODATA,
     ASPECT_ENTROPY,
     ASPECT_MAJORITY,

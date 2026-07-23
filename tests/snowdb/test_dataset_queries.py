@@ -5,7 +5,7 @@ from datetime import date
 from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.zones.terrain import ELEVATION
+from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 
 def test_available_dates_empty_when_no_cogs(dataset):

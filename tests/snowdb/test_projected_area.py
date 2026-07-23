@@ -16,7 +16,7 @@ from rasterio.crs import CRS
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.zones.terrain import ELEVATION
+from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import write_pourpoint_record, write_terrain
 

@@ -3,11 +3,11 @@
 import pytest
 
 from snowtool.snowdb.raster import TiledRaster
-from snowtool.snowdb.zones.terrain import (
+from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_MAJORITY,
     ELEVATION,
     TERRAIN_FORMAT_VERSION,
-    TerrainProvider,
 )
 from snowtool.snowdb.zones.zone_layer import ZoneLayerSet
 

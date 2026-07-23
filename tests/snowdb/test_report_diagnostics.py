@@ -17,8 +17,8 @@ from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.spec import DatasetSpec
-from snowtool.snowdb.zones.landcover import FOREST_COVER
-from snowtool.snowdb.zones.terrain import ELEVATION
+from snowtool.snowdb.zones.landcover_layers import FOREST_COVER
+from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import (
     TILE,

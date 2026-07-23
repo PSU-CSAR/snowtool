@@ -16,16 +16,24 @@ from rasterio.crs import CRS
 
 from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
-from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.zones.landcover import (
+from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.landcover_generate import generate_landcover
+from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
-    LandCoverProvider,
 )
-from snowtool.snowdb.zones.landcover_generate import generate_landcover
-from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
+
+from ._engine_harness import (
+    ORIGIN_X,
+    ORIGIN_Y,
+    SRC_N,
+    SRC_PX,
+    WORK_EPSG,
+    make_target,
+    run_serial_vs_parallel,
+)
 
 
 def _landcover_set(directory):
@@ -33,18 +41,9 @@ def _landcover_set(directory):
     return LandCoverProvider().layer_set(directory)
 
 
-WORK_EPSG = 5070
-ORIGIN_X = -500_000.0
-ORIGIN_Y = 2_000_000.0
-SRC_PX = 10.0
-SRC_N = 512
 FOREST = 42  # evergreen forest (in FOREST_CLASSES)
 NONFOREST = 81  # pasture/hay
 NODATA = 0  # NLCD background/unclassified
-# 128 cells x 40 m == 5120 m == the 512 x 10 m source extent (4 fine px / cell).
-TARGET_N = 128
-TARGET_PX = 40.0
-TARGET_TILE = 128
 
 
 def _source_nlcd(path, array):
@@ -65,22 +64,8 @@ def _source_nlcd(path, array):
     return path
 
 
-def _target(tmp_path, name='t', *, px=TARGET_PX, n=TARGET_N, tile=TARGET_TILE):
-    grid = make_grid(
-        origin_x=ORIGIN_X,
-        origin_y=ORIGIN_Y,
-        px_size=px,
-        cols=n,
-        rows=n,
-        tile_size=tile,
-        crs=WORK_EPSG,
-    )
-    return ZoneLayerTarget(
-        name=name,
-        grid=grid,
-        tile_size=tile,
-        directory=tmp_path / name / 'landcover',
-    )
+def _target(tmp_path, name='t', **kwargs):
+    return make_target(tmp_path / name / 'landcover', name=name, **kwargs)
 
 
 def test_generate_writes_forest_layer_with_expected_percentages(tmp_path):
@@ -196,34 +181,21 @@ def test_landcover_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_
     serial_t = _target(tmp_path / 'serial')
     parallel_t = _target(tmp_path / 'parallel')
 
-    with rasterio.open(src_path) as src:
-        serial_hash = generate_landcover(
-            src,
-            [serial_t],
-            workers=1,
-            block_size=block_size,
-            force=True,
-        )
-    with rasterio.open(src_path) as src:
-        parallel_hash = generate_landcover(
-            src,
-            [parallel_t],
-            workers=workers,
-            block_size=block_size,
-            force=True,
-        )
+    def _read_forest(directory):
+        with rasterio.open(
+            _landcover_set(directory).layer_path(FOREST_COVER),
+        ) as ds:
+            return (ds.read(1),)
 
-    assert serial_hash['t'] == parallel_hash['t']
-
-    with rasterio.open(
-        _landcover_set(serial_t.directory).layer_path(FOREST_COVER),
-    ) as ds:
-        serial_forest = ds.read(1)
-    with rasterio.open(
-        _landcover_set(parallel_t.directory).layer_path(FOREST_COVER),
-    ) as ds:
-        parallel_forest = ds.read(1)
-    numpy.testing.assert_array_equal(serial_forest, parallel_forest)
+    run_serial_vs_parallel(
+        generate_landcover,
+        src_path,
+        serial_t,
+        parallel_t,
+        _read_forest,
+        workers=workers,
+        block_size=block_size,
+    )
 
 
 def test_generate_refuses_to_overwrite_without_force(tmp_path):

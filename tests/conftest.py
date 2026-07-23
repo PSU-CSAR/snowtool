@@ -26,8 +26,11 @@ from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG, write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
-from snowtool.snowdb.zones.landcover import FOREST_COVER, LANDCOVER_FORMAT_VERSION
-from snowtool.snowdb.zones.terrain import (
+from snowtool.snowdb.zones.landcover_layers import (
+    FOREST_COVER,
+    LANDCOVER_FORMAT_VERSION,
+)
+from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_COMPONENT_NODATA,
     ASPECT_ENTROPY,
     ASPECT_FLAT,

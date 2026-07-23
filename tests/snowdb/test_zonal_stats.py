@@ -39,7 +39,7 @@ from snowtool.snowdb.zonal_stats import (
     parse_zone_selection,
     resolve_zone_axis,
 )
-from snowtool.snowdb.zones.terrain import ELEVATION_NODATA
+from snowtool.snowdb.zones.terrain_layers import ELEVATION_NODATA
 from snowtool.snowdb.zones.zone_layer import available_zones
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 from snowtool.snowdb.zones.zoning import (

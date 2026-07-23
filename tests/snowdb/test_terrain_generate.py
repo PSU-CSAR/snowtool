@@ -25,7 +25,12 @@ from snowtool.snowdb.zones.generate_common import (
     finalize_and_stamp,
     require_absent_layers,
 )
-from snowtool.snowdb.zones.terrain import (
+from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain_generate import (
+    _clip_grid_to_bounds,
+    generate_terrain,
+)
+from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_ENTROPY,
     ASPECT_MAJORITY,
     ASPECT_MAJORITY_NODATA,
@@ -36,15 +41,22 @@ from snowtool.snowdb.zones.terrain import (
     NORTHNESS,
     TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
-    TerrainProvider,
-)
-from snowtool.snowdb.zones.terrain_generate import (
-    _clip_grid_to_bounds,
-    generate_terrain,
 )
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 from ..conftest import CapturingProgress
+from ._engine_harness import (
+    ORIGIN_X,
+    ORIGIN_Y,
+    SRC_N,
+    SRC_PX,
+    TARGET_N,
+    TARGET_PX,
+    TARGET_TILE,
+    WORK_EPSG,
+    make_target,
+    run_serial_vs_parallel,
+)
 
 
 def _terrain_set(directory):
@@ -69,16 +81,7 @@ def _read_layers(directory):
     return elevation, majority, northness, eastness, entropy
 
 
-WORK_EPSG = 5070
-ORIGIN_X = -500_000.0
-ORIGIN_Y = 2_000_000.0
-SRC_PX = 10.0
-SRC_N = 512
 NODATA = -9999.0
-# 128 cells x 40 m == 5120 m == the 512 x 10 m source extent (4 fine px / cell).
-TARGET_N = 128
-TARGET_PX = 40.0
-TARGET_TILE = 128
 
 
 def _source_dem(path, *, nodata=NODATA):
@@ -130,21 +133,7 @@ def _int_source_dem(path, *, nodata=-32768):
 
 
 def _target(tmp_path):
-    grid = make_grid(
-        origin_x=ORIGIN_X,
-        origin_y=ORIGIN_Y,
-        px_size=TARGET_PX,
-        cols=TARGET_N,
-        rows=TARGET_N,
-        tile_size=TARGET_TILE,
-        crs=WORK_EPSG,
-    )
-    return ZoneLayerTarget(
-        name='t',
-        grid=grid,
-        tile_size=TARGET_TILE,
-        directory=tmp_path / 'terrain',
-    )
+    return make_target(tmp_path / 'terrain')
 
 
 def test_generate_reports_one_block_progress_task_to_completion(tmp_path):
@@ -331,29 +320,15 @@ def test_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
     serial_t = _target(tmp_path / 'serial')
     parallel_t = _target(tmp_path / 'parallel')
 
-    with rasterio.open(src_path) as src:
-        serial_hash = generate_terrain(
-            src,
-            [serial_t],
-            workers=1,
-            block_size=block_size,
-            force=True,
-        )
-    with rasterio.open(src_path) as src:
-        parallel_hash = generate_terrain(
-            src,
-            [parallel_t],
-            workers=workers,
-            block_size=block_size,
-            force=True,
-        )
-
-    assert serial_hash['t'] == parallel_hash['t']
-
-    serial = _read_layers(serial_t.directory)
-    parallel = _read_layers(parallel_t.directory)
-    for s, p in zip(serial, parallel, strict=True):
-        numpy.testing.assert_array_equal(s, p)
+    run_serial_vs_parallel(
+        generate_terrain,
+        src_path,
+        serial_t,
+        parallel_t,
+        _read_layers,
+        workers=workers,
+        block_size=block_size,
+    )
 
 
 def test_parallel_matches_serial_for_multiple_targets(tmp_path):

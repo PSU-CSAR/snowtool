@@ -41,56 +41,13 @@ from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.terrain_generate import generate_terrain
 from snowtool.snowdb.zones.terrain_layers import (
-    ASPECT_COMPONENT_DOMAIN_MAX,
-    ASPECT_COMPONENT_DOMAIN_MIN,
-    ASPECT_COMPONENT_NODATA,
-    ASPECT_E,
-    ASPECT_ENTROPY,
-    ASPECT_ENTROPY_NODATA,
-    ASPECT_FLAT,
-    ASPECT_MAJORITY,
-    ASPECT_MAJORITY_NODATA,
-    ASPECT_N,
-    ASPECT_S,
-    ASPECT_W,
-    DEFAULT_ASPECT_COMPONENT_BUCKETS,
-    DEFAULT_ASPECT_ENTROPY_THRESHOLD,
-    EASTNESS,
-    ELEVATION,
-    ELEVATION_NODATA,
-    NORTHNESS,
     TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
 )
 from snowtool.snowdb.zones.zone_layer import GenerationOptions, ZoneLayerProvider
 
-# The layer/constant definitions live in ``terrain_layers`` so the generation
-# engine can import them without importing this provider (this module imports the
-# engine below to bind its module-level default). Re-exported here so external
-# importers keep reading them off ``snowtool.snowdb.zones.terrain``.
-__all__ = [
-    'ASPECT_COMPONENT_DOMAIN_MAX',
-    'ASPECT_COMPONENT_DOMAIN_MIN',
-    'ASPECT_COMPONENT_NODATA',
-    'ASPECT_E',
-    'ASPECT_ENTROPY',
-    'ASPECT_ENTROPY_NODATA',
-    'ASPECT_FLAT',
-    'ASPECT_MAJORITY',
-    'ASPECT_MAJORITY_NODATA',
-    'ASPECT_N',
-    'ASPECT_S',
-    'ASPECT_W',
-    'DEFAULT_ASPECT_COMPONENT_BUCKETS',
-    'DEFAULT_ASPECT_ENTROPY_THRESHOLD',
-    'EASTNESS',
-    'ELEVATION',
-    'ELEVATION_NODATA',
-    'NORTHNESS',
-    'TERRAIN_FORMAT_VERSION',
-    'TERRAIN_LAYERS',
-    'TerrainProvider',
-]
+# The layer/constant definitions live in ``terrain_layers`` -- import them from
+# there directly (this provider only wires up TERRAIN_LAYERS/TERRAIN_FORMAT_VERSION).
 
 if TYPE_CHECKING:
     from pathlib import Path

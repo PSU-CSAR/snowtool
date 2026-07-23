@@ -100,11 +100,8 @@ def test_info_after_create(
     assert info['min_elevation_m'] == -100.0
     assert info['max_elevation_m'] == 4500.0
     assert 'elevation_bracket_m' not in info
-
-    table = runner.invoke(cli, ['dataset', 'info', 'test'], obj=cli_obj)
-    assert table.exit_code == 0, table.output
-    assert 'varies (geographic)' in table.output
-    assert '-100.0 .. 4500.0' in table.output
+    # The table form's prose substitutions ('varies (geographic)', 'MIN .. MAX')
+    # are pinned as a renderer case in test_render.py.
 
 
 # --- dates / values ------------------------------------------------------------

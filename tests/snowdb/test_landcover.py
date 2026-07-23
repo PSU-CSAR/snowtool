@@ -1,10 +1,10 @@
 """The land-cover ZoneLayerSet: presence, missing layers, and provenance hash."""
 
 from snowtool.snowdb.raster import TiledRaster
-from snowtool.snowdb.zones.landcover import (
+from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
-    LandCoverProvider,
 )
 from snowtool.snowdb.zones.zone_layer import ZoneLayerSet
 

@@ -10,7 +10,7 @@ from snowtool.cli import cli
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
-from snowtool.snowdb.zones.terrain import ELEVATION
+from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import TILE, snodas_swe_name
 

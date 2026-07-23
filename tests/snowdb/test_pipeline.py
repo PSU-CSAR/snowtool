@@ -20,7 +20,7 @@ from snowtool.snowdb.raster.collection import RasterCollection
 from snowtool.snowdb.raster.tiff_cache import TiffCache
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zonal_stats import ZonalStats, ZoneSelection
-from snowtool.snowdb.zones.terrain import ELEVATION
+from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import (
     DEM_ELEVATION_M,

@@ -24,24 +24,14 @@ from snowtool.snowdb.constants import NLCD_HASH_TAG
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.landcover_generate import generate_landcover
 from snowtool.snowdb.zones.landcover_layers import (
-    DEFAULT_FOREST_THRESHOLD_PCT,
-    FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
 )
 from snowtool.snowdb.zones.zone_layer import GenerationOptions, ZoneLayerProvider
 
-# The layer/constant definitions live in ``landcover_layers`` so the generation
-# engine can import them without importing this provider (this module imports the
-# engine below to bind its module-level default). Re-exported here so external
-# importers keep reading them off ``snowtool.snowdb.zones.landcover``.
-__all__ = [
-    'DEFAULT_FOREST_THRESHOLD_PCT',
-    'FOREST_COVER',
-    'LANDCOVER_FORMAT_VERSION',
-    'LANDCOVER_LAYERS',
-    'LandCoverProvider',
-]
+# The layer/constant definitions live in ``landcover_layers`` -- import them from
+# there directly (this provider only wires up
+# LANDCOVER_LAYERS/LANDCOVER_FORMAT_VERSION).
 
 if TYPE_CHECKING:
     from pathlib import Path

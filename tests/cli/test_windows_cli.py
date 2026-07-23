@@ -329,18 +329,23 @@ def test_iis_help_lists_install_and_remove():
     assert 'remove' in result.output
 
 
+def _install_argv(tmp_path, *, hostname='snow.example.org', config=True, extra=()):
+    """The `windows iis install` argv, with the common options pre-wired.
+
+    ``hostname``/``config`` drop their option when set falsy (to exercise click's
+    required-option validation); ``extra`` appends trailing flags (``--only``,
+    the removed ``--protocol``, ...).
+    """
+    argv = ['windows', 'iis', 'install', str(tmp_path / 'site')]
+    if hostname:
+        argv += ['--hostname', hostname]
+    if config:
+        argv += ['--config', str(tmp_path)]
+    return [*argv, *extra]
+
+
 def test_install_requires_hostname(tmp_path):
-    result = CliRunner().invoke(
-        cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--config',
-            str(tmp_path),
-        ],
-    )
+    result = CliRunner().invoke(cli, _install_argv(tmp_path, hostname=None))
 
     assert result.exit_code != 0
     assert '--hostname' in result.output
@@ -349,17 +354,7 @@ def test_install_requires_hostname(tmp_path):
 def test_install_requires_config(monkeypatch, tmp_path):
     monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
-    result = CliRunner().invoke(
-        cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-        ],
-    )
+    result = CliRunner().invoke(cli, _install_argv(tmp_path, config=False))
 
     assert result.exit_code != 0
     assert '--config' in result.output
@@ -379,21 +374,7 @@ def test_install_accepts_only_config_or_site(tmp_path, only):
     # Genuinely exercised past option parsing: the non-Windows guard fires
     # only after click has validated --only, so an invalid choice is
     # distinguishable here from a valid one hitting require_windows().
-    result = CliRunner().invoke(
-        cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-            '--config',
-            str(tmp_path),
-            '--only',
-            only,
-        ],
-    )
+    result = CliRunner().invoke(cli, _install_argv(tmp_path, extra=['--only', only]))
 
     assert result.exit_code != 0
     assert 'Windows' in result.output
@@ -402,57 +383,19 @@ def test_install_accepts_only_config_or_site(tmp_path, only):
 def test_install_rejects_invalid_only_value(tmp_path):
     result = CliRunner().invoke(
         cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-            '--config',
-            str(tmp_path),
-            '--only',
-            'bogus',
-        ],
+        _install_argv(tmp_path, extra=['--only', 'bogus']),
     )
 
     assert result.exit_code == 2  # click Choice rejection
 
 
-def test_install_rejects_removed_skip_flags(tmp_path):
+def test_install_rejects_a_removed_flag(tmp_path):
+    # One representative removed flag (--protocol was dropped when https became
+    # the only supported binding; --skip-site/--skip-config were likewise
+    # removed in favor of --only). click rejects any of them the same way.
     result = CliRunner().invoke(
         cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-            '--config',
-            str(tmp_path),
-            '--skip-site',
-        ],
-    )
-
-    assert result.exit_code == 2  # click: no such option
-
-
-def test_install_rejects_removed_protocol_flag(tmp_path):
-    result = CliRunner().invoke(
-        cli,
-        [
-            'windows',
-            'iis',
-            'install',
-            str(tmp_path / 'site'),
-            '--hostname',
-            'snow.example.org',
-            '--config',
-            str(tmp_path),
-            '--protocol',
-            'http',
-        ],
+        _install_argv(tmp_path, extra=['--protocol', 'http']),
     )
 
     assert result.exit_code == 2
