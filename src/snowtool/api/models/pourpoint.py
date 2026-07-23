@@ -208,8 +208,8 @@ def build_pourpoint_detail(
     :func:`_pourpoint_stats_links`).
     """
     coverage = _active_coverage(entry, snowdb.datasets)
-    # The basin polygon passes straight through (see `_pourpoint_feature`); `None`
-    # for a point-only pourpoint (GeoJSON allows a null geometry).
+    # `load_pourpoint` (the route's lookup) owns the `indexed => basin-bearing`
+    # invariant, so `pourpoint.polygon` is guaranteed present here.
     return PourpointDetail(
         id=pourpoint.station_triplet,
         geometry=pourpoint.polygon,

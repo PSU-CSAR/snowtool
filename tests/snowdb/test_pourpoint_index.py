@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from snowtool.exceptions import IndexedPourpointMissingBasinError
 from snowtool.snowdb.coverage import Coverage, CoverageDomain
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
@@ -186,9 +187,10 @@ def test_index_build_and_save_load_round_trip(tmp_path):
     assert reloaded.entries == index.entries
 
 
-def test_index_build_skips_point_only_records(tmp_path):
-    # A point-only pourpoint (no basin) in records/ must not crash reindex on
-    # geometry_hash; it is simply not an AOI and is left out of the index.
+def test_index_build_raises_on_point_only_record(tmp_path):
+    # Every stored record is basin-bearing (the import boundary guarantees it), so
+    # a point-only pourpoint in records/ is a corrupt store: build refuses loudly,
+    # naming the offending file, rather than silently dropping the record.
     records = tmp_path / 'records'
     records.mkdir()
     _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
@@ -198,8 +200,8 @@ def test_index_build_skips_point_only_records(tmp_path):
         with_polygon=False,
     )
 
-    index = PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
-    assert index.triplets() == {'10000:MT:USGS'}
+    with pytest.raises(IndexedPourpointMissingBasinError, match=r'p\.geojson'):
+        PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
 
 
 def test_index_build_empty_over_no_paths(tmp_path):

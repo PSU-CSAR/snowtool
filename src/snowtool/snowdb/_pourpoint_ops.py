@@ -136,14 +136,13 @@ def basin_pourpoints(
     *,
     progress: ProgressReporter = NULL_PROGRESS,
 ) -> list[Pourpoint]:
-    """Parse every stored record and keep only the basin-bearing pourpoints.
+    """Parse and return every stored pourpoint record (all basin-bearing).
 
-    The rasterize/coverage passes work on basins only (a point-only pourpoint has
-    no polygon to burn), matching what the index holds. ``progress`` reports the
-    parse as one tracked task, advancing once per record. This is the db-records
-    counterpart to :func:`_classify_sources` (which reads a *source dir* and also
-    partitions invalid/point-only) -- kept separate because that one classifies
-    import candidates, while this one filters already-stored records.
+    The rasterize/coverage passes work on basins only. Every stored record is
+    basin-bearing -- the import boundary (:func:`_classify_sources`) guarantees it
+    by partitioning invalid/point-only sources before they ever reach ``records/``
+    -- so no post-parse filter is needed; the parse itself carries the invariant.
+    ``progress`` reports the parse as one tracked task, advancing once per record.
     """
     record_paths = db.pourpoint_paths()
     basins: list[Pourpoint] = []
@@ -152,9 +151,7 @@ def basin_pourpoints(
         total=len(record_paths),
     ) as task:
         for path in record_paths:
-            pourpoint = Pourpoint.from_geojson(path)
-            if pourpoint.polygon is not None:
-                basins.append(pourpoint)
+            basins.append(Pourpoint.from_geojson(path))
             task.advance()
     return basins
 

@@ -10,6 +10,7 @@ import snowtool.snowdb.aoi_raster as aoi_raster_mod
 from snowtool.exceptions import (
     GeoJSONValidationError,
     GeometryOutsideGridError,
+    IndexedPourpointMissingBasinError,
     PourpointNotFoundError,
     PourpointPruneDestinationRequiredError,
 )
@@ -308,6 +309,26 @@ def test_reindex_rebuilds_from_records(manager, db, pourpoint_geojson):
     index = manager.reindex_pourpoints()
     assert index.triplets() == {'12345:MT:USGS'}
     assert db.pourpoint_index_path.is_file()
+
+
+def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojson):
+    # Every stored record is basin-bearing (the import boundary guarantees it), so
+    # a point-only record in `records/` is a corrupt store. Reindex refuses loudly
+    # -- naming the offending file -- rather than silently dropping the record.
+    manager.import_pourpoints(pourpoint_geojson)
+    triplet = '12345:MT:USGS'
+    record_path = db.pourpoint_record_path(triplet)
+    _write_aoi(
+        db.pourpoint_records_path,
+        triplet,
+        with_polygon=False,
+    )
+
+    with pytest.raises(
+        IndexedPourpointMissingBasinError,
+        match=record_path.name,
+    ):
+        manager.reindex_pourpoints()
 
 
 def test_load_pourpoint_gates_on_index(manager, db):

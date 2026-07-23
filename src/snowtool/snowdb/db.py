@@ -23,7 +23,7 @@ from __future__ import annotations
 import shutil
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 from snowtool import types
 from snowtool.exceptions import (
@@ -337,12 +337,18 @@ class SnowDb:
     ) -> Pourpoint:
         """Parse the stored record for an *indexed* pourpoint ``triplet``.
 
-        The index is the availability gate: only basin-bearing pourpoints are
-        indexed (``PourpointIndex.build`` skips point-only ones), so a
-        triplet absent from the index -- a point-only record or anything dropped
-        into ``records/`` out of band without a ``pourpoint reindex`` -- is not
-        served and raises :class:`PourpointNotFoundError`. Callers already holding
-        the index (e.g. a listing loop) pass it in to avoid re-reading it.
+        The single owner of the ``indexed => basin-bearing`` invariant. The index
+        is the availability gate: only basin-bearing pourpoints are indexed
+        (``PourpointIndex.build`` refuses point-only records), so a triplet absent
+        from the index -- anything dropped into ``records/`` out of band without a
+        ``pourpoint reindex`` -- is not served and raises
+        :class:`PourpointNotFoundError`. A triplet that *is* indexed but whose
+        stored record has been swapped out-of-band to a point-only Feature (no
+        polygon) is a data-integrity bug, surfaced as the typed
+        :class:`IndexedPourpointMissingBasinError` (an unmapped -- server 500 --
+        condition) rather than returning a basin-less :class:`Pourpoint` that
+        every caller would have to re-check. Callers already holding the index
+        (e.g. a listing loop) pass it in to avoid re-reading it.
         """
         if index is None:
             index = self.pourpoint_index()
@@ -351,7 +357,12 @@ class SnowDb:
         path = self.pourpoint_record_path(triplet)
         if not path.is_file():
             raise PourpointNotFoundError.for_triplet(triplet)
-        return Pourpoint.from_geojson(path)
+        pourpoint = Pourpoint.from_geojson(path)
+        if pourpoint.polygon is None:
+            raise IndexedPourpointMissingBasinError(
+                f'Indexed pourpoint {triplet!r} has no basin polygon.',
+            )
+        return pourpoint
 
     def load_basin(
         self: Self,
@@ -359,23 +370,19 @@ class SnowDb:
         *,
         index: PourpointIndex | None = None,
     ) -> Polygon | MultiPolygon:
-        """The basin polygon of an *indexed* pourpoint ``triplet``; raises if none.
+        """The basin polygon of an *indexed* pourpoint ``triplet``.
 
-        Enforces the ``indexed => basin-bearing`` invariant on the read surface:
-        the index only lists basin-bearing pourpoints, so a ``None`` polygon on
-        an indexed record is a data-integrity bug (an out-of-band ``records/``
-        edit not followed by ``pourpoint reindex``), surfaced as the typed
-        :class:`IndexedPourpointMissingBasinError` (an unmapped -- server 500 --
-        condition) rather than silently swapping in the point. Gates on the index
-        first via :meth:`load_pourpoint`, so an unindexed triplet still raises
-        :class:`PourpointNotFoundError`.
+        A trivial accessor over :meth:`load_pourpoint`, which owns the
+        ``indexed => basin-bearing`` invariant: an unindexed triplet raises
+        :class:`PourpointNotFoundError` and a corrupt (basin-less) indexed record
+        raises :class:`IndexedPourpointMissingBasinError`, so ``polygon`` is never
+        ``None`` here -- the ``cast`` only narrows the type for the checker (no
+        runtime re-check, since ``load_pourpoint`` already enforced it).
         """
-        polygon = self.load_pourpoint(triplet, index=index).polygon
-        if polygon is None:
-            raise IndexedPourpointMissingBasinError(
-                f'Indexed pourpoint {triplet!r} has no basin polygon.',
-            )
-        return polygon
+        return cast(
+            'Polygon | MultiPolygon',
+            self.load_pourpoint(triplet, index=index).polygon,
+        )
 
     def pourpoint_index(self: Self) -> PourpointIndex:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.

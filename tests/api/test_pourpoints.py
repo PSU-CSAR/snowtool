@@ -239,6 +239,24 @@ def test_list_basin_geometry_raises_on_data_integrity_broken_record(
         client.get('/pourpoints', params={'geometry': 'basin'})
 
 
+def test_detail_raises_on_data_integrity_broken_record(synthetic_settings) -> None:
+    # The detail route always serves the basin. An out-of-band edit that leaves an
+    # indexed triplet's record point-only (no reindex) is a data-integrity bug:
+    # load_pourpoint raises the typed (unmapped) error, so the route 500s rather
+    # than serving `geometry: null`. The test client re-raises it as the
+    # underlying ValueError.
+    from snowtool.snowdb.db import SnowDb
+
+    db = SnowDb.open(synthetic_settings.snowdb_config)
+    write_pourpoint_record(db.pourpoint_record_path(TRIPLET), TRIPLET, point_only=True)
+
+    with (
+        TestClient(get_app(settings=synthetic_settings)) as client,
+        pytest.raises(ValueError, match='has no basin polygon'),
+    ):
+        client.get(f'/pourpoints/{TRIPLET}')
+
+
 def test_list_basin_geometry_returns_polygons(synthetic_client) -> None:
     response = synthetic_client.get('/pourpoints', params={'geometry': 'basin'})
     assert response.status_code == 200

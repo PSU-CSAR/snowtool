@@ -73,8 +73,15 @@ async def get_pourpoint(
     triplet: types.StationTriplet,
     snowdb: CatalogDb,
 ) -> PourpointDetail:
-    # load_pourpoint gates on the index (404 for an unindexed/out-of-band
-    # triplet), so the entry is guaranteed present for its derived coverage.
-    index = snowdb.pourpoint_index()
-    pourpoint = snowdb.load_pourpoint(triplet, index=index)
-    return build_pourpoint_detail(snowdb, pourpoint, index[triplet])
+    def build() -> PourpointDetail:
+        # load_pourpoint gates on the index (404 for an unindexed/out-of-band
+        # triplet), so the entry is guaranteed present for its derived coverage.
+        index = snowdb.pourpoint_index()
+        pourpoint = snowdb.load_pourpoint(triplet, index=index)
+        return build_pourpoint_detail(snowdb, pourpoint, index[triplet])
+
+    # The lookup fully parses one basin record (thousands of coordinate pairs):
+    # synchronous disk + shapely work that would block the event loop. The sibling
+    # list route offloads for the same reason; this applies a fortiori (always a
+    # full basin parse), so mirror it -- one call, no branches.
+    return await run_in_threadpool(build)

@@ -508,15 +508,26 @@ def test_index_cache_is_stable_then_revalidates_on_mtime(
     assert reader.pourpoint_index().triplets() == set()
 
 
-def test_load_basin_raises_on_indexed_point_only_record(
+def _corrupt_to_point_only(db, triplet):
+    """Swap an indexed triplet's on-disk record to a point-only Feature.
+
+    Simulates the corruption case: an out-of-band ``records/`` edit not followed
+    by ``pourpoint reindex``, so the index still lists the triplet as
+    basin-bearing while the stored record no longer has a polygon.
+    """
+    write_pourpoint_record(db.pourpoint_record_path(triplet), triplet, point_only=True)
+
+
+def test_load_pourpoint_raises_on_indexed_point_only_record(
     tmp_path,
     spec,
     pourpoint_geojson,
 ):
-    # The index only lists basin-bearing pourpoints, so an indexed triplet whose
-    # on-disk record has been swapped out-of-band to a point-only Feature (no
-    # reindex) is a data-integrity bug: `load_basin` raises the typed error
-    # rather than returning `None` or the point.
+    # `load_pourpoint` is the single owner of the `indexed => basin-bearing`
+    # invariant: an indexed triplet whose on-disk record has been swapped
+    # out-of-band to a point-only Feature (no reindex) is a data-integrity bug,
+    # so the parse itself raises the typed error rather than returning a
+    # basin-less Pourpoint that downstream code must re-check.
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
     SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
@@ -524,17 +535,34 @@ def test_load_basin_raises_on_indexed_point_only_record(
     db = SnowDb.open(tmp_path)
     triplet = '12345:MT:USGS'
     assert triplet in db.pourpoint_index()  # still indexed as basin-bearing
+    _corrupt_to_point_only(db, triplet)
 
-    db.pourpoint_record_path(triplet).write_text(
-        json.dumps(
-            {
-                'type': 'Feature',
-                'id': triplet,
-                'geometry': {'type': 'Point', 'coordinates': [-119.45, 44.45]},
-                'properties': {'name': 'Test Basin', 'source': 'test'},
-            },
-        ),
-    )
+    with pytest.raises(
+        IndexedPourpointMissingBasinError,
+        match='has no basin polygon',
+    ):
+        db.load_pourpoint(triplet)
+
+    # An unindexed triplet still gates on the index first (PourpointNotFound).
+    with pytest.raises(PourpointNotFoundError):
+        db.load_pourpoint('99999:MT:USGS')
+
+
+def test_load_basin_raises_on_indexed_point_only_record(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    # `load_basin` is now a trivial accessor over `load_pourpoint`, so it
+    # inherits the same typed error on a corrupt (basin-less) indexed record.
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+
+    db = SnowDb.open(tmp_path)
+    triplet = '12345:MT:USGS'
+    assert triplet in db.pourpoint_index()  # still indexed as basin-bearing
+    _corrupt_to_point_only(db, triplet)
 
     with pytest.raises(
         IndexedPourpointMissingBasinError,
