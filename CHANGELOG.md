@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 > snowdbs are unaffected, and no rebuild or migration is needed. Every
 > provenance hash and format version is unchanged across the branch (the
 > parallel land-cover generation below produces bit-identical output and
-> generation hashes).
+> generation hashes). One diagnostics change is visible on older stores:
+> `doctor` now flags a built zone-layer set whose COGs predate provenance
+> tagging as stale (previously it silently skipped them); rebuilding those
+> layers is recommended but not required.
 
 ### Added
 
@@ -158,6 +161,40 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - `dataset create` now lists the valid `--template` values in `--help`, and an
   unknown `--template` exits `2` with click's `Choice` error (was a plain
   exit `1`).
+- Malformed ingest input is now refused loudly instead of silently tolerated:
+  a SNODAS tar carrying two members for the same product errors (previously
+  tar ordering silently picked one), an INSTARR `SPIRES_NRT_*.nc` file whose
+  name fails the tile pattern errors (previously it was silently dropped,
+  leaving an unsignalled nodata hole in the mosaic), and a SWANN NetCDF whose
+  grid shape disagrees with the dataset grid errors at ingest (previously it
+  was written as-is and caught only probabilistically later).
+- A corrupt pourpoint store now fails loudly everywhere: a stored record
+  without a basin polygon errors at reindex and at load (previously the index
+  silently dropped it, and the API pourpoint-detail route served it as
+  `geometry: null`). The detail route now returns the same typed 500 the list
+  route already produced for this state.
+- 3DEP terrain-source failures (no tiles for the extent, bad tile headers)
+  now raise typed snowtool errors, so `snowtool init` against an off-CONUS or
+  typo'd extent prints a clean one-line error instead of a traceback.
+- A zonal-stats query whose date range contains no data now lists the basin's
+  zones (with areas) alongside empty results in both JSON and CSV, instead of
+  returning an empty zones list.
+- **Internal API:** `ZonalStats` takes the (date-invariant) cell areas as a
+  constructor argument instead of storing them as a per-date matrix column;
+  `Dataset.rasterize_aoi` returns `bool` (built vs. skipped) instead of
+  re-reading the just-written raster; `Dataset.missing_variables` is renamed
+  `unresolved_variables` and treats a duplicated COG like a missing one
+  (unified with the write-side check); `SwannRaster` and `InstarrMosaicRaster`
+  share a new `GridAlignedRaster` write-plumbing base; the per-scheme
+  `with_override` copies collapse into the `ZoneScheme` base (driven by
+  `_value_field`/`_value_type`); the query types' `csv_name` shrinks to
+  `date_fragment()` with the filename composed at the API boundary (names
+  byte-identical); `INGEST_FORMAT_VERSION` moves to `snowdb/ingest.py` beside
+  its only consumer; the streaming-binner base now owns payload masking
+  (engines return unmasked arrays; generation output bit-identical); health-
+  check name validation moves from the `doctor` CLI callback into
+  `run_health_checks`; the zones provider modules no longer re-export their
+  `*_layers` constants.
 
 ### Removed
 
@@ -192,6 +229,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - `build_mosaic_vrt` took CRS/resolution/dtype/nodata from the first tile
   and never checked the rest, so a heterogeneous tile set would produce a
   silently misregistered mosaic; it now raises a clear error instead.
+- `doctor`'s completeness report crashed with `IncompleteDatasetDataError` on
+  the first date carrying a stale duplicate COG — exactly the corruption it
+  exists to report — losing every other date's findings. A duplicated COG now
+  appears as an incomplete-date finding like a missing one.
+- `doctor` treated a built zone-layer set with no provenance tag as "not
+  built" and skipped it; such sets (COGs predating tagging) are now correctly
+  flagged as stale for rebuild.
+- The HTTP CSV stats response claimed to validate eagerly but streamed a
+  plain generator, so a malformed result produced a broken `200` mid-stream;
+  the first chunk (the header build) is now primed before the response
+  starts, making the documented guarantee real.
+- SNODAS `trim_header` appended a newline to lines that still carried their
+  own, inserting a blank line after every header line (tolerated by GDAL's
+  parser, but wrong); headers now round-trip without inserted blanks.
+- The API pourpoint-detail route ran its basin parse (disk + shapely) on the
+  event loop while the list route deliberately offloaded to a worker thread;
+  both routes now offload uniformly.
 
 ### Security
 
