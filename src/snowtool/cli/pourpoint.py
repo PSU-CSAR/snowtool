@@ -28,8 +28,7 @@ from snowtool.cli._render import emit, emit_record, format_option
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.manager import SnowDbManager
-    from snowtool.snowdb.pourpoint_ops import PourpointImportResult
+    from snowtool.snowdb.manager import PourpointImportResult, SnowDbManager
 
 
 @click.group()

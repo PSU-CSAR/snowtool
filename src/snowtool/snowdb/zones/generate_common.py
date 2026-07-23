@@ -329,7 +329,7 @@ def pixel_centre_coords(
 
 type _F64 = numpy.typing.NDArray[numpy.float64]
 # A block's per-pixel payload arrays the reducer splats into ``bin_into`` (terrain:
-# cls/cos/sin/wt/z; land cover: is_forest), flattened and masked to the kept pixels.
+# cls/cos/sin/z; land cover: is_forest), flattened and masked to the kept pixels.
 type Payload = tuple[numpy.typing.NDArray, ...]
 # What every :meth:`StreamingBinner._load` returns: the payload, the broadcastable
 # pixel-centre x/y (in the source CRS, shape (h,1)/(1,w) per pixel_centre_coords),

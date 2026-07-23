@@ -380,34 +380,28 @@ class ZonalStats:
         rasters: RasterCollection,
         cache: TiffCache,
         dataset: Dataset,
-        zones: Sequence[str | ZoneSelection] = (),
+        zones: Sequence[ZoneSelection] = (),
         *,
-        registry: Mapping[str, AvailableZone] | None = None,
         max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
         max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> Self:
         """Reduce ``rasters`` over the AOI, crossed by the selected zone layers.
 
-        ``zones`` is the axes to cross. Each element is either an already-resolved
-        :class:`ZoneSelection` (the programmatic form) or a CLI/HTTP
-        ``LAYER[:PARAM=VALUE]`` string token, parsed here against this query's zone
-        registry via :func:`parse_zone_selection` -- so callers (the reader, the
-        CLI, the API) never touch the registry themselves. An **empty** selection
+        ``zones`` is the axes to cross, as already-resolved
+        :class:`ZoneSelection`\\ s -- a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string
+        token becomes one via :func:`parse_zone_selection` at the shell
+        boundary (the reader parses tokens up front, before its
+        ``RasterCollection`` build's dataset I/O). An **empty** selection
         means *no* stratification: the reduction is over the whole basin, producing
         a single cell per date whose ``zone`` tuple is empty (the K=0 case of the
         crossed index). Each selected zone layer is read live, windowed to the AOI,
         and assigned to per-pixel ordinals; the crossed index is the cartesian
         product of the axes.
 
-        Token parsing and axis resolution happen before any raster is read, so a
-        malformed token or unknown layer raises a clean :class:`QueryParameterError`
+        Axis resolution happens before any raster is read, so an unknown layer
+        raises a clean :class:`QueryParameterError`
         up front -- never after paying for I/O. A query whose product would exceed
         ``max_zone_cells`` is likewise rejected before any raster read.
-
-        ``registry`` is the one zone registry for this query; a caller that already
-        built it to fail-fast on a bad token *before* constructing ``rasters`` (the
-        reader -- whose ``RasterCollection`` build itself does dataset I/O) passes it
-        in so it is built exactly once. Direct callers omit it and it is built here.
 
         ``max_concurrent_rasters`` caps how many per-raster reductions run at once
         (a semaphore over the fan-out); it bounds peak memory / fetch fan-out only
@@ -418,19 +412,9 @@ class ZonalStats:
         # One zone registry per query. The zone geometry (which pixel is in which
         # crossed cell, and each cell's total area) depends only on the AOI mask +
         # the zone layers -- not on any variable or date -- so it is resolved once
-        # here and reused by every reduction. A string token is parsed against this
-        # registry; an already-resolved ZoneSelection passes through untouched.
-        if registry is None:
-            registry = available_zones(dataset.providers.values())
-        selections = [
-            zone
-            if isinstance(zone, ZoneSelection)
-            else parse_zone_selection(zone, registry)
-            for zone in zones
-        ]
-        resolved = [
-            resolve_zone_axis(selection, registry, spec) for selection in selections
-        ]
+        # here and reused by every reduction.
+        registry = available_zones(dataset.providers.values())
+        resolved = [resolve_zone_axis(selection, registry, spec) for selection in zones]
 
         # The axes' zones (hence the crossed product size) are known from the
         # schemes alone, with no raster reads -- so guard against a runaway product
@@ -461,7 +445,7 @@ class ZonalStats:
             scheme.assign(values)
             for (_, scheme), values in zip(resolved, axis_arrays, strict=True)
         ]
-        zone_layers = [selection.layer_key for selection in selections]
+        zone_layers = [selection.layer_key for selection in zones]
 
         zone_index = _ZoneIndex.build(axes, ordinals_list, aoi.array)
 

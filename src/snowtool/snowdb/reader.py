@@ -118,12 +118,11 @@ class SnowDbReader:
         defaults to every variable the dataset defines. ``zones`` defaults to none
         (a whole-basin reduction); each element is either an already-resolved
         :class:`~snowtool.snowdb.zonal_stats.ZoneSelection` (the programmatic form)
-        or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here against the
-        query's one zone registry -- built up front so a malformed token or unknown
-        layer fails fast, before the ``RasterCollection`` build's dataset I/O. The
-        parsed selections and the registry are handed to
-        :meth:`ZonalStats.calculate` (which owns axis *resolution* and also
-        accepts raw tokens for direct callers), so neither is redone. Raises a
+        or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here up front
+        so a malformed token or unknown layer fails fast, before the
+        ``RasterCollection`` build's dataset I/O. The parsed selections are
+        handed to :meth:`ZonalStats.calculate`, which owns axis *resolution*
+        and takes only resolved selections. Raises a
         clean error
         when the dataset/variable is unknown, a zone token is malformed or names an
         unknown layer, the pourpoint is not covered
@@ -139,12 +138,12 @@ class SnowDbReader:
             allow_partial=allow_partial,
         )
 
-        # Build the one zone registry for this query and parse the zone tokens
-        # against it up front, before the RasterCollection build below touches the
-        # dataset on disk -- so a bad token surfaces as a clean QueryParameterError
-        # rather than being masked by a later data-integrity error. The parsed
-        # selections and the registry are handed to calculate so neither the
-        # parse nor the registry build happens twice.
+        # Parse the zone tokens up front, before the RasterCollection build below
+        # touches the dataset on disk -- so a bad token surfaces as a clean
+        # QueryParameterError rather than being masked by a later data-integrity
+        # error. (calculate rebuilds the registry for axis resolution; it is a
+        # trivial in-memory dict over the providers, so the parse-time build is
+        # not worth threading through.)
         registry = available_zones(dataset.providers.values())
         zone_selections = [
             parse_zone_selection(zone, registry) if isinstance(zone, str) else zone
@@ -163,7 +162,6 @@ class SnowDbReader:
             self.cache,
             dataset,
             zone_selections,
-            registry=registry,
             max_zone_cells=self.max_zone_cells,
             max_concurrent_rasters=self.max_concurrent_rasters,
         )

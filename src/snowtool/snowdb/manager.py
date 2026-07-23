@@ -9,13 +9,13 @@ commands and library admin code build a manager. "The management layer has a
 snowdb, not the other way around."
 
 The pourpoint import/sync/lifecycle operations live in
-:mod:`snowtool.snowdb.pourpoint_ops` as module-level functions over a
+:mod:`snowtool.snowdb._pourpoint_ops` as module-level functions over a
 :class:`~snowtool.snowdb.db.SnowDb` -- a pure file-size decomposition, not a
 public seam. ``SnowDbManager`` keeps same-named one-line delegators, so the write
 surface is still a single type; those functions' result dataclasses
-(:class:`~snowtool.snowdb.pourpoint_ops.PourpointImportResult`,
-:class:`~snowtool.snowdb.pourpoint_ops.PourpointSyncResult`,
-:class:`~snowtool.snowdb.pourpoint_ops.AOIRasterizeResult`) live there too,
+(:class:`~snowtool.snowdb._pourpoint_ops.PourpointImportResult`,
+:class:`~snowtool.snowdb._pourpoint_ops.PourpointSyncResult`,
+:class:`~snowtool.snowdb._pourpoint_ops.AOIRasterizeResult`) live there too,
 imported here only for the delegators' annotations.
 """
 
@@ -34,7 +34,12 @@ from snowtool.exceptions import (
     UnknownDatasetError,
     UnknownZoneLayerProviderError,
 )
-from snowtool.snowdb import pourpoint_ops
+from snowtool.snowdb import _pourpoint_ops as pourpoint_ops
+from snowtool.snowdb._pourpoint_ops import (
+    AOIRasterizeResult,
+    PourpointImportResult,
+    PourpointSyncResult,
+)
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -47,11 +52,6 @@ from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
-from snowtool.snowdb.pourpoint_ops import (
-    AOIRasterizeResult,
-    PourpointImportResult,
-    PourpointSyncResult,
-)
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.spec import load_dataset_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
@@ -66,7 +66,15 @@ if TYPE_CHECKING:
         ZoneLayerProvider,
     )
 
-__all__ = ['SnowDbManager']
+# The result dataclasses are defined beside their ops in _pourpoint_ops but are
+# part of this module's public surface: the delegators return them, and callers
+# (the CLI) import them from here rather than reaching into the private module.
+__all__ = [
+    'AOIRasterizeResult',
+    'PourpointImportResult',
+    'PourpointSyncResult',
+    'SnowDbManager',
+]
 
 
 def _combined_extent(
@@ -161,7 +169,7 @@ class SnowDbManager:
         self.db = db
 
     # Pourpoint import/sync/lifecycle: one-line delegators to the module-level
-    # functions in :mod:`snowtool.snowdb.pourpoint_ops` (a file-size split, not a
+    # functions in :mod:`snowtool.snowdb._pourpoint_ops` (a file-size split, not a
     # public seam). Keeping the method names lets the CLI's ``pass_manager`` call
     # sites stay unchanged.
     def reindex_pourpoints(

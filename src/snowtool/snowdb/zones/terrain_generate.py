@@ -146,11 +146,6 @@ DEFAULT_BLOCK_SIZE = 1024
 HALO = 1
 # Below this slope a pixel's aspect is unreliable -> the FLAT class.
 FLAT_SLOPE_DEG = 2.0
-# Whether the flat class can win the per-cell majority vote.
-MAJORITY_INCLUDES_FLAT = True
-# Whether the per-cell cos/sin orientation mean is weighted by sin(slope) (steep
-# pixels dominate the mean direction). False: every non-flat pixel counts once.
-COSSIN_SLOPE_WEIGHTED = False
 
 # Internal accumulator layout: four cardinal classes plus flat.
 _N_CLASSES = 5
@@ -222,7 +217,7 @@ class _GridAccumulator(BinAccumulator):
         self.counts = numpy.zeros(_N_CLASSES * n, dtype=numpy.int64)
         self.sum_cos = numpy.zeros(n, dtype=numpy.float64)
         self.sum_sin = numpy.zeros(n, dtype=numpy.float64)
-        self.sum_wt = numpy.zeros(n, dtype=numpy.float64)
+        self.n_nonflat = numpy.zeros(n, dtype=numpy.int64)
         self.sum_z = numpy.zeros(n, dtype=numpy.float64)
 
     def bin_into(
@@ -233,10 +228,10 @@ class _GridAccumulator(BinAccumulator):
     ) -> None:
         """Bin already-reprojected fine-pixel centres into cells.
 
-        ``payload`` is ``(cls, cos, sin, wt, z)`` (the tuple the streamer splats).
+        ``payload`` is ``(cls, cos, sin, z)`` (the tuple the streamer splats).
         See :meth:`BinAccumulator.bin_into` for the serial-order contract.
         """
-        cls, cos, sin, wt, z = payload
+        cls, cos, sin, z = payload
         cell_all, inb = cells_for_points(self._inv, xt, yt, self.width, self.height)
         if not inb.any():
             return
@@ -247,10 +242,10 @@ class _GridAccumulator(BinAccumulator):
         self.sum_z += numpy.bincount(cell, weights=z[inb], minlength=nc)
         nf = c != ASPECT_FLAT  # cos/sin only where aspect is defined
         if nf.any():
-            cf, wf = cell[nf], wt[inb][nf]
-            self.sum_cos += numpy.bincount(cf, weights=cos[inb][nf] * wf, minlength=nc)
-            self.sum_sin += numpy.bincount(cf, weights=sin[inb][nf] * wf, minlength=nc)
-            self.sum_wt += numpy.bincount(cf, weights=wf, minlength=nc)
+            cf = cell[nf]
+            self.sum_cos += numpy.bincount(cf, weights=cos[inb][nf], minlength=nc)
+            self.sum_sin += numpy.bincount(cf, weights=sin[inb][nf], minlength=nc)
+            self.n_nonflat += numpy.bincount(cf, minlength=nc)
 
     def finalize(
         self: Self,
@@ -264,23 +259,22 @@ class _GridAccumulator(BinAccumulator):
         counts = self.counts.reshape(_N_CLASSES, h, w)
         total = counts.sum(axis=0)
 
-        pool = counts if MAJORITY_INCLUDES_FLAT else counts[:4]
-        majority = pool.argmax(axis=0).astype(numpy.uint8)
+        majority = counts.argmax(axis=0).astype(numpy.uint8)
         majority[total == 0] = ASPECT_MAJORITY_NODATA
 
-        wt = self.sum_wt.reshape(h, w)
+        nf = self.n_nonflat.reshape(h, w)
         with numpy.errstate(invalid='ignore', divide='ignore'):
-            # A cell with no non-flat pixels (wt <= 0) has no defined orientation:
-            # mark it with the finite ASPECT_COMPONENT_NODATA sentinel so it
-            # digitises cleanly out of the banded northness/eastness schemes.
+            # A cell with no non-flat pixels has no defined orientation: mark it
+            # with the finite ASPECT_COMPONENT_NODATA sentinel so it digitises
+            # cleanly out of the banded northness/eastness schemes.
             northness = numpy.where(
-                wt > 0,
-                self.sum_cos.reshape(h, w) / wt,
+                nf > 0,
+                self.sum_cos.reshape(h, w) / nf,
                 ASPECT_COMPONENT_NODATA,
             )
             eastness = numpy.where(
-                wt > 0,
-                self.sum_sin.reshape(h, w) / wt,
+                nf > 0,
+                self.sum_sin.reshape(h, w) / nf,
                 ASPECT_COMPONENT_NODATA,
             )
             elevation = numpy.where(
@@ -545,7 +539,7 @@ class _TerrainStreamer(StreamingBinner[_GridAccumulator]):
     :class:`~snowtool.snowdb.zones.generate_common.StreamingBinner`. This engine
     supplies only the terrain-specific ``_load``: the haloed WarpedVRT read (so
     the 3x3 Horn window is exact across block edges) and the Horn slope/aspect
-    derivation. Its payload is ``(cls, cos, sin, wt, z)`` per
+    derivation. Its payload is ``(cls, cos, sin, z)`` per
     :meth:`_GridAccumulator.bin_into`.
     """
 
@@ -603,11 +597,6 @@ class _TerrainStreamer(StreamingBinner[_GridAccumulator]):
         rad = numpy.radians(aspect_deg)
         cos = numpy.cos(rad)
         sin = numpy.sin(rad)
-        wt = (
-            numpy.sin(numpy.radians(slope_deg))
-            if COSSIN_SLOPE_WEIGHTED
-            else numpy.ones_like(slope_deg)
-        )
 
         # The Horn pass trims one pixel off each edge of the haloed read, so the
         # inner block's global origin is (r0 - HALO + 1, c0 - HALO + 1) and its
@@ -627,7 +616,6 @@ class _TerrainStreamer(StreamingBinner[_GridAccumulator]):
             cls.ravel()[keep].astype(numpy.int64),
             cos.ravel()[keep],
             sin.ravel()[keep],
-            wt.ravel()[keep],
             zint.ravel()[keep],
         )
         return payload, x, y, cls >= 0
