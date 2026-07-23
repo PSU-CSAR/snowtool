@@ -2,8 +2,9 @@
 
 A query (:class:`DateRangeQuery` or :class:`DOYQuery`, unified by the discriminated
 :data:`PourPointQuery`) carries both the date-selection logic (``select`` filters
-the dates a dataset has) and output-naming logic (``csv_name`` builds the download
-filename). :class:`DateQuery` is the structural protocol both satisfy.
+the dates a dataset has) and the date component of the download filename
+(``date_fragment``; the API composes the full CSV name around it). :class:`DateQuery`
+is the structural protocol both satisfy.
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ Year = Annotated[
 
 
 class DateQuery(Protocol):  # pragma: no cover
-    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str: ...
+    def date_fragment(self: Self) -> str: ...
     def select(self: Self, available: Iterable[date]) -> list[date]: ...
 
 
@@ -66,13 +67,9 @@ class DateRangeQuery(BaseModel):
     start_date: date | None = Field(default=None, examples=['2008-12-01'])
     end_date: date | None = Field(default=None, examples=['2008-12-14'])
 
-    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str:
-        return '{}_{}-{}{}.csv'.format(
-            '-'.join(triplet.split()),
-            _bound(self.start_date),
-            _bound(self.end_date),
-            f'_zonal_{zone_size}' if zone_size else '',
-        )
+    def date_fragment(self: Self) -> str:
+        """This query's date component of the CSV download filename."""
+        return f'{_bound(self.start_date)}-{_bound(self.end_date)}'
 
     @classmethod
     def from_interval(cls, interval: _Interval | None) -> Self:
@@ -99,9 +96,6 @@ class DateRangeQuery(BaseModel):
             if (self.start_date is None or d >= self.start_date)
             and (self.end_date is None or d <= self.end_date)
         )
-
-    def __str__(self: Self) -> str:
-        return f'{_bound(self.start_date)}/{_bound(self.end_date)}'
 
 
 class DOYFields(BaseModel):
@@ -150,15 +144,9 @@ class DOYFields(BaseModel):
 class DOYQuery(DOYFields):
     type: Literal['DayOfYear'] = 'DayOfYear'
 
-    def csv_name(self: Self, triplet: str, zone_size: int = 0) -> str:
-        return '{}_{}-{}_{}-{}{}.csv'.format(
-            '-'.join(triplet.split()),
-            self.month,
-            self.day,
-            self.start_year,
-            self.end_year,
-            f'_zonal_{zone_size}' if zone_size else '',
-        )
+    def date_fragment(self: Self) -> str:
+        """This query's date component of the CSV download filename."""
+        return f'{self.month}-{self.day}_{self.start_year}-{self.end_year}'
 
     def select(self: Self, available: Iterable[date]) -> list[date]:
         """The ``available`` dates on this month/day across the year span."""
@@ -169,9 +157,6 @@ class DOYQuery(DOYFields):
             and d.day == self.day
             and self.start_year <= d.year <= self.end_year
         )
-
-    def __str__(self: Self) -> str:
-        return f'{self.month}{self.day}/{self.start_year}/{self.end_year}'
 
 
 PourPointQuery = Annotated[

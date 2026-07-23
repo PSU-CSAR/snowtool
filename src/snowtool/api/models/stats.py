@@ -7,11 +7,13 @@ there are no per-dataset field names and one OpenAPI schema covers them all.
 
 Content is negotiated (``?f=`` / ``Accept``): ``csv`` streams
 :meth:`ZonalStats.iter_csv` via :func:`stats_csv_response` with a
-``Content-Disposition`` filename from the query's ``csv_name``; the JSON envelope
-carries an ``alternate`` link to the CSV.
+``Content-Disposition`` filename composed by :func:`stats_filename` (the query owns
+only its date fragment); the JSON envelope carries an ``alternate`` link to the CSV.
 """
 
 from __future__ import annotations
+
+import itertools
 
 from typing import TYPE_CHECKING
 
@@ -27,7 +29,7 @@ from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery, PourPoint
 from snowtool.snowdb.zonal_stat_models import CompactStats
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     from snowtool.snowdb.zonal_stats import ZonalStats
 
@@ -149,6 +151,43 @@ class CompactStatsResponse(CompactStats):
         )
 
 
+def stats_filename(
+    triplet: types.StationTriplet,
+    query: DateRangeQuery | DOYQuery,
+    zone_count: int,
+) -> str:
+    """Compose the CSV download filename at the API boundary.
+
+    The query owns only its date component (:meth:`~DateRangeQuery.date_fragment`);
+    the triplet slug and the ``_zonal_N`` suffix are the same for every query type,
+    so they are composed here once rather than duplicated per query class.
+    """
+    slug = '-'.join(triplet.split())
+    zonal = f'_zonal_{zone_count}' if zone_count else ''
+    return f'{slug}_{query.date_fragment()}{zonal}.csv'
+
+
+def prime_iter_csv(
+    stats: ZonalStats,
+    *,
+    include_empty_zones: bool = False,
+) -> Iterator[str]:
+    """``stats.iter_csv`` with its first (header) chunk already pulled.
+
+    :meth:`ZonalStats.iter_csv` is a plain generator, so nothing in it runs until
+    the first ``next()``. Pulling that first chunk here forces the header assembly
+    (the ``_axis_kinds``/strict-zip column build) to run *now* -- while we can still
+    return an error response -- instead of mid-stream after the 200 headers are
+    already sent. The primed chunk is chained back in front of the rest, so the
+    stream is complete and byte-identical.
+    """
+    chunks = stats.iter_csv(include_empty_zones=include_empty_zones)
+    # The header always yields, so there is exactly one first chunk (never a
+    # StopIteration); a dead guard for a zero-chunk stream would be misleading.
+    first = next(chunks)
+    return itertools.chain((first,), chunks)
+
+
 def stats_csv_response(
     stats: ZonalStats,
     filename: str,
@@ -157,12 +196,12 @@ def stats_csv_response(
 ) -> StreamingResponse:
     """Stream a :class:`ZonalStats` as a CSV attachment named ``filename``.
 
-    ``stats.iter_csv`` validates eagerly (before its first yield), so a bad
-    result object still errors here -- before the response starts -- rather
-    than mid-stream after the 200 headers are already sent.
+    ``stats.iter_csv`` is primed here (its header build is run before the response
+    starts), so a bad result object still errors -- before the 200 headers are
+    sent -- rather than mid-stream. See :func:`prime_iter_csv`.
     """
     return StreamingResponse(
-        stats.iter_csv(include_empty_zones=include_empty_zones),
+        prime_iter_csv(stats, include_empty_zones=include_empty_zones),
         media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )

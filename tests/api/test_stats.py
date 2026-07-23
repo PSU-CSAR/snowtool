@@ -142,6 +142,55 @@ def test_csv_via_format_key(synthetic_client) -> None:
     assert row.startswith('2018-04-27,3000,4000,')
 
 
+def test_csv_date_range_filename(synthetic_client) -> None:
+    # The Content-Disposition filename is composed at the API boundary from the
+    # triplet slug, the query's date fragment, and the zone count. Pin it
+    # byte-for-byte so the composition stays stable.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={
+            'datetime': DAY,
+            'variable': 'swe',
+            'zone': 'terrain.elevation',
+            'f': 'csv',
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers['content-disposition'] == (
+        'attachment; filename="12345:MT:USGS_2018-04-27-2018-04-27_zonal_1.csv"'
+    )
+
+
+def test_csv_date_range_filename_no_zone(synthetic_client) -> None:
+    # No zone -> no ``_zonal_N`` suffix.
+    response = synthetic_client.get(
+        f'{BASE}/date-range',
+        params={'datetime': DAY, 'variable': 'swe', 'f': 'csv'},
+    )
+    assert response.status_code == 200
+    assert response.headers['content-disposition'] == (
+        'attachment; filename="12345:MT:USGS_2018-04-27-2018-04-27.csv"'
+    )
+
+
+def test_csv_doy_filename(synthetic_client) -> None:
+    response = synthetic_client.get(
+        f'{BASE}/doy',
+        params={
+            'month': 4,
+            'day': 27,
+            'start_year': 2018,
+            'end_year': 2018,
+            'variable': 'swe',
+            'f': 'csv',
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers['content-disposition'] == (
+        'attachment; filename="12345:MT:USGS_4-27_2018-2018.csv"'
+    )
+
+
 def test_csv_via_accept_header(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
@@ -173,14 +222,22 @@ def test_open_ended_interval_selects_available(synthetic_client) -> None:
     assert matrix == [[pytest.approx(SWE_VALUE)]]
 
 
-def test_interval_outside_data_returns_empty(synthetic_client) -> None:
-    # A range that selects no ingested date -> empty results, not an error.
+def test_interval_outside_data_zones_but_empty_results(synthetic_client) -> None:
+    # A range that selects no ingested date is not an error. Cell areas are a
+    # property of the zone geometry (decided before any date reduction), so the
+    # zones are still reported -- with their areas -- while ``results`` (the
+    # per-date matrix) is empty.
     response = synthetic_client.get(
         f'{BASE}/date-range',
         params={'datetime': '2099-01-01/2099-12-31', 'variable': 'swe'},
     )
     assert response.status_code == 200
-    assert response.json()['results'] == {}
+    body = response.json()
+    assert body['results'] == {}
+    # Whole basin (no zone) -> the K=0 cell, always present with a positive area.
+    (zone,) = body['zones']
+    assert zone['zone'] == []
+    assert zone['area_m2'] > 0
 
 
 def test_malformed_datetime_returns_400(synthetic_client) -> None:
@@ -345,3 +402,80 @@ def test_incomplete_data_returns_500(test_settings, spec, pourpoint_geojson) -> 
     body = assert_problem(response, status=500)
     assert body['type'].endswith('/problems/incomplete-dataset-data')
     assert 'swe' in body['detail']
+
+
+# --- filename composition + CSV stream priming (unit) ------------------------
+
+
+def test_stats_filename_composes_slug_date_fragment_and_zone_count() -> None:
+    # The filename is composed at the API boundary from the triplet slug, the
+    # query's date fragment, and the zone count -- the query no longer owns the
+    # whole name.
+    from datetime import date
+
+    from snowtool.api.models.stats import stats_filename
+    from snowtool.snowdb.query import DateRangeQuery, DOYQuery
+
+    date_range = DateRangeQuery(
+        start_date=date(2018, 4, 27),
+        end_date=date(2018, 4, 27),
+    )
+    assert (
+        stats_filename('12345:MT:USGS', date_range, zone_count=0)
+        == '12345:MT:USGS_2018-04-27-2018-04-27.csv'
+    )
+    assert (
+        stats_filename('12345:MT:USGS', date_range, zone_count=2)
+        == '12345:MT:USGS_2018-04-27-2018-04-27_zonal_2.csv'
+    )
+    doy = DOYQuery(month=4, day=27, start_year=2018, end_year=2020)
+    assert (
+        stats_filename('12345:MT:USGS', doy, zone_count=0)
+        == '12345:MT:USGS_4-27_2018-2020.csv'
+    )
+
+
+def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
+    # prime_iter_csv pulls the first (header) chunk eagerly, so a result whose
+    # header build would raise fails at the call -- not mid-stream after a 200 --
+    # while the chained iterator still replays every chunk byte-identically.
+    import numpy
+
+    from snowtool.api.models.stats import prime_iter_csv
+    from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
+    from snowtool.snowdb.zonal_stats import ZonalStats
+    from snowtool.snowdb.zones.zoning import BandZone
+
+    variable = DatasetVariable(
+        key='swe',
+        unit=Unit(name='mm', scale_factor=1),
+        reducer=Reducer.MEAN,
+        dtype='int16',
+        nodata=-9999.0,
+        glob='*',
+    )
+    band = BandZone(key='0_1000', label='0-1000 ft', min=0, max=1000, unit='ft')
+
+    # A layer/cell arity mismatch (one layer, a zero-axis cell) makes the header's
+    # strict-zip raise -- but only when the generator is advanced. A plain
+    # iter_csv() would not raise until consumed; prime_iter_csv() raises now.
+    bad = ZonalStats(
+        {variable},
+        ('terrain.elevation',),
+        ((),),
+        numpy.array([1.0], dtype=numpy.float64),
+        (),
+    )
+    assert bad.iter_csv() is not None  # generator, nothing run yet
+    with pytest.raises(ValueError, match=r'argument.*shorter|zip'):
+        prime_iter_csv(bad)
+
+    # A well-formed result primes fine and replays byte-identically.
+    good = ZonalStats(
+        {variable},
+        ('terrain.elevation',),
+        ((band,),),
+        numpy.array([1.0], dtype=numpy.float64),
+        (),
+    )
+    assert ''.join(prime_iter_csv(good)) == ''.join(good.iter_csv())

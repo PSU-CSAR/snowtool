@@ -29,6 +29,7 @@ from snowtool.api.models.stats import (
     StatsFormat,
     StatsQueryBase,
     stats_csv_response,
+    stats_filename,
 )
 from snowtool.api.tags import Tags
 from snowtool.snowdb.query import DateRangeQuery, DOYQuery
@@ -67,7 +68,7 @@ async def _run(
     if rep.key == 'csv':
         return stats_csv_response(
             stats,
-            query.csv_name(triplet, zone_size=len(params.zone)),
+            stats_filename(triplet, query, zone_count=len(params.zone)),
             include_empty_zones=params.include_empty_zones,
         )
     return CompactStatsResponse.build(

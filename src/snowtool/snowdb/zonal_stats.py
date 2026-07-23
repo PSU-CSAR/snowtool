@@ -153,13 +153,14 @@ class ZonalStats:
         variables: set[DatasetVariable],
         zone_layers: tuple[str, ...],
         zone_cells: tuple[tuple[Zone, ...], ...],
+        areas: numpy.typing.NDArray[numpy.float64],
         dates: tuple[date, ...],
     ) -> None:
         # The crossed zone axes (registry keys, in selection order) and the flat
         # list of product cells (each a per-axis zone tuple, in mixed-radix order).
         self.zone_layers = zone_layers
         self._variables_index = {
-            variable: idx + 1
+            variable: idx
             for idx, variable in enumerate(
                 sorted(variables, key=lambda v: v.key),
             )
@@ -167,25 +168,31 @@ class ZonalStats:
         # Cells arrive in flat product order from the zone index; keep that order
         # rather than re-sorting.
         self._cells = zone_cells
+        # Cell areas are a property of the crossed-zone geometry (the AOI mask + the
+        # zone layers) -- date- and variable-invariant -- so they are held once here
+        # as a cell-aligned vector, not repeated per (date, variable) in the value
+        # array. This is also what lets a zero-date query still report its zones with
+        # their areas.
+        self._areas = areas
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
         # float64, not float32: the per-cell reduction runs in float64
         # (_ZoneIndex.reduce), and area/total stats reach ~1e9-scale values that
         # float32 truncates to ~7 significant digits. The array is tiny
-        # (cells x dates x stats) and JSON output is float64 anyway, so store the
+        # (cells x dates x variables) and JSON output is float64 anyway, so store the
         # full precision rather than round-tripping through float32.
         #
-        # The (dates x cells x 1+variables) array is filled slice-by-slice via
-        # :meth:`fill` -- one whole (date, variable) cell-vector per assignment,
-        # plus the area column per date. Completeness is a construction invariant:
-        # ``RasterCollection.validate`` guarantees every (date, variable) raster
-        # exists, so every slice is written exactly once and no hole-detection
-        # sentinel is needed. Start at 0.0 (a plain, documented fill); any cell not
-        # overwritten would only occur if that invariant were violated.
+        # The (dates x cells x variables) array is filled slice-by-slice via
+        # :meth:`fill` -- one whole (date, variable) cell-vector per assignment.
+        # Completeness is a construction invariant: ``RasterCollection.validate``
+        # guarantees every (date, variable) raster exists, so every slice is written
+        # exactly once and no hole-detection sentinel is needed. Start at 0.0 (a
+        # plain, documented fill); any cell not overwritten would only occur if that
+        # invariant were violated.
         self._array = numpy.zeros(
             (
                 len(self._dates_index),
                 len(self._cells),
-                len(self._variables_index) + 1,
+                len(self._variables_index),
             ),
             dtype=numpy.float64,
         )
@@ -201,17 +208,14 @@ class ZonalStats:
         date_: date,
         variable: DatasetVariable,
         values: numpy.typing.NDArray[numpy.float64],
-        areas: numpy.typing.NDArray[numpy.float64],
     ) -> None:
         """Write one (date, variable) reduction into the array, vectorized.
 
-        ``values`` and ``areas`` are cell-vectors aligned with the flat product
-        (cell) order. The area column is date-invariant, so it is (re)written per
-        date with the same values -- cheap, and keeps a single obvious seam that
-        both :meth:`calculate` and the serializer tests fill the array through.
+        ``values`` is a cell-vector aligned with the flat product (cell) order.
+        Cell areas are date-invariant and held once on ``self._areas`` (set at
+        construction), so only the variable slice is written here.
         """
         date_idx = self._dates_index[date_]
-        self._array[date_idx, :, 0] = areas
         self._array[date_idx, :, self._variables_index[variable]] = values
 
     def _zone_stats(self: Self, date_idx: int, cell_idx: int) -> dict[str, float]:
@@ -224,7 +228,7 @@ class ZonalStats:
         token (JSON null / empty cell).
         """
         cell = self._array[date_idx][cell_idx]
-        values = {'area_m2': float(cell[0])}
+        values = {'area_m2': float(self._areas[cell_idx])}
         for variable, var_idx in self._variables_index.items():
             values[variable.stat_name] = float(variable.unit.scale(cell[var_idx]))
         return values
@@ -248,21 +252,15 @@ class ZonalStats:
         (the crossed zone doesn't occur in this basin), so it reduces to ``nan`` for
         every variable and date. Crossing several fine axes makes such empty cells
         the combinatoric majority of the product, so by default they are dropped from
-        the output; ``include_empty_zones`` keeps the full product. The area weight is
-        per-(date, cell) but date-independent, so a cell is empty for every date or
-        none -- it is dropped from every date consistently. The whole-basin (K=0) cell
-        always has area and is never dropped.
-
-        With no dates there is no array row to read an area from, so nothing is
-        emitted: both serializers report an empty body (empty zones/results).
+        the output; ``include_empty_zones`` keeps the full product. Cell areas are
+        date-invariant (held on ``self._areas``), so emptiness is a property of the
+        zone geometry alone -- decided the same way whether or not the query matched
+        any dates. The whole-basin (K=0) cell always has area and is never dropped.
         """
-        if not self._dates_index:
-            return []
         all_cells = list(range(len(self._cells)))
         if include_empty_zones:
             return all_cells
-        areas = self._array[0, :, 0]
-        return [idx for idx in all_cells if areas[idx] > 0]
+        return [idx for idx in all_cells if self._areas[idx] > 0]
 
     def dump_compact(
         self: Self,
@@ -273,11 +271,10 @@ class ZonalStats:
 
         Shares :meth:`_zone_stats` and :meth:`_emitted_cells` with
         :meth:`dump_to_csv`, so values are byte-identical. ``area_m2`` is
-        date-invariant, so it is read once per zone (from the first date) and
-        hoisted into the zone definition. With no dates the matrix is empty and no
-        area is available, so ``zones`` is empty too (``_emitted_cells`` returns
-        nothing without a date row); ``zone_layers`` and ``variables`` are always
-        reported.
+        date-invariant, so it is read straight from ``self._areas`` and hoisted into
+        the zone definition. A zero-date query still reports its zones (with their
+        areas) -- ``results`` is just an empty matrix; ``zone_layers`` and
+        ``variables`` are always reported.
         """
         cells = self._cells
         variables = [variable.stat_name for variable in self._variables_index]
@@ -286,7 +283,7 @@ class ZonalStats:
         zones: list[CompactZone] = [
             CompactZone(
                 zone=self._zone_refs(self.zone_layers, cells[cell_idx]),
-                area_m2=self._zone_stats(0, cell_idx)['area_m2'],
+                area_m2=float(self._areas[cell_idx]),
             )
             for cell_idx in emitted
         ]
@@ -453,6 +450,7 @@ class ZonalStats:
             rasters.variables,
             tuple(zone_layers),
             zone_index.cell_zones,
+            zone_index.areas,
             tuple(rasters.dates),
         )
 
@@ -471,7 +469,7 @@ class ZonalStats:
         ) -> None:
             async with limit:
                 values = await cls._calc(aoi, variable, raster, zone_index, cache)
-            stats.fill(raster.date, variable, values, zone_index.areas)
+            stats.fill(raster.date, variable, values)
 
         await asyncio.gather(
             *(

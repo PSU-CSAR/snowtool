@@ -529,12 +529,12 @@ def _stats_from_cells(
     """Build a ``ZonalStats`` and fill its array through the public ``fill`` seam.
 
     ``cell_specs`` is ``(zone, value, area)`` per crossed cell, in ``cells`` order.
-    Since ``Result`` is gone, the serializer tests fill the array the same way
-    :meth:`ZonalStats.calculate` does: one vectorized ``fill(date, variable, values,
-    areas)`` per (date, variable). The specs are turned into cell-aligned value and
-    area vectors (matching ``cells`` order) and written in one call.
+    Cell areas are a construction field now (date-invariant, held on
+    ``self._areas``), so the specs are split: the areas go to the constructor and
+    the serializer tests fill only the value slice the same way
+    :meth:`ZonalStats.calculate` does -- one vectorized ``fill(date, variable,
+    values)`` per (date, variable).
     """
-    stats = ZonalStats({variable}, zone_layers, cells, (day,))
     cell_index = {cell: idx for idx, cell in enumerate(cells)}
     values = numpy.empty(len(cells), dtype=numpy.float64)
     areas = numpy.empty(len(cells), dtype=numpy.float64)
@@ -542,7 +542,8 @@ def _stats_from_cells(
         idx = cell_index[zone]
         values[idx] = value
         areas[idx] = area
-    stats.fill(day, variable, values, areas)
+    stats = ZonalStats({variable}, zone_layers, cells, areas, (day,))
+    stats.fill(day, variable, values)
     return stats
 
 
@@ -735,3 +736,57 @@ def test_dump_compact_whole_basin_cell_is_never_dropped():
     compact = stats.dump_compact()
     (zone,) = compact.zones
     assert zone.area_m2 == 100.0
+
+
+def _zero_date_stats() -> ZonalStats:
+    """A single elevation axis, zone geometry known, but no dates selected.
+
+    Cell areas are a construction field (the zone geometry, decided before any
+    date-specific reduction), so a query that matched no dates still knows every
+    cell's area -- the value array is just empty on the date axis.
+    """
+    variable = _variable(Reducer.MEAN)
+    cells = ((_band(0, 1000),), (_band(1000, 2000),))
+    areas = numpy.array([10.0, 0.0], dtype=numpy.float64)
+    return ZonalStats(
+        {variable},
+        ('terrain.elevation',),
+        cells,
+        areas,
+        (),
+    )
+
+
+def test_dump_compact_zero_dates_reports_zones_with_empty_results():
+    # Deliberate behavior change: a zero-date query now reports its zones (with
+    # areas), not an empty body. Only the populated (area > 0) band survives the
+    # default filter; `results` is an empty matrix (no dates).
+    compact = _zero_date_stats().dump_compact()
+    assert compact.zone_layers == ['terrain.elevation']
+    assert compact.variables == ['mean_swe_mm']
+    (zone,) = compact.zones
+    assert zone.area_m2 == 10.0
+    assert compact.results == {}
+
+
+def test_dump_compact_zero_dates_include_empty_keeps_all_zones():
+    compact = _zero_date_stats().dump_compact(include_empty_zones=True)
+    assert [zone.area_m2 for zone in compact.zones] == [10.0, 0.0]
+    assert compact.results == {}
+
+
+def test_dump_to_csv_zero_dates_emits_header_and_no_rows():
+    # With no dates the CSV is just its header -- there is no (date, cell) row to
+    # emit, but the header (columns, area, variable) is always produced.
+    out = io.StringIO()
+    _zero_date_stats().dump_to_csv(out)
+    rows = list(csv.reader(io.StringIO(out.getvalue())))
+    assert rows == [
+        [
+            'date',
+            'terrain.elevation_min_ft',
+            'terrain.elevation_max_ft',
+            'area_m2',
+            'mean_swe_mm',
+        ],
+    ]

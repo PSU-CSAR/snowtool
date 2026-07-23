@@ -2,7 +2,7 @@
 
 Just the genuine, behaviour-free type aliases: the :data:`StationTriplet`
 constrained string (the workhorse, used wherever a pourpoint is identified). The
-temporal *query objects* (with their ``select``/``csv_name`` behaviour) live in
+temporal *query objects* (with their ``select``/``date_fragment`` behaviour) live in
 :mod:`snowtool.snowdb.query`, and the triplet <-> filename-stem codec in
 :mod:`snowtool.snowdb.triplet_naming` -- neither is a type.
 """
