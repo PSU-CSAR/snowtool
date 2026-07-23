@@ -13,10 +13,10 @@ from datetime import date
 import pytest
 
 from snowtool.exceptions import IncompleteDatasetDataError, SnowtoolError
-from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION, Dataset
+from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_SPEC, SnodasIngester
 from snowtool.snowdb.datasets.snodas import SNODASInputRasterSet
-from snowtool.snowdb.ingest import IngestResult
+from snowtool.snowdb.ingest import INGEST_FORMAT_VERSION, IngestResult
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit

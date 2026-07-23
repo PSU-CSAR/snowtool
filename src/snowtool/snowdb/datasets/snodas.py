@@ -270,7 +270,9 @@ class SNODASInputRaster:
         lines: list[bytes] = []
         with hdr.open('rb') as f:
             for line in f:
-                lines.append(line[: min(len(line), line_limit)] + b'\n')
+                # `for line in f` keeps the trailing newline; strip it before
+                # truncating so we re-add exactly one (not a doubled newline).
+                lines.append(line.rstrip(b'\r\n')[:line_limit] + b'\n')
 
         with hdr.open('wb') as f:
             f.writelines(lines)
@@ -363,12 +365,19 @@ class SNODASInputRasterSet:
         """The validated per-product set over filename stems (no I/O).
 
         Each stem is parsed once into a :class:`SNODASName`; the resulting set is
-        keyed by product, so a duplicate product is a last-wins (the archive holds
-        one per product). Drives the cheap plan-time identification.
+        keyed by product. A repeated product raises rather than last-wins -- the
+        archive holds exactly one per product, so tar member ordering must never
+        decide which stem a validator sees. Drives the cheap plan-time
+        identification.
         """
         parsed: dict[Product, SNODASName] = {}
         for name in names:
             entry = SNODASName(name)
+            if entry.product in parsed:
+                raise IngestSourceError(
+                    f'duplicate SNODAS product {entry.product.value!r} in archive: '
+                    f'{parsed[entry.product].name!r} and {entry.name!r}',
+                )
             parsed[entry.product] = entry
         return cls(parsed)
 

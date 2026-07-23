@@ -105,7 +105,7 @@ The format version rides inside that same hash, so it doubles as a global
 staleness lever.
 
 !!! note
-    Bump `INGEST_FORMAT_VERSION` (`snowdb/dataset.py`) only on a material change
+    Bump `INGEST_FORMAT_VERSION` (`snowdb/ingest.py`) only on a material change
     to the *encoding* of an ingested COG — compression, band layout, nodata
     handling — not for source-data changes. A bump makes every existing date read
     as stale (its stored `v{n}:…` no longer matches) and rebuild on the next

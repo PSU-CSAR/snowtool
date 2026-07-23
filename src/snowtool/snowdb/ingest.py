@@ -13,8 +13,8 @@ its source into one :class:`DateIngest` per date -- the date, the source files
 whose bytes hash that date's provenance, the COG filenames the date will land, and
 a ``build_rasters`` callback that turns the (driver-computed) source hash into the
 date's on-grid rasters. The generic driver :func:`run_ingest` owns everything else:
-it computes the versioned :data:`~snowtool.snowdb.dataset.INGEST_FORMAT_VERSION`
-source hash, drives the write, and accumulates the :class:`IngestResult`. So a new
+it computes the versioned :data:`INGEST_FORMAT_VERSION` source hash, drives the
+write, and accumulates the :class:`IngestResult`. So a new
 dataset kind is a new ``plan`` (pure parsing) -- no hashing, no write orchestration,
 no result bookkeeping. The driver covers both source shapes uniformly: one date per
 source (SNODAS tar, SWANN NetCDF -> a single ``DateIngest``) and many dates per
@@ -30,20 +30,35 @@ running. Only a date that must (re)build pays to open its source.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files, versioned_hash
+from snowtool.snowdb.raster.cog import write_cog
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from datetime import date
     from pathlib import Path
 
+    import numpy
+    import rasterio
+
+    from affine import Affine
+
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.progress import ProgressReporter
+
+
+# On-disk format version of an ingested date's COGs, owned here by the ingest
+# driver (:func:`run_ingest`). It rides along in the versioned SOURCE_HASH the skip
+# compares, so bumping it makes every existing date read as stale (hash mismatch)
+# and rebuild on the next ingest. Bump on a material change to the ingested-COG
+# encoding (compression, band layout, nodata handling), not for source changes.
+INGEST_FORMAT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -77,6 +92,51 @@ class WritableRaster(Protocol):
         ...
 
     def write_cog(self, output_dir: Path) -> None: ...
+
+
+class GridAlignedRaster(ABC):
+    """Write plumbing shared by rasters that emit one grid-aligned COG.
+
+    Both the SWANN single-band raster and the INSTARR mosaic write one COG on the
+    dataset grid's *authoritative* geometry (its transform/CRS from the spec, not a
+    source-file geotransform) with provenance tags. This base owns that common
+    plumbing -- geometry, tags, and the :meth:`write_cog` call -- leaving each
+    subclass only :meth:`read_array` (how it produces the grid-shaped array). It
+    satisfies the :class:`WritableRaster` contract (``out_name`` + ``write_cog``).
+    """
+
+    def __init__(
+        self,
+        out_name: str,
+        *,
+        transform: Affine,
+        crs: rasterio.crs.CRS,
+        tile_size: int,
+        nodata: float,
+        tags: dict[str, str] | None = None,
+    ) -> None:
+        self.out_name = out_name
+        self.transform = transform
+        self.crs = crs
+        self.tile_size = tile_size
+        self.nodata = nodata
+        self.tags = tags
+
+    @abstractmethod
+    def read_array(self) -> numpy.ndarray:
+        """The grid-shaped array this raster writes (subclass-specific)."""
+        ...
+
+    def write_cog(self, output_dir: Path) -> None:
+        write_cog(
+            output_dir / self.out_name,
+            self.read_array(),
+            transform=self.transform,
+            crs=self.crs,
+            nodata=self.nodata,
+            tile_size=self.tile_size,
+            tags=self.tags,
+        )
 
 
 @dataclass(frozen=True)
@@ -135,10 +195,6 @@ def run_ingest(
     already current. ``progress`` reports each date's per-variable COG writes; it
     defaults to the no-op :data:`~snowtool.snowdb.progress.NULL_PROGRESS`.
     """
-    # Imported here (not at module top) to avoid an import cycle: dataset.py
-    # imports this module's types under TYPE_CHECKING.
-    from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION
-
     ingested: list[date] = []
     skipped: list[date] = []
     for item in ingester.plan(source, dataset):

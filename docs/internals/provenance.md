@@ -29,7 +29,7 @@ centralized. A zone-layer provider carries its own `format_version` (see
 `ZoneLayerProvider` in `snowdb/zones/zone_layer.py`); the AOI-raster writer owns
 `AOI_RASTER_FORMAT_VERSION` in `snowdb/aoi_raster.py`, because an AOI raster has
 no ingester or provider — the `Dataset` burns it generically; and ingested COGs
-carry `INGEST_FORMAT_VERSION` from `snowdb/dataset.py`. Each producer bumps its
+carry `INGEST_FORMAT_VERSION` from `snowdb/ingest.py`. Each producer bumps its
 own version on a material change to *its* output format, and only artifacts of
 that kind go stale.
 

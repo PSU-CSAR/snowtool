@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 WGS84 = CRS.from_epsg(4326)
 
 # Ingest provenance tag: a ``versioned_hash`` of the source artifact's bytes (see
-# Dataset.write_date_cogs / INGEST_FORMAT_VERSION), stamped on every COG a date is
+# ingest.run_ingest / INGEST_FORMAT_VERSION), stamped on every COG a date is
 # ingested into. A same-name re-release with different bytes changes this, so the
 # per-date skip rebuilds instead of wrongly skipping. Spelled inline like the other
 # SOURCE_* keys below (a source-record tag, not one of the SNOWTOOL_* geometry tags

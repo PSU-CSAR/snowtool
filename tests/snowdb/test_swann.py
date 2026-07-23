@@ -5,7 +5,8 @@ file; the ingest is covered in two halves that need no NetCDF fixture (the bundl
 GDAL is read-only for NetCDF):
 
   * the ingester's orchestration -- date parsing and one grid-aligned raster per
-    variable -- via a captured ``write_date_cogs`` (the source is never opened), and
+    variable -- by driving ``spec.ingester.plan`` directly and asserting on the
+    yielded ``DateIngest`` / built rasters (the source is never opened), and
   * the raster's write side -- read a band, write it as a grid COG -- against a
     plain GeoTIFF source (SwannRaster takes any GDAL URI, so the NetCDF scheme is
     not needed to exercise the write path).
@@ -22,14 +23,15 @@ import rasterio
 
 from rasterio.transform import from_origin
 
-from snowtool.exceptions import SnowtoolError
-from snowtool.snowdb.dataset import INGEST_FORMAT_VERSION, Dataset
+from snowtool.exceptions import IngestSourceError, SnowtoolError
+from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.datasets.swann import (
     SWANN_800M_SPEC,
     SWANN_800M_VARIABLES,
     SwannRaster,
 )
+from snowtool.snowdb.ingest import INGEST_FORMAT_VERSION
 from snowtool.snowdb.provenance import hash_files, versioned_hash
 
 
@@ -77,14 +79,14 @@ def test_ingest_rejects_a_directory_source(tmp_path):
         ds.ingest(source)
 
 
-def test_ingest_accepts_the_early_stage(tmp_path, monkeypatch):
+def test_ingest_accepts_the_early_stage(tmp_path):
     # Ingest is pinned to the `_early` revision (fastest available); it is the
-    # one stage accepted.
+    # one stage accepted. Drive the ingester's sanctioned plan seam directly and
+    # assert on the single DateIngest it yields.
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
-    monkeypatch.setattr(ds, 'write_date_cogs', lambda *a, **k: True)
     source = tmp_path / 'UA_SWE_Depth_800m_v1_20260613_early.nc'
-    source.write_bytes(b'fake swann netcdf')  # the ingester hashes the source file
-    assert ds.ingest(source).ingested == [date(2026, 6, 13)]
+    (item,) = SWANN_800M_SPEC.ingester.plan(source, ds)
+    assert item.date == date(2026, 6, 13)
 
 
 @pytest.mark.parametrize('variant', ['provisional', 'stable'])
@@ -99,42 +101,28 @@ def test_ingest_refuses_non_early_stages(tmp_path, variant):
         ds.ingest(source)
 
 
-def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatch):
-    # ingest parses the date from the filename and hands write_date_cogs a raster
-    # per variable, each carrying the grid's transform/CRS -- all without opening
-    # the (here non-existent) source file.
+def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path):
+    # plan parses the date from the filename and yields a single DateIngest whose
+    # build_rasters produces one grid-aligned raster per variable, each carrying the
+    # grid's transform/CRS -- all without opening the (here non-existent) source
+    # file. Drive the sanctioned plan seam directly (no write_date_cogs patching).
     ds = Dataset(SWANN_800M_SPEC, tmp_path)
-    captured: dict = {}
-
-    def fake_write(d, out_names, build_rasters, *, source_hash, force=False, **_):
-        captured.update(
-            date=d,
-            out_names=set(out_names),
-            # build_rasters is deferred: the write path builds only when not skipped,
-            # so invoke it here (as the real path would) to capture the rasters.
-            rasters=list(build_rasters()),
-            force=force,
-            source_hash=source_hash,
-        )
-        return True
-
-    monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
-
     source = tmp_path / 'UA_SWE_Depth_800m_v1_20240115_early.nc'
-    source.write_bytes(b'fake swann netcdf')  # the ingester hashes the source file
-    expected_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
-
-    assert ds.ingest(source, force=True).ingested == [date(2024, 1, 15)]
-    assert captured['date'] == date(2024, 1, 15)
-    assert captured['force'] is True
-    # ingest computes the versioned source hash once and hands it to write_date_cogs.
-    assert captured['source_hash'] == expected_hash
-
-    rasters = {r.out_name: r for r in captured['rasters']}
     stem = 'UA_SWE_Depth_800m_v1_20240115_early'
+
+    (item,) = SWANN_800M_SPEC.ingester.plan(source, ds)
+    assert item.date == date(2024, 1, 15)
+    assert item.source_files == [source]
     # The declared out_names (read by the skip check before any build) match what
-    # build_rasters produced.
-    assert captured['out_names'] == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
+    # build_rasters produces below.
+    assert set(item.out_names) == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
+
+    # build_rasters is deferred and driver-hash-bound: invoke it as the driver would,
+    # with a versioned source hash over the source file.
+    source.write_bytes(b'fake swann netcdf')  # only needed for the hash computation
+    expected_hash = versioned_hash(INGEST_FORMAT_VERSION, hash_files([source]))
+    rasters = {r.out_name: r for r in item.build_rasters(expected_hash)}
+
     assert set(rasters) == {f'{stem}__swe.tif', f'{stem}__depth.tif'}
     assert rasters[f'{stem}__swe.tif'].source_uri == f'netcdf:{source}:SWE'
     assert rasters[f'{stem}__depth.tif'].source_uri == f'netcdf:{source}:DEPTH'
@@ -149,10 +137,12 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path, monkeypatc
     }
 
     grid_transform = tuple(ds.grid.base_grid.transform)[:6]
+    grid_shape = (ds.spec.grid_params.rows, ds.spec.grid_params.cols)
     for raster in rasters.values():
         assert raster.crs.to_epsg() == 4269
         assert raster.nodata == -999.0
         assert raster.tile_size == 256
+        assert raster.expected_shape == grid_shape
         assert tuple(raster.transform)[:6] == grid_transform
 
 
@@ -188,6 +178,7 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
         crs=crs,
         tile_size=16,
         nodata=-999.0,
+        expected_shape=(32, 32),
         tags={'SOURCE_DATASET': 'swann-800m', 'SOURCE_VARIABLE': 'swe'},
     )
     out_dir = tmp_path / 'cogs' / '20240115'
@@ -203,3 +194,28 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
         # tags round-trip into the written COG
         assert cog.tags()['SOURCE_DATASET'] == 'swann-800m'
         assert cog.tags()['SOURCE_VARIABLE'] == 'swe'
+
+
+def test_swann_raster_refuses_shape_mismatch(tmp_path):
+    # A source band whose shape differs from the dataset grid (a truncated/regridded
+    # UA file) would land mis-aligned under the spec transform, so it must raise
+    # rather than write a silently wrong COG.
+    array = numpy.zeros((32, 32), dtype='int16')
+    transform = from_origin(-125.0208, 49.9375, 0.0083333, 0.0083333)
+    crs = rasterio.crs.CRS.from_epsg(4269)
+    src = tmp_path / 'src.tif'
+    _geotiff_source(src, array, transform, crs)
+
+    raster = SwannRaster(
+        str(src),
+        'swe.tif',
+        transform=transform,
+        crs=crs,
+        tile_size=16,
+        nodata=-999.0,
+        expected_shape=(64, 64),  # grid expects a bigger array than the source has
+    )
+    out_dir = tmp_path / 'cogs'
+    out_dir.mkdir()
+    with pytest.raises(IngestSourceError, match=r'has shape \(32, 32\), expected'):
+        raster.write_cog(out_dir)

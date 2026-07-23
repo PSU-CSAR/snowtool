@@ -2,9 +2,10 @@
 
 The mosaic write path is covered with small synthetic GeoTIFF "tiles" (no NetCDF
 fixture needed -- InstarrMosaicRaster takes GDAL source URIs, the ingester builds
-the ``netcdf:`` ones); the ingester's tile-grouping is covered via a captured
-``write_date_cogs``. The real multi-tile NetCDF mosaic is verified bit-exact
-against actual SPIRES tiles during development.
+the ``netcdf:`` ones); the ingester's tile-grouping is covered by driving
+``spec.ingester.plan`` directly and asserting on the yielded ``DateIngest`` / built
+rasters. The real multi-tile NetCDF mosaic is verified bit-exact against actual
+SPIRES tiles during development.
 """
 
 from datetime import date
@@ -77,9 +78,25 @@ def test_ingest_empty_source_raises(tmp_path):
         ds.ingest(tmp_path)
 
 
-def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
-    # Two dates, with two and one tiles respectively; ingest groups them and
-    # writes one set of per-variable rasters per date (source never opened).
+def test_ingest_refuses_regex_failing_tile(tmp_path):
+    # A file the glob claims (SPIRES_NRT_*.nc) but the regex cannot parse must
+    # raise -- silently dropping it would let a malformed tile go unnoticed.
+    valid = tmp_path / 'h08v04/2026/06/SPIRES_NRT_h08v04_MOD09GA061_20260613_V1.0.nc'
+    malformed = tmp_path / 'h08v04/2026/06/SPIRES_NRT_garbage.nc'
+    for path in (valid, malformed):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    ds = Dataset(INSTARR_SPEC, tmp_path)
+    with pytest.raises(SnowtoolError) as exc:
+        ds.ingest(tmp_path)
+    assert 'SPIRES_NRT_garbage.nc' in str(exc.value)
+
+
+def test_ingest_groups_tiles_by_date(tmp_path):
+    # Two dates, with two and one tiles respectively; plan groups them and yields one
+    # DateIngest per date, whose build_rasters produces one per-variable raster
+    # (source never opened). Drive the sanctioned plan seam directly.
     layout = {
         'h08v04/2026/06/SPIRES_NRT_h08v04_MOD09GA061_20260613_V1.0.nc',
         'h09v04/2026/06/SPIRES_NRT_h09v04_MOD09GA061_20260613_V1.0.nc',
@@ -91,28 +108,22 @@ def test_ingest_groups_tiles_by_date(tmp_path, monkeypatch):
         path.touch()
 
     ds = Dataset(INSTARR_SPEC, tmp_path)
-    calls: list = []
+    items = list(INSTARR_SPEC.ingester.plan(tmp_path, ds))
+    assert [item.date for item in items] == [date(2026, 6, 13), date(2026, 6, 14)]
 
-    def fake_write(d, out_names, build_rasters, **k):
-        # build_rasters is deferred (built only when not skipped); invoke it here as
-        # the real write path would, and check the declared names match its output.
-        rasters = list(build_rasters())
-        assert set(out_names) == {r.out_name for r in rasters}
-        calls.append((d, rasters))
-        return True
+    by_date = {item.date: item for item in items}
+    # build_rasters is deferred and hash-bound; invoke as the driver would. The
+    # declared out_names match what build_rasters produces.
+    day13 = list(by_date[date(2026, 6, 13)].build_rasters('v1:deadbeef'))
+    assert set(by_date[date(2026, 6, 13)].out_names) == {r.out_name for r in day13}
+    day14 = list(by_date[date(2026, 6, 14)].build_rasters('v1:deadbeef'))
 
-    monkeypatch.setattr(ds, 'write_date_cogs', fake_write)
-
-    assert ds.ingest(tmp_path).ingested == [date(2026, 6, 13), date(2026, 6, 14)]
-    written = dict(calls)
-    assert set(written) == {date(2026, 6, 13), date(2026, 6, 14)}
     # One raster per variable, each over the right number of tile source URIs.
-    day13 = written[date(2026, 6, 13)]
     assert len(day13) == len(INSTARR_VARIABLES)
     swe_like = next(r for r in day13 if r.variable.key == 'snow_fraction')
     assert len(swe_like.source_uris) == 2
     assert all(uri.endswith(':snow_fraction') for uri in swe_like.source_uris)
-    assert len(written[date(2026, 6, 14)][0].source_uris) == 1
+    assert len(day14[0].source_uris) == 1
     # Distilled provenance name (per-tile h##v## dropped) + tags with the tiles.
     assert swe_like.out_name == 'SPIRES_NRT_MOD09GA061_20260613_V1.0__snow_fraction.tif'
     assert swe_like.tags['SOURCE_FILES'] == ' '.join(

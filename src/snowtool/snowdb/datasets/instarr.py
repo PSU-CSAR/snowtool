@@ -34,8 +34,8 @@ from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
 from snowtool.exceptions import SnowtoolError
-from snowtool.snowdb.ingest import DateIngest
-from snowtool.snowdb.raster.cog import source_tags, write_cog
+from snowtool.snowdb.ingest import DateIngest, GridAlignedRaster
+from snowtool.snowdb.raster.cog import source_tags
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
@@ -162,16 +162,18 @@ INSTARR_VARIABLES = (
 # --- INSTARR ingest -----------------------------------------------------------
 
 
-class InstarrMosaicRaster:
+class InstarrMosaicRaster(GridAlignedRaster):
     """One variable's native-sinusoidal mosaic, ready to write as a COG.
 
-    Implements the :class:`~snowtool.snowdb.ingest.WritableRaster` contract. At
-    write time it allocates the full grid array (filled with the variable's
-    nodata), reads each of the date's tile bands for this variable, and drops each
-    into its grid slot positioned by the tile's own sinusoidal origin -- a lossless
-    stitch, no reprojection. Tiles absent for the date stay nodata. ``source_uris``
-    are GDAL-readable URIs (the ingester builds ``netcdf:<tile>:<variable>``),
-    keeping the NetCDF-format knowledge in the ingester.
+    A :class:`~snowtool.snowdb.ingest.GridAlignedRaster`: it supplies the mosaicked
+    array (:meth:`read_array`); the base owns the grid geometry + COG write. At read
+    time it allocates the full grid array (filled with the variable's nodata), reads
+    each of the date's tile bands for this variable, and drops each into its grid
+    slot positioned by the tile's own sinusoidal origin -- a lossless stitch, no
+    reprojection. Tiles absent for the date stay nodata (the mosaic is on-grid by
+    construction, so it needs no shape check). ``source_uris`` are GDAL-readable URIs
+    (the ingester builds ``netcdf:<tile>:<variable>``), keeping the NetCDF-format
+    knowledge in the ingester.
     """
 
     def __init__(
@@ -185,15 +187,19 @@ class InstarrMosaicRaster:
         crs: rasterio.crs.CRS,
         tags: dict[str, str] | None = None,
     ) -> None:
+        super().__init__(
+            out_name,
+            transform=transform,
+            crs=crs,
+            tile_size=grid_params.tile_size,
+            nodata=variable.nodata,
+            tags=tags,
+        )
         self.variable = variable
         self.source_uris = source_uris
         self.grid_params = grid_params
-        self.out_name = out_name
-        self.transform = transform
-        self.crs = crs
-        self.tags = tags
 
-    def write_cog(self: Self, output_dir: Path) -> None:
+    def read_array(self: Self) -> numpy.ndarray:
         gp = self.grid_params
         array = numpy.full(
             (gp.rows, gp.cols),
@@ -212,15 +218,7 @@ class InstarrMosaicRaster:
             rows, cols = data.shape
             array[row_off : row_off + rows, col_off : col_off + cols] = data
 
-        write_cog(
-            output_dir / self.out_name,
-            array,
-            transform=self.transform,
-            crs=self.crs,
-            nodata=self.variable.nodata,
-            tile_size=gp.tile_size,
-            tags=self.tags,
-        )
+        return array
 
 
 class InstarrIngester:
@@ -259,7 +257,13 @@ class InstarrIngester:
         for path in candidates:
             match = self.filename_re.search(path.name)
             if match is None:
-                continue
+                # Every glob-matched SPIRES_NRT_*.nc claims the format, so a file
+                # the regex cannot parse is malformed input -- refuse it loudly
+                # rather than silently dropping it from the mosaic.
+                raise SnowtoolError(
+                    f'Malformed SPIRES NRT tile filename {path.name!r} (expected '
+                    f'{self.filename_re.pattern!r}).',
+                )
             tile_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
             matches_by_date[tile_date].append((path, match))
 

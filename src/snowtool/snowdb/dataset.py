@@ -45,13 +45,6 @@ if TYPE_CHECKING:
         ZoneLayerTarget,
     )
 
-# On-disk format version of an ingested date's COGs, owned here by their writer
-# (Dataset.write_date_cogs). It rides along in the versioned SOURCE_HASH the skip
-# compares, so bumping it makes every existing date read as stale (hash mismatch)
-# and rebuild on the next ingest. Bump on a material change to the ingested-COG
-# encoding (compression, band layout, nodata handling), not for source changes.
-INGEST_FORMAT_VERSION = 1
-
 
 @dataclass(frozen=True)
 class DatasetArtifacts:
@@ -392,7 +385,8 @@ class Dataset:
         producing the rasters (which know how to write themselves as COGs) -- it is
         invoked **only if the date is not skipped**, so an already-current date never
         pays to read the source. ``source_hash`` is the versioned hash of the source
-        artifact this date came from (see :data:`INGEST_FORMAT_VERSION`); it is both
+        artifact this date came from (see
+        :data:`~snowtool.snowdb.ingest.INGEST_FORMAT_VERSION`); it is both
         stamped on every COG (via the ingester's ``SOURCE_HASH`` tag) and used by the
         skip check below. Returns ``True`` if the date dir was (re)built, ``False`` if
         it was skipped as already current.
