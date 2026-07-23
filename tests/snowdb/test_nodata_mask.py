@@ -166,12 +166,16 @@ def test_mask_burns_zero_area_outside_domain(
     nodata_mask,
 ):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
-    unmasked = Dataset.create(spec, tmp_path / 'plain')[0].rasterize_aoi(pp)
-    masked = Dataset.create(
+    unmasked_ds, _ = Dataset.create(spec, tmp_path / 'plain')
+    unmasked_ds.rasterize_aoi(pp)
+    unmasked = unmasked_ds.load_aoi_raster(pp.station_triplet)
+    masked_ds, _ = Dataset.create(
         spec,
         tmp_path / 'masked',
         nodata_mask=nodata_mask,
-    )[0].rasterize_aoi(pp)
+    )
+    masked_ds.rasterize_aoi(pp)
+    masked = masked_ds.load_aoi_raster(pp.station_triplet)
 
     # Same polygon, same grid -> same tile window; the polygon sits in tile
     # (0, 0), so window col == grid col. The mask zeroes every grid col >=

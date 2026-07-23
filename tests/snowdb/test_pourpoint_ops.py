@@ -537,7 +537,7 @@ def test_format_version_bump_makes_aoi_raster_stale(db, pourpoint_geojson, monke
         aoi_raster_mod.AOI_RASTER_FORMAT_VERSION + 1,
     )
     assert ds.aoi_raster_is_current(aoi) is False
-    assert ds.rasterize_aoi(aoi) is not None
+    assert ds.rasterize_aoi(aoi) is True
     assert ds.aoi_raster_is_current(aoi) is True
 
 
@@ -549,8 +549,8 @@ def test_rasterize_aoi_builds_then_skips_then_rebuilds(
     ds = db['test']
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
 
-    assert ds.rasterize_aoi(aoi) is not None  # missing -> built
-    assert ds.rasterize_aoi(aoi) is None  # current -> skipped
+    assert ds.rasterize_aoi(aoi) is True  # missing -> built
+    assert ds.rasterize_aoi(aoi) is False  # current -> skipped
 
     # A changed basin makes the existing raster stale.
     stale = _write_aoi(
@@ -560,8 +560,8 @@ def test_rasterize_aoi_builds_then_skips_then_rebuilds(
     )
     stale_aoi = Pourpoint.from_geojson(stale)
     assert ds.aoi_raster_is_current(stale_aoi) is False
-    assert ds.rasterize_aoi(stale_aoi) is not None  # stale -> rebuilt
-    assert ds.rasterize_aoi(stale_aoi, rebuild=False) is None
+    assert ds.rasterize_aoi(stale_aoi) is True  # stale -> rebuilt
+    assert ds.rasterize_aoi(stale_aoi, rebuild=False) is False
 
 
 def test_remove_aoi_raster(db, pourpoint_geojson):
@@ -600,7 +600,8 @@ def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):
         _write_aoi(tmp_path / 'src', '33333:MT:USGS', polygon=_STRADDLE),
     )
 
-    raster = db['test'].rasterize_aoi(straddle)
+    db['test'].rasterize_aoi(straddle)
+    raster = db['test'].load_aoi_raster(straddle.station_triplet)
 
     # The window is clamped to the single in-grid tile (the bug produced an
     # inverted window here: griffine wrapped the negative tile row to the last).
@@ -612,7 +613,8 @@ def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):
     clipped = Pourpoint.from_geojson(
         _write_aoi(tmp_path / 'src', '44444:MT:USGS', polygon=_STRADDLE_CLIPPED),
     )
-    clipped_raster = db['test'].rasterize_aoi(clipped)
+    db['test'].rasterize_aoi(clipped)
+    clipped_raster = db['test'].load_aoi_raster(clipped.station_triplet)
     assert numpy.array_equal(raster.array, clipped_raster.array)
 
 

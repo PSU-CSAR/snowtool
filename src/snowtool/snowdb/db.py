@@ -46,7 +46,7 @@ from snowtool.snowdb.coverage import (
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
-from snowtool.snowdb.spec import DatasetSpec, load_dataset_spec
+from snowtool.snowdb.spec import DatasetSpec, load_dataset_spec, resolve_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -120,13 +120,12 @@ class SnowDb:
                 # `load_dataset_spec` does for a path link.
                 dataset_config = link.dataset
                 base = None
-                try:
-                    spec = DatasetSpec.from_config(dataset_config, name)
-                except ValueError as e:
-                    raise SnowDbConfigError(
-                        self.root,
-                        f'inline dataset {name!r} is not usable: {e}',
-                    ) from e
+                spec = resolve_spec(
+                    dataset_config,
+                    name,
+                    location=self.root,
+                    detail=f'inline dataset {name!r} is not usable',
+                )
             else:  # PathDatasetLink
                 resolved = self._resolve_path(link.path)
                 if not resolved.is_file():

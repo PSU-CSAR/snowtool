@@ -14,6 +14,7 @@ import rasterio
 
 from rasterio.crs import CRS
 
+from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.provenance import versioned_hash
@@ -232,5 +233,5 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
 
     with rasterio.open(src_path) as src:
         generate_landcover(src, [target], force=True)
-        with pytest.raises(FileExistsError, match='already has'):
+        with pytest.raises(ArtifactExistsError, match='already has'):
             generate_landcover(src, [target], force=False)

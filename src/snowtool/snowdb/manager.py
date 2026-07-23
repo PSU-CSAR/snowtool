@@ -294,26 +294,17 @@ class SnowDbManager:
             ),
         )
 
-    def _root_config_path(self: Self) -> Path:
-        """This root's on-disk config path, narrowed to non-``None`` (raises if
-        it is absent). The single "config is on disk" check every write that
-        needs to re-save the root config shares, so a config path known-present
-        here needs no re-guarding downstream."""
-        config_path = self.db.config_path
-        if config_path is None or not config_path.is_file():
-            raise SnowDbConfigError(self.db.root)
-        return config_path
-
     def _read_root_config(self: Self) -> tuple[RootConfig, Path]:
         """Load this root's on-disk config, with its validated path (raises if
         absent).
 
         Returns the config paired with the on-disk path it loaded from -- the
-        same path :meth:`RootConfig.save` needs to commit it. The path is
-        validated once here (via :meth:`_root_config_path`), so a caller that
+        same path :meth:`RootConfig.save` needs to commit it, so a caller that
         loads then saves does not re-derive (and re-``stat``) it.
         """
-        config_path = self._root_config_path()
+        config_path = self.db.config_path
+        if config_path is None or not config_path.is_file():
+            raise SnowDbConfigError(self.db.root)
         return RootConfig.load(config_path), config_path
 
     def register_dataset(

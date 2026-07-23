@@ -17,7 +17,11 @@ from datetime import date, timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from snowtool.exceptions import IncompleteDatasetDataError, QueryParameterError
+from snowtool.exceptions import (
+    IncompleteDatasetDataError,
+    QueryParameterError,
+    UnknownHealthCheckError,
+)
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.progress import NULL_PROGRESS
 
@@ -161,13 +165,13 @@ def completeness_report(
             continue
         if end is not None and d > end:
             continue
-        missing = dataset.missing_variables(d)
-        if missing:
+        unresolved = dataset.unresolved_variables(d)
+        if unresolved:
             findings.append(
                 IncompleteDate(
                     dataset.spec.name,
                     d,
-                    tuple(sorted(variable.key for variable in missing)),
+                    tuple(sorted(unresolved)),
                 ),
             )
     return findings
@@ -648,16 +652,24 @@ def run_health_checks(
     """Sweep ``checks`` across ``datasets``, returning the flat finding rows
     ``snowtool doctor`` renders (empty means healthy).
 
-    Runs every (dataset, check) pair, advancing ``progress`` one tick per pair
-    (total ``len(datasets) * len(checks)``). ``checks`` must already be
-    validated against :data:`HEALTH_CHECK_NAMES` -- an unknown name raises a
-    plain ``KeyError``, which the CLI never reaches because it checks first
-    (for a clean usage error rather than a traceback).
+    Resolves ``checks`` first: an unknown name raises
+    :class:`~snowtool.exceptions.UnknownHealthCheckError`, duplicates are
+    dropped (order-preserving), and an empty selection defaults to every check
+    in :data:`HEALTH_CHECK_NAMES`. Then runs every (dataset, check) pair,
+    advancing ``progress`` one tick per pair.
     """
+    unknown = sorted(set(checks) - set(HEALTH_CHECK_NAMES))
+    if unknown:
+        raise UnknownHealthCheckError(
+            f'Unknown check(s): {", ".join(unknown)}. '
+            f'Known checks: {", ".join(HEALTH_CHECK_NAMES)}.',
+        )
+    selected = list(dict.fromkeys(checks)) if checks else list(HEALTH_CHECK_NAMES)
+
     findings: list[Finding] = []
-    with progress.track('doctor', total=len(datasets) * len(checks)) as task:
+    with progress.track('doctor', total=len(datasets) * len(selected)) as task:
         for dataset in datasets:
-            for check in checks:
+            for check in selected:
                 findings.extend(HEALTH_CHECKS[check](snowdb, dataset))
                 task.advance()
     return findings

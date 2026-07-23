@@ -16,7 +16,7 @@ from rasterio.crs import CRS
 from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
 
-from snowtool.exceptions import SnowtoolWarning
+from snowtool.exceptions import ArtifactExistsError, SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
@@ -314,7 +314,7 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
 
     with rasterio.open(src_path) as src:
         generate_terrain(src, [target], force=True)
-        with pytest.raises(FileExistsError, match='already has'):
+        with pytest.raises(ArtifactExistsError, match='already has'):
             generate_terrain(src, [target], force=False)
 
 

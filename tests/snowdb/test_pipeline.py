@@ -52,7 +52,8 @@ def test_terrain_elevation(dataset, grid):
 
 def test_rasterize_aoi(dataset, pourpoint_geojson, grid):
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
-    aoi_raster = dataset.rasterize_aoi(aoi)
+    assert dataset.rasterize_aoi(aoi)
+    aoi_raster = dataset.load_aoi_raster(aoi.station_triplet)
 
     # polygon sits inside a single tile -> one-tile AOI window
     assert aoi_raster.array.shape == (TILE, TILE)
@@ -81,7 +82,8 @@ def test_rasterize_aoi(dataset, pourpoint_geojson, grid):
 
 def test_aoi_raster_reopen_roundtrips_tiles(dataset, pourpoint_geojson):
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
-    written = dataset.rasterize_aoi(aoi, rebuild=True)
+    assert dataset.rasterize_aoi(aoi, rebuild=True)
+    written = dataset.load_aoi_raster(aoi.station_triplet)
     reopened = AOIRaster.open(written.path, dataset.grid)
     assert {(t.row, t.col) for t in reopened.tiles} == {
         (t.row, t.col) for t in written.tiles
@@ -127,7 +129,8 @@ def test_dump_compact_empty_zone_is_null(dataset, pourpoint_geojson, swe_cog):
 def _crossed_stats(dataset, pourpoint_geojson, selections, *, max_zone_cells=10_000):
     """Run ZonalStats over the synthetic SWE COG crossed by ``selections``."""
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
-    aoi_raster = dataset.rasterize_aoi(aoi)
+    dataset.rasterize_aoi(aoi)
+    aoi_raster = dataset.load_aoi_raster(aoi.station_triplet)
     swe = dataset.spec.variables['swe']
     collection = RasterCollection.from_variables_query(
         query=QUERY,

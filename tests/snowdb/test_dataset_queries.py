@@ -35,18 +35,17 @@ def test_date_dir_points_at_the_cogs_subdir(dataset):
     assert dataset.date_dir(date(2018, 4, 27)) == dataset._cogs / '20180427'
 
 
-def test_missing_variables_absent_date_is_all_variables(dataset):
-    missing = dataset.missing_variables(date(2018, 4, 27))
-    assert {v.key for v in missing} == set(dataset.spec.variables)
+def test_unresolved_variables_absent_date_is_all_variables(dataset):
+    unresolved = dataset.unresolved_variables(date(2018, 4, 27))
+    assert unresolved == set(dataset.spec.variables)
 
 
-def test_missing_variables_excludes_present_one(dataset, swe_cog):
+def test_unresolved_variables_excludes_present_one(dataset, swe_cog):
     # swe_cog provides only the SWE product for 2018-04-27.
-    missing = dataset.missing_variables(date(2018, 4, 27))
-    missing_keys = {v.key for v in missing}
+    unresolved = dataset.unresolved_variables(date(2018, 4, 27))
 
-    assert 'swe' not in missing_keys
-    assert missing_keys == set(dataset.spec.variables) - {'swe'}
+    assert 'swe' not in unresolved
+    assert unresolved == set(dataset.spec.variables) - {'swe'}
 
 
 def test_aoi_raster_triplets_empty_by_default(dataset):

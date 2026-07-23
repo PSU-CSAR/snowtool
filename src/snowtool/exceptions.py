@@ -176,14 +176,22 @@ class UnknownZoneLayerProviderError(SnowtoolError, ValueError):
     """
 
 
-class ArtifactExistsError(SnowtoolError, FileExistsError):
-    """Raised when a write would clobber an existing derived artifact.
+class UnknownHealthCheckError(SnowtoolError, ValueError):
+    """Raised when ``doctor`` is asked to run a check name it does not know.
 
-    The shared refuse-to-overwrite guard (dataset skeletons, AOI rasters, zone
-    layers, ingested COGs): the artifact is already there and the caller did not
-    pass ``force``. Subclasses ``FileExistsError`` so existing ``except
-    FileExistsError`` call sites (e.g. the tolerate-already-staged path in
-    ``stage_dataset``) keep catching it.
+    ``run_health_checks`` validates its requested names against the registry, so
+    an unknown name surfaces here (rendered as a clean CLI usage line) rather
+    than as a bare ``KeyError`` traceback.
+    """
+
+
+class ArtifactExistsError(SnowtoolError):
+    """Raised when a zone-layer generation would clobber an existing layer.
+
+    The zone-layer generators (terrain, land cover) refuse to overwrite a layer
+    that is already present unless the caller passes ``--force``; this is that
+    refusal. (The one live raise site is
+    ``snowtool.snowdb.zones.generate_common``.)
     """
 
 

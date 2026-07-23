@@ -223,19 +223,15 @@ class Dataset:
         pourpoint: Pourpoint,
         *,
         rebuild: bool = False,
-    ) -> AOIRaster | None:
+    ) -> bool:
         """Burn ``pourpoint``'s basin onto this dataset's grid as an AOI raster.
 
         Converge-by-default: build when the raster is missing or stale (see
         :meth:`aoi_raster_is_current`), skip when it is already current --
         ``rebuild=True`` forces a rebuild regardless of current state. Returns
-        the built :class:`~snowtool.snowdb.aoi_raster.AOIRaster`, or ``None``
-        when the existing raster was already current and nothing was written.
-        This return shape serves both callers: production (the batch
-        converge loop) only needs the did-it-write boolean, which the
-        ``None``/raster split gives for free via truthiness; tests that want
-        the raster itself get it directly on the build path, which is the
-        common case in a synthetic-grid test that always starts from empty.
+        ``True`` when a raster was written, ``False`` when the existing one was
+        already current and nothing was written; a caller that wants the raster
+        itself opens it with :meth:`load_aoi_raster`.
 
         The tile window is clamped to the grid (see
         :func:`~snowtool.snowdb.grid.bounding_tiles`), so a basin straddling a
@@ -244,7 +240,7 @@ class Dataset:
         batch paths pre-filter those by coverage instead of calling this).
         """
         if not rebuild and self.aoi_raster_is_current(pourpoint):
-            return None
+            return False
 
         # A management (write) op may run against a dataset that has no data yet,
         # so create the aoi-rasters dir if it is missing (but never the base
@@ -271,7 +267,7 @@ class Dataset:
             nodata_mask=self.nodata_mask_pair,
         )
 
-        return AOIRaster.open(path, self.grid)
+        return True
 
     def aoi_raster_hash(
         self: Self,
@@ -560,16 +556,22 @@ class Dataset:
             )
         return matching[0] if matching else None
 
-    def missing_variables(self: Self, d: date) -> set[DatasetVariable]:
-        """Spec variables whose glob matches no file in date ``d``'s cogs dir.
+    def unresolved_variables(self: Self, d: date) -> set[str]:
+        """Spec variable keys unresolved (missing or duplicated) for date ``d``.
 
-        An absent date directory yields every variable (nothing is present).
+        Tolerant by design: a duplicated COG makes a key *unresolved* (not a
+        raise), so the completeness report can surface a corrupt date as a
+        finding instead of crashing on it. An absent date directory yields every
+        key (nothing is present). ``variable_path`` keeps its strict raise for
+        the query path.
         """
-        return {
-            variable
-            for variable in self.spec.variables.values()
-            if self.variable_path(d, variable) is None
-        }
+        date_dir = self.date_dir(d)
+        names = (
+            [p.name for p in date_dir.iterdir() if p.is_file()]
+            if date_dir.is_dir()
+            else []
+        )
+        return self._unresolved_variables(names)
 
     def aoi_raster_paths(self: Self) -> list[Path]:
         """The burned ``aoi-rasters/*.tif`` files, sorted by path."""

@@ -99,7 +99,9 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
         properties={'name': 'Projected Basin', 'source': 'test'},
     )
 
-    aoi_raster = dataset.rasterize_aoi(Pourpoint.from_geojson(geojson))
+    pourpoint = Pourpoint.from_geojson(geojson)
+    assert dataset.rasterize_aoi(pourpoint)
+    aoi_raster = dataset.load_aoi_raster(pourpoint.station_triplet)
 
     inside = aoi_raster.array > 0
     assert 0 < inside.sum() < aoi_raster.array.size

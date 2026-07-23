@@ -26,6 +26,7 @@ from ..conftest import (
     snodas_swe_name,
     write_landcover,
     write_pourpoint_record,
+    write_swe_cog,
     write_terrain,
 )
 
@@ -109,6 +110,22 @@ def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
 def test_completeness_report_respects_date_window(dataset, swe_cog):
     # The only date (2018-04-27) is outside this window, so nothing is reported.
     assert diagnostics.completeness_report(dataset, start=date(2019, 1, 1)) == []
+
+
+def test_completeness_report_flags_duplicated_cog(dataset, swe_cog):
+    # A second file matching swe's glob makes swe *unresolved* (ambiguous) on this
+    # date -- the report must list it as an incomplete-date finding rather than
+    # crash on the duplicate. A clean date reports nothing.
+    duplicate = swe_cog.with_name('us_ssmv11034SlL00T0001TTNATS2018042705HP001-dup.tif')
+    shutil.copyfile(swe_cog, duplicate)
+    write_swe_cog(dataset, '20180415')  # a clean date alongside the corrupt one
+
+    findings = diagnostics.completeness_report(dataset)
+
+    corrupt = next(f for f in findings if f.date == date(2018, 4, 27))
+    assert 'swe' in corrupt.missing  # duplicated -> unresolved, so it is listed
+    clean = next(f for f in findings if f.date == date(2018, 4, 15))
+    assert 'swe' not in clean.missing  # the other date still reports normally
 
 
 # --- missing-files -----------------------------------------------------------

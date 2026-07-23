@@ -238,6 +238,29 @@ class DatasetSpec:
         return planar_area * meters_per_unit**2
 
 
+def resolve_spec(
+    config: DatasetConfig,
+    name: str,
+    *,
+    location: object,
+    detail: str,
+) -> DatasetSpec:
+    """Resolve ``config`` into a spec, wrapping the resolution failure once.
+
+    The single checked "config -> spec" step every resolver shares (the path
+    link via :func:`load_dataset_spec`, the inline link in ``SnowDb.__init__``).
+    :meth:`DatasetSpec.from_config`'s bare ``ValueError`` (e.g. an unknown
+    ingester name) becomes a :class:`~snowtool.exceptions.SnowDbConfigError`
+    naming ``location`` with the caller-supplied ``detail``, so an unresolvable
+    config fails as the same typed error everywhere rather than leaking an
+    untyped ``ValueError`` from the read path.
+    """
+    try:
+        return DatasetSpec.from_config(config, name)
+    except ValueError as e:
+        raise SnowDbConfigError(location, f'{detail}: {e}') from e
+
+
 def load_dataset_spec(path: Path, name: str) -> tuple[DatasetConfig, DatasetSpec]:
     """Load a dataset config from ``path`` and resolve it into a spec.
 
@@ -246,18 +269,15 @@ def load_dataset_spec(path: Path, name: str) -> tuple[DatasetConfig, DatasetSpec
     (:meth:`SnowDb.__init__`'s path-link branch, the manager's staging build and
     its register-time pre-validation). :meth:`DatasetConfig.load` already wraps a
     malformed file into a :class:`~snowtool.exceptions.SnowDbConfigError` naming
-    ``path``; this additionally wraps :meth:`DatasetSpec.from_config`'s bare
-    ``ValueError`` (an unknown ingester name) into the same typed error, so a
-    linked config that parses but does not resolve fails consistently -- at
-    ``SnowDb.open``, at register time, everywhere -- rather than leaking an
-    untyped ``ValueError`` from the read path.
+    ``path``; :func:`resolve_spec` additionally wraps an unresolvable-but-parsed
+    config into the same typed error, so it fails consistently -- at
+    ``SnowDb.open``, at register time, everywhere.
     """
     config = DatasetConfig.load(path)
-    try:
-        spec = DatasetSpec.from_config(config, name)
-    except ValueError as e:
-        raise SnowDbConfigError(
-            path.parent,
-            f'{path} is not a usable dataset config: {e}',
-        ) from e
+    spec = resolve_spec(
+        config,
+        name,
+        location=path.parent,
+        detail=f'{path} is not a usable dataset config',
+    )
     return config, spec

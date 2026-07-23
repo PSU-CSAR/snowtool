@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Self
 import shapely
 
 from snowtool.exceptions import PourpointCoverageError
+from snowtool.snowdb.grid import grid_extent
 
 if TYPE_CHECKING:
     from griffine.grid import TiledAffineGrid
@@ -55,13 +56,7 @@ def _grid_extent_polygon(grid: TiledAffineGrid) -> shapely.Polygon:
     the grid CRS (no reprojection): the basin is brought *to* this CRS instead, so
     the containment test is exact even for a projected grid like MODIS sinusoidal.
     """
-    base = grid.base_grid
-    t = base.transform
-    xmin = t.c
-    ymax = t.f
-    xmax = t.c + base.cols * t.a
-    ymin = t.f + base.rows * t.e
-    return shapely.box(xmin, ymin, xmax, ymax)
+    return shapely.box(*grid_extent(grid))
 
 
 @dataclass(frozen=True)

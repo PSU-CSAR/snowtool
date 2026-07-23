@@ -61,15 +61,6 @@ def doctor(
       snowtool doctor
       snowtool doctor files pourpoints -d snodas --format json
     """
-    unknown = sorted(set(checks) - set(diagnostics.HEALTH_CHECK_NAMES))
-    if unknown:
-        raise click.ClickException(
-            f'Unknown check(s): {", ".join(unknown)}. '
-            f'Known checks: {", ".join(diagnostics.HEALTH_CHECK_NAMES)}.',
-        )
-    selected = (
-        list(dict.fromkeys(checks)) if checks else list(diagnostics.HEALTH_CHECK_NAMES)
-    )
     datasets = resolve_datasets(
         snowdb,
         dataset_names,
@@ -79,7 +70,7 @@ def doctor(
     findings = diagnostics.run_health_checks(
         snowdb,
         datasets,
-        selected,
+        checks,
         progress=RichProgress(),
     )
 

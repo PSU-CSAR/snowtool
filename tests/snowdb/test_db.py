@@ -311,10 +311,11 @@ def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, pourpoint_geoj
     shutil.rmtree(dataset._aoi_rasters)
     assert not dataset._aoi_rasters.exists()
 
-    raster = dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
+    pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
+    assert dataset.rasterize_aoi(pourpoint)
 
     assert dataset._aoi_rasters.is_dir()
-    assert raster.path.exists()
+    assert dataset.load_aoi_raster(pourpoint.station_triplet).path.exists()
 
 
 def test_default_specs_bind_snodas(tmp_path):
