@@ -33,7 +33,7 @@ import shapely
 from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
-from snowtool.exceptions import SnowtoolError
+from snowtool.exceptions import IngestSourceError
 from snowtool.snowdb.ingest import DateIngest, GridAlignedRaster
 from snowtool.snowdb.raster.cog import source_tags
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -260,7 +260,7 @@ class InstarrIngester:
                 # Every glob-matched SPIRES_NRT_*.nc claims the format, so a file
                 # the regex cannot parse is malformed input -- refuse it loudly
                 # rather than silently dropping it from the mosaic.
-                raise SnowtoolError(
+                raise IngestSourceError(
                     f'Malformed SPIRES NRT tile filename {path.name!r} (expected '
                     f'{self.filename_re.pattern!r}).',
                 )
@@ -268,7 +268,7 @@ class InstarrIngester:
             matches_by_date[tile_date].append((path, match))
 
         if not matches_by_date:
-            raise SnowtoolError(
+            raise IngestSourceError(
                 f'No SPIRES NRT tiles found under {source} (expected files like '
                 "'SPIRES_NRT_h09v04_MOD09GA061_<YYYYMMDD>_V1.0.nc').",
             )
@@ -361,7 +361,7 @@ class InstarrIngester:
         }
 
         if len(identities) > 1:
-            raise SnowtoolError(
+            raise IngestSourceError(
                 'INSTARR tiles for one date disagree on collection/version: '
                 f'{sorted(identities)}',
             )

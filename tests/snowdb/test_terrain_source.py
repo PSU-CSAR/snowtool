@@ -145,6 +145,17 @@ def test_build_mosaic_vrt_stitches_adjacent_tiles(tmp_path):
     assert (data[:, 4:] == 2.0).all()
 
 
+def test_build_mosaic_vrt_refuses_heterogeneous_tiles(tmp_path):
+    # The VRT header is taken wholesale from tile 0, so a tile that disagrees on
+    # resolution (here a coarser pixel size) would be silently mis-placed. Refuse
+    # loudly instead, naming which tile disagrees with tile 0.
+    tile0 = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0, px=1.0))
+    tile1 = _parse_local(_tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0, px=2.0))
+
+    with pytest.raises(RemoteSourceError, match='heterogeneous tiles'):
+        build_mosaic_vrt([tile0, tile1], tmp_path / 'm.vrt')
+
+
 def test_threedep_open_builds_a_vrt_over_discovered_tiles(tmp_path, monkeypatch):
     # Two real local tiles stand in for the remote COGs discovery returns.
     left = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0))

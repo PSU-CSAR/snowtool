@@ -177,8 +177,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   now raise typed snowtool errors, so `snowtool init` against an off-CONUS or
   typo'd extent prints a clean one-line error instead of a traceback.
 - A zonal-stats query whose date range contains no data now lists the basin's
-  zones (with areas) alongside empty results in both JSON and CSV, instead of
-  returning an empty zones list.
+  zones (with areas) alongside empty results in JSON, instead of returning an
+  empty zones list; the CSV, whose rows are per date, is unchanged: header only.
 - **Internal API:** `ZonalStats` takes the (date-invariant) cell areas as a
   constructor argument instead of storing them as a per-date matrix column;
   `Dataset.rasterize_aoi` returns `bool` (built vs. skipped) instead of

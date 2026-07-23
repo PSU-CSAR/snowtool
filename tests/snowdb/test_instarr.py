@@ -16,7 +16,7 @@ import rasterio
 
 from rasterio.transform import from_origin
 
-from snowtool.exceptions import SnowtoolError
+from snowtool.exceptions import IngestSourceError, SnowtoolError
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
 from snowtool.snowdb.datasets.instarr import (
@@ -88,7 +88,7 @@ def test_ingest_refuses_regex_failing_tile(tmp_path):
         path.touch()
 
     ds = Dataset(INSTARR_SPEC, tmp_path)
-    with pytest.raises(SnowtoolError) as exc:
+    with pytest.raises(IngestSourceError) as exc:
         ds.ingest(tmp_path)
     assert 'SPIRES_NRT_garbage.nc' in str(exc.value)
 

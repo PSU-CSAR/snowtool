@@ -14,6 +14,7 @@ from snowtool.exceptions import (
     PourpointNotFoundError,
     PourpointPruneDestinationRequiredError,
 )
+from snowtool.snowdb import _pourpoint_ops as pourpoint_ops
 from snowtool.snowdb.aoi_raster import aoi_provenance
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
@@ -329,6 +330,26 @@ def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojs
         match=record_path.name,
     ):
         manager.reindex_pourpoints()
+
+
+def test_basin_pourpoints_raises_on_basin_less_record(manager, db, pourpoint_geojson):
+    # basin_pourpoints enforces the basin-bearing invariant on read: a point-only
+    # record edited into `records/` out of band raises the typed error naming the
+    # file, rather than flowing on to fail with an untyped ValueError downstream.
+    manager.import_pourpoints(pourpoint_geojson)
+    triplet = '12345:MT:USGS'
+    record_path = db.pourpoint_record_path(triplet)
+    _write_aoi(
+        db.pourpoint_records_path,
+        triplet,
+        with_polygon=False,
+    )
+
+    with pytest.raises(
+        IndexedPourpointMissingBasinError,
+        match=record_path.name,
+    ):
+        pourpoint_ops.basin_pourpoints(db)
 
 
 def test_load_pourpoint_gates_on_index(manager, db):

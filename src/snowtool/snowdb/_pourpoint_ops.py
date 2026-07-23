@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
+    IndexedPourpointMissingBasinError,
     PourpointPruneDestinationRequiredError,
 )
 from snowtool.snowdb.atomic import atomic_copy
@@ -140,9 +141,13 @@ def basin_pourpoints(
 
     The rasterize/coverage passes work on basins only. Every stored record is
     basin-bearing -- the import boundary (:func:`_classify_sources`) guarantees it
-    by partitioning invalid/point-only sources before they ever reach ``records/``
-    -- so no post-parse filter is needed; the parse itself carries the invariant.
-    ``progress`` reports the parse as one tracked task, advancing once per record.
+    by partitioning invalid/point-only sources before they ever reach ``records/``.
+    The parse itself does *not* enforce basin presence, so this function enforces
+    the invariant on read: a record whose polygon is ``None`` (an out-of-band
+    ``records/`` edit) raises :class:`IndexedPourpointMissingBasinError` naming the
+    record file, rather than flowing on to fail with an untyped ``ValueError``
+    downstream. ``progress`` reports the parse as one tracked task, advancing once
+    per record.
     """
     record_paths = db.pourpoint_paths()
     basins: list[Pourpoint] = []
@@ -151,7 +156,13 @@ def basin_pourpoints(
         total=len(record_paths),
     ) as task:
         for path in record_paths:
-            basins.append(Pourpoint.from_geojson(path))
+            pourpoint = Pourpoint.from_geojson(path)
+            if pourpoint.polygon is None:
+                raise IndexedPourpointMissingBasinError(
+                    f'Corrupt pourpoint store: record {path.name} has no basin '
+                    f'polygon (every stored record must be basin-bearing).',
+                )
+            basins.append(pourpoint)
             task.advance()
     return basins
 
