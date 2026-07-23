@@ -250,13 +250,19 @@ class IndexedPourpointMissingBasinError(SnowtoolError, ValueError):
 
 
 class RemoteSourceError(SnowtoolError):
-    """Raised when a remote pourpoint source cannot be fetched or enumerated.
+    """Raised when a remote data source cannot be fetched, enumerated, or assembled.
 
-    Covers the ``http(s)`` import/sync path (``snowtool.cli._remote``):
+    Covers the ``http(s)`` pourpoint import/sync path (``snowtool.cli._remote``):
     an HTTP failure fetching a file, a GitHub tree listing that came back truncated
     or empty, or filename collisions that make the flat temp directory ambiguous.
-    Distinct from :class:`GeoJSONValidationError` (a *parsed* file that is invalid)
-    so the CLI can report a transport/enumeration problem separately from bad data.
+    Also the 3DEP DEM source (``snowtool.snowdb.zones.terrain_source``): no tiles
+    published for the requested extent, or a discovered tile whose GeoTIFF header
+    cannot be turned into a mosaic input (not north-up/georeferenced, an
+    unsupported sample format or dtype, or tiles that disagree on
+    CRS/resolution/dtype/nodata). All are operator-facing remote-data failures the
+    CLI's central mapping renders cleanly. Distinct from
+    :class:`GeoJSONValidationError` (a *parsed* file that is invalid) so the CLI can
+    report a transport/enumeration problem separately from bad data.
     """
 
 

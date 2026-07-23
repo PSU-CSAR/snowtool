@@ -329,13 +329,17 @@ def pixel_centre_coords(
 
 type _F64 = numpy.typing.NDArray[numpy.float64]
 # A block's per-pixel payload arrays the reducer splats into ``bin_into`` (terrain:
-# cls/cos/sin/z; land cover: is_forest), flattened and masked to the kept pixels.
+# cls/cos/sin/z; land cover: is_forest). As returned by ``_load`` these are still
+# *unmasked* and block-shaped; :meth:`StreamingBinner._compute` flattens and masks
+# each to the kept pixels (the same ``keep`` it applies to the coordinates), so the
+# reducer only ever sees the kept-pixel form.
 type Payload = tuple[numpy.typing.NDArray, ...]
-# What every :meth:`StreamingBinner._load` returns: the payload, the broadcastable
-# pixel-centre x/y (in the source CRS, shape (h,1)/(1,w) per pixel_centre_coords),
-# and a per-pixel keep-mask -- or None for a block that contributes nothing. The
-# base masks/reprojects the kept centres, so the payload must already be masked to
-# match ``keep``.
+# What every :meth:`StreamingBinner._load` returns: the (unmasked, block-shaped)
+# payload, the broadcastable pixel-centre x/y (in the source CRS, shape (h,1)/(1,w)
+# per pixel_centre_coords), and a per-pixel keep-mask -- or None for a block that
+# contributes nothing. The base masks the payload *and* the reprojected centres by
+# the same ``keep``, so a payload array must be block-shaped (ravel-compatible with
+# ``keep``), not pre-masked.
 type Loaded = tuple[Payload, _F64, _F64, numpy.typing.NDArray[numpy.bool_]] | None
 # One block's binnable contribution as it reaches the serial reducer: the payload
 # plus, per target (accumulator order), the kept pixel centres already reprojected
@@ -424,20 +428,30 @@ class StreamingBinner[Acc: BinAccumulator](ABC):
     def _load(self: Self, block: Block, cancel: CancelToken) -> Loaded:
         """Read (via :meth:`_locked_read`) and derive one block. Pure, no shared writes.
 
-        Returns a :data:`Loaded` -- ``(payload, x, y, keep)`` or ``None``. The base
-        broadcasts ``x``/``y`` to the block shape, masks by ``keep``, and transforms
-        the kept centres into every target's CRS, then splats ``payload`` into each
+        Returns a :data:`Loaded` -- ``(payload, x, y, keep)`` or ``None``. The
+        payload arrays are the *unmasked*, block-shaped per-pixel derivations;
+        :meth:`_compute` owns the masking, flattening each payload array and the
+        broadcast centres by the single ``keep`` mask before transforming the kept
+        centres into every target's CRS and splatting the payload into each
         accumulator's ``bin_into``. ``None`` means no contribution (an all-invalid
         block, or a read the cancel short-circuited).
         """
 
     def _compute(self: Self, block: Block, cancel: CancelToken) -> BlockResult | None:
-        """Worker step: read (locked), derive, reproject. Pure, no shared writes."""
+        """Worker step: read (locked), derive, mask, reproject. Pure, no shared writes.
+
+        Owns the single ``keep`` mask for the whole block: it flattens and applies
+        it to every payload array *and* to the pixel centres, so the payload and the
+        reprojected coordinates stay aligned by construction (an engine returns the
+        unmasked block-shaped payload; only this method masks). Elementwise, so it is
+        identical to an engine pre-masking its payload with the same mask.
+        """
         loaded = self._load(block, cancel)
         if loaded is None:
             return None
         payload, x, y, keep = loaded
         keep = keep.ravel()
+        payload = tuple(arr.ravel()[keep] for arr in payload)
         shape = (x.shape[0], y.shape[1])
         xf = numpy.broadcast_to(x, shape).ravel()[keep]
         yf = numpy.broadcast_to(y, shape).ravel()[keep]

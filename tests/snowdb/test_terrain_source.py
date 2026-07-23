@@ -11,6 +11,7 @@ from async_tiff.enums import SampleFormat
 from async_tiff.store import LocalStore
 from rasterio.crs import CRS
 
+from snowtool.exceptions import RemoteSourceError
 from snowtool.snowdb.zones import terrain_source
 from snowtool.snowdb.zones.terrain_generate import (
     DEFAULT_WORK_CRS,
@@ -119,12 +120,13 @@ def test_parse_geo_header_reads_the_tile_box(tmp_path):
 )
 def test_parse_geo_header_rejects_missing_georeferencing(mutate, message):
     # The IFD georeferencing tags are all optional; a tile missing one is a clean
-    # ValueError, not an opaque None deref while building the transform/CRS.
+    # RemoteSourceError (the operator-facing remote-data taxonomy), not an opaque
+    # None deref while building the transform/CRS.
     ifd = _fake_ifd()
     for key, value in mutate.items():
         setattr(ifd, key, value)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(RemoteSourceError, match=message):
         _parse_geo_header(ifd, '/vsis3/bucket/broken.tif')
 
 
@@ -243,7 +245,7 @@ def test_threedep_open_errors_when_no_tiles(monkeypatch):
     monkeypatch.setattr(terrain_source, 'TIFF', _fake_tiff(_open))
 
     with (
-        pytest.raises(RuntimeError, match='No 3DEP tiles'),
+        pytest.raises(RemoteSourceError, match='No 3DEP tiles'),
         ThreeDEP().open(
             (0.0, 0.0, 1.0, 1.0),
         ),

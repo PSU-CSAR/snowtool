@@ -611,11 +611,9 @@ class _TerrainStreamer(StreamingBinner[_GridAccumulator]):
             inner_w,
         )
 
-        keep = cls.ravel() >= 0
-        payload = (
-            cls.ravel()[keep].astype(numpy.int64),
-            cos.ravel()[keep],
-            sin.ravel()[keep],
-            zint.ravel()[keep],
-        )
-        return payload, x, y, cls >= 0
+        # Unmasked, block-shaped payload: the base (_compute) applies the single
+        # ``keep`` mask to each array. cls carries the mask (``>= 0`` is exactly the
+        # keep predicate), so it need not be computed twice.
+        keep = cls >= 0
+        payload = (cls.astype(numpy.int64), cos, sin, zint)
+        return payload, x, y, keep

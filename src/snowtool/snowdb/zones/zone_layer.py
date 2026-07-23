@@ -180,11 +180,12 @@ class ZoneLayerSet:
         """Whether a built set's stamped format version matches the current one.
 
         ``None`` when the set is not built (nothing to check); otherwise ``True``
-        only if the stamped version equals :attr:`format_version`. A built set
+        only if the stamped version equals :attr:`format_version`. Gated on
+        *presence* (``missing_artifacts`` reports the unbuilt case), so a built set
         with a missing/legacy tag reads as ``False`` (its stored version is
-        ``None``), so it is flagged for a rebuild.
+        ``None``) and is flagged for a rebuild.
         """
-        if self.provenance_hash() is None:
+        if not self.present():
             return None
         return self.stored_format_version() == self.format_version
 

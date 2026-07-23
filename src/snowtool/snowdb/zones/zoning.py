@@ -81,10 +81,6 @@ class BucketedZoneDescription(BaseModel):
     default: int = Field(examples=[4])
     min: int | float = Field(examples=[-1])
     max: int | float = Field(examples=[1])
-    # Kept as an attribute so the overridable kinds share a uniform shape for
-    # consumers reading ``desc.unit``; a bucketed axis is always dimensionless.
-    # A ClassVar (not a field), so it never reaches the wire schema.
-    unit: ClassVar[None] = None
 
 
 class ThresholdZoneDescription(BaseModel):
@@ -244,17 +240,20 @@ class ZoneScheme(ABC):
 
     * :attr:`param_key` -- the config/query param name (``'band_step_ft'``,
       ``'threshold_pct'``, ...). ``None`` (the default) means the scheme takes no
-      override: it is a categorical axis, so :meth:`configured` rejects any params
-      and :meth:`parse_override` rejects any token. It is a plain per-instance
-      attribute (most schemes fix it as a constant default, but the two threshold
-      axes differ only in this datum, so :class:`ThresholdZoning` passes it in).
+      override: it is a categorical axis, so :meth:`configured` rejects any params.
+      (An explicit *query* override is rejected earlier, by
+      :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection`, before it would
+      reach :meth:`parse_override`.) It is a plain per-instance attribute (most
+      schemes fix it as a constant default, but the two threshold axes differ only
+      in this datum, so :class:`ThresholdZoning` passes it in).
     * :attr:`_value_type` -- ``int`` or ``float``, how :meth:`parse_override`
       types the token.
     * :attr:`_value_noun` -- a short noun for the parse error (``'band step'``).
 
-    :meth:`with_override` stays per-scheme: each overridable scheme is a frozen
-    dataclass that folds the value onto its own field with a one-line
-    :func:`dataclasses.replace`.
+    :meth:`with_override` is generic on the base too: an overridable scheme
+    declares :attr:`_value_field` -- the name of the frozen-dataclass field the
+    override lands on -- and the base folds the (already-typed) value onto it with
+    a one-line :func:`dataclasses.replace`.
 
     :meth:`configured` exploits the config invariant (see
     :mod:`snowtool.snowdb.config`) that every zone-params member carries *exactly
@@ -270,6 +269,9 @@ class ZoneScheme(ABC):
     param_key: str | None = None
     _value_type: ClassVar[type[int] | type[float]] = float
     _value_noun: ClassVar[str] = ''
+    # The frozen-dataclass field an override lands on (set by each overridable
+    # scheme); the base's generic :meth:`with_override` ``replace``s onto it.
+    _value_field: ClassVar[str] = ''
 
     @abstractmethod
     def zones(self: Self) -> tuple[Zone, ...]:
@@ -321,24 +323,28 @@ class ZoneScheme(ABC):
         """A copy of this scheme with an explicit per-query ``override`` applied.
 
         The counterpart of :meth:`configured` for the *explicit* override a
-        selection carries (vs. the dataset's configured default). Each overridable
-        scheme implements this with a one-line ``replace`` onto its own value field.
-        The base scheme (categorical) consumes no override -- :meth:`parse_override`
-        rejects a token for a categorical axis, so this is never reached for one.
+        selection carries (vs. the dataset's configured default). Generic: folds
+        the value -- typed to :attr:`_value_type` -- onto the scheme's
+        :attr:`_value_field` via a one-line :func:`dataclasses.replace`. Both
+        callers already supply the right type (``configured`` reads a typed
+        pydantic field; :meth:`parse_override` coerces via :attr:`_value_type`), so
+        no re-narrowing is needed. Never reached for a categorical axis, which
+        declares no :attr:`_value_field` and is rejected upstream.
         """
-        raise NotImplementedError
+        # ``replace`` needs a dataclass instance; the ABC base isn't one, but every
+        # scheme that declares a ``_value_field`` (and so reaches here) is a frozen
+        # dataclass, so this is sound at runtime and returns the concrete ``Self``.
+        return replace(self, **{self._value_field: self._value_type(override)})  # type: ignore[type-var]
 
     def parse_override(self: Self, layer_key: str, raw: str) -> int | float:
         """Parse a query's ``:override`` token (the CLI ``--zone`` flag) for this
-        scheme, typed by :attr:`_value_type`. A categorical scheme
-        (:attr:`param_key` ``None``) takes none, so any token is an error -- it has
-        nothing to override.
+        scheme, typing ``raw`` by :attr:`_value_type`.
+
+        Only ever called for an overridable scheme: the sole caller
+        (:func:`~snowtool.snowdb.zonal_stats.parse_zone_selection`) rejects a
+        categorical axis before delegating here, so this need not re-guard
+        :attr:`param_key` ``None``.
         """
-        if self.param_key is None:
-            raise QueryParameterError(
-                f'zone {layer_key!r} takes no override (it is a categorical axis); '
-                f'drop the ":{raw}".',
-            )
         try:
             return self._value_type(raw)
         except ValueError as e:
@@ -416,22 +422,13 @@ class BandedZoning(ZoneScheme):
     param_key: str = 'band_step_ft'
     _value_type: ClassVar[type[int] | type[float]] = int
     _value_noun: ClassVar[str] = 'band step'
+    _value_field: ClassVar[str] = 'default_step'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_step, int) or self.default_step <= 0:
             raise ValueError(
                 f'band step must be a positive int, got {self.default_step!r}',
             )
-
-    def with_override(self: Self, override: int | float) -> Self:
-        # An int-typed axis: both callers (``configured``'s ``band_step_ft`` field
-        # and ``parse_override``'s ``int``) supply an int, so this narrows rather
-        # than coerces -- a float never silently becomes a band step.
-        if not isinstance(override, int):
-            raise QueryParameterError(
-                f'band step must be an integer, got {override!r}.',
-            )
-        return replace(self, default_step=override)
 
     def describe(self: Self) -> BandedZoneDescription:
         bands = self.zones()
@@ -497,22 +494,13 @@ class EvenBucketZoning(ZoneScheme):
     param_key: str = 'buckets'
     _value_type: ClassVar[type[int] | type[float]] = int
     _value_noun: ClassVar[str] = 'bucket count'
+    _value_field: ClassVar[str] = 'default_buckets'
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_buckets, int) or self.default_buckets < 1:
             raise ValueError(
                 f'bucket count must be a positive int, got {self.default_buckets!r}',
             )
-
-    def with_override(self: Self, override: int | float) -> Self:
-        # An int-typed axis: both callers (``configured``'s ``buckets`` field and
-        # ``parse_override``'s ``int``) supply an int, so this narrows rather than
-        # coerces -- a float never silently becomes a bucket count.
-        if not isinstance(override, int):
-            raise QueryParameterError(
-                f'bucket count must be an integer, got {override!r}.',
-            )
-        return replace(self, default_buckets=override)
 
     def describe(self: Self) -> BucketedZoneDescription:
         bands = self.zones()
@@ -588,9 +576,7 @@ class ThresholdZoning(ZoneScheme):
     param_key: Literal['threshold_pct', 'entropy_threshold'] = 'threshold_pct'
     _value_type: ClassVar[type[int] | type[float]] = float
     _value_noun: ClassVar[str] = 'threshold'
-
-    def with_override(self: Self, override: int | float) -> Self:
-        return replace(self, default_threshold=float(override))
+    _value_field: ClassVar[str] = 'default_threshold'
 
     def describe(self: Self) -> ThresholdZoneDescription:
         return ThresholdZoneDescription(

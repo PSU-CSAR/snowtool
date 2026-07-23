@@ -167,6 +167,36 @@ def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
     assert 'landcover' not in providers
 
 
+def test_stale_format_zone_layers_flags_a_built_untagged_set(dataset):
+    # A built set whose provenance tag is missing (a legacy/untagged build) reads
+    # as stale, not unbuilt: gate on presence, not the tag. Rewrite the built
+    # terrain COG with no hash tag and it must appear in the stale report with
+    # stored=None.
+    terrain = dataset.zones['terrain']
+    path = terrain.layer_path(ELEVATION)
+    with rasterio.open(path) as ds:
+        array = ds.read(1)
+        profile = ds.profile
+        transform = ds.transform
+        crs = ds.crs
+    write_cog(
+        path,
+        array,
+        transform=transform,
+        crs=crs,
+        nodata=profile.get('nodata'),
+        tile_size=profile['blockxsize'],
+        tags={},
+    )
+    assert terrain.provenance_hash() is None
+
+    findings = diagnostics.stale_format_zone_layers(dataset)
+
+    assert [(f.provider, f.stored, f.expected) for f in findings] == [
+        ('terrain', None, terrain.format_version),
+    ]
+
+
 # --- pourpoint-coverage ------------------------------------------------------------
 
 

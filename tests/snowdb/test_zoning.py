@@ -185,13 +185,14 @@ def test_aspect_component_bucket_count_is_overridable():
 def test_bucketed_describe_reports_count_and_range():
     scheme = NORTHNESS.zoning
     assert isinstance(scheme, EvenBucketZoning)
+    # A bucketed axis is dimensionless by type: BucketedZoneDescription carries no
+    # ``unit`` field at all (consumers discriminate on the description type).
     assert scheme.describe() == BucketedZoneDescription(
         param='buckets',
         default=4,
         min=-1,
         max=1,
     )
-    assert scheme.describe().unit is None  # dimensionless axis
 
 
 # --- CategoricalZoning -------------------------------------------------------

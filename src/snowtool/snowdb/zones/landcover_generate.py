@@ -297,5 +297,6 @@ class _LandCoverStreamer(StreamingBinner[_ForestAccumulator]):
             block.bw,
         )
 
-        keep = valid.ravel()
-        return (is_forest.ravel()[keep],), x, y, valid
+        # Unmasked, block-shaped payload: the base (_compute) applies ``keep``
+        # (== ``valid``) to it alongside the pixel centres.
+        return (is_forest,), x, y, valid

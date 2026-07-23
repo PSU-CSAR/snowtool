@@ -36,6 +36,7 @@ from async_tiff.enums import SampleFormat
 from async_tiff.store import S3Store
 from rasterio.crs import CRS
 
+from snowtool.exceptions import RemoteSourceError
 from snowtool.snowdb.grid import Bounds
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.terrain_generate import (
@@ -160,7 +161,7 @@ class ThreeDEP(DemSource):
         # contract and unused.
         tiles = discover_tiles(bounds)
         if not tiles:
-            raise RuntimeError(
+            raise RemoteSourceError(
                 f'No 3DEP tiles found for extent {bounds}; check the bounds.',
             )
         with rasterio.Env(**_S3_ENV), tempfile.TemporaryDirectory() as tmp:
@@ -231,7 +232,7 @@ def _parse_geo_header(ifd: ImageFileDirectory, uri: str) -> MosaicTile:
     tiepoint = ifd.model_tiepoint
     gk = ifd.geo_key_directory
     if scale is None or tiepoint is None or gk is None:
-        raise ValueError(
+        raise RemoteSourceError(
             f'{uri}: not a georeferenced north-up GeoTIFF (missing model pixel '
             'scale, tiepoint, or GeoKey directory).',
         )
@@ -241,13 +242,13 @@ def _parse_geo_header(ifd: ImageFileDirectory, uri: str) -> MosaicTile:
     try:
         dtype = _SAMPLE_DTYPES[(fmt, bits)]
     except KeyError as e:
-        raise ValueError(
+        raise RemoteSourceError(
             f'Unsupported sample format/bits for VRT mosaic: {fmt}/{bits}',
         ) from e
 
     epsg = gk.projected_type or gk.geographic_type
     if epsg is None:
-        raise ValueError(
+        raise RemoteSourceError(
             f'{uri}: GeoKey directory declares no projected or geographic CRS.',
         )
 
@@ -306,7 +307,9 @@ def _gdal_dtype(dtype: str) -> str:
     try:
         return _GDAL_DTYPES[dtype]
     except KeyError as e:
-        raise ValueError(f'Unsupported source dtype for VRT mosaic: {dtype}') from e
+        raise RemoteSourceError(
+            f'Unsupported source dtype for VRT mosaic: {dtype}',
+        ) from e
 
 
 def build_mosaic_vrt(tiles: list[MosaicTile], out_path: Path) -> Path:
@@ -336,7 +339,7 @@ def build_mosaic_vrt(tiles: list[MosaicTile], out_path: Path) -> Path:
             dtype,
             nodata,
         ):
-            raise ValueError(
+            raise RemoteSourceError(
                 'Cannot build a VRT mosaic from heterogeneous tiles: tile '
                 f'{i} disagrees with tile 0 on CRS/resolution/dtype/nodata.',
             )
