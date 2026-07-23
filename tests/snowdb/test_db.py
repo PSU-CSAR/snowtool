@@ -677,6 +677,50 @@ def test_create_dataset_does_not_clobber_a_same_manager_registration(tmp_path, s
     assert config_path == tmp_path / 'data' / 'test' / DATASET_CONFIG_FILENAME
 
 
+def test_create_dataset_absolute_data_dir_round_trips_through_open(tmp_path, spec):
+    # The single-rule invariant, in the form that survives create: an absolute
+    # data_dir points create's config write and a later SnowDb.open at the SAME
+    # directory. create writes the config there; open resolves the dataset's data
+    # to that exact path (not a nested <dir>/<dir>).
+    SnowDbManager.initialize(tmp_path)
+    manager = SnowDbManager.open(tmp_path)
+    data_dir = tmp_path / 'elsewhere' / 'test-data'
+    config = config_from_spec(spec).model_copy(update={'data_dir': data_dir})
+
+    result = manager.create_dataset('test', config)
+
+    # create wrote the config beside its data at the absolute data_dir ...
+    assert result.staged.dataset.path == data_dir
+    assert (data_dir / DATASET_CONFIG_FILENAME).is_file()
+    # ... and a fresh open resolves the dataset's data to that same directory.
+    reopened = SnowDb.open(tmp_path)
+    assert reopened.registered['test'].path == data_dir
+
+
+def test_create_dataset_rejects_a_relative_data_dir(tmp_path, spec):
+    # create cannot honor a relative data_dir: it writes the config *at* the
+    # directory data_dir names, but SnowDb.open later resolves a relative data_dir
+    # against that config's own dir, so the two would disagree (<root>/<dir> vs.
+    # <root>/<dir>/<dir>). Refuse it up front with a typed, actionable error and
+    # write nothing.
+    SnowDbManager.initialize(tmp_path)
+    manager = SnowDbManager.open(tmp_path)
+    config = config_from_spec(spec).model_copy(update={'data_dir': Path('nested')})
+
+    with pytest.raises(SnowDbConfigError) as excinfo:
+        manager.create_dataset('test', config)
+
+    # The message says what to pass instead (omit for the convention, or absolute).
+    message = str(excinfo.value)
+    assert 'relative data_dir' in message
+    assert 'absolute' in message
+    # Nothing was written or registered: neither the errant nested dir nor a
+    # root-relative one holds a config, and the root config stayed empty.
+    assert not (tmp_path / 'nested').exists()
+    assert not (tmp_path / 'nested' / 'nested').exists()
+    assert RootConfig.load(tmp_path / CONFIG_FILENAME).datasets == {}
+
+
 def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):
     # The token partition is syntactic: a separator/.json token is a path (the
     # catalog is never consulted); a bare token is a NAME resolved only from the

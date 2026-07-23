@@ -588,6 +588,18 @@ class SnowDbManager:
         directory and ``config`` is updated to reference it before either is used,
         so the first staging pass burns AOI rasters with the mask already applied.
 
+        A ``config.data_dir`` must be absolute or omitted here (the convention
+        ``data/<name>`` under the root). A *relative* ``data_dir`` is refused with
+        :class:`~snowtool.exceptions.SnowDbConfigError`, because create is the one
+        call where it cannot mean what ``SnowDb.open`` will later take it to mean: a
+        stored relative ``data_dir`` resolves against the *config file's own
+        directory*, but create must decide where to put that config file *from*
+        ``data_dir`` -- there is no independent config home to anchor against, so the
+        two rules cannot agree (create would resolve against the root and open
+        against the config's dir, yielding a nested ``<dir>/<dir>``). Omit it for the
+        convention, or give an absolute path; both round-trip identically through
+        ``SnowDb.open``.
+
         The one real invariant it enforces: an existing registration is *never*
         clobbered. Registration happens only when ``name`` is not already in the
         root config -- so a re-create of a live dataset never deactivates it or
@@ -598,6 +610,23 @@ class SnowDbManager:
         explicit :meth:`set_dataset_active`. Returns a :class:`CreatedDataset`
         carrying the staging result and whether this call registered the dataset.
         """
+        # A relative data_dir cannot be honored here: create writes the config file
+        # *at* the directory data_dir names, but SnowDb.open later resolves a
+        # relative data_dir against that config file's own directory -- so the same
+        # relative value would land the config at <root>/<dir> and then open would
+        # read its data from <root>/<dir>/<dir>. There is no config home to anchor
+        # against yet (data_dir is what picks it), so the single-rule claim can only
+        # hold if data_dir is absolute or omitted. Refuse the relative case up front.
+        if config.data_dir is not None and not config.data_dir.is_absolute():
+            raise SnowDbConfigError(
+                self.db.root,
+                f'cannot create dataset {name!r} with a relative data_dir '
+                f'({str(config.data_dir)!r}): create writes the dataset config at '
+                'the data directory, and a relative data_dir is later resolved '
+                "against that config's own directory, so the two would disagree. "
+                'Omit data_dir for the conventional data/<name>, or pass an '
+                'absolute path.',
+            )
         directory = self.db.dataset_dir(name, config)
         directory.mkdir(parents=True, exist_ok=True)
 
