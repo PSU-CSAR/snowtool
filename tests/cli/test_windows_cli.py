@@ -14,6 +14,7 @@ import sys
 
 from pathlib import Path, PureWindowsPath
 
+import click
 import pytest
 
 from click.testing import CliRunner
@@ -22,7 +23,9 @@ from snowtool.cli import cli
 from snowtool.cli._iis.provisioning import (
     base_python_root,
     install_args,
+    install_site,
     remove_args,
+    remove_site,
     run_powershell,
     snowdb_root,
     venv_root,
@@ -394,6 +397,294 @@ def test_install_rejects_invalid_only_value(tmp_path):
     )
 
     assert result.exit_code == 2  # click Choice rejection
+
+
+class _RecordingRunner:
+    """A fake ``run_powershell`` runner that records each invocation in order.
+
+    Stands in for the ``subprocess.run``/PowerShell boundary so the install /
+    remove *sequencing* is exercisable off Windows -- no ``unittest.mock``, just
+    a plain callable recording its argv. Each call also snapshots which
+    site-directory files exist at call time, so a test can assert that
+    ``web.config`` was written *before* provisioning ran.
+    """
+
+    def __init__(self, site_dir):
+        self._site_dir = site_dir
+        self.calls: list[list[str]] = []
+        self.web_config_present_at_call: list[bool] = []
+
+    def __call__(self, args, **kwargs):
+        assert kwargs == {'check': True}
+        self.calls.append(args)
+        self.web_config_present_at_call.append((self._site_dir / 'web.config').exists())
+        return 'completed'
+
+
+def _site_dir(tmp_path):
+    return tmp_path / 'site'
+
+
+def test_install_site_writes_web_config_before_provisioning(tmp_path):
+    site = _site_dir(tmp_path)
+    runner = _RecordingRunner(site)
+    echoed: list[str] = []
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name=None,
+        cert_thumbprint='ABCDEF0123456789',
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only=None,
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    # Filesystem effects: site + log dirs and web.config all exist.
+    assert site.is_dir()
+    assert (site / 'log').is_dir()
+    web_config = site / 'web.config'
+    assert web_config.exists()
+    assert 'httpPlatform' in web_config.read_text()
+
+    # Full step order: write web.config, then run exactly one provisioning call,
+    # and web.config already existed when that call ran.
+    assert len(runner.calls) == 1
+    assert runner.web_config_present_at_call == [True]
+    assert runner.calls[0][6].endswith('install_site.ps1')
+    assert '-SiteName' in runner.calls[0]
+    assert echoed == [
+        f'Wrote {web_config}',
+        "Provisioning IIS site 'site'...",
+        'Done.',
+    ]
+
+
+def test_install_site_only_config_writes_web_config_and_skips_provisioning(tmp_path):
+    site = _site_dir(tmp_path)
+    runner = _RecordingRunner(site)
+    echoed: list[str] = []
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name=None,
+        cert_thumbprint=None,
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only='config',
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    assert (site / 'web.config').exists()
+    assert runner.calls == []  # provisioning gated out
+    assert echoed == [f'Wrote {site / "web.config"}']
+
+
+def test_install_site_only_site_provisions_and_skips_web_config(tmp_path):
+    site = _site_dir(tmp_path)
+    runner = _RecordingRunner(site)
+    echoed: list[str] = []
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name=None,
+        cert_thumbprint='ABCDEF0123456789',
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only='site',
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    assert not (site / 'web.config').exists()  # config step gated out
+    assert len(runner.calls) == 1
+    assert runner.calls[0][6].endswith('install_site.ps1')
+    # No 'Wrote ...' line; cert given so no cert-warning line either.
+    assert echoed == [
+        "Provisioning IIS site 'site'...",
+        'Done.',
+    ]
+
+
+def test_install_site_without_cert_emits_manual_binding_message(tmp_path):
+    site = _site_dir(tmp_path)
+    runner = _RecordingRunner(site)
+    echoed: list[str] = []
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name=None,
+        cert_thumbprint=None,
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only=None,
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    assert any('bind the SSL' in line for line in echoed)
+
+
+def test_install_site_raises_when_parent_missing(tmp_path):
+    missing_parent = tmp_path / 'nope' / 'site'
+    runner = _RecordingRunner(missing_parent)
+
+    with pytest.raises(click.ClickException):
+        install_site(
+            directory=missing_parent,
+            hostname='snow.example.org',
+            port=443,
+            snowdb_config=tmp_path,
+            site_name=None,
+            cert_thumbprint=None,
+            recycle_time='03:00:00',
+            access_log_dir=None,
+            only=None,
+            echo=lambda _: None,
+            runner=runner,
+        )
+
+    assert runner.calls == []
+
+
+def test_install_site_defaults_site_name_to_directory_name(tmp_path):
+    site = tmp_path / 'my-site'
+    site.mkdir()
+    runner = _RecordingRunner(site)
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name=None,
+        cert_thumbprint='ABCDEF0123456789',
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only='site',
+        echo=lambda _: None,
+        runner=runner,
+    )
+
+    argv = runner.calls[0]
+    assert argv[argv.index('-SiteName') + 1] == 'my-site'
+
+
+def test_install_site_explicit_site_name_overrides_directory_name(tmp_path):
+    site = tmp_path / 'my-site'
+    runner = _RecordingRunner(site)
+
+    install_site(
+        directory=site,
+        hostname='snow.example.org',
+        port=443,
+        snowdb_config=tmp_path,
+        site_name='chosen',
+        cert_thumbprint='ABCDEF0123456789',
+        recycle_time='03:00:00',
+        access_log_dir=None,
+        only='site',
+        echo=lambda _: None,
+        runner=runner,
+    )
+
+    argv = runner.calls[0]
+    assert argv[argv.index('-SiteName') + 1] == 'chosen'
+
+
+class _OrderingRunner:
+    """Records whether ``web.config`` still existed at teardown-call time."""
+
+    def __init__(self, site_dir):
+        self._site_dir = site_dir
+        self.web_config_present_at_call: list[bool] = []
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args, **kwargs):
+        self.calls.append(args)
+        self.web_config_present_at_call.append((self._site_dir / 'web.config').exists())
+        return 'completed'
+
+
+def test_remove_site_tears_down_before_unlinking_web_config(tmp_path):
+    site = _site_dir(tmp_path)
+    site.mkdir()
+    web_config = site / 'web.config'
+    web_config.write_text('<configuration/>')
+    runner = _OrderingRunner(site)
+    echoed: list[str] = []
+
+    remove_site(
+        directory=site,
+        snowdb_config=tmp_path,
+        site_name=None,
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    # Teardown ran first, and web.config still existed at that moment; only
+    # after teardown was it unlinked.
+    assert len(runner.calls) == 1
+    assert runner.calls[0][6].endswith('remove_site.ps1')
+    assert runner.web_config_present_at_call == [True]
+    assert not web_config.exists()
+    assert echoed == [
+        "Removing IIS site 'site'...",
+        f'Removed {web_config}',
+        'Done.',
+    ]
+
+
+def test_remove_site_without_web_config_skips_removed_line(tmp_path):
+    site = _site_dir(tmp_path)
+    site.mkdir()
+    runner = _OrderingRunner(site)
+    echoed: list[str] = []
+
+    remove_site(
+        directory=site,
+        snowdb_config=tmp_path,
+        site_name=None,
+        echo=echoed.append,
+        runner=runner,
+    )
+
+    assert len(runner.calls) == 1
+    assert echoed == [
+        "Removing IIS site 'site'...",
+        'Done.',
+    ]
+
+
+def test_remove_site_defaults_site_name_to_directory_name(tmp_path):
+    site = tmp_path / 'my-site'
+    site.mkdir()
+    runner = _OrderingRunner(site)
+
+    remove_site(
+        directory=site,
+        snowdb_config=tmp_path,
+        site_name=None,
+        echo=lambda _: None,
+        runner=runner,
+    )
+
+    argv = runner.calls[0]
+    assert argv[argv.index('-SiteName') + 1] == 'my-site'
 
 
 def test_install_rejects_a_removed_flag(tmp_path):

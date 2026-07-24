@@ -21,21 +21,11 @@ import time, so ``snowtool windows iis --help`` still works on any platform.
 
 from __future__ import annotations
 
-import sys
-
 from pathlib import Path
 
 import click
 
-from snowtool.cli._iis.provisioning import (
-    base_python_root,
-    install_args,
-    remove_args,
-    run_powershell,
-    snowdb_root,
-    venv_root,
-)
-from snowtool.cli._iis.web_config import rasterio_data_env, render_web_config
+from snowtool.cli._iis.provisioning import install_site, remove_site
 from snowtool.cli._windows_common import require_windows
 
 _config_option = click.option(
@@ -114,48 +104,17 @@ def install(
     place.
     """
     require_windows()
-    site_name = site_name if site_name is not None else directory.name
-
-    if not directory.parent.is_dir():
-        raise click.ClickException(f'{directory.parent} does not exist.')
-    directory.mkdir(exist_ok=True)
-    (directory / 'log').mkdir(exist_ok=True)
-
-    if only != 'site':
-        web_config = directory / 'web.config'
-        web_config.write_text(
-            render_web_config(
-                Path(sys.executable),
-                snowdb_config,
-                data_env=rasterio_data_env(),
-            ),
-        )
-        click.echo(f'Wrote {web_config}')
-
-    if only != 'config':
-        if not cert_thumbprint:
-            click.echo(
-                'No --cert-thumbprint given; after install, bind the SSL '
-                f'certificate manually: IIS Manager > Sites > {site_name} > '
-                'Edit Bindings.',
-            )
-
-        click.echo(f'Provisioning IIS site {site_name!r}...')
-        run_powershell(
-            install_args(
-                site_name=site_name,
-                physical_path=directory,
-                venv_path=venv_root(Path(sys.executable)),
-                base_python_path=base_python_root(sys.prefix, sys.base_prefix),
-                snowdb_path=snowdb_root(snowdb_config),
-                hostname=hostname,
-                port=port,
-                cert_thumbprint=cert_thumbprint,
-                recycle_time=recycle_time,
-                access_log_dir=access_log_dir,
-            ),
-        )
-        click.echo('Done.')
+    install_site(
+        directory=directory,
+        hostname=hostname,
+        port=port,
+        snowdb_config=snowdb_config,
+        site_name=site_name,
+        cert_thumbprint=cert_thumbprint,
+        recycle_time=recycle_time,
+        access_log_dir=access_log_dir,
+        only=only,
+    )
 
 
 @iis.command('remove')
@@ -170,21 +129,8 @@ def remove(directory: Path, snowdb_config: Path, site_name: str | None) -> None:
     may hold logs) but deletes its web.config.
     """
     require_windows()
-    site_name = site_name if site_name is not None else directory.name
-
-    click.echo(f'Removing IIS site {site_name!r}...')
-    run_powershell(
-        remove_args(
-            site_name=site_name,
-            venv_path=venv_root(Path(sys.executable)),
-            base_python_path=base_python_root(sys.prefix, sys.base_prefix),
-            snowdb_path=snowdb_root(snowdb_config),
-            physical_path=directory,
-        ),
+    remove_site(
+        directory=directory,
+        snowdb_config=snowdb_config,
+        site_name=site_name,
     )
-
-    web_config = directory / 'web.config'
-    if web_config.exists():
-        web_config.unlink()
-        click.echo(f'Removed {web_config}')
-    click.echo('Done.')

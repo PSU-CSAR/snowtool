@@ -1,4 +1,14 @@
-"""Pure argv-building for the PowerShell IIS provisioning scripts.
+"""Orchestration + pure argv-building for the PowerShell IIS provisioning.
+
+:func:`install_site`/:func:`remove_site` own the end-to-end install/remove
+sequencing (directory creation, ``web.config`` render+write, ``--only`` step
+gating, cert messaging, teardown-then-unlink ordering) so the
+:mod:`snowtool.cli.iis` click callbacks stay the thin guard+call+echo shape
+every other command in this CLI has. They take their two I/O seams --
+``echo`` (user-facing output) and ``runner`` (the PowerShell process) -- as
+injectable parameters, defaulting to :func:`print`/:func:`subprocess.run`, so
+the whole sequence is unit-testable off Windows without a real
+``powershell.exe``/IIS host or click's runner.
 
 :func:`run_powershell` is the one true I/O boundary here (an external Windows
 process) -- callers build argv with the pure functions below, then pass it
@@ -17,9 +27,14 @@ from __future__ import annotations
 
 import importlib.resources
 import subprocess
+import sys
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import click
+
+from snowtool.cli._iis.web_config import rasterio_data_env, render_web_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -154,3 +169,113 @@ def run_powershell(
 ) -> subprocess.CompletedProcess[bytes]:
     """Run a provisioning script's argv, raising if it exits nonzero."""
     return runner(args, check=True)
+
+
+def _resolve_site_name(site_name: str | None, directory: Path) -> str:
+    """The IIS site/app-pool name, defaulting to the install directory name."""
+    return site_name if site_name is not None else directory.name
+
+
+def install_site(
+    *,
+    directory: Path,
+    hostname: str,
+    port: int,
+    snowdb_config: Path,
+    site_name: str | None,
+    cert_thumbprint: str | None,
+    recycle_time: str,
+    access_log_dir: Path | None,
+    only: str | None,
+    echo: Callable[[str], None] = click.echo,
+    runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+) -> None:
+    """Install (or update) ``directory`` as an IIS site fronting the API.
+
+    Owns the whole install sequence: validate the parent, create the site +
+    ``log/`` directories, render+write ``web.config`` (unless ``--only site``),
+    then provision the IIS site via PowerShell (unless ``--only config``). The
+    two ordered steps are gated by ``only``; the ``web.config`` write always
+    precedes provisioning. ``echo``/``runner`` are injectable I/O seams so the
+    sequence is testable off Windows.
+    """
+    site_name = _resolve_site_name(site_name, directory)
+
+    if not directory.parent.is_dir():
+        raise click.ClickException(f'{directory.parent} does not exist.')
+    directory.mkdir(exist_ok=True)
+    (directory / 'log').mkdir(exist_ok=True)
+
+    if only != 'site':
+        web_config = directory / 'web.config'
+        web_config.write_text(
+            render_web_config(
+                Path(sys.executable),
+                snowdb_config,
+                data_env=rasterio_data_env(),
+            ),
+        )
+        echo(f'Wrote {web_config}')
+
+    if only != 'config':
+        if not cert_thumbprint:
+            echo(
+                'No --cert-thumbprint given; after install, bind the SSL '
+                f'certificate manually: IIS Manager > Sites > {site_name} > '
+                'Edit Bindings.',
+            )
+
+        echo(f'Provisioning IIS site {site_name!r}...')
+        run_powershell(
+            install_args(
+                site_name=site_name,
+                physical_path=directory,
+                venv_path=venv_root(Path(sys.executable)),
+                base_python_path=base_python_root(sys.prefix, sys.base_prefix),
+                snowdb_path=snowdb_root(snowdb_config),
+                hostname=hostname,
+                port=port,
+                cert_thumbprint=cert_thumbprint,
+                recycle_time=recycle_time,
+                access_log_dir=access_log_dir,
+            ),
+            runner=runner,
+        )
+        echo('Done.')
+
+
+def remove_site(
+    *,
+    directory: Path,
+    snowdb_config: Path,
+    site_name: str | None,
+    echo: Callable[[str], None] = click.echo,
+    runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+) -> None:
+    """Remove the IIS site + app pool installed at ``directory``.
+
+    Owns the whole remove sequence: tear down the site + strip the app-pool
+    permission grants via PowerShell *first*, then unlink ``web.config`` (the
+    teardown-before-unlink ordering leaves nothing half-removed if the script
+    fails). ``echo``/``runner`` are injectable I/O seams so the sequence is
+    testable off Windows.
+    """
+    site_name = _resolve_site_name(site_name, directory)
+
+    echo(f'Removing IIS site {site_name!r}...')
+    run_powershell(
+        remove_args(
+            site_name=site_name,
+            venv_path=venv_root(Path(sys.executable)),
+            base_python_path=base_python_root(sys.prefix, sys.base_prefix),
+            snowdb_path=snowdb_root(snowdb_config),
+            physical_path=directory,
+        ),
+        runner=runner,
+    )
+
+    web_config = directory / 'web.config'
+    if web_config.exists():
+        web_config.unlink()
+        echo(f'Removed {web_config}')
+    echo('Done.')
