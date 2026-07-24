@@ -23,6 +23,7 @@ from snowtool.exceptions import (
     UnknownHealthCheckError,
 )
 from snowtool.snowdb import triplet_naming
+from snowtool.snowdb.grid import grid_extent
 from snowtool.snowdb.progress import NULL_PROGRESS
 
 if TYPE_CHECKING:
@@ -393,10 +394,6 @@ class GridReport:
 def grid_report(dataset: Dataset) -> GridReport:
     spec = dataset.spec
     grid = spec.grid_params
-    left = grid.origin_x
-    top = grid.origin_y
-    right = grid.origin_x + grid.cols * grid.px_size
-    bottom = grid.origin_y - grid.rows * grid.px_size
     n_tiles = math.ceil(grid.rows / grid.tile_size) * math.ceil(
         grid.cols / grid.tile_size,
     )
@@ -409,7 +406,7 @@ def grid_report(dataset: Dataset) -> GridReport:
         px_size=grid.px_size,
         tile_size=grid.tile_size,
         n_tiles=n_tiles,
-        extent=(left, bottom, right, top),
+        extent=grid_extent(dataset.grid),
         cell_area_m2=None if spec.is_geographic else spec.cell_area,
     )
 
