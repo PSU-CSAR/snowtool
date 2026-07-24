@@ -40,10 +40,8 @@ if TYPE_CHECKING:
 
 REPRESENTATIONS = StatsFormat.representations()
 
-# Document every negotiated media type on the route's 200, from the same enum that
-# drives ``?f=``/``Accept`` -- one source of truth. ``application/json`` is omitted
-# so the ``response_model`` keeps owning it (its ``$ref`` is preserved); the streamed
-# ``text/csv`` gets a string-body schema.
+# Document every negotiated media type from the enum; JSON omitted so
+# response_model keeps its $ref.
 _STATS_RESPONSES = StatsFormat.openapi_responses(schemas={MediaType.JSON: None})
 
 router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/stats')

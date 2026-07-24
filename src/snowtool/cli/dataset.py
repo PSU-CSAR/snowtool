@@ -245,9 +245,6 @@ def activate_dataset(manager: SnowDbManager, name: str) -> None:
     stays so either way. Idempotent.
     """
     manager.set_dataset_active(name, True)
-    # Activation never needs a reindex: `dataset create` folds coverage into the
-    # index at registration. The one exception (`dataset register`, which skips
-    # staging) prints its own reindex guidance at registration time.
     click.echo(f'activated {name} (restart the API to pick it up)')
 
 

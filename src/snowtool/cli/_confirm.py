@@ -49,11 +49,9 @@ def run_removal(
     :func:`confirm_destructive` then reports what happened. The two removal
     behaviours are passed as separate no-arg callables -- ``preview`` (the
     dry-run probe) and ``execute`` (the real deletion) -- each returning whether
-    the target existed; the split keeps each side statically typed instead of a
-    single ``Callable[..., bool]`` the call sites adapt with a ``dry_run`` kwarg.
-    ``label`` names the target in every echoed line (e.g. ``'snodas
-    2018-01-01'`` or a pourpoint triplet); ``prompt`` is the confirmation
-    question (only shown for a real, non-``--yes`` removal).
+    the target existed. ``label`` names the target in every echoed line (e.g.
+    ``'snodas 2018-01-01'`` or a pourpoint triplet); ``prompt`` is the
+    confirmation question (only shown for a real, non-``--yes`` removal).
     """
     if dry_run:
         present = preview()

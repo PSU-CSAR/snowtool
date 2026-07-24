@@ -53,11 +53,8 @@ async def list_pourpoints(
     basin = geometry == 'basin'
     if limit is None:
         limit = BASIN_DEFAULT_LIMIT if basin else POINT_DEFAULT_LIMIT
-    # Basin mode parses up to `limit` (<= 1000) basin records, each thousands of
-    # coordinate pairs -- synchronous disk + shapely work that would block the
-    # event loop. Point mode is a cheap in-memory index scan, so the offload isn't
-    # needed for it, but the hop to a worker thread costs microseconds either way;
-    # offloading unconditionally keeps this one call site instead of branching.
+    # Basin parse is synchronous disk + shapely work; offload unconditionally --
+    # point mode's hop is negligible.
     return await run_in_threadpool(
         build_pourpoint_collection,
         snowdb,
@@ -80,8 +77,4 @@ async def get_pourpoint(
         pourpoint = snowdb.load_pourpoint(triplet, index=index)
         return build_pourpoint_detail(snowdb, pourpoint, index[triplet])
 
-    # The lookup fully parses one basin record (thousands of coordinate pairs):
-    # synchronous disk + shapely work that would block the event loop. The sibling
-    # list route offloads for the same reason; this applies a fortiori (always a
-    # full basin parse), so mirror it -- one call, no branches.
     return await run_in_threadpool(build)

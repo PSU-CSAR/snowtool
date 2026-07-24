@@ -101,8 +101,6 @@ def stats(
 
     reader = SnowDbReader(snowdb)
     with _console.err().status(f'querying {dataset_name} for {triplet}...'):
-        # A fresh reader used once in a CLI process that has no prior event loop,
-        # so drive the async query directly.
         result = asyncio.run(
             reader.zonal_stats(
                 triplet,
@@ -115,10 +113,7 @@ def stats(
         )
 
     if fmt == 'json':
-        # Always pretty-printed: this is the human-facing surface, and it is
-        # deterministic regardless of whether stdout is a terminal or a pipe. Pipe
-        # through ``jq -c`` (or similar) for a compact/minified rendering. (The API
-        # serves minified JSON, which is the right default for a machine client.)
+        # pretty-printed; pipe through jq -c for compact
         click.echo(
             json.dumps(
                 result.dump_compact(

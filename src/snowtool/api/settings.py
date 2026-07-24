@@ -26,30 +26,24 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # We don't support settings from an dotenv file: dotenv files should
+        # We don't support settings from a dotenv file: dotenv files should
         # not be parsed by the application, source with a shell instead. Thus
         # we leave dotenv_settings out of the return.
         return init_settings, env_settings, file_secret_settings
 
     model_config = SettingsConfigDict(env_prefix='snowtool_')
 
-    # Filesystem location of the snowdb root config (or its directory); the
-    # snowdb -- per-dataset COGs, AOI rasters, DEMs, the global AOIs -- is
-    # whatever that config defines. The description is the field's --help text where
-    # these are surfaced as CLI options (see snowtool.cli.api).
+    # These fields' descriptions are also surfaced as CLI --help text (see
+    # snowtool.cli.api).
     snowdb_config: Path = Field(
         description='Snowdb config file or its directory.',
     )
 
-    # Max number of open async-tiff handles kept in the read-path LRU cache.
     tiff_cache_size: int = Field(
         DEFAULT_TIFF_CACHE_SIZE,
         description='Max open async-tiff handles kept in the read-path LRU cache.',
     )
 
-    # Cap on a crossed zonal-stats query's product size (number of zone cells =
-    # output rows). Crossing several fine-grained zone axes multiplies their zone
-    # counts; a query over this is rejected before any raster is read.
     max_zone_cells: int = Field(
         DEFAULT_MAX_ZONE_CELLS,
         description='Cap on a crossed zonal-stats query product size (output rows).',

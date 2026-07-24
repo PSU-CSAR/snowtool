@@ -1,25 +1,8 @@
 """Pourpoint response models, on gazebo's coordinate-validated GeoJSON types.
 
-``GET /pourpoints`` returns a :class:`gazebo.geojson.FeatureCollection` (a
-``LinkedCollection`` of GeoJSON ``Feature``\\ s -- the OGC API Features shape with
-``links``/``numberReturned``/``numberMatched`` for free), paged with
-:func:`gazebo.pagination.paginate_offset` and optionally filtered by ``bbox``. The
-``geometry`` query param selects each feature's geometry slot -- the pourpoint
-``point`` (default, served straight from the index) or the basin ``polygon``
-(loaded per record, hence a smaller default page). The pourpoint coordinate is
-*always* a property too, so the basin view never loses the outflow point.
-
-``GET /pourpoints/{triplet}`` returns a single ``Feature`` -- it is one record, so
-there is no payload pressure and it serves the basin polygon as ``geometry`` (a
-``load_pourpoint`` lookup gates on the index, so the served record is always
-basin-bearing in practice) plus the full curated property set, with per-dataset
-coverage pulled from the index.
-
-Coverage in both responses is filtered to *active* datasets: the index itself
-carries coverage for every registered dataset (the admin surfaces -- CLI
-``pourpoint list``, diagnostics -- legitimately show inactive coverage), but the
-API must not advertise a dataset key its own ``/datasets`` and stats routes
-refuse to serve.
+Routes, params, and the coverage-filtering rationale are documented on
+:mod:`snowtool.api.routers.pourpoints`; this module owns only the model shapes
+and their builders.
 """
 
 from __future__ import annotations
@@ -154,13 +137,9 @@ def build_pourpoint_collection(
     """One page of the index (triplet-sorted, optionally ``bbox``-filtered) + links.
 
     The scan/filter/count/slice and per-record basin load live on
-    :meth:`SnowDb.pourpoint_page`; this shaping layer only turns the returned
-    ``(entry, basin)`` pairs into features (basin geometry when loaded, else the
-    point) and wraps them with pagination/root links. ``bbox`` always filters on
-    the pourpoint point (its ``contains`` predicate is passed straight through);
-    ``basin_geometry`` selects the expensive per-record polygon view.
-    Pagination links (``paginate_offset``) rewrite only ``offset``/``limit``,
-    preserving the ``bbox``/``geometry`` filters across pages.
+    :meth:`SnowDb.pourpoint_page`; this shaping layer turns the returned
+    ``(entry, basin)`` pairs into features and wraps them with pagination/root
+    links.
     """
     page, total = snowdb.pourpoint_page(
         offset=offset,
@@ -199,13 +178,8 @@ def build_pourpoint_detail(
 ) -> PourpointDetail:
     """The single-record feature: basin polygon geometry + full properties.
 
-    The basin polygon and the curated record fields come from the loaded
-    ``pourpoint``; ``area_meters`` and ``coverage`` are the cached, index-derived
-    values from ``entry`` (computed at reindex), not recomputed here -- coverage
-    filtered to ``snowdb``'s active datasets (see :func:`_active_coverage`). The
-    response also carries per-dataset stats links, one templated (date-range,
-    doy) pair per active dataset covering the basin (see
-    :func:`_pourpoint_stats_links`).
+    ``area_meters``/``coverage`` are the cached, index-derived values from
+    ``entry`` (computed at reindex), not recomputed here.
     """
     coverage = _active_coverage(entry, snowdb.datasets)
     # `load_pourpoint` (the route's lookup) owns the `indexed => basin-bearing`

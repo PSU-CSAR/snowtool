@@ -57,12 +57,9 @@ class CategoricalZoneInfo(CategoricalZoneDescription):
     key: str = Field(examples=['terrain.aspect'])
 
 
-# A stratifiable zone layer, discriminated on ``kind`` (inherited from the
-# domain description each Info class subclasses) -- so the
-# OpenAPI schema states the real per-kind contract (``classes`` exists iff
-# categorical, ``param``/``default`` iff overridable) instead of advertising
-# every field as nullable. Each member is the domain description plus a registry
-# ``key``, so the wire schema is served straight from the description.
+# Discriminated on `kind` so the OpenAPI schema states the real per-kind contract
+# (`classes` exists iff categorical, `param`/`default` iff overridable) instead of
+# advertising every field as nullable.
 ZoneInfo = Annotated[
     BandedZoneInfo | BucketedZoneInfo | ThresholdZoneInfo | CategoricalZoneInfo,
     Field(discriminator='kind'),
@@ -81,10 +78,8 @@ class GridInfo(BaseModel):
     is_geographic: bool = Field(examples=[True])
 
 
-# Custom link relations for a dataset's two queryable stats endpoints. No IANA
-# relation fits a parameterized query sub-resource, so these are service-specific
-# tokens; the templated links they tag leave the station triplet and query params
-# for the client to bind.
+# Service-specific link relations: no IANA relation fits a parameterized query
+# sub-resource.
 STATS_DATE_RANGE_REL = 'stats-date-range'
 STATS_DOY_REL = 'stats-doy'
 
@@ -192,9 +187,7 @@ class DatasetInfo(BaseModel):
 
 
 class DatasetListItem(BaseModel):
-    """One entry in the dataset list: its name plus a ``self`` link to its detail
-    route, so each item is a followable resource rather than a bare string paired
-    with a link stranded in the collection's ``links`` array."""
+    """One dataset in the collection: its name plus a link to its detail resource."""
 
     name: str = Field(examples=['snodas'])
     links: list[Link] = Field(default_factory=list)

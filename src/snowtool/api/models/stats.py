@@ -88,13 +88,7 @@ class DateRangeStatsQuery(StatsQueryBase):
 
 class DOYStatsQuery(StatsQueryBase, DOYFields):
     def to_query(self) -> DOYQuery:
-        """The domain :class:`DOYQuery` for this request's day-of-year fields.
-
-        Constructs the four DOY fields explicitly (rather than reflectively
-        dumping/splatting the shared :class:`DOYFields`), so the HTTP->domain
-        contract is a named field list the type checker sees, not a runtime
-        field-name intersection.
-        """
+        """The domain :class:`DOYQuery` for this request's day-of-year fields."""
         return DOYQuery(
             month=self.month,
             day=self.day,
@@ -104,15 +98,9 @@ class DOYStatsQuery(StatsQueryBase, DOYFields):
 
 
 class CompactStatsResponse(CompactStats):
-    """The compact zonal-stats envelope: pourpoint/query echo + the compact body.
-
-    Inherits the body fields (zone_layers / variables / zones / results) from
-    :class:`CompactStats` and adds the HTTP-only envelope: the pourpoint/query echo
-    and HATEOAS links. Inheriting rather than re-declaring the body keeps the
-    response in lockstep with the domain body -- a new stat field flows through
-    automatically -- and keeps the ``Link``/route concerns out of the domain model.
-    A single generic model shared by every dataset (the body carries no per-dataset
-    field names), so it is not parametrized per dataset.
+    """Zonal statistics for one pourpoint/dataset query: the echoed query, links,
+    and the compact zone/variable/value body, in one schema shared by every
+    dataset.
     """
 
     pourpoint: types.StationTriplet
@@ -134,8 +122,7 @@ class CompactStatsResponse(CompactStats):
             pourpoint=triplet,
             dataset=dataset,
             query=query,
-            # Splat the domain body straight in: no field is enumerated here, so a
-            # new CompactStats field needs no change to this envelope.
+            # Splat the domain body straight in: no field is enumerated here.
             **dict(stats),
             links=[
                 Link.self_link(),
@@ -156,12 +143,7 @@ def stats_filename(
     query: DateRangeQuery | DOYQuery,
     zone_count: int,
 ) -> str:
-    """Compose the CSV download filename at the API boundary.
-
-    The query owns only its date component (:meth:`~DateRangeQuery.date_fragment`);
-    the triplet slug and the ``_zonal_N`` suffix are the same for every query type,
-    so they are composed here once rather than duplicated per query class.
-    """
+    """Compose the CSV download filename at the API boundary."""
     slug = '-'.join(triplet.split())
     zonal = f'_zonal_{zone_count}' if zone_count else ''
     return f'{slug}_{query.date_fragment()}{zonal}.csv'

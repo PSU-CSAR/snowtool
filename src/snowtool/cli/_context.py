@@ -91,10 +91,7 @@ def _inject[T, **P, R](
 
     The shared scaffold behind :func:`pass_snowdb`/:func:`pass_manager`: it wraps
     :func:`click.pass_obj` and builds the target from the :class:`CliContext` on
-    ``ctx.obj`` (lazily opening the database). Errors need no handling here: the
-    :class:`~snowtool.exceptions.SnowDbConfigError` an un-initialized root raises
-    is a ``SnowtoolError``, which the root group maps to a clean
-    ``ClickException`` for every command.
+    ``ctx.obj`` (lazily opening the database).
     """
 
     @click.pass_obj

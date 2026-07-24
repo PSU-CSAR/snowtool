@@ -6,8 +6,6 @@ copies ``*.geojson`` files from a path on disk. This module lives in the CLI she
 because it is the thin adapter that lets the ``pourpoint`` commands point those
 domain operations at an ``http(s)`` source instead, by fetching the remote file(s)
 into a temporary directory that is then handed to the *unchanged* local pipeline.
-It constructs no domain objects -- only local paths -- so GitHub tree-URL parsing
-and ``GITHUB_TOKEN`` handling stay out of ``snowdb/``.
 
 Two shapes are supported, chosen from the URL:
 
@@ -20,7 +18,6 @@ Two shapes are supported, chosen from the URL:
   not capped at 1000 entries), and every ``*.geojson`` blob under ``<subdir>`` is
   downloaded from ``raw.githubusercontent.com`` into the temp dir. A bare repo URL
   (no ``/tree/...``) resolves the repo's default branch and lists from its root.
-  This is deliberately GitHub-specific -- generic HTTP cannot enumerate a directory.
 
 Everything is stdlib (``urllib`` + ``json``): no HTTP dependency, no ``git`` binary.
 ``GITHUB_TOKEN`` is used if set (higher rate limits, private repos) but is not

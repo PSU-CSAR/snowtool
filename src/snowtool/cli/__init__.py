@@ -90,9 +90,7 @@ class _SnowtoolCli(click.Group):
 @click.pass_context
 def cli(ctx: click.Context, color: str, quiet: bool) -> None:
     _console.configure(color=color, quiet=quiet)
-    # Seed the per-invocation CliContext (unless a test injected one carrying
-    # synthetic specs). --config is a per-command option (see config_option), so a
-    # command that opens a snowdb sets its config here via that option's callback.
+    # Unless a test injected one carrying synthetic specs.
     if not isinstance(ctx.obj, CliContext):
         ctx.obj = CliContext()
 

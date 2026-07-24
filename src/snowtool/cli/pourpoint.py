@@ -265,8 +265,6 @@ def rasterize_aois(
     if bool(triplet) == bool(all_pourpoints):
         raise click.ClickException('Provide exactly one of TRIPLET or --all.')
 
-    # The guard above leaves exactly one branch live; testing ``triplet`` directly
-    # (truthy => a non-empty str, excluding None) narrows it for the typed load.
     if triplet:
         pourpoints = [manager.db.load_pourpoint(triplet)]
     else:

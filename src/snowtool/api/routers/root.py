@@ -1,16 +1,10 @@
 """Root router: the landing page + conformance + version/problems endpoints.
 
-A :class:`~gazebo.ext.fastapi.RootRouter` (the service-root ``LinkedRouter``)
-auto-mounts the landing page at ``/`` (route name ``landing``) with ``self`` +
-``root`` links and a ``gazebo.ogc`` ``LandingPage`` response model, and -- derived
-from the *running app* so it can't drift -- a ``/conformance`` declaration plus
-``service-desc``/``service-doc`` links to the OpenAPI doc and docs UI. Title and
-description fall back to the app's (set once in ``get_app``), so they live in one
-place. The cross-resource links to the collection endpoints (``/datasets``,
-``/pourpoints``) are declared here via :meth:`LinkedRouter.add_link`, which takes
-route *names* (resolved at request time via ``url_for``) -- so the sibling routers
-need not be imported, and the calls run once at import (not per ``get_app``, where
-the shared router would accumulate duplicates).
+A :class:`~gazebo.ext.fastapi.RootRouter` auto-mounts ``/`` and ``/conformance``,
+derived from the running app. Title/description fall back to the app's (set once
+in ``get_app``). The cross-resource links to ``/datasets``/``/pourpoints`` are
+declared here via :meth:`LinkedRouter.add_link` at import time, so re-running
+``get_app`` (as tests do) never duplicates them.
 """
 
 from __future__ import annotations
@@ -26,10 +20,8 @@ from snowtool.api.tags import Tags
 API_TITLE = 'PSU CSAR snowtool API'
 API_DESCRIPTION = 'Pourpoint metadata and snow zonal statistics.'
 
-# A router-level default tag so the *auto-mounted* landing (``/``) and
-# ``/conformance`` routes are tagged too -- gazebo mounts those inside RootRouter with
-# no tag, so tagging only the routes declared here would leave them in the default
-# section. With the router default set, the per-route ``tags=`` are redundant.
+# Router-level default tag so the auto-mounted `/` and `/conformance` routes are
+# tagged too (they carry none of their own).
 router: RootRouter = RootRouter(tags=[Tags.ROOT])
 router.add_link(Rel.DATA, 'list_datasets', title='Datasets')
 router.add_link(Rel.DATA, 'list_pourpoints', title='Pourpoints')

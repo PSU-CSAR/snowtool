@@ -5,8 +5,7 @@ root and registers it -- with :class:`Settings` and the app-scoped
 :class:`SnowDbReader` -- as gazebo providers. Catalog-only routes (``/``,
 ``/datasets``, ``/pourpoints``) inject ``SnowDb``; the stats routes inject
 ``SnowDbReader`` (its loop-affine COG cache is born in the app's event loop at
-lifespan). The stats routes are one generic router (``{dataset}`` a path param)
-serving a single generic response schema, injected with ``SnowDbReader``.
+lifespan).
 
 There is no module-level ``app``: the ASGI server builds it via the factory
 (``uvicorn snowtool.api.app:get_app --factory``), so importing this module has no
@@ -67,13 +66,9 @@ def get_app(
     providers = Providers()
     providers.app(Settings, lambda: settings)
     providers.app(SnowDb, lambda: catalog)
-    # Supplied recipe rather than a __provide__ on the reader (which is domain code
-    # and imports no Settings); see _provide_reader.
     providers.app(SnowDbReader, _provide_reader)
 
     # CORS is off by default (GazeboApp accepts cors= when a policy is wanted).
-    # ``query_problem`` gives gazebo's own malformed-query-parameter 400s a resolvable
-    # ``type`` from our catalog instead of ``about:blank`` (see problems.py).
     app = GazeboApp(
         providers,
         title=API_TITLE,

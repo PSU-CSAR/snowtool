@@ -45,10 +45,8 @@ INVALID_QUERY_PARAMETER = _define(
 )
 MALFORMED_QUERY_PARAMETER = _define(
     'malformed-query-parameter',
-    # gazebo's own validation/param handlers render a malformed query parameter as
-    # this 400 (wired via GazeboApp's ``query_problem=``); it is the schema-layer
-    # counterpart of the handler-raised INVALID_QUERY_PARAMETER (422). Without it the
-    # framework's 400s would default to ``about:blank``.
+    # gazebo's schema-layer counterpart of the handler-raised
+    # INVALID_QUERY_PARAMETER (422); wired via GazeboApp's ``query_problem=``.
     title='Malformed query parameter',
     status=400,
 )

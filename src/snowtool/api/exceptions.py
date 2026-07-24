@@ -4,18 +4,11 @@ gazebo wires the ``ProblemException``, ``RequestValidationError`` (->422), and
 ``ParamError`` (->400) handlers for free. We register handlers only for the
 *specific* domain exceptions we deliberately convert from a 500 into a client
 error -- never a bare ``ValueError``/``FileNotFoundError``, so a genuine server bug
-still surfaces as a 500. Each maps onto a registered :class:`ProblemType` (see
-``problems.py``) so the response carries a stable, resolvable ``type`` URI:
-
-* :class:`PourpointCoverageError` -> 409 (the AOI is not covered by the dataset grid)
-* :class:`PourpointNotFoundError` -> 404 (no stored pourpoint record for the triplet)
-* :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
-* :class:`UnknownDatasetError` -> 404 (the dataset name is unregistered or inactive)
-* :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)
-* :class:`IncompleteDatasetDataError` -> 500 (server data integrity: a missing or
-  duplicated variable COG for the requested date). Kept 500-class deliberately --
-  it is not a client error -- but mapped so the problem body carries an informative
-  type/detail instead of a bare "Internal Server Error".
+still surfaces as a 500; :class:`IncompleteDatasetDataError` is mapped but stays
+500-class (server data integrity, not a client mistake). Each maps onto a
+registered :class:`ProblemType` (see ``problems.py``) so the response carries a
+stable, resolvable ``type`` URI -- see the ``handlers`` mapping below for the
+exception -> status pairing.
 """
 
 from __future__ import annotations
