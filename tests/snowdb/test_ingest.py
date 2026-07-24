@@ -383,7 +383,7 @@ def _snodas_stems(date_str: str = '20190202', hour: str = '05') -> list[str]:
     stems = []
     for _product, (code, vcode, _unit) in _snodas_products().items():
         vc = vcode or 'lL00'
-        stems.append(f'us_ssmv1{code}S{vc}T0001TTNATS{date_str}{hour}HP001')
+        stems.append(f'zz_ssmv1{code}S{vc}T0001TTNATS{date_str}{hour}HP001')
     return stems
 
 
@@ -482,6 +482,14 @@ def test_snodas_set_refuses_other_timestep_hours():
     # Any other time-step hour is refused so a date never mixes revisions.
     with pytest.raises(SnowtoolError, match='pins to the 05 time-step'):
         SNODASInputRasterSet.from_names(_snodas_stems(hour='18'))
+
+
+def test_snodas_raster_set_refuses_unmasked_region():
+    """The unmasked 'us' product is a different lattice; ingest pins to 'zz'."""
+    stems = _snodas_stems('20190202')
+    stems[0] = stems[0].replace('zz_', 'us_', 1)
+    with pytest.raises(SnowtoolError, match='pins to the masked'):
+        SNODASInputRasterSet.from_names(stems)
 
 
 def _snodas_spec(spec):

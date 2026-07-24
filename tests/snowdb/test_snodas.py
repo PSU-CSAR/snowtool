@@ -1,6 +1,8 @@
 """SNODAS spec facts: variable units and the tenths-of-a-Kelvin temperature scale."""
 
+import numpy
 import pytest
+import rasterio
 
 from snowtool.exceptions import IngestSourceError
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS
@@ -9,6 +11,7 @@ from snowtool.snowdb.datasets.snodas import (
     Product,
     SNODASInputRaster,
     SNODASInputRasterSet,
+    SNODASName,
 )
 
 
@@ -79,3 +82,41 @@ def test_trim_header_truncates_over_limit_line(tmp_path):
     SNODASInputRaster.trim_header(hdr)
     # Truncated to line_limit + single newline, no doubled newlines anywhere.
     assert hdr.read_bytes() == b'x' * line_limit + b'\nshort\n'
+
+
+# A minimal parseable SNODAS stem (masked region, pinned 05 time-step) -- the same
+# literal test_ingest.py's `_snodas_stems('20190202')[0]` yields, duplicated here so
+# this file doesn't reach across test modules for it.
+_SNODAS_STEM = 'zz_ssmv11034SlL00T0001TTNATS2019020205HP001'
+
+
+def test_snodas_read_array_refuses_off_grid_shape(tmp_path, monkeypatch):
+    """A header whose band is not the dataset grid shape raises, not mis-writes."""
+    monkeypatch.setattr(
+        'snowtool.snowdb.datasets.snodas.SNODASInputRaster.trim_header',
+        staticmethod(lambda hdr: None),
+    )
+    path = tmp_path / f'{_SNODAS_STEM}.txt'
+    with rasterio.open(
+        path,
+        'w',
+        driver='GTiff',
+        dtype='int16',
+        count=1,
+        height=3,
+        width=3,
+        crs='EPSG:4326',
+        transform=rasterio.transform.from_origin(-124, 52, 0.5, 0.5),
+    ) as dst:
+        dst.write(numpy.zeros((1, 3, 3), dtype='int16'))
+    raster = SNODASInputRaster(
+        SNODASName(_SNODAS_STEM),
+        path,
+        'v1:abc',
+        transform=rasterio.transform.from_origin(-124, 52, 0.5, 0.5),
+        crs=rasterio.crs.CRS.from_epsg(4326),
+        tile_size=256,
+        expected_shape=(4, 4),
+    )
+    with pytest.raises(IngestSourceError, match='expected the dataset grid shape'):
+        raster.read_array()

@@ -24,16 +24,19 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Self
 
+import numpy
 import rasterio
 
 from snowtool.exceptions import IngestSourceError, SnowtoolError
-from snowtool.snowdb.ingest import DateIngest
-from snowtool.snowdb.raster.cog import WGS84, source_tags, write_cog
+from snowtool.snowdb.ingest import DateIngest, GridAlignedRaster
+from snowtool.snowdb.raster.cog import source_tags
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
+
+    from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset
 
@@ -220,26 +223,43 @@ class SNODASName:
         )
 
 
-class SNODASInputRaster:
-    """One extracted SNODAS header file, ready to write itself as a COG.
+class SNODASInputRaster(GridAlignedRaster):
+    """One extracted SNODAS header, ready to write itself as a grid-aligned COG.
 
-    Pairs a :class:`SNODASName` (the filename fields) with the extracted header
-    ``path`` and the driver-computed ``source_hash``.
+    Written on the dataset grid's authoritative transform/CRS from the spec, not
+    the header's own geotransform; ``expected_shape`` is the grid's
+    ``(rows, cols)``, so a header on any other lattice raises rather than write
+    a silently mis-aligned COG.
     """
 
-    def __init__(self: Self, parsed: SNODASName, path: Path, source_hash: str) -> None:
+    def __init__(
+        self: Self,
+        parsed: SNODASName,
+        path: Path,
+        source_hash: str,
+        *,
+        transform: Affine,
+        crs: rasterio.crs.CRS,
+        tile_size: int,
+        expected_shape: tuple[int, int],
+    ) -> None:
         if path.suffix not in HDR_EXTS:
             raise IngestSourceError(
                 'SNODAS raster path must be to header file. '
                 f"Unknown extension '{path.suffix}'. Valid values: {HDR_EXTS}.",
             )
+        super().__init__(
+            parsed.out_name,
+            transform=transform,
+            crs=crs,
+            tile_size=tile_size,
+            nodata=SNODAS_NODATA,
+            tags=parsed.provenance_tags(path.name, source_hash),
+        )
         self.parsed = parsed
         self.path = path
         self.source_hash = source_hash
-
-    @property
-    def out_name(self: Self) -> str:
-        return self.parsed.out_name
+        self.expected_shape = expected_shape
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
@@ -255,24 +275,16 @@ class SNODASInputRaster:
         with hdr.open('wb') as f:
             f.writelines(lines)
 
-    def write_cog(self: Self, output_dir: Path) -> None:
+    def read_array(self: Self) -> numpy.ndarray:
         self.trim_header(self.path)
-
         with rasterio.open(self.path) as src:
             array = src.read(1)
-            transform = src.transform
-            crs = src.crs or WGS84
-            nodata = src.nodata
-
-        write_cog(
-            output_dir / self.out_name,
-            array,
-            transform=transform,
-            crs=crs,
-            nodata=nodata,
-            tile_size=SNODAS_SPEC.grid_params.tile_size,
-            tags=self.parsed.provenance_tags(self.path.name, self.source_hash),
-        )
+        if array.shape != self.expected_shape:
+            raise IngestSourceError(
+                f'SNODAS header {self.path.name!r} has shape {array.shape}, '
+                f'expected the dataset grid shape {self.expected_shape}.',
+            )
+        return array
 
 
 class SNODASInputRasterSet:
@@ -295,6 +307,7 @@ class SNODASInputRasterSet:
         self.names = dict(names)
         self.date = self._validate_dates()
         self._validate_revision()
+        self._validate_region()
 
     def __iter__(self: Self) -> Iterator[SNODASName]:
         return iter(self.names.values())
@@ -325,6 +338,15 @@ class SNODASInputRasterSet:
                 f'{self.PINNED_TIMESTEP_HOUR:02d} time-step (the standard daily '
                 'product) so a date never mixes revisions. Remove the revision '
                 'pin to allow other hours.',
+            )
+
+    def _validate_region(self: Self) -> None:
+        off = sorted({n.region.value for n in self if n.region is not Region.MASKED})
+        if off:
+            raise SnowtoolError(
+                f'Refusing SNODAS region(s) {off}: ingest pins to the masked '
+                f"('{Region.MASKED.value}') CONUS product -- the unmasked grid is "
+                'a different lattice and would not align with the dataset grid.',
             )
 
     @classmethod
@@ -391,6 +413,11 @@ class SNODASInputRasterSet:
         source: Path,
         extract_dir: Path,
         source_hash: str,
+        *,
+        transform: Affine,
+        crs: rasterio.crs.CRS,
+        tile_size: int,
+        expected_shape: tuple[int, int],
     ) -> list[SNODASInputRaster]:
         """Extract ``source`` into ``extract_dir`` and pair each header with its name.
 
@@ -411,7 +438,17 @@ class SNODASInputRasterSet:
                 raise IngestSourceError(
                     f'SNODAS archive header missing on extraction for {name.name!r}',
                 )
-            rasters.append(SNODASInputRaster(name, path, source_hash))
+            rasters.append(
+                SNODASInputRaster(
+                    name,
+                    path,
+                    source_hash,
+                    transform=transform,
+                    crs=crs,
+                    tile_size=tile_size,
+                    expected_shape=expected_shape,
+                ),
+            )
         return rasters
 
 
@@ -447,6 +484,10 @@ class SnodasIngester:
             SNODASInputRasterSet.header_stems(member_names),
         )
 
+        transform = dataset.grid.base_grid.transform
+        crs = dataset.grid_crs
+        grid_params = dataset.spec.grid_params
+
         # An empty scratch dir for the extraction build_rasters may run, cleaned
         # deterministically when this generator is exhausted/closed. Nothing is
         # extracted here or before the write path decides to build -- so a skipped
@@ -461,6 +502,10 @@ class SnodasIngester:
                     source,
                     extract_dir,
                     source_hash,
+                    transform=transform,
+                    crs=crs,
+                    tile_size=grid_params.tile_size,
+                    expected_shape=(grid_params.rows, grid_params.cols),
                 ),
             )
 
@@ -470,13 +515,15 @@ class SnodasIngester:
 # SNODAS variables, one per product. All are intensive quantities (depths,
 # temperature) reported as area-weighted means; reads are int16 with the SNODAS
 # nodata sentinel.
+SNODAS_NODATA = -9999.0
+
 SNODAS_VARIABLES = tuple(
     DatasetVariable(
         key=product.value,
         unit=product.unit(),
         reducer=Reducer.MEAN,
         dtype='int16',
-        nodata=-9999.0,
+        nodata=SNODAS_NODATA,
         glob=product.to_glob(),
     )
     for product in Product
