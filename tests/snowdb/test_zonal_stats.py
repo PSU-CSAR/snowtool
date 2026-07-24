@@ -311,7 +311,7 @@ def test_zone_index_crosses_two_axes_into_product_cells():
     )
 
     # 2 x 2 = 4 product cells, in mixed-radix order (elevation outer, side inner).
-    assert index.dims == [2, 2]
+    assert len(index.areas) == 4
     assert index.cell_zones == (
         (elev_axis[0], side_axis[0]),
         (elev_axis[0], side_axis[1]),
@@ -363,7 +363,7 @@ def test_zone_index_with_no_axes_is_one_whole_basin_cell():
 
     index = _ZoneIndex.build([], [], area)
 
-    assert index.dims == []
+    assert len(index.areas) == 1
     assert index.cell_zones == ((),)
     # Only the area > 0 pixels count (the 0-area pixel is outside the basin).
     assert float(index.areas[0]) == 7.0

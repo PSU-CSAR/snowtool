@@ -506,14 +506,14 @@ class _ZoneIndex:
     """Per-pixel crossed-zone membership for one AOI, computed once and reused.
 
     Combines K per-axis ordinal arrays into one **mixed-radix linear index** over
-    the product space (size ``prod(dims)``). ``index`` is that combined cell index
-    per pixel (meaningful only where ``in_zone``); ``in_zone`` is the boolean of
-    pixels that are in every axis' zone *and* in the AOI mask; ``areas[c]`` is
-    crossed cell ``c``'s total geographic area. ``cell_zones`` carries the per-axis
-    :class:`Zone` tuple for every product cell, in the same flat order.
+    the product space (size equal to the product of the per-axis zone counts).
+    ``index`` is that combined cell index per pixel (meaningful only where
+    ``in_zone``); ``in_zone`` is the boolean of pixels that are in every axis'
+    zone *and* in the AOI mask; ``areas[c]`` is crossed cell ``c``'s total
+    geographic area. ``cell_zones`` carries the per-axis :class:`Zone` tuple for
+    every product cell, in the same flat order.
     """
 
-    dims: list[int]
     index: numpy.typing.NDArray[numpy.int64]
     in_zone: numpy.typing.NDArray[numpy.bool_]
     areas: numpy.typing.NDArray[numpy.float64]
@@ -550,7 +550,6 @@ class _ZoneIndex:
             minlength=n,
         ).astype(numpy.float64)
         return cls(
-            dims=dims,
             index=combined,
             in_zone=in_zone,
             areas=areas,
