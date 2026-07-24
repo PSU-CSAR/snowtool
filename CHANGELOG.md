@@ -14,7 +14,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 > generation hashes). One diagnostics change is visible on older stores:
 > `doctor` now flags a built zone-layer set whose COGs predate provenance
 > tagging as stale (previously it silently skipped them); rebuilding those
-> layers is recommended but not required.
+> layers is recommended but not required. A corrupt `index.geojson` now
+> surfaces at first index read rather than at `SnowDb.open()` — otherwise
+> zero path or format changes. This release is also a substantial line diet
+> from an internal quality pass: net −735 lines, including ~390 lines of
+> stale, duplicated, or reviewer-facing comments and six comments that were
+> simply wrong.
 
 ### Added
 
@@ -195,6 +200,27 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   check name validation moves from the `doctor` CLI callback into
   `run_health_checks`; the zones provider modules no longer re-export their
   `*_layers` constants.
+- **Internal API:** `SnowDbManager`'s pourpoint delegator methods (`import_`,
+  `sync`, `reindex`, `remove`, `rasterize_aois`, `basins`) are gone; call them
+  on `manager.pourpoints` instead. Their result dataclasses move from the
+  private `_pourpoint_ops` module to the now-public
+  `snowtool.snowdb.pourpoint_manager` and are no longer re-exported from
+  `manager`. `SnowDb.dataset_dir`/`dataset_nodata_mask` are replaced by
+  `DatasetConfig.resolve_data_dir`/`resolve_nodata_mask`; `SnowDb.available_zones`
+  and `SnowDb.load_basin` are deleted (use `zone_layer.available_zones` and
+  `load_pourpoint(...).polygon`).
+- **Internal:** the terrain and land-cover generation engines converge on one
+  `(source, targets, bounds, ...)` signature and one `GenerationEngine`
+  Protocol (replacing the separate `TerrainEngine`/`LandCoverEngine`); each
+  engine now owns its `source.open` call, and `work_crs`/`work_resolution`
+  are read from the `DemSource` instead of being threaded through
+  separately (`DEFAULT_WORK_CRS`/`DEFAULT_WORK_RESOLUTION` move to
+  `terrain_layers`). Two behavior improvements fall out of the unification:
+  terrain generation now forwards `progress` to `source.open` (previously
+  dropped, so a terrain rebuild reported no download progress), and both
+  engines run their pre-flight checks (existing-layer refusal, empty
+  targets) before opening the source — a refused regenerate no longer
+  triggers the ~1.5 GB NLCD download first.
 
 ### Removed
 
@@ -217,6 +243,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `SNODASInputRaster`'s separate `BaseFileInfo` base (merged into its one
   subclass). No behavior change; each was confirmed unreachable from any
   production or test caller before deletion.
+- More verified-dead surface from a follow-up quality pass: `prime_iter_csv`,
+  the separate `dataset_stats_links`/`pourpoint_stats_links` helpers (folded
+  into one `stats_links(name, triplet=None)`), `VersionInfo.build`, `FORMATS`,
+  `ZoneLayer.count`, the band/threshold zoning classes' `Zone.key`
+  (`ClassZone.key` remains, since categorical zones still need it), and
+  `GenerationAccumulator`.
 
 ### Fixed
 
@@ -246,6 +278,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - The API pourpoint-detail route ran its basin parse (disk + shapely) on the
   event loop while the list route deliberately offloaded to a worker thread;
   both routes now offload uniformly.
+- A corrupt `index.geojson` now surfaces at first index read instead of at
+  `SnowDb.open()` — a minor error-timing shift with no other observable
+  change.
 
 ### Security
 

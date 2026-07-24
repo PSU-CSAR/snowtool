@@ -59,7 +59,7 @@ class LandCoverSource(ZoneLayerSource):
 
     A marker subtype of :class:`ZoneLayerSource` (the base ``open`` already carries
     the ``progress`` a fetching source like :class:`AnnualNLCD` reports its download
-    through); ``LandCoverProvider.generate`` uses it to reject a non-NLCD source.
+    through); ``generate_landcover`` uses it to reject a non-NLCD source.
     """
 
 

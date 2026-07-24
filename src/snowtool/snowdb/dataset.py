@@ -531,8 +531,8 @@ class Dataset:
         """The single COG for ``variable`` on date ``d``, or ``None`` if absent."""
         matching = list(self.date_dir(d).glob(variable.glob))
         if len(matching) > 1:
-            # Two COGs match one variable's glob -- a stale duplicate an old date
-            # on disk may still carry. Surface it as the typed integrity error
+            # Two COGs match one variable's glob -- a stale duplicate that an old
+            # date on disk may still carry. Surface it as the typed integrity error
             # rather than a bare RuntimeError.
             raise IncompleteDatasetDataError.for_variables(
                 self.spec.name,

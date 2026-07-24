@@ -105,7 +105,7 @@ class SnowDb:
 
         # `registered` is everything the root config knows (the management
         # surface: ingest, zone generation, diagnostics); `datasets` is the
-        # active subset -- the read surface (query/API/available_zones) sees
+        # active subset -- the read surface (query/API) sees
         # only those, so a link's `active` flag is the visibility toggle.
         self.registered: dict[str, Dataset] = {}
         for name, link in config.datasets.items():
