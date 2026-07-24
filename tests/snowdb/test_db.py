@@ -415,11 +415,12 @@ def test_load_pourpoint_raises_on_indexed_point_only_record(
     spec,
     pourpoint_geojson,
 ):
-    # `load_pourpoint` is the single owner of the `indexed => basin-bearing`
-    # invariant: an indexed triplet whose on-disk record has been swapped
-    # out-of-band to a point-only Feature (no reindex) is a data-integrity bug,
-    # so the parse itself raises the typed error rather than returning a
-    # basin-less Pourpoint that downstream code must re-check.
+    # `load_pourpoint` delegates to `Pourpoint.from_basin_record`, the single
+    # owner of the `indexed => basin-bearing` invariant: an indexed triplet
+    # whose on-disk record has been swapped out-of-band to a point-only
+    # Feature (no reindex) is a data-integrity bug, so this test pins that the
+    # delegation surfaces the typed error rather than returning a basin-less
+    # Pourpoint that downstream code must re-check.
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
     SnowDbManager.open(tmp_path).pourpoints.import_(pourpoint_geojson)

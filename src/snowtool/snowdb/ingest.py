@@ -89,8 +89,8 @@ class WritableRaster(Protocol):
 
     @property
     def out_name(self) -> str:
-        # Read-only so both a plain instance attribute (SwannRaster,
-        # InstarrMosaicRaster) and a property (SNODASInputRaster) satisfy it.
+        # Read-only so either a plain instance attribute (all three
+        # GridAlignedRaster subclasses use one) or a property satisfies it.
         ...
 
     def write_cog(self, output_dir: Path) -> None: ...
@@ -99,12 +99,13 @@ class WritableRaster(Protocol):
 class GridAlignedRaster(ABC):
     """Write plumbing shared by rasters that emit one grid-aligned COG.
 
-    Both the SWANN single-band raster and the INSTARR mosaic write one COG on the
-    dataset grid's *authoritative* geometry (its transform/CRS from the spec, not a
-    source-file geotransform) with provenance tags. This base owns that common
-    plumbing -- geometry, tags, and the :meth:`write_cog` call -- leaving each
-    subclass only :meth:`read_array` (how it produces the grid-shaped array). It
-    satisfies the :class:`WritableRaster` contract (``out_name`` + ``write_cog``).
+    The SWANN single-band raster, the INSTARR mosaic, and the SNODAS header raster
+    all write one COG on the dataset grid's *authoritative* geometry (its
+    transform/CRS from the spec, not a source-file geotransform) with provenance
+    tags. This base owns that common plumbing -- geometry, tags, and the
+    :meth:`write_cog` call -- leaving each subclass only :meth:`read_array` (how it
+    produces the grid-shaped array). It satisfies the :class:`WritableRaster`
+    contract (``out_name`` + ``write_cog``).
     """
 
     def __init__(
