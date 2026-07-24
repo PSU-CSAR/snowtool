@@ -92,12 +92,25 @@ def test_stats_json_compact_value_is_rejected(runner, cli_obj, populated_root):
             TRIPLET,
             '--dates',
             f'{DATE}/{DATE}',
+            '--variable',
+            'swe',
             '--format',
             'json-compact',
         ],
         obj=cli_obj,
     )
     assert result.exit_code == 2  # click Choice rejection
+
+
+def test_stats_requires_variable(runner, cli_obj, populated_root):
+    # No implicit "all variables": at least one --variable must be requested.
+    result = runner.invoke(
+        cli,
+        ['stats', 'test', TRIPLET, '--dates', f'{DATE}/{DATE}'],
+        obj=cli_obj,
+    )
+    assert result.exit_code == 2  # click missing-required-option
+    assert '--variable' in result.output
 
 
 def test_stats_csv_with_elevation_zone(runner, cli_obj, populated_root):

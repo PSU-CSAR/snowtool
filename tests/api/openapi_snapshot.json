@@ -2508,15 +2508,16 @@
             }
           },
           {
-            "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+            "description": "Variable to report (repeatable; at least one required). Use a variable key from GET /datasets/{dataset}. Reading every variable is a multiple of the I/O, so the set is never implicit.",
             "in": "query",
             "name": "variable",
-            "required": false,
+            "required": true,
             "schema": {
-              "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+              "description": "Variable to report (repeatable; at least one required). Use a variable key from GET /datasets/{dataset}. Reading every variable is a multiple of the I/O, so the set is never implicit.",
               "items": {
                 "type": "string"
               },
+              "minItems": 1,
               "title": "Variable",
               "type": "array"
             }
@@ -2712,15 +2713,16 @@
             }
           },
           {
-            "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+            "description": "Variable to report (repeatable; at least one required). Use a variable key from GET /datasets/{dataset}. Reading every variable is a multiple of the I/O, so the set is never implicit.",
             "in": "query",
             "name": "variable",
-            "required": false,
+            "required": true,
             "schema": {
-              "description": "Variable to report (repeatable; default: all). Use a variable key from GET /datasets/{dataset}.",
+              "description": "Variable to report (repeatable; at least one required). Use a variable key from GET /datasets/{dataset}. Reading every variable is a multiple of the I/O, so the set is never implicit.",
               "items": {
                 "type": "string"
               },
+              "minItems": 1,
               "title": "Variable",
               "type": "array"
             }

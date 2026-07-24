@@ -56,19 +56,18 @@ class RasterCollection:
         variables: set[DatasetVariable],
         dataset: Dataset,
     ) -> Self:
-        return cls(
-            rasters={
-                variable: [
-                    DataRaster(path, date_)
-                    for date_, path in dataset.raster_paths_from_query(
-                        query,
-                        variable,
-                    )
-                ]
-                for variable in variables
-            },
-            dataset_name=dataset.spec.name,
-        )
+        # Walk the selected dates, resolving all requested variables from each
+        # date's single directory listing (resolve_variables owns the
+        # one-listing-per-date guarantee). Pre-seed every requested variable so
+        # one that is absent on every date still appears as an empty list, which
+        # is what lets validate() flag it as missing rather than pass silently.
+        by_variable: dict[DatasetVariable, list[DataRaster]] = {
+            variable: [] for variable in variables
+        }
+        for date_ in query.select(dataset.available_dates()):
+            for variable, path in dataset.resolve_variables(date_, variables).items():
+                by_variable[variable].append(DataRaster(path, date_))
+        return cls(rasters=by_variable, dataset_name=dataset.spec.name)
 
     def validate(self: Self) -> None:
         # A date present for some requested variables but not others is a partial

@@ -298,6 +298,67 @@ def test_variable_path_duplicate_raises_incomplete(two_var_dataset):
         two_var_dataset.variable_path(d, swe)
 
 
+def test_resolve_variables_resolves_present_and_omits_missing(two_var_dataset):
+    d = date(2020, 1, 5)
+    out = two_var_dataset.date_dir(d)
+    out.mkdir(parents=True)
+    (out / 'srcA__swe.tif').write_text('cog')  # depth deliberately absent
+    swe = two_var_dataset.spec.variables['swe']
+    depth = two_var_dataset.spec.variables['depth']
+
+    resolved = two_var_dataset.resolve_variables(d, [swe, depth])
+
+    # One directory listing resolves every present variable; a missing one is
+    # simply omitted (the completeness check downstream flags the gap).
+    assert resolved == {swe: out / 'srcA__swe.tif'}
+
+
+def test_resolve_variables_absent_date_dir_is_empty(two_var_dataset):
+    swe = two_var_dataset.spec.variables['swe']
+    assert two_var_dataset.resolve_variables(date(2020, 1, 5), [swe]) == {}
+
+
+def test_resolve_variables_duplicate_raises_incomplete(two_var_dataset):
+    d = date(2020, 1, 5)
+    out = two_var_dataset.date_dir(d)
+    out.mkdir(parents=True)
+    (out / 'srcA__swe.tif').write_text('cog')
+    (out / 'srcB__swe.tif').write_text('dup')  # ambiguous swe
+    swe = two_var_dataset.spec.variables['swe']
+
+    with pytest.raises(IncompleteDatasetDataError, match='swe'):
+        two_var_dataset.resolve_variables(d, [swe])
+
+
+def test_collection_build_lists_each_date_dir_once(two_var_dataset, monkeypatch):
+    """Building a multi-variable collection lists each date dir once, not once per
+    variable -- the whole point of the single-pass resolve (fewer directory reads
+    over a wide archive, so the up-front completeness check fails fast)."""
+    from snowtool.snowdb.query import DateRangeQuery
+    from snowtool.snowdb.raster.collection import RasterCollection
+
+    for d in (date(2020, 1, 1), date(2020, 1, 2)):
+        out = two_var_dataset.date_dir(d)
+        out.mkdir(parents=True)
+        (out / 'a__swe.tif').write_text('c')
+        (out / 'a__depth.tif').write_text('c')
+
+    calls: list = []
+    original = two_var_dataset._list_filenames
+
+    def counting(directory):  # observe, don't replace: wrap the real listing
+        calls.append(directory)
+        return original(directory)
+
+    monkeypatch.setattr(two_var_dataset, '_list_filenames', counting)
+    variables = set(two_var_dataset.spec.variables.values())  # swe + depth
+
+    RasterCollection.from_variables_query(DateRangeQuery(), variables, two_var_dataset)
+
+    # 2 dates, not 2 dates x 2 variables.
+    assert len(calls) == 2
+
+
 def test_raster_collection_flags_incomplete_date(tmp_path):
     from snowtool.snowdb.raster.collection import RasterCollection
     from snowtool.snowdb.raster.tiled import DataRaster

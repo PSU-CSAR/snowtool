@@ -251,7 +251,7 @@ def test_malformed_datetime_returns_400(synthetic_client) -> None:
 def test_unknown_format_returns_400(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/date-range',
-        params={'datetime': DAY, 'f': 'xml'},
+        params={'datetime': DAY, 'variable': 'swe', 'f': 'xml'},
     )
     assert_problem(response, status=400)
 
@@ -261,9 +261,17 @@ def test_bad_zone_token_returns_422(synthetic_client) -> None:
     # malformed token is a well-formed-but-unprocessable query -- a 422.
     response = synthetic_client.get(
         f'{BASE}/date-range',
-        params={'datetime': DAY, 'zone': 'terrain.elevation:500'},
+        params={'datetime': DAY, 'variable': 'swe', 'zone': 'terrain.elevation:500'},
     )
     assert_problem(response, status=422)
+
+
+def test_absent_variable_returns_400(synthetic_client) -> None:
+    # No implicit "all variables": at least one variable must be requested. An
+    # absent required query param is a malformed request (400), like a malformed
+    # datetime -- not an unprocessable-but-well-formed value (422).
+    response = synthetic_client.get(f'{BASE}/date-range', params={'datetime': DAY})
+    assert_problem(response, status=400)
 
 
 def test_unknown_variable_returns_422(synthetic_client) -> None:
@@ -277,7 +285,7 @@ def test_unknown_variable_returns_422(synthetic_client) -> None:
 def test_unknown_dataset_returns_404(synthetic_client) -> None:
     response = synthetic_client.get(
         f'/datasets/nope/stats/{TRIPLET}/date-range',
-        params={'datetime': DAY},
+        params={'datetime': DAY, 'variable': 'swe'},
     )
     assert_problem(response, status=404)
 
@@ -298,7 +306,13 @@ def test_doy_impossible_day_returns_400(synthetic_client) -> None:
     # problem), not an app-level 422 QueryParameterError.
     response = synthetic_client.get(
         f'{BASE}/doy',
-        params={'month': 2, 'day': 30, 'start_year': 2018, 'end_year': 2018},
+        params={
+            'month': 2,
+            'day': 30,
+            'start_year': 2018,
+            'end_year': 2018,
+            'variable': 'swe',
+        },
     )
     body = assert_problem(
         response,
@@ -311,7 +325,13 @@ def test_doy_impossible_day_returns_400(synthetic_client) -> None:
 def test_doy_inverted_year_span_returns_400(synthetic_client) -> None:
     response = synthetic_client.get(
         f'{BASE}/doy',
-        params={'month': 4, 'day': 27, 'start_year': 2019, 'end_year': 2018},
+        params={
+            'month': 4,
+            'day': 27,
+            'start_year': 2019,
+            'end_year': 2018,
+            'variable': 'swe',
+        },
     )
     body = assert_problem(
         response,

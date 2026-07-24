@@ -56,7 +56,9 @@ if TYPE_CHECKING:
     '--variable',
     'variables',
     multiple=True,
-    help='Variable to report (repeatable; default: all of the dataset).',
+    required=True,
+    help='Variable to report (repeatable; at least one required). Reading every '
+    'variable is a multiple of the I/O, so the set is never implicit.',
 )
 @click.option(
     '--allow-partial',
@@ -106,7 +108,7 @@ def stats(
                 triplet,
                 dataset_name,
                 date_query,
-                variable_keys=variables or None,
+                variable_keys=variables,
                 zones=zones,
                 allow_partial=allow_partial,
             ),

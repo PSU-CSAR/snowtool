@@ -640,7 +640,11 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
         _row('2020-01-01', 'ingested', str(source_dem)),
     ]
 
-    refused = runner.invoke(cli, ['stats', 'test', '12345:MT:USGS'], obj=ctx())
+    refused = runner.invoke(
+        cli,
+        ['stats', 'test', '12345:MT:USGS', '--variable', 'swe'],
+        obj=ctx(),
+    )
     assert refused.exit_code != 0
     assert 'registered but inactive' in refused.output
     assert 'dataset activate test' in refused.output
