@@ -4,7 +4,10 @@ import json
 
 import pytest
 
-from snowtool.exceptions import IndexedPourpointMissingBasinError
+from snowtool.exceptions import (
+    CorruptPourpointIndexError,
+    IndexedPourpointMissingBasinError,
+)
 from snowtool.snowdb.coverage import Coverage, CoverageDomain
 from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
@@ -194,3 +197,33 @@ def test_index_build_empty_over_no_paths(tmp_path):
 
 def test_index_load_missing_file_is_empty(tmp_path):
     assert len(PourpointIndex.load(tmp_path / 'index.geojson')) == 0
+
+
+def test_index_load_raises_on_feature_missing_its_id(tmp_path):
+    # geojson-pydantic permits a null id/geometry/properties (valid GeoJSON), but
+    # not a valid index entry; load must fail loudly with the typed, `pourpoint
+    # reindex`-remediating error rather than a bare ValueError.
+    path = tmp_path / 'index.geojson'
+    path.write_text(
+        json.dumps(
+            {
+                'type': 'FeatureCollection',
+                'features': [
+                    {
+                        'type': 'Feature',
+                        'id': None,
+                        'geometry': {'type': 'Point', 'coordinates': [-118.0, 44.0]},
+                        'properties': {
+                            'name': 'Test Basin',
+                            'area_meters': 1.0,
+                            'geometry_hash': 'a' * 64,
+                            'coverage': {},
+                        },
+                    },
+                ],
+            },
+        ),
+    )
+
+    with pytest.raises(CorruptPourpointIndexError, match='missing its id'):
+        PourpointIndex.load(path)

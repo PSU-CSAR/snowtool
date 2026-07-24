@@ -19,8 +19,9 @@ a null ``id``/``geometry``/``properties`` (valid GeoJSON, but not a valid index
 entry), so the load path guards those into clear errors.
 
 Maintenance is split two ways: import/sync/remove update the index *incrementally*
-(``SnowDbManager._update_index`` reuses an entry as-is while its record and the
-registered-dataset set are unchanged), while ``pourpoint reindex`` is the explicit
+(the incremental update in :mod:`~snowtool.snowdb.pourpoint_manager` reuses an
+entry as-is while its record and the registered-dataset set are unchanged),
+while ``pourpoint reindex`` is the explicit
 FULL rebuild that ignores the persisted index -- the recovery path for
 out-of-band ``records/`` edits and for a grid change to an already-registered
 dataset name. Both paths share one loop, :meth:`PourpointIndex.build`: a full
@@ -41,6 +42,7 @@ from geojson_pydantic import Feature, FeatureCollection, Point
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
+from snowtool.exceptions import CorruptPourpointIndexError
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
@@ -121,7 +123,7 @@ class PourpointIndexEntry(BaseModel):
         # an index entry needs all three, so a foreign/corrupt feature fails
         # loudly here -- the index is derived, so the fix is `pourpoint reindex`.
         if feature.id is None or feature.geometry is None or feature.properties is None:
-            raise ValueError(
+            raise CorruptPourpointIndexError(
                 'index feature is missing its id, geometry, or properties; '
                 'rebuild the index with `pourpoint reindex`.',
             )

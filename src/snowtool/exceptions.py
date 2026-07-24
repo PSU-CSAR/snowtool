@@ -254,6 +254,16 @@ class IndexedPourpointMissingBasinError(SnowtoolError, ValueError):
     """
 
 
+class CorruptPourpointIndexError(SnowtoolError, ValueError):
+    """Raised when ``index.geojson`` holds a feature no valid index could contain.
+
+    The index is derived state, so the remediation is always ``pourpoint
+    reindex`` -- the message says so, and raising within the taxonomy lets the
+    CLI print it instead of a traceback. Subclasses ``ValueError`` so existing
+    ``except ValueError`` call sites keep catching it.
+    """
+
+
 class RemoteSourceError(SnowtoolError):
     """Raised when a remote data source cannot be fetched, enumerated, or assembled.
 
