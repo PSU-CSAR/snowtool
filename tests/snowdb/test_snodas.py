@@ -87,7 +87,7 @@ def test_trim_header_truncates_over_limit_line(tmp_path):
 # A minimal parseable SNODAS stem (masked region, pinned 05 time-step) -- the same
 # literal test_ingest.py's `_snodas_stems('20190202')[0]` yields, duplicated here so
 # this file doesn't reach across test modules for it.
-_SNODAS_STEM = 'zz_ssmv11034SlL00T0001TTNATS2019020205HP001'
+_SNODAS_STEM = 'us_ssmv11034SlL00T0001TTNATS2019020205HP001'
 
 
 def test_snodas_read_array_refuses_off_grid_shape(tmp_path, monkeypatch):

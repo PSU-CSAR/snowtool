@@ -114,8 +114,8 @@ _PRODUCT_BY_CODE_VCODE: dict[tuple[int, str | None], Product] = {
 
 
 class Region(StrEnum):
-    US = 'us'
-    MASKED = 'zz'
+    MASKED = 'us'  # masked CONUS product (the grid this spec defines)
+    UNMASKED = 'zz'
 
 
 class Model(StrEnum):
@@ -345,8 +345,9 @@ class SNODASInputRasterSet:
         if off:
             raise SnowtoolError(
                 f'Refusing SNODAS region(s) {off}: ingest pins to the masked '
-                f"('{Region.MASKED.value}') CONUS product -- the unmasked grid is "
-                'a different lattice and would not align with the dataset grid.',
+                f"('{Region.MASKED.value}') CONUS product -- the unmasked "
+                f"('{Region.UNMASKED.value}') grid is a different lattice and "
+                'would not align with the dataset grid.',
             )
 
     @classmethod
