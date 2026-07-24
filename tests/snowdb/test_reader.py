@@ -105,6 +105,16 @@ def test_reader_unknown_variable_is_clean_error(reader):
         )
 
 
+def test_reader_empty_variable_selection_is_rejected(reader):
+    # The "never implicit" invariant lives in the core, not just at the CLI/HTTP
+    # boundaries: an empty selection raises rather than silently reading every
+    # (expensive) variable.
+    with pytest.raises(QueryParameterError, match='At least one variable'):
+        asyncio.run(
+            reader.zonal_stats(TRIPLET, 'test', QUERY, variable_keys=[]),
+        )
+
+
 def test_reader_holds_max_zone_cells_from_construction(catalog):
     from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
 
@@ -147,7 +157,7 @@ def test_reader_coverage_guard_rejects_unknown_aoi(reader):
     # The guard runs before any read: an AOI with no stored record cannot be covered.
     with pytest.raises((FileNotFoundError, PourpointCoverageError)):
         asyncio.run(
-            reader.zonal_stats('00000:MT:USGS', 'test', QUERY),
+            reader.zonal_stats('00000:MT:USGS', 'test', QUERY, variable_keys=['swe']),
         )
 
 

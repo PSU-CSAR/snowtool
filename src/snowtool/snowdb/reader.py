@@ -35,7 +35,7 @@ from snowtool.snowdb.zonal_stats import (
 from snowtool.snowdb.zones.zone_layer import available_zones
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from snowtool import types
     from snowtool.snowdb.dataset import Dataset
@@ -78,19 +78,24 @@ class SnowDbReader:
     @staticmethod
     def _resolve_variables(
         dataset: Dataset,
-        variable_keys: Iterable[str] | None,
+        variable_keys: Sequence[str],
     ) -> set[DatasetVariable]:
         """The :class:`DatasetVariable`\\ s named by ``variable_keys``.
 
-        ``None`` (or an empty selection) means every variable the dataset defines;
-        an unknown key raises a clean :class:`QueryParameterError` listing the choices.
+        At least one key is required -- reading every variable is a multiple of the
+        I/O, so the set is never implicit. This raise holds the invariant in the
+        core, for any programmatic caller, not only at the CLI/HTTP boundaries that
+        also enforce it. An unknown key raises a clean :class:`QueryParameterError`
+        listing the choices.
         """
         available = dataset.spec.variables
-        keys = None if variable_keys is None else list(variable_keys)
-        if not keys:
-            return set(available.values())
+        if not variable_keys:
+            raise QueryParameterError(
+                'At least one variable is required; '
+                f'available: {", ".join(sorted(available))}.',
+            )
         resolved: set[DatasetVariable] = set()
-        for key in keys:
+        for key in variable_keys:
             try:
                 resolved.add(available[key])
             except KeyError as e:
@@ -106,7 +111,7 @@ class SnowDbReader:
         dataset_name: str,
         query: DateQuery,
         *,
-        variable_keys: Iterable[str] | None = None,
+        variable_keys: Sequence[str],
         zones: Sequence[ZoneSelection | str] = (),
         allow_partial: bool = False,
     ) -> ZonalStats:
@@ -115,8 +120,9 @@ class SnowDbReader:
         The shared read seam behind the ``stats`` CLI command and the HTTP
         stats routes: it guards coverage, loads the burned AOI raster, resolves the
         requested variables, builds the raster collection for ``query``, and runs
-        the crossed-zone reduction over the reader's cache. ``variable_keys``
-        defaults to every variable the dataset defines. ``zones`` defaults to none
+        the crossed-zone reduction over the reader's cache. ``variable_keys`` names
+        the variables to read (at least one required -- never implicit, since
+        reading every variable is a multiple of the I/O). ``zones`` defaults to none
         (a whole-basin reduction); each element is either an already-resolved
         :class:`~snowtool.snowdb.zonal_stats.ZoneSelection` (the programmatic form)
         or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here up front
