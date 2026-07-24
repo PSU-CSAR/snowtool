@@ -272,7 +272,7 @@ def guard_db(created_db):
     _write_basin(records, 'none:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
     # The coverage guard loads pourpoints through the index (availability gate),
     # so the records have to be indexed to be queryable.
-    SnowDbManager(db).reindex_pourpoints()
+    SnowDbManager(db).pourpoints.reindex()
     return db
 
 

@@ -360,7 +360,7 @@ def test_uncovered_aoi_returns_409(
     }
     path = tmp_path / 'off_grid.geojson'
     path.write_text(json.dumps(off_grid))
-    SnowDbManager.open(test_settings.snowdb_config).import_pourpoints(path)
+    SnowDbManager.open(test_settings.snowdb_config).pourpoints.import_(path)
 
     with TestClient(get_app(settings=test_settings)) as client:
         response = client.get(

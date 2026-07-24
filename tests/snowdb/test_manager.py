@@ -103,7 +103,10 @@ def test_rasterize_aoi_burns_every_active_dataset(
 
     manager = make_manager(tmp_path, [spec, spec_b])
     pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
-    result = manager.rasterize_aois([pourpoint], list(manager.db.registered.values()))
+    result = manager.pourpoints.rasterize_aois(
+        [pourpoint],
+        list(manager.db.registered.values()),
+    )
 
     assert set(manager.db.registered) == {'test', 'snodas'}
     assert set(result.built) == {
@@ -162,7 +165,7 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     # invisible to readers; the config write is the commit point.
     SnowDbManager.initialize(tmp_path)
     manager = SnowDbManager.open(tmp_path)
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
 
     config = config_from_spec(spec)
     ds_dir = manager.db.dataset_dir('test', config)

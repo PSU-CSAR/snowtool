@@ -14,12 +14,12 @@ from snowtool.exceptions import (
     PourpointNotFoundError,
     PourpointPruneDestinationRequiredError,
 )
-from snowtool.snowdb import _pourpoint_ops as pourpoint_ops
 from snowtool.snowdb.aoi_raster import aoi_provenance
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
+from snowtool.snowdb.pourpoint_manager import PourpointManager
 
 from ..conftest import (
     CapturingProgress,
@@ -64,7 +64,7 @@ def db(manager):
 
 
 def test_import_file_writes_record_and_index(manager, db, pourpoint_geojson):
-    result = manager.import_pourpoints(pourpoint_geojson)
+    result = manager.pourpoints.import_(pourpoint_geojson)
 
     assert result.imported == ['12345:MT:USGS']
     assert db.pourpoint_record_path('12345:MT:USGS').is_file()
@@ -77,7 +77,7 @@ def test_import_dir_classifies_imported_skipped_invalid(manager, tmp_path):
     _write_aoi(src, '22222:MT:USGS', with_polygon=False)  # point-only -> skipped
     (src / 'bad.geojson').write_text(json.dumps({'type': 'Nonsense'}))
 
-    result = manager.import_pourpoints(src)
+    result = manager.pourpoints.import_(src)
 
     assert result.imported == ['11111:MT:USGS']
     assert result.skipped == ['22222:MT:USGS']
@@ -86,7 +86,7 @@ def test_import_dir_classifies_imported_skipped_invalid(manager, tmp_path):
 
 
 def test_import_dry_run_writes_nothing(manager, db, pourpoint_geojson):
-    result = manager.import_pourpoints(pourpoint_geojson, dry_run=True)
+    result = manager.pourpoints.import_(pourpoint_geojson, dry_run=True)
 
     assert result.imported == ['12345:MT:USGS']
     assert not db.pourpoint_record_path('12345:MT:USGS').exists()
@@ -94,8 +94,8 @@ def test_import_dry_run_writes_nothing(manager, db, pourpoint_geojson):
 
 
 def test_import_is_idempotent(manager, pourpoint_geojson):
-    manager.import_pourpoints(pourpoint_geojson)
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
 
     assert manager.db.pourpoint_triplets() == {'12345:MT:USGS'}
 
@@ -137,7 +137,7 @@ def test_import_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_r
     _write_aoi(src, '11111:MT:USGS')
     _write_bad(src / 'bad.geojson', kind)
 
-    result = manager.import_pourpoints(src, dry_run=dry_run)
+    result = manager.pourpoints.import_(src, dry_run=dry_run)
 
     assert result.imported == ['11111:MT:USGS']
     assert [p.name for p, _ in result.invalid] == ['bad.geojson']
@@ -150,7 +150,7 @@ def test_sync_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run
     _write_aoi(src, '11111:MT:USGS')
     _write_bad(src / 'bad.geojson', kind)
 
-    result = manager.sync_pourpoints(src, dry_run=dry_run)
+    result = manager.pourpoints.sync(src, dry_run=dry_run)
 
     assert result.imported == ['11111:MT:USGS']
     assert [p.name for p, _ in result.invalid] == ['bad.geojson']
@@ -233,8 +233,8 @@ def test_from_geojson_prefers_nwccname_over_name(tmp_path):
 
 def test_sync_prunes_absent_aoi_and_cascades(manager, db, tmp_path):
     # Two stored AOIs; sync a source dir that only has one.
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     # Burn a raster for the one about to be pruned, to prove the cascade.
     db['test'].rasterize_aoi(db.load_pourpoint('22222:MT:USGS'))
     raster = db['test'].aoi_raster_path_from_triplet('22222:MT:USGS')
@@ -244,7 +244,7 @@ def test_sync_prunes_absent_aoi_and_cascades(manager, db, tmp_path):
     _write_aoi(src, '11111:MT:USGS')
     archive = tmp_path / 'archive'
 
-    result = manager.sync_pourpoints(src, prune_to=archive)
+    result = manager.pourpoints.sync(src, prune_to=archive)
 
     assert result.pruned == ['22222:MT:USGS']
     assert not db.pourpoint_record_path('22222:MT:USGS').exists()
@@ -254,12 +254,12 @@ def test_sync_prunes_absent_aoi_and_cascades(manager, db, tmp_path):
 
 
 def test_sync_without_prune_to_refuses_to_remove(manager, db, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
 
     with pytest.raises(PourpointPruneDestinationRequiredError):
-        manager.sync_pourpoints(src)
+        manager.pourpoints.sync(src)
 
     # Nothing was changed (the additive import did not run either).
     assert manager.db.pourpoint_triplets() == {'22222:MT:USGS'}
@@ -267,11 +267,11 @@ def test_sync_without_prune_to_refuses_to_remove(manager, db, tmp_path):
 
 
 def test_sync_dry_run_reports_prune_without_removing(manager, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
 
-    result = manager.sync_pourpoints(src, dry_run=True)
+    result = manager.pourpoints.sync(src, dry_run=True)
 
     assert result.pruned == ['22222:MT:USGS']
     assert manager.db.pourpoint_triplets() == {'22222:MT:USGS'}  # unchanged
@@ -281,33 +281,33 @@ def test_sync_dry_run_reports_prune_without_removing(manager, tmp_path):
 
 
 def test_dump_aoi_copies_record_out(manager, db, pourpoint_geojson, tmp_path):
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     dest = db.dump_pourpoint('12345:MT:USGS', tmp_path / 'out')
     assert dest == tmp_path / 'out' / '12345_MT_USGS.geojson'
     assert dest.is_file()
 
 
 def test_remove_aoi_cascades_and_reindexes(manager, db, pourpoint_geojson):
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     db['test'].rasterize_aoi(db.load_pourpoint('12345:MT:USGS'))
     raster = db['test'].aoi_raster_path_from_triplet('12345:MT:USGS')
     assert raster.is_file()
 
-    assert manager.remove_pourpoint('12345:MT:USGS') is True
+    assert manager.pourpoints.remove('12345:MT:USGS') is True
     assert not db.pourpoint_record_path('12345:MT:USGS').exists()
     assert not raster.exists()
     assert db.pourpoint_index().triplets() == set()
 
 
 def test_remove_absent_aoi_is_a_noop(manager):
-    assert manager.remove_pourpoint('99999:MT:USGS') is False
+    assert manager.pourpoints.remove('99999:MT:USGS') is False
 
 
 def test_reindex_rebuilds_from_records(manager, db, pourpoint_geojson):
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     db.pourpoint_index_path.unlink()
 
-    index = manager.reindex_pourpoints()
+    index = manager.pourpoints.reindex()
     assert index.triplets() == {'12345:MT:USGS'}
     assert db.pourpoint_index_path.is_file()
 
@@ -316,7 +316,7 @@ def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojs
     # Every stored record is basin-bearing (the import boundary guarantees it), so
     # a point-only record in `records/` is a corrupt store. Reindex refuses loudly
     # -- naming the offending file -- rather than silently dropping the record.
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     triplet = '12345:MT:USGS'
     record_path = db.pourpoint_record_path(triplet)
     _write_aoi(
@@ -329,14 +329,14 @@ def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojs
         IndexedPourpointMissingBasinError,
         match=record_path.name,
     ):
-        manager.reindex_pourpoints()
+        manager.pourpoints.reindex()
 
 
 def test_basin_pourpoints_raises_on_basin_less_record(manager, db, pourpoint_geojson):
-    # basin_pourpoints enforces the basin-bearing invariant on read: a point-only
+    # basins() enforces the basin-bearing invariant on read: a point-only
     # record edited into `records/` out of band raises the typed error naming the
     # file, rather than flowing on to fail with an untyped ValueError downstream.
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     triplet = '12345:MT:USGS'
     record_path = db.pourpoint_record_path(triplet)
     _write_aoi(
@@ -349,7 +349,7 @@ def test_basin_pourpoints_raises_on_basin_less_record(manager, db, pourpoint_geo
         IndexedPourpointMissingBasinError,
         match=record_path.name,
     ):
-        pourpoint_ops.basin_pourpoints(db)
+        PourpointManager(db).basins()
 
 
 def test_load_pourpoint_gates_on_index(manager, db):
@@ -361,7 +361,7 @@ def test_load_pourpoint_gates_on_index(manager, db):
     with pytest.raises(PourpointNotFoundError):
         db.load_pourpoint('77777:MT:USGS')
 
-    manager.reindex_pourpoints()
+    manager.pourpoints.reindex()
     assert db.load_pourpoint('77777:MT:USGS').station_triplet == '77777:MT:USGS'
 
 
@@ -377,12 +377,12 @@ def _mutate_record_name(db, triplet, name):
 
 
 def test_import_reuses_untouched_index_entries(manager, db, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
     _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
 
     # Importing a *different* pourpoint must not re-parse the untouched record:
     # its entry is reused as-is, so the out-of-band drift stays invisible.
-    manager.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
 
     index = db.pourpoint_index()
     assert index.triplets() == {'11111:MT:USGS', '22222:MT:USGS'}
@@ -390,16 +390,16 @@ def test_import_reuses_untouched_index_entries(manager, db, tmp_path):
     assert index['22222:MT:USGS'].name == '22222:MT:USGS'
 
     # The explicit full rebuild is the recovery path for out-of-band edits.
-    manager.reindex_pourpoints()
+    manager.pourpoints.reindex()
     assert db.pourpoint_index()['11111:MT:USGS'].name == 'MUTATED'
 
 
 def test_remove_drops_removed_entry_and_reuses_the_rest(manager, db, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
 
-    assert manager.remove_pourpoint('22222:MT:USGS') is True
+    assert manager.pourpoints.remove('22222:MT:USGS') is True
 
     index = db.pourpoint_index()
     assert index.triplets() == {'11111:MT:USGS'}
@@ -408,8 +408,8 @@ def test_remove_drops_removed_entry_and_reuses_the_rest(manager, db, tmp_path):
 
 
 def test_sync_prune_drops_pruned_and_reuses_untouched(manager, db, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
 
     # 11111 is point-only in the source: present (not pruned) but not
@@ -417,7 +417,7 @@ def test_sync_prune_drops_pruned_and_reuses_untouched(manager, db, tmp_path):
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS', with_polygon=False)
 
-    result = manager.sync_pourpoints(src, prune_to=tmp_path / 'archive')
+    result = manager.pourpoints.sync(src, prune_to=tmp_path / 'archive')
 
     assert result.pruned == ['22222:MT:USGS']
     index = db.pourpoint_index()
@@ -426,7 +426,7 @@ def test_sync_prune_drops_pruned_and_reuses_untouched(manager, db, tmp_path):
 
 
 def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spec):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
     _mutate_record_name(db, '11111:MT:USGS', 'MUTATED')
     assert set(db.pourpoint_index()['11111:MT:USGS'].coverage) == {'test'}
 
@@ -435,7 +435,7 @@ def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spe
     # picking up both the new coverage key and the record's current content.
     other = make_spec('other', spec)
     manager2 = make_manager(tmp_path, [spec, other])
-    manager2.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+    manager2.pourpoints.import_(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
 
     index = manager2.db.pourpoint_index()
     entry = index['11111:MT:USGS']
@@ -445,10 +445,10 @@ def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spe
 
 
 def test_missing_index_self_heals_on_import(manager, db, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
     db.pourpoint_index_path.unlink()
 
-    manager.import_pourpoints(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
 
     # No old entry to reuse -> the fallback re-parses the record from disk.
     assert db.pourpoint_index().triplets() == {'11111:MT:USGS', '22222:MT:USGS'}
@@ -463,7 +463,7 @@ def test_import_reports_parse_and_index_phases(manager, tmp_path):
     _write_aoi(src, '22222:MT:USGS')
     progress = CapturingProgress()
 
-    manager.import_pourpoints(src, progress=progress)
+    manager.pourpoints.import_(src, progress=progress)
 
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('parsing 2 pourpoint source(s)', 2, 2),
@@ -476,7 +476,7 @@ def test_import_dry_run_reports_only_the_parse_phase(manager, tmp_path):
     _write_aoi(src, '11111:MT:USGS')
     progress = CapturingProgress()
 
-    manager.import_pourpoints(src, dry_run=True, progress=progress)
+    manager.pourpoints.import_(src, dry_run=True, progress=progress)
 
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('parsing 1 pourpoint source(s)', 1, 1),
@@ -484,12 +484,12 @@ def test_import_dry_run_reports_only_the_parse_phase(manager, tmp_path):
 
 
 def test_sync_reports_parse_and_index_phases(manager, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
     progress = CapturingProgress()
 
-    manager.sync_pourpoints(src, prune_to=tmp_path / 'archive', progress=progress)
+    manager.pourpoints.sync(src, prune_to=tmp_path / 'archive', progress=progress)
 
     # The index phase totals the *surviving* records (22222 was pruned).
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
@@ -499,11 +499,11 @@ def test_sync_reports_parse_and_index_phases(manager, tmp_path):
 
 
 def test_reindex_reports_the_index_phase(manager, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     progress = CapturingProgress()
 
-    manager.reindex_pourpoints(progress=progress)
+    manager.pourpoints.reindex(progress=progress)
 
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('indexing 2 pourpoint(s)', 2, 2),
@@ -511,11 +511,11 @@ def test_reindex_reports_the_index_phase(manager, tmp_path):
 
 
 def test_remove_reports_the_index_phase(manager, tmp_path):
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
-    manager.import_pourpoints(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '11111:MT:USGS').parent)
+    manager.pourpoints.import_(_write_aoi(tmp_path / 'seed', '22222:MT:USGS').parent)
     progress = CapturingProgress()
 
-    manager.remove_pourpoint('22222:MT:USGS', progress=progress)
+    manager.pourpoints.remove('22222:MT:USGS', progress=progress)
 
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('indexing 1 pourpoint(s)', 1, 1),
@@ -596,11 +596,11 @@ def test_rasterize_aois_built_and_skipped(manager, db, pourpoint_geojson):
     aoi = Pourpoint.from_geojson(pourpoint_geojson)
     datasets = list(db.datasets.values())
 
-    first = manager.rasterize_aois([aoi], datasets)
+    first = manager.pourpoints.rasterize_aois([aoi], datasets)
     assert first.built == [('12345:MT:USGS', 'test')]
     assert first.skipped == []
 
-    second = manager.rasterize_aois([aoi], datasets)
+    second = manager.pourpoints.rasterize_aois([aoi], datasets)
     assert second.built == []
     assert second.skipped == [('12345:MT:USGS', 'test')]
 
@@ -656,7 +656,10 @@ def test_rasterize_aois_skips_off_grid_basins(manager, db, tmp_path):
         _write_aoi(tmp_path / 'src', '55555:MT:USGS', polygon=_OUTSIDE),
     )
 
-    result = manager.rasterize_aois([inside, outside], list(db.datasets.values()))
+    result = manager.pourpoints.rasterize_aois(
+        [inside, outside],
+        list(db.datasets.values()),
+    )
 
     assert result.built == [('11111:MT:USGS', 'test')]
     assert result.skipped == [('55555:MT:USGS', 'test')]
@@ -671,7 +674,7 @@ def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, sp
     src = tmp_path / 'src'
     _write_aoi(src, '33333:MT:USGS', polygon=_STRADDLE)
     _write_aoi(src, '55555:MT:USGS', polygon=_OUTSIDE)
-    manager.import_pourpoints(src)
+    manager.pourpoints.import_(src)
 
     other = make_spec('other', spec)
     config = config_from_spec(other)

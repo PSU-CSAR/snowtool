@@ -239,7 +239,7 @@ def test_stats_missing_aoi_raster_is_clean_error(
     pourpoint_geojson,
 ):
     # AOI imported (so coverage passes) but never rasterized -> a clean prereq error.
-    SnowDbManager.open(initialized_root).import_pourpoints(pourpoint_geojson)
+    SnowDbManager.open(initialized_root).pourpoints.import_(pourpoint_geojson)
     result = runner.invoke(
         cli,
         [

@@ -263,7 +263,7 @@ def test_coverage_fallback_none_for_dataset_predating_index(
     # a dataset registered later. A dataset the index predates reads as NONE (not a
     # raw KeyError), even though geometrically the shared grid would fully cover it.
     manager = make_manager(tmp_path, [spec])
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
 
     other = make_spec('other', spec, variables=())
     db = make_snowdb(tmp_path, [spec, other])
@@ -300,7 +300,7 @@ def _seed_three_pourpoints(tmp_path, spec):
             box=(lon - 0.05, 44.9, lon + 0.05, 44.0),
             point=(lon, 44.45),
         )
-    manager.import_pourpoints(src)
+    manager.pourpoints.import_(src)
     return manager.db
 
 
@@ -360,7 +360,7 @@ def test_index_cache_reloads_after_out_of_band_import(
     reader = SnowDb.open(tmp_path)
     assert reader.pourpoint_index().triplets() == set()  # primed empty at open
 
-    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+    SnowDbManager.open(tmp_path).pourpoints.import_(pourpoint_geojson)
 
     assert reader.pourpoint_index().triplets() == {'12345:MT:USGS'}
 
@@ -373,7 +373,7 @@ def test_index_cache_is_stable_then_revalidates_on_mtime(
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
     writer = SnowDbManager.open(tmp_path)
-    writer.import_pourpoints(pourpoint_geojson)
+    writer.pourpoints.import_(pourpoint_geojson)
 
     reader = SnowDb.open(tmp_path)
     first = reader.pourpoint_index()
@@ -383,7 +383,7 @@ def test_index_cache_is_stable_then_revalidates_on_mtime(
 
     # Out-of-band removal rewrites the index; bump the mtime explicitly so the test
     # is independent of the filesystem's mtime resolution.
-    writer.remove_pourpoint('12345:MT:USGS')
+    writer.pourpoints.remove('12345:MT:USGS')
     idx = reader.pourpoint_index_path
     st = idx.stat()
     os.utime(idx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
@@ -413,7 +413,7 @@ def test_load_pourpoint_raises_on_indexed_point_only_record(
     # basin-less Pourpoint that downstream code must re-check.
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
-    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+    SnowDbManager.open(tmp_path).pourpoints.import_(pourpoint_geojson)
 
     db = SnowDb.open(tmp_path)
     triplet = '12345:MT:USGS'
@@ -440,7 +440,7 @@ def test_load_basin_raises_on_indexed_point_only_record(
     # inherits the same typed error on a corrupt (basin-less) indexed record.
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
-    SnowDbManager.open(tmp_path).import_pourpoints(pourpoint_geojson)
+    SnowDbManager.open(tmp_path).pourpoints.import_(pourpoint_geojson)
 
     db = SnowDb.open(tmp_path)
     triplet = '12345:MT:USGS'

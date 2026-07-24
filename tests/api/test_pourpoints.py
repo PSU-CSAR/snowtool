@@ -63,7 +63,7 @@ def many_aois_client(test_settings, spec, tmp_path):
             west=-119.0 + i * 0.5,
             south=44.0 - i * 0.5,
         )
-    manager.import_pourpoints(src)
+    manager.pourpoints.import_(src)
 
     with TestClient(get_app(settings=test_settings)) as client:
         yield client
@@ -87,7 +87,7 @@ def inactive_dataset_client(test_settings, spec, pourpoint_geojson):
     other = make_spec('other', spec)
     register_dataset_config(manager, 'other', config_from_spec(other))
     manager = SnowDbManager.open(root)  # rebind so both datasets are served
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     manager.set_dataset_active('other', False)
 
     with TestClient(get_app(settings=test_settings)) as client:

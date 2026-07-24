@@ -8,15 +8,10 @@ The read path (the FastAPI app) builds only a :class:`SnowDb`; the CLI's write
 commands and library admin code build a manager. "The management layer has a
 snowdb, not the other way around."
 
-The pourpoint import/sync/lifecycle operations live in
-:mod:`snowtool.snowdb._pourpoint_ops` as module-level functions over a
-:class:`~snowtool.snowdb.db.SnowDb` -- a pure file-size decomposition, not a
-public seam. ``SnowDbManager`` keeps same-named one-line delegators, so the write
-surface is still a single type; those functions' result dataclasses
-(:class:`~snowtool.snowdb._pourpoint_ops.PourpointImportResult`,
-:class:`~snowtool.snowdb._pourpoint_ops.PourpointSyncResult`,
-:class:`~snowtool.snowdb._pourpoint_ops.AOIRasterizeResult`) live there too,
-imported here only for the delegators' annotations.
+The pourpoint import/sync/lifecycle operations live on
+:class:`~snowtool.snowdb.pourpoint_manager.PourpointManager`, a stateless
+wrapper over a :class:`~snowtool.snowdb.db.SnowDb`, reachable as
+:attr:`SnowDbManager.pourpoints`.
 """
 
 from __future__ import annotations
@@ -34,12 +29,6 @@ from snowtool.exceptions import (
     UnknownDatasetError,
     UnknownZoneLayerProviderError,
 )
-from snowtool.snowdb import _pourpoint_ops as pourpoint_ops
-from snowtool.snowdb._pourpoint_ops import (
-    AOIRasterizeResult,
-    PourpointImportResult,
-    PourpointSyncResult,
-)
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
     DATASET_CONFIG_FILENAME,
@@ -50,8 +39,8 @@ from snowtool.snowdb.config import (
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
-from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.pourpoint_manager import AOIRasterizeResult, PourpointManager
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.spec import load_dataset_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
@@ -65,16 +54,6 @@ if TYPE_CHECKING:
         GenerationOptions,
         ZoneLayerProvider,
     )
-
-# The result dataclasses are defined beside their ops in _pourpoint_ops but are
-# part of this module's public surface: the delegators return them, and callers
-# (the CLI) import them from here rather than reaching into the private module.
-__all__ = [
-    'AOIRasterizeResult',
-    'PourpointImportResult',
-    'PourpointSyncResult',
-    'SnowDbManager',
-]
 
 
 def _combined_extent(
@@ -168,76 +147,9 @@ class SnowDbManager:
     def __init__(self: Self, db: SnowDb) -> None:
         self.db = db
 
-    # Pourpoint import/sync/lifecycle: one-line delegators to the module-level
-    # functions in :mod:`snowtool.snowdb._pourpoint_ops` (a file-size split, not a
-    # public seam). Keeping the method names lets the CLI's ``pass_manager`` call
-    # sites stay unchanged.
-    def reindex_pourpoints(
-        self: Self,
-        *,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> PourpointIndex:
-        return pourpoint_ops.reindex_pourpoints(self.db, progress=progress)
-
-    def import_pourpoints(
-        self: Self,
-        src: Path,
-        *,
-        dry_run: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> PourpointImportResult:
-        return pourpoint_ops.import_pourpoints(
-            self.db,
-            src,
-            dry_run=dry_run,
-            progress=progress,
-        )
-
-    def sync_pourpoints(
-        self: Self,
-        src: Path,
-        *,
-        prune_to: Path | None = None,
-        dry_run: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> PourpointSyncResult:
-        return pourpoint_ops.sync_pourpoints(
-            self.db,
-            src,
-            prune_to=prune_to,
-            dry_run=dry_run,
-            progress=progress,
-        )
-
-    def remove_pourpoint(
-        self: Self,
-        triplet: types.StationTriplet,
-        *,
-        dry_run: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> bool:
-        return pourpoint_ops.remove_pourpoint(
-            self.db,
-            triplet,
-            dry_run=dry_run,
-            progress=progress,
-        )
-
-    def rasterize_aois(
-        self: Self,
-        pourpoints: Iterable[Pourpoint],
-        datasets: Iterable[Dataset],
-        *,
-        rebuild: bool = False,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> AOIRasterizeResult:
-        return pourpoint_ops.rasterize_aois(
-            self.db,
-            pourpoints,
-            datasets,
-            rebuild=rebuild,
-            progress=progress,
-        )
+    @property
+    def pourpoints(self: Self) -> PourpointManager:
+        return PourpointManager(self.db)
 
     @classmethod
     def open(
@@ -511,7 +423,8 @@ class SnowDbManager:
         ``progress`` reports each slow phase as a sequential tracked task: parsing
         the pourpoint records, then the AOI rasterize pass. Coverage is not a
         separate phase: every basin-bearing pourpoint is handed to
-        :meth:`rasterize_aois` regardless of grid fit -- an off-grid basin
+        :meth:`~snowtool.snowdb.pourpoint_manager.PourpointManager.rasterize_aois`
+        regardless of grid fit -- an off-grid basin
         (``NONE`` coverage) has no window to burn, so *its own* ``Coverage.NONE``
         check skips it (reported in the returned ``rasterized.skipped``, alongside
         already-current rasters), rather than this method filtering it out first.
@@ -521,8 +434,9 @@ class SnowDbManager:
         Converge-by-default, like ingest: an existing skeleton is tolerated, and
         rasterization rebuilds an AOI raster only when it is absent or its
         provenance tag reads stale (a changed basin polygon or a format-version
-        bump). A byte-level forced rebuild is :meth:`rasterize_aois` with
-        ``rebuild=True`` (the ``pourpoint rasterize --rebuild`` command).
+        bump). A byte-level forced rebuild is
+        :meth:`~snowtool.snowdb.pourpoint_manager.PourpointManager.rasterize_aois`
+        with ``rebuild=True`` (the ``pourpoint rasterize --rebuild`` command).
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
 
@@ -533,7 +447,7 @@ class SnowDbManager:
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
-        basins = pourpoint_ops.basin_pourpoints(self.db, progress=progress)
+        basins = self.pourpoints.basins(progress=progress)
         # Every basin-bearing pourpoint goes to rasterize_aois regardless of its
         # coverage: an off-grid basin (NONE) has no tile window on this grid, so
         # rasterize_aois's own Coverage.NONE check skips it (into
@@ -541,7 +455,7 @@ class SnowDbManager:
         # same pass computes each basin's geometric coverage for the skip and
         # surfaces it, so the coverage the index needs is read back off the
         # result rather than computed a second time here.
-        rasterized = self.rasterize_aois(
+        rasterized = self.pourpoints.rasterize_aois(
             basins,
             [dataset],
             progress=progress,

@@ -28,7 +28,8 @@ from snowtool.cli._render import emit, emit_record, format_option
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
-    from snowtool.snowdb.manager import PourpointImportResult, SnowDbManager
+    from snowtool.snowdb.manager import SnowDbManager
+    from snowtool.snowdb.pourpoint_manager import PourpointImportResult
 
 
 @click.group()
@@ -71,7 +72,7 @@ def import_pourpoint(manager: SnowDbManager, src: str, dry_run: bool) -> None:
     """
     try:
         with materialize_file(src) as local:
-            result = manager.import_pourpoints(
+            result = manager.pourpoints.import_(
                 local,
                 dry_run=dry_run,
                 progress=RichProgress(),
@@ -116,7 +117,7 @@ def sync_pourpoints(
     """
     try:
         with materialize_dir(src, progress=RichProgress()) as local:
-            result = manager.sync_pourpoints(
+            result = manager.pourpoints.sync(
                 local,
                 prune_to=prune_to,
                 dry_run=dry_run,
@@ -204,7 +205,7 @@ def dump_pourpoint(snowdb: SnowDb, triplet: str, output_dir: Path) -> None:
 @pass_manager
 def reindex_pourpoints(manager: SnowDbManager) -> None:
     """Rebuild the index.geojson manifest from the stored records."""
-    index = manager.reindex_pourpoints(progress=RichProgress())
+    index = manager.pourpoints.reindex(progress=RichProgress())
     click.echo(
         f'reindexed {len(index)} pourpoint(s) into {manager.db.pourpoint_index_path}',
     )
@@ -226,8 +227,8 @@ def remove_pourpoint(
     run_removal(
         triplet,
         f'Remove {triplet} and its per-dataset rasters?',
-        preview=lambda: manager.remove_pourpoint(triplet, dry_run=True),
-        execute=lambda: manager.remove_pourpoint(triplet, progress=RichProgress()),
+        preview=lambda: manager.pourpoints.remove(triplet, dry_run=True),
+        execute=lambda: manager.pourpoints.remove(triplet, progress=RichProgress()),
         dry_run=dry_run,
         yes=yes,
     )
@@ -272,7 +273,7 @@ def rasterize_aois(
         pourpoints = list(manager.db.pourpoints())
 
     datasets = resolve_datasets(manager.db, dataset_names)
-    result = manager.rasterize_aois(
+    result = manager.pourpoints.rasterize_aois(
         pourpoints,
         datasets,
         rebuild=rebuild,

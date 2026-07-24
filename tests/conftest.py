@@ -173,7 +173,7 @@ def populate_bound_root(
     """
     from snowtool.snowdb.pourpoint import Pourpoint
 
-    manager.import_pourpoints(pourpoint_geojson)
+    manager.pourpoints.import_(pourpoint_geojson)
     dataset = manager.db[spec.name]
     write_terrain(dataset)
     write_landcover(dataset)
