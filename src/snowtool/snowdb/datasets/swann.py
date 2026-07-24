@@ -17,13 +17,13 @@ from __future__ import annotations
 import re
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 import numpy
 import rasterio
 
-from snowtool.exceptions import IngestSourceError, SnowtoolError
-from snowtool.snowdb.ingest import DateIngest, GridAlignedRaster
+from snowtool.exceptions import SnowtoolError
+from snowtool.snowdb.ingest import GridAlignedRaster, per_variable_ingest
 from snowtool.snowdb.raster.cog import source_tags
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
@@ -32,17 +32,15 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from affine import Affine
-
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.ingest import WritableRaster
+    from snowtool.snowdb.ingest import DateIngest, GridGeometry, WritableRaster
 
 # --- SWANN 800m variables -----------------------------------------------------
 
 # Both variables are int16 millimetres with the product's -999 fill, reported as
-# area-weighted means (intensive depths, like SNODAS swe/depth). Ingest names
-# each COG `<source-stem>__<key>.tif` to keep the source provenance in the
-# filename; the ``glob`` matches that on the `__<key>` suffix.
+# area-weighted means (intensive depths, like SNODAS swe/depth). Ingest names each
+# COG via `variable_out_name` (`<source-stem>__<key>.tif`) to keep the source
+# provenance in the filename; the ``glob`` matches that on the `__<key>` suffix.
 _mm = Unit(name='mm', scale_factor=1)
 _NODATA = -999.0
 
@@ -72,6 +70,10 @@ _SUBDATASET_TO_VARIABLE = {
     'DEPTH': 'depth',
 }
 
+# The inverse: dataset variable key -> its NetCDF subdataset name, so a raster is
+# built keyed by the spec variable (per_variable_ingest loops spec variables).
+_VARIABLE_TO_SUBDATASET = {key: sub for sub, key in _SUBDATASET_TO_VARIABLE.items()}
+
 
 # --- SWANN 800m ingest --------------------------------------------------------
 
@@ -80,53 +82,39 @@ class SwannRaster(GridAlignedRaster):
     """One GDAL-readable band, ready to write itself as a grid-aligned COG.
 
     Written on the dataset grid's own transform/CRS -- the authoritative geometry
-    from the spec, not GDAL's lat/lon-derived (float32) geotransform.
-    ``expected_shape`` is the dataset grid's ``(rows, cols)``; a source band of any
-    other shape (a truncated/regridded UA file) raises rather than write a
-    silently mis-aligned COG.
+    from the spec, not GDAL's lat/lon-derived (float32) geotransform. The base's
+    shape guard (against ``geometry.shape``) raises for a source band of any other
+    shape (a truncated/regridded UA file) rather than write a silently mis-aligned
+    COG.
     """
 
     def __init__(
         self: Self,
         source_uri: str,
         out_name: str,
+        geometry: GridGeometry,
         *,
-        transform: Affine,
-        crs: rasterio.crs.CRS,
-        tile_size: int,
         nodata: float,
-        expected_shape: tuple[int, int],
         tags: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(
-            out_name,
-            transform=transform,
-            crs=crs,
-            tile_size=tile_size,
-            nodata=nodata,
-            tags=tags,
-        )
+        super().__init__(out_name, geometry, nodata=nodata, tags=tags)
         self.source_uri = source_uri
-        self.expected_shape = expected_shape
 
     def read_array(self: Self) -> numpy.ndarray:
         with rasterio.open(self.source_uri) as src:
-            array = src.read(1)
-        if array.shape != self.expected_shape:
-            raise IngestSourceError(
-                f'SWANN source band {self.source_uri!r} has shape {array.shape}, '
-                f'expected the dataset grid shape {self.expected_shape}.',
-            )
-        return array
+            return src.read(1)
 
 
 class SwannIngester:
     """Parses one SWANN 800m daily NetCDF (one file == one date) for the driver.
 
     :meth:`plan` parses the date + stage from the filename and yields a single
-    :class:`~snowtool.snowdb.ingest.DateIngest` whose ``build_rasters`` produces a
-    grid-aligned :class:`SwannRaster` per variable.
+    :class:`~snowtool.snowdb.ingest.DateIngest` (via
+    :func:`~snowtool.snowdb.ingest.per_variable_ingest`) whose ``build_rasters``
+    produces a grid-aligned :class:`SwannRaster` per variable.
     """
+
+    kind: ClassVar[str] = 'swann'
 
     # Temporary policy gate: pin ingest to the `_early` stage so a dataset never
     # mixes revisions.
@@ -162,49 +150,34 @@ class SwannIngester:
         ingest_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
         stage = match['stage']
 
-        transform = dataset.grid.base_grid.transform
-        crs = dataset.grid_crs
-        grid_params = dataset.spec.grid_params
-        tile_size = grid_params.tile_size
-        expected_shape = (grid_params.rows, grid_params.cols)
+        geometry = dataset.grid_geometry
 
-        # Name each COG after the source file (+ variable) so the provenance is
-        # visible in the filesystem; derived from the source path + spec alone, so
-        # the skip check has them without opening the NetCDF.
-        out_by_key = {
-            key: f'{source.stem}__{key}.tif' for key in _SUBDATASET_TO_VARIABLE.values()
-        }
+        def make_raster(
+            variable: DatasetVariable,
+            out_name: str,
+            source_hash: str,
+        ) -> WritableRaster:
+            return SwannRaster(
+                f'netcdf:{source}:{_VARIABLE_TO_SUBDATASET[variable.key]}',
+                out_name,
+                geometry,
+                nodata=variable.nodata,
+                tags=source_tags(
+                    dataset=dataset.spec.name,
+                    date=ingest_date,
+                    variable=variable.key,
+                    files=source.name,
+                    source_hash=source_hash,
+                    extra={'SOURCE_STAGE': stage},
+                ),
+            )
 
-        def build_rasters(source_hash: str) -> list[WritableRaster]:
-            rasters: list[WritableRaster] = []
-            for subdataset, key in _SUBDATASET_TO_VARIABLE.items():
-                variable = dataset.spec.variables[key]
-                rasters.append(
-                    SwannRaster(
-                        f'netcdf:{source}:{subdataset}',
-                        out_by_key[key],
-                        transform=transform,
-                        crs=crs,
-                        tile_size=tile_size,
-                        nodata=variable.nodata,
-                        expected_shape=expected_shape,
-                        tags=source_tags(
-                            dataset=dataset.spec.name,
-                            date=ingest_date,
-                            variable=variable.key,
-                            files=source.name,
-                            source_hash=source_hash,
-                            extra={'SOURCE_STAGE': stage},
-                        ),
-                    ),
-                )
-            return rasters
-
-        yield DateIngest(
-            date=ingest_date,
-            source_files=[source],
-            out_names=frozenset(out_by_key.values()),
-            build_rasters=build_rasters,
+        yield per_variable_ingest(
+            source.stem,
+            ingest_date,
+            [source],
+            dataset,
+            make_raster,
         )
 
 

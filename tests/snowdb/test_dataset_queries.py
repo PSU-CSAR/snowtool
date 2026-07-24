@@ -37,6 +37,41 @@ def test_date_dir_points_at_the_cogs_subdir(dataset):
     assert dataset.date_dir(date(2018, 4, 27)) == dataset._cogs / '20180427'
 
 
+def test_variable_resolution_uses_one_fnmatch_engine(dataset):
+    """The completeness side and the query side adjudicate a filename identically.
+
+    Regression for the previously divergent case: ``_unresolved_variables`` matched
+    with ``fnmatch`` while ``variable_path`` matched with ``Path.glob`` (which
+    excludes dot-prefixed names). A dot-prefixed file matching the SWE glob must now
+    be treated the *same* by both paths -- both route through the one fnmatch-based
+    ``_glob_matches`` engine, so a fnmatch-matched file resolves and is not counted
+    as missing.
+    """
+    swe = dataset.spec.variables['swe']
+    d = date(2018, 4, 27)
+    date_dir = dataset.date_dir(d)
+    date_dir.mkdir(parents=True)
+    # A dot-prefixed name that fnmatch (but not the old Path.glob) matches against
+    # the SWE glob '??????v[01]1034?*TTNATS*.tif'.
+    dotfile = date_dir / '.usssmv11034SlL00T0001TTNATS2018042705HP001.tif'
+    dotfile.write_bytes(b'')
+    from fnmatch import fnmatch
+
+    assert fnmatch(dotfile.name, swe.glob)  # the engine both sides now share
+
+    # Query side: variable_path resolves the dot-prefixed COG.
+    assert dataset.variable_path(d, swe) == dotfile
+    # Completeness side: swe is *not* unresolved -- the two agree.
+    assert 'swe' not in dataset.unresolved_variables(d)
+
+
+def test_variable_path_none_for_absent_date_dir(dataset):
+    # No cogs/<date>/ dir at all: resolve to None (not a FileNotFoundError from
+    # iterdir), matching the old Path.glob-on-missing-dir tolerance.
+    swe = dataset.spec.variables['swe']
+    assert dataset.variable_path(date(2018, 4, 27), swe) is None
+
+
 def test_unresolved_variables_absent_date_is_all_variables(dataset):
     unresolved = dataset.unresolved_variables(date(2018, 4, 27))
     assert unresolved == set(dataset.spec.variables)

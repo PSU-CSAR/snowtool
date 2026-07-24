@@ -33,8 +33,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from snowtool.exceptions import IngestSourceError
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files, versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.progress import ProgressReporter
+    from snowtool.snowdb.variables import DatasetVariable
 
 
 # On-disk format version of an ingested date's COGs, owned here by the ingest
@@ -75,6 +77,26 @@ class IngestResult:
 
     ingested: list[date]
     skipped: list[date]
+
+
+@dataclass(frozen=True)
+class GridGeometry:
+    """A dataset grid's *authoritative* write geometry, threaded as one value.
+
+    The four facts every :class:`GridAlignedRaster` needs to write a grid-aligned
+    COG on the dataset grid's own lattice (its spec transform/CRS, not any source
+    file's geotransform): the ``transform`` and ``crs`` a COG is written with, the
+    ``tile_size`` (COG blocksize), and the grid ``shape`` (``(rows, cols)``) a
+    produced array must match. Built once per dataset (see
+    :attr:`~snowtool.snowdb.dataset.Dataset.grid_geometry`) and passed straight
+    through each ingester's rasters, so the transform/crs/tile_size/shape are no
+    longer re-derived and re-threaded as loose kwargs in every ingester.
+    """
+
+    transform: Affine
+    crs: rasterio.crs.CRS
+    tile_size: int
+    shape: tuple[int, int]
 
 
 class WritableRaster(Protocol):
@@ -102,26 +124,22 @@ class GridAlignedRaster(ABC):
     The SWANN single-band raster, the INSTARR mosaic, and the SNODAS header raster
     all write one COG on the dataset grid's *authoritative* geometry (its
     transform/CRS from the spec, not a source-file geotransform) with provenance
-    tags. This base owns that common plumbing -- geometry, tags, and the
-    :meth:`write_cog` call -- leaving each subclass only :meth:`read_array` (how it
-    produces the grid-shaped array). It satisfies the :class:`WritableRaster`
-    contract (``out_name`` + ``write_cog``).
+    tags. This base owns that common plumbing -- the :class:`GridGeometry`, tags,
+    the shape guard, and the :meth:`write_cog` call -- leaving each subclass only
+    :meth:`read_array` (how it produces the grid-shaped array). It satisfies the
+    :class:`WritableRaster` contract (``out_name`` + ``write_cog``).
     """
 
     def __init__(
         self,
         out_name: str,
+        geometry: GridGeometry,
         *,
-        transform: Affine,
-        crs: rasterio.crs.CRS,
-        tile_size: int,
         nodata: float,
         tags: dict[str, str] | None = None,
     ) -> None:
         self.out_name = out_name
-        self.transform = transform
-        self.crs = crs
-        self.tile_size = tile_size
+        self.geometry = geometry
         self.nodata = nodata
         self.tags = tags
 
@@ -131,13 +149,22 @@ class GridAlignedRaster(ABC):
         ...
 
     def write_cog(self, output_dir: Path) -> None:
+        array = self.read_array()
+        # The grid's transform/CRS are authoritative, so an array of any other
+        # shape would land silently mis-aligned under them; raise instead. INSTARR
+        # is on-grid by construction and passes trivially -- a free guard.
+        if array.shape != self.geometry.shape:
+            raise IngestSourceError(
+                f'{self.out_name!r} produced an array of shape {array.shape}, '
+                f'expected the dataset grid shape {self.geometry.shape}.',
+            )
         write_cog(
             output_dir / self.out_name,
-            self.read_array(),
-            transform=self.transform,
-            crs=self.crs,
+            array,
+            transform=self.geometry.transform,
+            crs=self.geometry.crs,
             nodata=self.nodata,
-            tile_size=self.tile_size,
+            tile_size=self.geometry.tile_size,
             tags=self.tags,
         )
 
@@ -165,6 +192,47 @@ class DateIngest:
     build_rasters: Callable[[str], Iterable[WritableRaster]]
 
 
+def variable_out_name(stem: str, key: str) -> str:
+    """The COG filename for a source ``stem`` + variable ``key``: ``{stem}__{key}.tif``.
+
+    The single spelling of the ``__<key>.tif`` convention that couples an ingested
+    COG's filename to the variable whose ``glob`` (``*__<key>.tif``) must resolve
+    it. Every dataset variable's glob comment points here; changing the convention
+    is a change in exactly one place.
+    """
+    return f'{stem}__{key}.tif'
+
+
+def per_variable_ingest(
+    stem: str,
+    date: date,
+    source_files: list[Path],
+    dataset: Dataset,
+    make_raster: Callable[[DatasetVariable, str, str], WritableRaster],
+) -> DateIngest:
+    """A :class:`DateIngest` with one grid-aligned COG per spec variable.
+
+    The SWANN-and-INSTARR shape: name each COG ``{stem}__{key}.tif`` (via
+    :func:`variable_out_name`), derive the date's ``out_names`` from the stem +
+    spec alone (so the skip check has them without opening a source), and build one
+    :class:`WritableRaster` per spec variable. ``make_raster(variable, out_name,
+    source_hash)`` supplies only the genuinely dataset-specific part -- the source
+    URI(s) and the per-variable (hash-stamped) tags; the driver-computed
+    ``source_hash`` is threaded in when ``build_rasters`` runs. SNODAS (one raster
+    per parsed archive member, not per spec variable) does not use this.
+    """
+    variables = list(dataset.spec.variables.values())
+    out_by_key = {v.key: variable_out_name(stem, v.key) for v in variables}
+    return DateIngest(
+        date=date,
+        source_files=source_files,
+        out_names=frozenset(out_by_key.values()),
+        build_rasters=lambda source_hash: [
+            make_raster(v, out_by_key[v.key], source_hash) for v in variables
+        ],
+    )
+
+
 class Ingester(Protocol):
     """Parses a source artifact into per-date work items for the ingest driver.
 
@@ -173,9 +241,26 @@ class Ingester(Protocol):
     source into versioned provenance, driving the atomic per-date write, splitting
     ingested from skipped -- lives once in :func:`run_ingest`, not in each
     ingester. One lives on each dataset spec that supports ingest.
+
+    ``kind`` is the ingester's registry key (``'snodas'``, ``'swann'``,
+    ``'instarr'``) -- the *kind* a dataset config names, distinct from a dataset
+    *name* -- so :func:`~snowtool.snowdb.datasets.config_from_spec` reads the key
+    straight off the ingester instead of reverse-mapping by type.
     """
 
-    def plan(self, source: Path, dataset: Dataset) -> Iterator[DateIngest]: ...
+    kind: ClassVar[str]
+
+    def plan(self, source: Path, dataset: Dataset) -> Iterator[DateIngest]:
+        """Yield one :class:`DateIngest` per date parsed from ``source``.
+
+        The driver (:func:`run_ingest`) consumes each yielded ``DateIngest`` fully
+        -- computing its source hash and running its (possibly skipped)
+        ``build_rasters`` -- before advancing the generator. A ``build_rasters``
+        callable may therefore hold generator-scoped resources bound in ``plan``
+        (there are none today: SNODAS owns its extraction tempdir inside
+        ``build_rasters`` itself). This is the plan -> driver ordering contract.
+        """
+        ...
 
 
 def run_ingest(

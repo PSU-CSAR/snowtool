@@ -24,7 +24,10 @@ from snowtool.snowdb.datasets.instarr import (
     INSTARR_VARIABLES,
     InstarrMosaicRaster,
 )
+from snowtool.snowdb.ingest import GridGeometry
 from snowtool.snowdb.spec import GridParams
+
+from ..conftest import write_geotiff
 
 
 def test_spec_is_native_modis_sinusoidal():
@@ -155,20 +158,13 @@ def test_ingest_groups_tiles_by_date(tmp_path):
 
 def _sinusoidal_tile(path, value, *, left, top, size, px):
     array = numpy.full((size, size), value, dtype='uint8')
-    transform = from_origin(left, top, px, px)
-    with rasterio.open(
+    write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=size,
-        width=size,
-        count=1,
-        dtype='uint8',
+        array,
+        transform=from_origin(left, top, px, px),
         crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
-        transform=transform,
         nodata=255,
-    ) as dst:
-        dst.write(array, 1)
+    )
 
 
 def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
@@ -204,10 +200,13 @@ def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
     raster = InstarrMosaicRaster(
         variable,
         [str(tl), str(br)],
-        grid,
+        GridGeometry(
+            transform=rasterio.transform.from_origin(origin_x, origin_y, px, px),
+            crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
+            tile_size=grid.tile_size,
+            shape=(grid.rows, grid.cols),
+        ),
         out_name='snow_fraction.tif',
-        transform=rasterio.transform.from_origin(origin_x, origin_y, px, px),
-        crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
         tags={'SOURCE_DATASET': 'instarr', 'SOURCE_VARIABLE': 'snow_fraction'},
     )
     out_dir = tmp_path / 'cogs'
@@ -224,3 +223,38 @@ def test_mosaic_places_tiles_by_origin_and_leaves_gaps_nodata(tmp_path):
     assert (mosaic[tile_px:, tile_px:] == 40).all()
     assert (mosaic[:tile_px, tile_px:] == 255).all()
     assert (mosaic[tile_px:, :tile_px] == 255).all()
+
+
+def test_mosaic_refuses_off_grid_shape(tmp_path):
+    # INSTARR previously had no shape check (mosaic is on-grid by construction).
+    # The base GridAlignedRaster.write_cog now validates every produced array
+    # against geometry.shape, so a mosaic whose read_array yields a wrong shape
+    # (a truncated/mis-sized band) raises IngestSourceError instead of silently
+    # writing a mis-aligned COG. Drive the guard through the read_array seam.
+    px = 463.3127165693847
+    variable = INSTARR_SPEC.variables['snow_fraction']
+
+    class _TruncatedMosaic(InstarrMosaicRaster):
+        def read_array(self):
+            # A band one row/col short of the declared grid shape.
+            rows, cols = self.geometry.shape
+            return numpy.zeros((rows - 1, cols - 1), dtype=variable.dtype)
+
+    raster = _TruncatedMosaic(
+        variable,
+        [],
+        GridGeometry(
+            transform=rasterio.transform.from_origin(0.0, 0.0, px, px),
+            crs=rasterio.crs.CRS.from_wkt(INSTARR_SPEC.crs.to_wkt()),
+            tile_size=16,
+            shape=(32, 32),
+        ),
+        out_name='snow_fraction.tif',
+    )
+    out_dir = tmp_path / 'cogs'
+    out_dir.mkdir()
+    with pytest.raises(
+        IngestSourceError,
+        match=r'produced an array of shape \(31, 31\), expected',
+    ):
+        raster.write_cog(out_dir)

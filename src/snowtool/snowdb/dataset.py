@@ -25,7 +25,7 @@ from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.provenance import hash_files
-from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG
+from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG, read_tag
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from griffine.grid import TiledAffineGrid
 
     from snowtool.snowdb.coverage import CoverageDomain
-    from snowtool.snowdb.ingest import IngestResult, WritableRaster
+    from snowtool.snowdb.ingest import GridGeometry, IngestResult, WritableRaster
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.spec import DatasetSpec
@@ -115,6 +115,24 @@ class Dataset:
         # from the spec's single parsed CRS (not re-parsed from grid_params) so
         # the pyproj and rasterio sides can never disagree.
         return rasterio.crs.CRS.from_user_input(self.spec.crs)
+
+    @property
+    def grid_geometry(self: Self) -> GridGeometry:
+        """This grid's authoritative COG-write geometry, as one value.
+
+        The single home for the transform/CRS/tile_size/shape an ingester's
+        grid-aligned rasters write with (see :class:`GridGeometry`): derived once
+        here from the grid + spec, so no ingester re-derives or re-threads them.
+        """
+        from snowtool.snowdb.ingest import GridGeometry
+
+        gp = self.spec.grid_params
+        return GridGeometry(
+            transform=self.grid.base_grid.transform,
+            crs=self.grid_crs,
+            tile_size=gp.tile_size,
+            shape=(gp.rows, gp.cols),
+        )
 
     @cached_property
     def nodata_mask_pair(self: Self) -> tuple[Path, str] | None:
@@ -269,8 +287,7 @@ class Dataset:
         path = self.aoi_raster_path_from_triplet(station_triplet)
         if not path.is_file():
             return None
-        with rasterio.open(path) as ds:
-            return ds.tags().get(AOI_HASH_TAG)
+        return read_tag(path, AOI_HASH_TAG)
 
     def aoi_raster_is_current(self: Self, pourpoint: Pourpoint) -> bool:
         """Whether a burned AOI raster exists AND matches ``pourpoint``'s geometry
@@ -322,6 +339,29 @@ class Dataset:
             )
         return run_ingest(ingester, source, self, force=force, progress=progress)
 
+    @staticmethod
+    def _list_filenames(directory: Path) -> list[str]:
+        """The filenames of ``directory``'s immediate regular-file children.
+
+        The one place the ``p.name for p in d.iterdir() if p.is_file()`` idiom
+        lives; every variable-resolution site works off this listing so they all
+        adjudicate the same file set.
+        """
+        return [p.name for p in directory.iterdir() if p.is_file()]
+
+    @staticmethod
+    def _glob_matches(names: Iterable[str], glob: str) -> list[str]:
+        """The members of ``names`` matching ``glob``, via :func:`fnmatch.fnmatch`.
+
+        The single filename-matching engine both the completeness side
+        (:meth:`_unresolved_variables`) and the query side (:meth:`variable_path`)
+        route through, so "the date is complete" and "this variable resolves" can
+        never disagree on the same directory listing. ``fnmatch`` matches
+        dot-prefixed names (unlike ``Path.glob``), so a dot-file matching a
+        variable's glob is treated identically by both.
+        """
+        return [name for name in names if fnmatch(name, glob)]
+
     def _unresolved_variables(self: Self, names: Iterable[str]) -> set[str]:
         """Spec variable keys whose glob does not match exactly one of ``names``.
 
@@ -334,7 +374,7 @@ class Dataset:
         return {
             variable.key
             for variable in self.spec.variables.values()
-            if sum(fnmatch(name, variable.glob) for name in names) != 1
+            if len(self._glob_matches(names, variable.glob)) != 1
         }
 
     def _date_source_hash(self: Self, date_dir: Path) -> str | None:
@@ -348,8 +388,7 @@ class Dataset:
         cogs = sorted(p for p in date_dir.iterdir() if p.is_file())
         if not cogs:
             return None
-        with rasterio.open(cogs[0]) as ds:
-            return ds.tags().get(SOURCE_HASH_TAG)
+        return read_tag(cogs[0], SOURCE_HASH_TAG)
 
     def write_date_cogs(
         self: Self,
@@ -415,7 +454,7 @@ class Dataset:
         if (
             not force
             and output_dir.is_dir()
-            and {p.name for p in output_dir.iterdir() if p.is_file()} == expected_names
+            and frozenset(self._list_filenames(output_dir)) == expected_names
             and self._date_source_hash(output_dir) == source_hash
         ):
             return False
@@ -441,9 +480,7 @@ class Dataset:
             # must resolve to exactly one written COG. On failure this raises inside
             # the context, which discards the staged dir and leaves the existing
             # date dir untouched.
-            missing = self._unresolved_variables(
-                p.name for p in staging.iterdir() if p.is_file()
-            )
+            missing = self._unresolved_variables(self._list_filenames(staging))
             if missing:
                 raise IncompleteDatasetDataError.for_variables(
                     self.spec.name,
@@ -489,16 +526,13 @@ class Dataset:
         """The ``cogs/<YYYYMMDD>/`` directory for date ``d`` (may not exist)."""
         return self._cogs / d.strftime('%Y%m%d')
 
-    def available_dates(
-        self: Self,
-        *,
-        start: date | None = None,
-        end: date | None = None,
-    ) -> list[date]:
+    def available_dates(self: Self) -> list[date]:
         """Every date with an ingested ``cogs/<YYYYMMDD>/`` directory, ascending.
 
-        ``start``/``end`` bound the result inclusively; either may be omitted
-        for an open end.
+        Returns the full set; a caller wanting a date window filters the result
+        through a :class:`~snowtool.snowdb.query.DateRangeQuery` (the one
+        inclusive-optional-bounds predicate), so the bounds logic lives in one
+        place.
         """
         if not self._cogs.is_dir():
             return []
@@ -507,21 +541,23 @@ class Dataset:
             for child in self._cogs.iterdir()
             if child.is_dir()
         )
-        return sorted(
-            d
-            for d in dates
-            if d is not None
-            and (start is None or d >= start)
-            and (end is None or d <= end)
-        )
+        return sorted(d for d in dates if d is not None)
 
     def variable_path(
         self: Self,
         d: date,
         variable: DatasetVariable,
     ) -> Path | None:
-        """The single COG for ``variable`` on date ``d``, or ``None`` if absent."""
-        matching = list(self.date_dir(d).glob(variable.glob))
+        """The single COG for ``variable`` on date ``d``, or ``None`` if absent.
+
+        Routes through the same :meth:`_glob_matches` engine (and directory
+        listing) as :meth:`_unresolved_variables`, so a date this reports resolved
+        is exactly one the completeness check counts complete.
+        """
+        date_dir = self.date_dir(d)
+        if not date_dir.is_dir():
+            return None
+        matching = self._glob_matches(self._list_filenames(date_dir), variable.glob)
         if len(matching) > 1:
             # Two COGs match one variable's glob -- a stale duplicate that an old
             # date on disk may still carry. Surface it as the typed integrity error
@@ -531,7 +567,7 @@ class Dataset:
                 d,
                 [variable.key],
             )
-        return matching[0] if matching else None
+        return date_dir / matching[0] if matching else None
 
     def unresolved_variables(self: Self, d: date) -> set[str]:
         """Spec variable keys unresolved (missing or duplicated) for date ``d``.
@@ -543,11 +579,7 @@ class Dataset:
         the query path.
         """
         date_dir = self.date_dir(d)
-        names = (
-            [p.name for p in date_dir.iterdir() if p.is_file()]
-            if date_dir.is_dir()
-            else []
-        )
+        names = self._list_filenames(date_dir) if date_dir.is_dir() else []
         return self._unresolved_variables(names)
 
     def aoi_raster_paths(self: Self) -> list[Path]:

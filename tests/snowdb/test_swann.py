@@ -31,8 +31,10 @@ from snowtool.snowdb.datasets.swann import (
     SWANN_800M_VARIABLES,
     SwannRaster,
 )
-from snowtool.snowdb.ingest import INGEST_FORMAT_VERSION
+from snowtool.snowdb.ingest import INGEST_FORMAT_VERSION, GridGeometry
 from snowtool.snowdb.provenance import hash_files, versioned_hash
+
+from ..conftest import write_geotiff
 
 
 def test_spec_grid_matches_product_file():
@@ -139,27 +141,16 @@ def test_ingest_builds_one_grid_aligned_raster_per_variable(tmp_path):
     grid_transform = tuple(ds.grid.base_grid.transform)[:6]
     grid_shape = (ds.spec.grid_params.rows, ds.spec.grid_params.cols)
     for raster in rasters.values():
-        assert raster.crs.to_epsg() == 4269
+        # The grid geometry (transform/CRS/tile_size/shape) is now one value.
+        assert raster.geometry.crs.to_epsg() == 4269
         assert raster.nodata == -999.0
-        assert raster.tile_size == 256
-        assert raster.expected_shape == grid_shape
-        assert tuple(raster.transform)[:6] == grid_transform
+        assert raster.geometry.tile_size == 256
+        assert raster.geometry.shape == grid_shape
+        assert tuple(raster.geometry.transform)[:6] == grid_transform
 
 
 def _geotiff_source(path, array, transform, crs):
-    with rasterio.open(
-        path,
-        'w',
-        driver='GTiff',
-        height=array.shape[0],
-        width=array.shape[1],
-        count=1,
-        dtype=array.dtype,
-        crs=crs,
-        transform=transform,
-        nodata=-999,
-    ) as dst:
-        dst.write(array, 1)
+    write_geotiff(path, array, transform=transform, crs=crs, nodata=-999)
 
 
 def test_swann_raster_writes_grid_aligned_cog(tmp_path):
@@ -174,11 +165,8 @@ def test_swann_raster_writes_grid_aligned_cog(tmp_path):
     raster = SwannRaster(
         str(src),
         'swe.tif',
-        transform=transform,
-        crs=crs,
-        tile_size=16,
+        GridGeometry(transform=transform, crs=crs, tile_size=16, shape=(32, 32)),
         nodata=-999.0,
-        expected_shape=(32, 32),
         tags={'SOURCE_DATASET': 'swann-800m', 'SOURCE_VARIABLE': 'swe'},
     )
     out_dir = tmp_path / 'cogs' / '20240115'
@@ -209,13 +197,14 @@ def test_swann_raster_refuses_shape_mismatch(tmp_path):
     raster = SwannRaster(
         str(src),
         'swe.tif',
-        transform=transform,
-        crs=crs,
-        tile_size=16,
+        # grid expects a bigger array than the source has
+        GridGeometry(transform=transform, crs=crs, tile_size=16, shape=(64, 64)),
         nodata=-999.0,
-        expected_shape=(64, 64),  # grid expects a bigger array than the source has
     )
     out_dir = tmp_path / 'cogs'
     out_dir.mkdir()
-    with pytest.raises(IngestSourceError, match=r'has shape \(32, 32\), expected'):
+    with pytest.raises(
+        IngestSourceError,
+        match=r'produced an array of shape \(32, 32\), expected',
+    ):
         raster.write_cog(out_dir)

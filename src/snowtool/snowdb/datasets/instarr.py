@@ -23,8 +23,7 @@ import re
 
 from collections import defaultdict
 from datetime import datetime
-from functools import partial
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 import numpy
 import rasterio
@@ -34,7 +33,7 @@ from geojson_pydantic.geometries import Geometry
 from pydantic import TypeAdapter
 
 from snowtool.exceptions import IngestSourceError
-from snowtool.snowdb.ingest import DateIngest, GridAlignedRaster
+from snowtool.snowdb.ingest import GridAlignedRaster, per_variable_ingest
 from snowtool.snowdb.raster.cog import source_tags
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
@@ -44,10 +43,8 @@ if TYPE_CHECKING:
     from datetime import date
     from pathlib import Path
 
-    from affine import Affine
-
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.ingest import WritableRaster
+    from snowtool.snowdb.ingest import DateIngest, GridGeometry, WritableRaster
 
 # --- MODIS Sinusoidal grid constants ------------------------------------------
 
@@ -118,9 +115,9 @@ def _instarr_footprint() -> Geometry:
 # All nine SPIRES variables are intensive per-pixel quantities -> area-weighted
 # MEAN (area is the constant sinusoidal cell area). Reads are the native uint8
 # (255 nodata) or uint16 (65535 nodata) with no scale/offset. Ingest names each
-# mosaic COG `<distilled-source-stem>__<key>.tif`; the glob matches that on the
-# `__<key>` suffix (the doubled delimiter keeps `snow_fraction` from also
-# matching `viewable_snow_fraction`).
+# mosaic COG via `variable_out_name` (`<distilled-source-stem>__<key>.tif`); the
+# glob matches that on the `__<key>` suffix (the doubled delimiter keeps
+# `snow_fraction` from also matching `viewable_snow_fraction`).
 _PERCENT = Unit(name='percent', scale_factor=1)  # %
 _MICRON = Unit(name='um', scale_factor=1)
 _PPM = Unit(name='ppm', scale_factor=1)
@@ -166,50 +163,43 @@ class InstarrMosaicRaster(GridAlignedRaster):
     time it allocates the full grid array (filled with the variable's nodata), reads
     each of the date's tile bands for this variable, and drops each into its grid
     slot positioned by the tile's own sinusoidal origin -- a lossless stitch, no
-    reprojection. Tiles absent for the date stay nodata (the mosaic is on-grid by
-    construction, so it needs no shape check). ``source_uris`` are GDAL-readable URIs
-    (the ingester builds ``netcdf:<tile>:<variable>``), keeping the NetCDF-format
-    knowledge in the ingester.
+    reprojection. Tiles absent for the date stay nodata. The mosaic is on-grid by
+    construction, so the base's shape guard passes trivially (a free check).
+    ``source_uris`` are GDAL-readable URIs (the ingester builds
+    ``netcdf:<tile>:<variable>``), keeping the NetCDF-format knowledge in the
+    ingester.
     """
 
     def __init__(
         self: Self,
         variable: DatasetVariable,
         source_uris: list[str],
-        grid_params: GridParams,
+        geometry: GridGeometry,
         *,
         out_name: str,
-        transform: Affine,
-        crs: rasterio.crs.CRS,
         tags: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(
-            out_name,
-            transform=transform,
-            crs=crs,
-            tile_size=grid_params.tile_size,
-            nodata=variable.nodata,
-            tags=tags,
-        )
+        super().__init__(out_name, geometry, nodata=variable.nodata, tags=tags)
         self.variable = variable
         self.source_uris = source_uris
-        self.grid_params = grid_params
 
     def read_array(self: Self) -> numpy.ndarray:
-        gp = self.grid_params
+        rows, cols = self.geometry.shape
         array = numpy.full(
-            (gp.rows, gp.cols),
+            (rows, cols),
             self.variable.nodata,
             dtype=self.variable.dtype,
         )
 
+        inverse = ~self.geometry.transform
         for source_uri in self.source_uris:
             with rasterio.open(source_uri) as src:
-                # Place by the tile's own sinusoidal origin relative to the grid
-                # origin; round absorbs the sub-mm differences between the stored
-                # tile geotransform and the canonical lattice.
-                col_off = round((src.bounds.left - gp.origin_x) / gp.px_size)
-                row_off = round((gp.origin_y - src.bounds.top) / gp.px_size)
+                # Place by the tile's own sinusoidal origin: the grid transform's
+                # inverse maps the tile's upper-left world coord to grid (col, row).
+                # round absorbs the sub-mm differences between the stored tile
+                # geotransform and the canonical lattice.
+                fcol, frow = inverse * (src.bounds.left, src.bounds.top)
+                col_off, row_off = round(fcol), round(frow)
                 data = src.read(1)
             rows, cols = data.shape
             array[row_off : row_off + rows, col_off : col_off + cols] = data
@@ -226,6 +216,8 @@ class InstarrIngester:
     date whose ``build_rasters`` produces one mosaicked COG per variable.
     ``source`` may be a directory (scanned recursively) or a single tile file.
     """
+
+    kind: ClassVar[str] = 'instarr'
 
     filename_re = re.compile(
         r'SPIRES_NRT_h(?P<h>\d\d)v(?P<v>\d\d)_(?P<collection>MOD09GA\d+)_'
@@ -275,75 +267,50 @@ class InstarrIngester:
                 "'SPIRES_NRT_h09v04_MOD09GA061_<YYYYMMDD>_V1.0.nc').",
             )
 
+        geometry = dataset.grid_geometry
         for ingest_date, tile_matches in sorted(matches_by_date.items()):
             tile_paths = [path for path, _ in tile_matches]
             stem, collection, version = self._distilled_stem(tile_matches)
+            # Filesystem-visible provenance is the distilled stem; the COG tags
+            # carry the full record, including the exact contributing tiles.
+            files_tag = ' '.join(sorted(p.name for p in tile_paths))
 
-            yield DateIngest(
-                date=ingest_date,
-                source_files=tile_paths,
-                # The mosaic COG names come from the distilled stem + spec alone, so
-                # the skip check has them without opening a tile.
-                out_names=frozenset(
-                    f'{stem}__{variable.key}.tif'
-                    for variable in dataset.spec.variables.values()
-                ),
-                build_rasters=partial(
-                    self._build_rasters,
-                    dataset,
-                    tile_paths,
-                    stem=stem,
-                    collection=collection,
-                    version=version,
-                    ingest_date=ingest_date,
-                ),
+            def make_raster(
+                variable: DatasetVariable,
+                out_name: str,
+                source_hash: str,
+                *,
+                tile_paths: list[Path] = tile_paths,
+                files_tag: str = files_tag,
+                collection: str = collection,
+                version: str = version,
+                ingest_date: date = ingest_date,
+            ) -> WritableRaster:
+                return InstarrMosaicRaster(
+                    variable,
+                    [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
+                    geometry,
+                    out_name=out_name,
+                    tags=source_tags(
+                        dataset=dataset.spec.name,
+                        date=ingest_date,
+                        variable=variable.key,
+                        files=files_tag,
+                        source_hash=source_hash,
+                        extra={
+                            'SOURCE_COLLECTION': collection,
+                            'SOURCE_VERSION': version,
+                        },
+                    ),
+                )
+
+            yield per_variable_ingest(
+                stem,
+                ingest_date,
+                tile_paths,
+                dataset,
+                make_raster,
             )
-
-    @staticmethod
-    def _build_rasters(
-        dataset: Dataset,
-        tile_paths: list[Path],
-        source_hash: str,
-        *,
-        stem: str,
-        collection: str,
-        version: str,
-        ingest_date: date,
-    ) -> list[WritableRaster]:
-        """A date's mosaicked rasters, one per variable (the ``build_rasters`` body).
-
-        Bound per date via :func:`functools.partial` in :meth:`plan`;
-        ``source_hash`` is supplied by the driver.
-        """
-        grid_params = dataset.spec.grid_params
-        transform = dataset.grid.base_grid.transform
-        crs = dataset.grid_crs
-        # Filesystem-visible provenance is the distilled stem; the COG tags carry
-        # the full record, including the exact contributing tiles.
-        files_tag = ' '.join(sorted(p.name for p in tile_paths))
-
-        return [
-            InstarrMosaicRaster(
-                variable,
-                [f'netcdf:{tile}:{variable.key}' for tile in tile_paths],
-                grid_params,
-                out_name=f'{stem}__{variable.key}.tif',
-                transform=transform,
-                crs=crs,
-                tags=source_tags(
-                    dataset=dataset.spec.name,
-                    date=ingest_date,
-                    variable=variable.key,
-                    files=files_tag,
-                    source_hash=source_hash,
-                    extra={
-                        'SOURCE_COLLECTION': collection,
-                        'SOURCE_VERSION': version,
-                    },
-                ),
-            )
-            for variable in dataset.spec.variables.values()
-        ]
 
     def _distilled_stem(
         self: Self,

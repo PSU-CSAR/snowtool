@@ -34,13 +34,15 @@ DEFAULT_DATASET_SPECS: tuple[DatasetSpec, ...] = (
 )
 
 # The ingester registry: a dataset config names its ingester by one of these keys
-# and the ingest path resolves the code from here (reads/queries never touch it).
-# Note the key is the *kind* (``swann``), distinct from a dataset *name*
-# (``swann-800m``).
+# (its ``kind``) and the ingest path resolves the code from here (reads/queries
+# never touch it). Note the key is the *kind* (``swann``), distinct from a dataset
+# *name* (``swann-800m``). Built from the SAME ingester instances the built-in
+# specs embed (keyed by each ingester's ``kind``), so the registry and the specs
+# never drift into two instances of a kind.
 INGESTERS: dict[str, Ingester] = {
-    'snodas': SnodasIngester(),
-    'swann': SwannIngester(),
-    'instarr': InstarrIngester(),
+    spec.ingester.kind: spec.ingester
+    for spec in DEFAULT_DATASET_SPECS
+    if spec.ingester is not None
 }
 
 
@@ -51,15 +53,12 @@ def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     through this and back reproduces the spec exactly -- the guarantee behind the
     templates below.
     """
-    ingester_name = (
-        next(n for n, i in INGESTERS.items() if type(i) is type(spec.ingester))
-        if spec.ingester is not None
-        else None
-    )
     return DatasetConfig(
         grid=spec.grid_params,
         variables=dict(spec.variables),
-        ingester=ingester_name,
+        # The ingester names its own registry key (its ``kind``); None for a
+        # read-only/derived spec with no ingester.
+        ingester=spec.ingester.kind if spec.ingester is not None else None,
         zones=spec.zones,
         footprint=spec.footprint,
     )

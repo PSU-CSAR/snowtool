@@ -14,6 +14,8 @@ from snowtool.snowdb.datasets.snodas import (
     SNODASName,
 )
 
+from ..conftest import write_geotiff
+
 
 def test_registered_in_default_specs():
     assert 'snodas' in {s.name for s in DEFAULT_DATASET_SPECS}
@@ -91,32 +93,36 @@ _SNODAS_STEM = 'us_ssmv11034SlL00T0001TTNATS2019020205HP001'
 
 
 def test_snodas_read_array_refuses_off_grid_shape(tmp_path, monkeypatch):
-    """A header whose band is not the dataset grid shape raises, not mis-writes."""
+    """A header whose band is not the dataset grid shape raises, not mis-writes.
+
+    The guard now lives in the base ``GridAlignedRaster.write_cog`` (against
+    ``geometry.shape``), so it fires on the write, not the bare read.
+    """
+    from snowtool.snowdb.ingest import GridGeometry
+
     monkeypatch.setattr(
         'snowtool.snowdb.datasets.snodas.SNODASInputRaster.trim_header',
         staticmethod(lambda hdr: None),
     )
     path = tmp_path / f'{_SNODAS_STEM}.txt'
-    with rasterio.open(
+    write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        dtype='int16',
-        count=1,
-        height=3,
-        width=3,
-        crs='EPSG:4326',
+        numpy.zeros((3, 3), dtype='int16'),
         transform=rasterio.transform.from_origin(-124, 52, 0.5, 0.5),
-    ) as dst:
-        dst.write(numpy.zeros((1, 3, 3), dtype='int16'))
+        crs='EPSG:4326',
+    )
     raster = SNODASInputRaster(
         SNODASName(_SNODAS_STEM),
         path,
         'v1:abc',
-        transform=rasterio.transform.from_origin(-124, 52, 0.5, 0.5),
-        crs=rasterio.crs.CRS.from_epsg(4326),
-        tile_size=256,
-        expected_shape=(4, 4),
+        GridGeometry(
+            transform=rasterio.transform.from_origin(-124, 52, 0.5, 0.5),
+            crs=rasterio.crs.CRS.from_epsg(4326),
+            tile_size=256,
+            shape=(4, 4),
+        ),
     )
+    out_dir = tmp_path / 'cogs'
+    out_dir.mkdir()
     with pytest.raises(IngestSourceError, match='expected the dataset grid shape'):
-        raster.read_array()
+        raster.write_cog(out_dir)

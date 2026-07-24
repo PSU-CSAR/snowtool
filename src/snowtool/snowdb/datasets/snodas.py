@@ -36,9 +36,8 @@ from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
 
-    from affine import Affine
-
     from snowtool.snowdb.dataset import Dataset
+    from snowtool.snowdb.ingest import GridGeometry
 
 HDR_EXTS = ('.Hdr', '.txt')
 
@@ -227,9 +226,9 @@ class SNODASInputRaster(GridAlignedRaster):
     """One extracted SNODAS header, ready to write itself as a grid-aligned COG.
 
     Written on the dataset grid's authoritative transform/CRS from the spec, not
-    the header's own geotransform; ``expected_shape`` is the grid's
-    ``(rows, cols)``, so a header on any other lattice raises rather than write
-    a silently mis-aligned COG.
+    the header's own geotransform; the base's shape guard (against
+    ``geometry.shape``) raises rather than write a silently mis-aligned COG for a
+    header on any other lattice.
     """
 
     def __init__(
@@ -237,11 +236,7 @@ class SNODASInputRaster(GridAlignedRaster):
         parsed: SNODASName,
         path: Path,
         source_hash: str,
-        *,
-        transform: Affine,
-        crs: rasterio.crs.CRS,
-        tile_size: int,
-        expected_shape: tuple[int, int],
+        geometry: GridGeometry,
     ) -> None:
         if path.suffix not in HDR_EXTS:
             raise IngestSourceError(
@@ -250,16 +245,13 @@ class SNODASInputRaster(GridAlignedRaster):
             )
         super().__init__(
             parsed.out_name,
-            transform=transform,
-            crs=crs,
-            tile_size=tile_size,
+            geometry,
             nodata=SNODAS_NODATA,
             tags=parsed.provenance_tags(path.name, source_hash),
         )
         self.parsed = parsed
         self.path = path
         self.source_hash = source_hash
-        self.expected_shape = expected_shape
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
@@ -278,13 +270,7 @@ class SNODASInputRaster(GridAlignedRaster):
     def read_array(self: Self) -> numpy.ndarray:
         self.trim_header(self.path)
         with rasterio.open(self.path) as src:
-            array = src.read(1)
-        if array.shape != self.expected_shape:
-            raise IngestSourceError(
-                f'SNODAS header {self.path.name!r} has shape {array.shape}, '
-                f'expected the dataset grid shape {self.expected_shape}.',
-            )
-        return array
+            return src.read(1)
 
 
 class SNODASInputRasterSet:
@@ -414,11 +400,7 @@ class SNODASInputRasterSet:
         source: Path,
         extract_dir: Path,
         source_hash: str,
-        *,
-        transform: Affine,
-        crs: rasterio.crs.CRS,
-        tile_size: int,
-        expected_shape: tuple[int, int],
+        geometry: GridGeometry,
     ) -> list[SNODASInputRaster]:
         """Extract ``source`` into ``extract_dir`` and pair each header with its name.
 
@@ -440,15 +422,7 @@ class SNODASInputRasterSet:
                     f'SNODAS archive header missing on extraction for {name.name!r}',
                 )
             rasters.append(
-                SNODASInputRaster(
-                    name,
-                    path,
-                    source_hash,
-                    transform=transform,
-                    crs=crs,
-                    tile_size=tile_size,
-                    expected_shape=expected_shape,
-                ),
+                SNODASInputRaster(name, path, source_hash, geometry),
             )
         return rasters
 
@@ -463,6 +437,8 @@ class SnodasIngester:
     identify and validate the date's product set and derive its ``out_names`` --
     no extraction.
     """
+
+    kind: ClassVar[str] = 'snodas'
 
     def plan(
         self,
@@ -485,14 +461,15 @@ class SnodasIngester:
             SNODASInputRasterSet.header_stems(member_names),
         )
 
-        transform = dataset.grid.base_grid.transform
-        crs = dataset.grid_crs
-        grid_params = dataset.spec.grid_params
+        geometry = dataset.grid_geometry
 
         # An empty scratch dir for the extraction build_rasters may run, cleaned
-        # deterministically when this generator is exhausted/closed. Nothing is
-        # extracted here or before the write path decides to build -- so a skipped
-        # date leaves the dir empty (zero tar extraction).
+        # deterministically when this generator is exhausted/closed -- valid only
+        # because the driver consumes each DateIngest fully (running its possibly
+        # skipped build_rasters + COG writes) before advancing the generator (see
+        # the plan-> driver contract on Ingester.plan). Nothing is extracted here
+        # or before the write path decides to build -- so a skipped date leaves the
+        # dir empty (zero tar extraction).
         with tempfile.TemporaryDirectory() as _extract:
             extract_dir = Path(_extract)
             yield DateIngest(
@@ -503,10 +480,7 @@ class SnodasIngester:
                     source,
                     extract_dir,
                     source_hash,
-                    transform=transform,
-                    crs=crs,
-                    tile_size=grid_params.tile_size,
-                    expected_shape=(grid_params.rows, grid_params.cols),
+                    geometry,
                 ),
             )
 
