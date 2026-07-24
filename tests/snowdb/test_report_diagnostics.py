@@ -276,29 +276,43 @@ def guard_db(created_db):
     return db
 
 
-def test_guard_passes_full_coverage(guard_db):
-    assert guard_db.require_pourpoint_coverage('full:MT:USGS', 'test') is Coverage.FULL
-
-
-def test_guard_raises_on_partial(guard_db):
-    with pytest.raises(PourpointCoverageError, match='partially covered'):
-        guard_db.require_pourpoint_coverage('part:MT:USGS', 'test')
-
-
-def test_guard_allow_partial_bypasses(guard_db):
-    assert (
-        guard_db.require_pourpoint_coverage(
+@pytest.mark.parametrize(
+    ('triplet', 'allow_partial', 'expectation'),
+    [
+        pytest.param('full:MT:USGS', False, Coverage.FULL, id='full-passes'),
+        pytest.param('part:MT:USGS', False, 'partially covered', id='partial-raises'),
+        pytest.param(
             'part:MT:USGS',
+            True,
+            Coverage.PARTIAL,
+            id='partial-allow-partial-bypasses',
+        ),
+        pytest.param(
+            'none:MT:USGS',
+            True,
+            'not covered',
+            id='uncovered-raises-despite-allow-partial',
+        ),
+    ],
+)
+def test_guard_wiring(guard_db, triplet, allow_partial, expectation):
+    # Proves the db-level wiring (index -> coverage -> guard); the FULL/PARTIAL/
+    # NONE/allow_partial matrix itself is pinned by test_coverage.py's
+    # require_full_coverage tests. ``expectation`` is either the Coverage the
+    # call must return, or a match string for the PourpointCoverageError it must
+    # raise.
+    def call():
+        return guard_db.require_pourpoint_coverage(
+            triplet,
             'test',
-            allow_partial=True,
+            allow_partial=allow_partial,
         )
-        is Coverage.PARTIAL
-    )
 
-
-def test_guard_raises_on_uncovered_despite_allow_partial(guard_db):
-    with pytest.raises(PourpointCoverageError, match='not covered'):
-        guard_db.require_pourpoint_coverage('none:MT:USGS', 'test', allow_partial=True)
+    if isinstance(expectation, Coverage):
+        assert call() is expectation
+    else:
+        with pytest.raises(PourpointCoverageError, match=expectation):
+            call()
 
 
 # --- aoi-health --------------------------------------------------------------

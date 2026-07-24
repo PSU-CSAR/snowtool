@@ -26,6 +26,10 @@ def _json(result):
     return json.loads(result.output)
 
 
+def _row(date, action, source):
+    return {'dataset': 'test', 'date': date, 'action': action, 'source': source}
+
+
 def _generate_zones(runner, cli_obj, source_dem):
     """Generate zone layers for 'test' explicitly (terrain from a local DEM;
     landcover from the root config's declared local source)."""
@@ -480,18 +484,8 @@ def test_ingest_delegates_to_spec_ingester(
     assert result.exit_code == 0, result.output
     rows = json.loads(result.stdout)
     assert rows == [
-        {
-            'dataset': 'test',
-            'date': '2020-01-01',
-            'action': 'ingested',
-            'source': str(source_dem),
-        },
-        {
-            'dataset': 'test',
-            'date': '2020-01-02',
-            'action': 'ingested',
-            'source': str(source_dem),
-        },
+        _row('2020-01-01', 'ingested', str(source_dem)),
+        _row('2020-01-02', 'ingested', str(source_dem)),
     ]
     assert len(fake.calls) == 1
 
@@ -533,12 +527,7 @@ def test_ingest_converges_and_force_reingests(
     )
     assert converge.exit_code == 0, converge.output
     assert json.loads(converge.stdout) == [
-        {
-            'dataset': 'test',
-            'date': '2020-01-01',
-            'action': 'up-to-date',
-            'source': str(source_dem),
-        },
+        _row('2020-01-01', 'up-to-date', str(source_dem)),
     ]
 
     forced = runner.invoke(
@@ -548,12 +537,7 @@ def test_ingest_converges_and_force_reingests(
     )
     assert forced.exit_code == 0, forced.output
     assert json.loads(forced.stdout) == [
-        {
-            'dataset': 'test',
-            'date': '2020-01-01',
-            'action': 'ingested',
-            'source': str(source_dem),
-        },
+        _row('2020-01-01', 'ingested', str(source_dem)),
     ]
 
 
@@ -583,12 +567,7 @@ def test_ingest_accepts_a_directory_source(runner, tmp_path, register_fake_inges
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == [
-        {
-            'dataset': 'test',
-            'date': '2020-01-01',
-            'action': 'ingested',
-            'source': str(src_dir),
-        },
+        _row('2020-01-01', 'ingested', str(src_dir)),
     ]
     assert fake.calls == [(src_dir, 'test')]
 
@@ -650,12 +629,7 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
     )
     assert ingested.exit_code == 0, ingested.output
     assert json.loads(ingested.stdout) == [
-        {
-            'dataset': 'test',
-            'date': '2020-01-01',
-            'action': 'ingested',
-            'source': str(source_dem),
-        },
+        _row('2020-01-01', 'ingested', str(source_dem)),
     ]
 
     refused = runner.invoke(cli, ['stats', 'test', '12345:MT:USGS'], obj=ctx())
@@ -667,8 +641,34 @@ def test_inactive_dataset_is_manageable_but_not_queryable(
 # --- generate ----------------------------------------------------------------
 
 
-def test_generate_is_idempotent(runner, cli_obj, source_dem):
-    # Running generate repeatedly overwrites and always succeeds (idempotent).
+@pytest.mark.parametrize(
+    ('provider', 'source_fixture', 'message'),
+    [
+        pytest.param(
+            'terrain',
+            'source_dem',
+            'generated terrain for test',
+            id='terrain',
+        ),
+        pytest.param(
+            'landcover',
+            'source_nlcd',
+            'generated landcover for test',
+            id='landcover',
+        ),
+    ],
+)
+def test_generate_is_idempotent(
+    runner,
+    cli_obj,
+    request,
+    provider,
+    source_fixture,
+    message,
+):
+    # Running generate repeatedly overwrites and always succeeds (idempotent),
+    # for both the terrain and land-cover providers.
+    source = request.getfixturevalue(source_fixture)
     for _ in range(2):
         result = runner.invoke(
             cli,
@@ -677,15 +677,15 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
                 'generate-zones',
                 'test',
                 '--provider',
-                'terrain',
+                provider,
                 '--source',
-                'terrain',
-                str(source_dem),
+                provider,
+                str(source),
             ],
             obj=cli_obj,
         )
         assert result.exit_code == 0
-        assert 'generated terrain for test' in result.output
+        assert message in result.output
 
 
 def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, source_dem):
@@ -730,26 +730,6 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
     assert result.exit_code == 0
     assert captured['workers'] == 3
     assert captured['block'] == 512
-
-
-def test_generate_landcover_is_idempotent(runner, cli_obj, source_nlcd):
-    for _ in range(2):
-        result = runner.invoke(
-            cli,
-            [
-                'dataset',
-                'generate-zones',
-                'test',
-                '--provider',
-                'landcover',
-                '--source',
-                'landcover',
-                str(source_nlcd),
-            ],
-            obj=cli_obj,
-        )
-        assert result.exit_code == 0
-        assert 'generated landcover for test' in result.output
 
 
 # --- remove-date ---------------------------------------------------------------

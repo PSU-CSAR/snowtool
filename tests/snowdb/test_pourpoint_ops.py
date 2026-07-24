@@ -19,7 +19,6 @@ from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
-from snowtool.snowdb.pourpoint_manager import PourpointManager
 
 from ..conftest import (
     CapturingProgress,
@@ -128,29 +127,24 @@ def test_from_geojson_maps_malformed_to_validation_error(tmp_path, kind):
         Pourpoint.from_geojson(bad)
 
 
+@pytest.mark.parametrize('op', ['import_', 'sync'])
 @pytest.mark.parametrize('kind', ['nonjson', 'nonutf8', 'wrong_shape'])
 @pytest.mark.parametrize('dry_run', [False, True])
-def test_import_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run):
+def test_import_and_sync_malformed_source_lands_in_invalid(
+    manager,
+    tmp_path,
+    kind,
+    dry_run,
+    op,
+):
     # A single garbage file must not abort the whole batch: the good record still
-    # imports and the bad one is classified as invalid (both dry-run and real).
+    # imports and the bad one is classified as invalid (both dry-run and real, for
+    # both import_ and sync).
     src = tmp_path / 'src'
     _write_aoi(src, '11111:MT:USGS')
     _write_bad(src / 'bad.geojson', kind)
 
-    result = manager.pourpoints.import_(src, dry_run=dry_run)
-
-    assert result.imported == ['11111:MT:USGS']
-    assert [p.name for p, _ in result.invalid] == ['bad.geojson']
-
-
-@pytest.mark.parametrize('kind', ['nonjson', 'nonutf8', 'wrong_shape'])
-@pytest.mark.parametrize('dry_run', [False, True])
-def test_sync_malformed_source_lands_in_invalid(manager, tmp_path, kind, dry_run):
-    src = tmp_path / 'src'
-    _write_aoi(src, '11111:MT:USGS')
-    _write_bad(src / 'bad.geojson', kind)
-
-    result = manager.pourpoints.sync(src, dry_run=dry_run)
+    result = getattr(manager.pourpoints, op)(src, dry_run=dry_run)
 
     assert result.imported == ['11111:MT:USGS']
     assert [p.name for p, _ in result.invalid] == ['bad.geojson']
@@ -312,10 +306,24 @@ def test_reindex_rebuilds_from_records(manager, db, pourpoint_geojson):
     assert db.pourpoint_index_path.is_file()
 
 
-def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojson):
+@pytest.mark.parametrize(
+    'call',
+    [
+        pytest.param(lambda m: m.pourpoints.reindex(), id='reindex'),
+        pytest.param(lambda m: m.pourpoints.basins(), id='basins'),
+    ],
+)
+def test_reindex_and_basins_raise_on_basin_less_stored_record(
+    manager,
+    db,
+    pourpoint_geojson,
+    call,
+):
     # Every stored record is basin-bearing (the import boundary guarantees it), so
-    # a point-only record in `records/` is a corrupt store. Reindex refuses loudly
-    # -- naming the offending file -- rather than silently dropping the record.
+    # a point-only record in `records/` is a corrupt store. Both reindex() and
+    # basins() refuse loudly -- naming the offending file -- rather than silently
+    # dropping the record (reindex) or failing with an untyped ValueError
+    # downstream (basins()).
     manager.pourpoints.import_(pourpoint_geojson)
     triplet = '12345:MT:USGS'
     record_path = db.pourpoint_record_path(triplet)
@@ -329,27 +337,7 @@ def test_reindex_raises_on_basin_less_stored_record(manager, db, pourpoint_geojs
         IndexedPourpointMissingBasinError,
         match=record_path.name,
     ):
-        manager.pourpoints.reindex()
-
-
-def test_basin_pourpoints_raises_on_basin_less_record(manager, db, pourpoint_geojson):
-    # basins() enforces the basin-bearing invariant on read: a point-only
-    # record edited into `records/` out of band raises the typed error naming the
-    # file, rather than flowing on to fail with an untyped ValueError downstream.
-    manager.pourpoints.import_(pourpoint_geojson)
-    triplet = '12345:MT:USGS'
-    record_path = db.pourpoint_record_path(triplet)
-    _write_aoi(
-        db.pourpoint_records_path,
-        triplet,
-        with_polygon=False,
-    )
-
-    with pytest.raises(
-        IndexedPourpointMissingBasinError,
-        match=record_path.name,
-    ):
-        PourpointManager(db).basins()
+        call(manager)
 
 
 def test_load_pourpoint_gates_on_index(manager, db):

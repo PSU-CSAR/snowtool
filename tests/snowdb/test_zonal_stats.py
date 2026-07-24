@@ -675,35 +675,43 @@ def test_compact_zone_area_must_be_non_negative():
         CompactZone(zone=[], area_m2=-1.0)
 
 
-def test_dump_compact_drops_empty_zones_by_default():
-    # The empty (0-area) high band is dropped; only the populated band survives.
-    compact = _two_band_stats().dump_compact()
-    (zone,) = compact.zones
-    assert zone.area_m2 == 10.0
+@pytest.mark.parametrize(
+    ('include_empty_zones', 'expected_areas'),
+    [
+        pytest.param(False, [10.0], id='drops-empty-zones-by-default'),
+        pytest.param(True, [10.0, 0.0], id='keeps-empty-zones-when-requested'),
+    ],
+)
+def test_dump_compact_empty_zone_filtering(include_empty_zones, expected_areas):
+    # The empty (0-area) high band is dropped by default; only the populated band
+    # survives. Opting in restores the full crossed product, empty cells included.
+    compact = _two_band_stats().dump_compact(include_empty_zones=include_empty_zones)
+    assert [zone.area_m2 for zone in compact.zones] == expected_areas
 
 
-def test_dump_compact_keeps_empty_zones_when_requested():
-    # Opting in restores the full crossed product, empty cells included.
-    compact = _two_band_stats().dump_compact(include_empty_zones=True)
-    assert [zone.area_m2 for zone in compact.zones] == [10.0, 0.0]
-
-
-def test_dump_to_csv_drops_empty_zones_by_default():
+@pytest.mark.parametrize(
+    ('include_empty_zones', 'expected_rows'),
+    [
+        pytest.param(
+            False,
+            [[_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0']],
+            id='drops-empty-zones-by-default',
+        ),
+        pytest.param(
+            True,
+            [
+                [_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0'],
+                [_DUMP_DAY.isoformat(), '1000', '2000', '0.0', ''],
+            ],
+            id='keeps-empty-zones-when-requested',
+        ),
+    ],
+)
+def test_dump_to_csv_empty_zone_filtering(include_empty_zones, expected_rows):
     out = io.StringIO()
-    _two_band_stats().dump_to_csv(out)
+    _two_band_stats().dump_to_csv(out, include_empty_zones=include_empty_zones)
     _, *rows = list(csv.reader(io.StringIO(out.getvalue())))
-    # Only the populated (0, 1000) band row remains.
-    assert rows == [[_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0']]
-
-
-def test_dump_to_csv_keeps_empty_zones_when_requested():
-    out = io.StringIO()
-    _two_band_stats().dump_to_csv(out, include_empty_zones=True)
-    _, *rows = list(csv.reader(io.StringIO(out.getvalue())))
-    assert rows == [
-        [_DUMP_DAY.isoformat(), '0', '1000', '10.0', '5.0'],
-        [_DUMP_DAY.isoformat(), '1000', '2000', '0.0', ''],
-    ]
+    assert rows == expected_rows
 
 
 @pytest.mark.parametrize('include_empty_zones', [False, True])
@@ -755,21 +763,23 @@ def _zero_date_stats() -> ZonalStats:
     )
 
 
-def test_dump_compact_zero_dates_reports_zones_with_empty_results():
+@pytest.mark.parametrize(
+    ('include_empty_zones', 'expected_areas'),
+    [
+        pytest.param(False, [10.0], id='reports-zones-with-empty-results'),
+        pytest.param(True, [10.0, 0.0], id='include-empty-keeps-all-zones'),
+    ],
+)
+def test_dump_compact_zero_dates(include_empty_zones, expected_areas):
     # Deliberate behavior change: a zero-date query now reports its zones (with
     # areas), not an empty body. Only the populated (area > 0) band survives the
-    # default filter; `results` is an empty matrix (no dates).
-    compact = _zero_date_stats().dump_compact()
-    assert compact.zone_layers == ['terrain.elevation']
-    assert compact.variables == ['mean_swe_mm']
-    (zone,) = compact.zones
-    assert zone.area_m2 == 10.0
-    assert compact.results == {}
-
-
-def test_dump_compact_zero_dates_include_empty_keeps_all_zones():
-    compact = _zero_date_stats().dump_compact(include_empty_zones=True)
-    assert [zone.area_m2 for zone in compact.zones] == [10.0, 0.0]
+    # default filter; `results` is an empty matrix (no dates). Opting in restores
+    # the full crossed product, empty cells included.
+    compact = _zero_date_stats().dump_compact(include_empty_zones=include_empty_zones)
+    if not include_empty_zones:
+        assert compact.zone_layers == ['terrain.elevation']
+        assert compact.variables == ['mean_swe_mm']
+    assert [zone.area_m2 for zone in compact.zones] == expected_areas
     assert compact.results == {}
 
 
