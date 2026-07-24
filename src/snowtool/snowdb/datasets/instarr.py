@@ -255,6 +255,17 @@ class InstarrIngester:
                     f'Malformed SPIRES NRT tile filename {path.name!r} (expected '
                     f'{self.filename_re.pattern!r}).',
                 )
+            h, v = int(match['h']), int(match['v'])
+            if not (_H_MIN <= h <= _H_MAX and _V_MIN <= v <= _V_MAX):
+                # Placement is by computed offset (see InstarrMosaicRaster), so an
+                # out-of-block tile would wrap to a negative slice and silently
+                # land in the wrong grid slot instead of failing loudly.
+                raise IngestSourceError(
+                    f'SPIRES NRT tile h{h:02d}v{v:02d} ({path.name!r}) is outside the '
+                    f'configured grid block h{_H_MIN:02d}-h{_H_MAX:02d} x '
+                    f'v{_V_MIN:02d}-v{_V_MAX:02d}. Widening the grid is a config '
+                    'change plus a re-ingest, not a mosaic-time surprise.',
+                )
             tile_date = datetime.strptime(match['date'], '%Y%m%d').date()  # noqa: DTZ007
             matches_by_date[tile_date].append((path, match))
 

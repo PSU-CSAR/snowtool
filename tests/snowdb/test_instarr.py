@@ -93,6 +93,22 @@ def test_ingest_refuses_regex_failing_tile(tmp_path):
     assert 'SPIRES_NRT_garbage.nc' in str(exc.value)
 
 
+def test_ingest_refuses_out_of_block_tile(tmp_path):
+    # h06 is outside the configured h08-h10 block. Placement is by computed
+    # offset, so an out-of-block tile would wrap to a negative slice and land
+    # in the wrong grid slot; the guard makes read_array's "on-grid by
+    # construction" claim true.
+    out_of_block = (
+        tmp_path / 'h06v04/2026/06/SPIRES_NRT_h06v04_MOD09GA061_20260615_V1.0.nc'
+    )
+    out_of_block.parent.mkdir(parents=True, exist_ok=True)
+    out_of_block.touch()
+
+    ds = Dataset(INSTARR_SPEC, tmp_path)
+    with pytest.raises(IngestSourceError, match='outside the configured grid block'):
+        ds.ingest(tmp_path)
+
+
 def test_ingest_groups_tiles_by_date(tmp_path):
     # Two dates, with two and one tiles respectively; plan groups them and yields one
     # DateIngest per date, whose build_rasters produces one per-variable raster
