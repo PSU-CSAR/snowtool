@@ -165,6 +165,14 @@ class ZonalStats:
                 sorted(variables, key=lambda v: v.key),
             )
         }
+        # Per-variable reporting scale, aligned with the variable (last) axis of
+        # ``_array``. ``Unit.scale`` divides by ``scale_factor``; holding the
+        # divisors as one vector lets the serializers scale a whole (date, cell)
+        # value block by broadcast instead of scalar-by-scalar in a Python loop.
+        self._scale_factors = numpy.array(
+            [variable.unit.scale_factor for variable in self._variables_index],
+            dtype=numpy.float64,
+        )
         # Cells arrive in flat product order from the zone index; keep that order
         # rather than re-sorting.
         self._cells = zone_cells
@@ -212,20 +220,26 @@ class ZonalStats:
         date_idx = self._dates_index[date_]
         self._array[date_idx, :, self._variables_index[variable]] = values
 
-    def _zone_stats(self: Self, date_idx: int, cell_idx: int) -> dict[str, float]:
-        """The scaled per-cell stat values (``area_m2`` + each variable) for one
-        (date, cell) -- the single source the JSON (:meth:`dump_compact`) and CSV
-        (:meth:`dump_to_csv`) serializers share, so both apply the same unit
-        scaling and ``float`` coercion. The keys are ordered ``area_m2`` first
-        then the variables in ``_variables_index`` order. A cell with no valid
-        pixels carries ``nan``, which each serializer renders as its own 'missing'
-        token (JSON null / empty cell).
+    # The single serialization order both bodies obey: ``area_m2`` first, then each
+    # variable's reduced stat in ``_variables_index`` order. Serializers read the
+    # scaled value array (:meth:`_scaled_variables`) and ``_areas`` in exactly this
+    # order, so JSON and CSV stay byte-identical without a per-cell dict.
+    @property
+    def _variable_columns(self: Self) -> list[str]:
+        """The variable stat-name columns, in ``_variables_index`` order."""
+        return [variable.stat_name for variable in self._variables_index]
+
+    def _scaled_variables(self: Self) -> numpy.typing.NDArray[numpy.float64]:
+        """The whole value array with each variable's reporting scale applied once.
+
+        ``Unit.scale`` divides by ``scale_factor``; dividing the ``(date, cell,
+        variable)`` block by the aligned ``_scale_factors`` vector (broadcast over
+        the variable axis) is the identical float64 op done once for the whole
+        result rather than scalar-by-scalar per (date, cell) in a Python loop.
+        A no-data cell stays ``nan`` (nan / x is nan), which each serializer renders
+        as its own 'missing' token (JSON null / empty cell).
         """
-        cell = self._array[date_idx][cell_idx]
-        values = {'area_m2': float(self._areas[cell_idx])}
-        for variable, var_idx in self._variables_index.items():
-            values[variable.stat_name] = float(variable.unit.scale(cell[var_idx]))
-        return values
+        return self._array / self._scale_factors
 
     @staticmethod
     def _zone_refs(
@@ -264,15 +278,16 @@ class ZonalStats:
     ) -> CompactStats:
         """The normalized compact body (zones/variables once, date -> matrix).
 
-        Shares :meth:`_zone_stats` and :meth:`_emitted_cells` with
-        :meth:`dump_to_csv`, so values are byte-identical. ``area_m2`` is
-        date-invariant, so it is read straight from ``self._areas`` and hoisted into
-        the zone definition. A zero-date query still reports its zones (with their
-        areas) -- ``results`` is just an empty matrix; ``zone_layers`` and
-        ``variables`` are always reported.
+        Reads the once-scaled value array (:meth:`_scaled_variables`) and
+        ``_areas`` in the shared :attr:`_variable_columns` order that
+        :meth:`iter_csv` also uses, so JSON and CSV stay byte-identical. ``area_m2``
+        is date-invariant, so it is read straight from ``self._areas`` and hoisted
+        into the zone definition (the compact matrix carries only the variables). A
+        zero-date query still reports its zones (with their areas) -- ``results`` is
+        just an empty matrix; ``zone_layers`` and ``variables`` are always reported.
         """
         cells = self._cells
-        variables = [variable.stat_name for variable in self._variables_index]
+        variables = self._variable_columns
         emitted = self._emitted_cells(include_empty_zones=include_empty_zones)
 
         zones: list[CompactZone] = [
@@ -282,15 +297,15 @@ class ZonalStats:
             )
             for cell_idx in emitted
         ]
-        results: dict[date, list[list[float | None]]] = {}
-        for date_, date_idx in self._dates_index.items():
-            # One _zone_stats call per (date, cell) -- hoisted out of the
-            # per-variable comprehension so the unit scaling runs once, not
-            # once per variable.
-            results[date_] = []
-            for cell_idx in emitted:
-                stats = self._zone_stats(date_idx, cell_idx)
-                results[date_].append([stats[name] for name in variables])
+
+        # Scale every (date, cell, variable) value once up front, then slice.
+        scaled = self._scaled_variables()
+        results: dict[date, list[list[float | None]]] = {
+            date_: [
+                [float(v) for v in scaled[date_idx, cell_idx]] for cell_idx in emitted
+            ]
+            for date_, date_idx in self._dates_index.items()
+        }
 
         return CompactStats(
             zone_layers=list(self.zone_layers),
@@ -302,10 +317,12 @@ class ZonalStats:
     def iter_csv(self: Self, *, include_empty_zones: bool = False) -> Iterator[str]:
         """Return an iterator over CSV chunks for this result (one header or row each).
 
-        Shares ``_zone_stats``/``_emitted_cells``/the ``csv_columns`` machinery with
-        :meth:`dump_to_csv`, so both produce byte-identical output. Each row is
-        formatted with ``csv.writer`` into a small per-row buffer so quoting stays
-        identical to a one-shot dump; nothing here hand-formats CSV text.
+        Emits the same shared value order :meth:`dump_compact` uses -- ``area_m2``
+        then each variable in :attr:`_variable_columns` order, read from ``_areas``
+        and the once-scaled value array (:meth:`_scaled_variables`) -- so JSON and
+        CSV stay byte-identical. Each row is formatted with ``csv.writer`` into a
+        small per-row buffer so quoting stays identical to a one-shot dump; nothing
+        here hand-formats CSV text.
         """
         buffer = io.StringIO()
         writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
@@ -320,14 +337,14 @@ class ZonalStats:
         # columns (:meth:`Zone.csv_columns`): a structured axis (banded/threshold)
         # expands to two typed, unit-bearing columns, a categorical axis to one.
         # The header comes from a sample cell's columns, every row from its own.
-        # Then area + each variable.
+        # Then area + each variable, the shared serialization order.
         # any cell is a faithful per-axis sample: one scheme per axis, >=1 cell always
         sample = self._cells[0]
         headers: list[str] = ['date']
         for layer, zone in zip(self.zone_layers, sample, strict=True):
             headers.extend(header for header, _ in zone.csv_columns(layer))
         headers.append('area_m2')
-        headers.extend(variable.stat_name for variable in self._variables_index)
+        headers.extend(self._variable_columns)
         yield _flush(headers)
 
         cells = self._cells
@@ -343,14 +360,21 @@ class ZonalStats:
             for cell_idx in emitted
         }
 
+        # Scale every value once, then read the shared (area, then variables) order.
+        scaled = self._scaled_variables()
         for date_, date_idx in self._dates_index.items():
             for cell_idx in emitted:
-                row: list[str] = [date_.isoformat(), *cell_columns[cell_idx]]
+                row: list[str] = [
+                    date_.isoformat(),
+                    *cell_columns[cell_idx],
+                    str(float(self._areas[cell_idx])),
+                ]
                 # Empty cell for a no-data reduction (nan), matching dump_compact's
-                # JSON null -- never the literal 'nan'.
+                # JSON null -- never the literal 'nan'. ``float(...)`` matches the
+                # old scalar path's exact text (a Python float repr).
                 row.extend(
-                    '' if math.isnan(value) else str(value)
-                    for value in self._zone_stats(date_idx, cell_idx).values()
+                    '' if math.isnan(value) else str(float(value))
+                    for value in scaled[date_idx, cell_idx]
                 )
                 yield _flush(row)
 
@@ -366,6 +390,7 @@ class ZonalStats:
         dataset: Dataset,
         zones: Sequence[ZoneSelection] = (),
         *,
+        registry: Mapping[str, AvailableZone] | None = None,
         max_zone_cells: int = DEFAULT_MAX_ZONE_CELLS,
         max_concurrent_rasters: int = DEFAULT_MAX_CONCURRENT_RASTERS,
     ) -> Self:
@@ -390,14 +415,19 @@ class ZonalStats:
         ``max_concurrent_rasters`` caps how many per-raster reductions run at once
         (a semaphore over the fan-out); it bounds peak memory / fetch fan-out only
         and does not affect results.
+
+        ``registry`` is the zone-layer registry for ``dataset``; the reader already
+        built the identical one to parse its tokens and passes it back in to avoid a
+        rebuild. When omitted (the programmatic form) it is built here.
         """
         spec = dataset.spec
 
-        # One zone registry per query. The zone geometry (which pixel is in which
-        # crossed cell, and each cell's total area) depends only on the AOI mask +
-        # the zone layers -- not on any variable or date -- so it is resolved once
-        # here and reused by every reduction.
-        registry = available_zones(dataset.providers.values())
+        # The zone geometry (which pixel is in which crossed cell, and each cell's
+        # total area) depends only on the AOI mask + the zone layers -- not on any
+        # variable or date -- so the registry it resolves through is built once (or
+        # reused from the caller) and shared by every reduction.
+        if registry is None:
+            registry = available_zones(dataset.providers.values())
         resolved = [resolve_zone_axis(selection, registry, spec) for selection in zones]
 
         # The axes' zones (hence the crossed product size) are known from the
@@ -490,15 +520,11 @@ class ZonalStats:
             cache=cache,
         )
 
-        # The reduction runs only over in-zone pixels that actually have data;
-        # everything else (zone geometry, cell areas) was precomputed once.
-        selection = zone_index.in_zone & (values_array != variable.nodata)
-        return zone_index.reduce(
-            variable.reducer,
-            values_array,
-            aoi.array,
-            selection,
-        )
+        # The reduction runs only over in-zone pixels that actually have data; the
+        # zone geometry (which pixel is in which cell, and each cell's area) was
+        # precomputed once at build and lives on the index, so _calc hands over only
+        # the raw window + its nodata sentinel.
+        return zone_index.reduce(variable.reducer, values_array, variable.nodata)
 
 
 @dataclass
@@ -507,14 +533,20 @@ class _ZoneIndex:
 
     Combines K per-axis ordinal arrays into one **mixed-radix linear index** over
     the product space (size equal to the product of the per-axis zone counts).
-    ``index`` is that combined cell index per pixel (meaningful only where
-    ``in_zone``); ``in_zone`` is the boolean of pixels that are in every axis'
-    zone *and* in the AOI mask; ``areas[c]`` is crossed cell ``c``'s total
-    geographic area. ``cell_zones`` carries the per-axis :class:`Zone` tuple for
-    every product cell, in the same flat order.
+    ``in_zone`` is the boolean of pixels that are in every axis' zone *and* in the
+    AOI mask; ``areas[c]`` is crossed cell ``c``'s total geographic area.
+    ``cell_zones`` carries the per-axis :class:`Zone` tuple for every product cell,
+    in the same flat order.
+
+    The reduction never needs the full-window index/area: it works only over the
+    in-zone pixels. So the compressed geometry is stored once at build --
+    ``idx_c`` is the combined cell index and ``area_c`` the AOI area, each already
+    subset to ``in_zone`` (the same subset the ``areas`` bincount consumes) -- and
+    :meth:`reduce` compresses only the per-raster value window to match.
     """
 
-    index: numpy.typing.NDArray[numpy.int64]
+    idx_c: numpy.typing.NDArray[numpy.int64]
+    area_c: numpy.typing.NDArray[numpy.float32]
     in_zone: numpy.typing.NDArray[numpy.bool_]
     areas: numpy.typing.NDArray[numpy.float64]
     cell_zones: tuple[tuple[Zone, ...], ...]
@@ -544,13 +576,20 @@ class _ZoneIndex:
             # excluded by in_zone before it is ever read, so the radix math is only
             # consumed where every axis is valid.
             combined = combined * dim + ords
+        # Compress the geometry to the in-zone subset once: the combined cell index
+        # and the AOI area over exactly the pixels the reduction (and this areas
+        # bincount) will ever touch. Every per-raster reduce fancy-indexes only its
+        # value window to this same subset.
+        idx_c = combined[in_zone]
+        area_c = area[in_zone]
         areas = numpy.bincount(
-            combined[in_zone],
-            weights=area[in_zone],
+            idx_c,
+            weights=area_c,
             minlength=n,
         ).astype(numpy.float64)
         return cls(
-            index=combined,
+            idx_c=idx_c,
+            area_c=area_c,
             in_zone=in_zone,
             areas=areas,
             cell_zones=cls._enumerate_cells(axes),
@@ -571,21 +610,28 @@ class _ZoneIndex:
         self: Self,
         reducer: Reducer,
         values_array: numpy.typing.NDArray,
-        area_array: numpy.typing.NDArray[numpy.float32],
-        selection: numpy.typing.NDArray[numpy.bool_],
+        nodata: float,
     ) -> numpy.typing.NDArray[numpy.float64]:
-        """Area-weighted reduction for every crossed cell at once, over ``selection``.
+        """Area-weighted reduction for every crossed cell at once.
 
-        One pass via ``bincount`` over the combined cell index instead of a
-        per-cell masked reduction. Area weighting is automatic from the grid CRS
-        (``area`` is geodesic on a geographic grid, constant on a projected one), so
-        MEAN degenerates to a plain mean when cells are equal-area. A cell with no
+        Runs over the in-zone pixels that also carry data (``!= nodata``). The
+        in-zone geometry -- the compressed combined cell index ``idx_c`` and its AOI
+        areas ``area_c`` -- was precomputed at :meth:`build`; here only the value
+        window is compressed to the in-zone subset, then the nodata mask is applied.
+        One pass via ``bincount`` over the combined cell index instead of a per-cell
+        masked reduction. Area weighting is automatic from the grid CRS (``area`` is
+        geodesic on a geographic grid, constant on a projected one), so MEAN
+        degenerates to a plain mean when cells are equal-area. A cell with no
         selected pixels is ``nan`` (as a per-pixel empty reduction would be).
         """
         n = len(self.areas)
-        idx = self.index[selection]
-        values = values_array[selection]
-        areas = area_array[selection]
+        # values_array is over the full window; subset it to the in-zone geometry
+        # (matching idx_c/area_c), then drop the nodata pixels within that subset.
+        values_c = values_array[self.in_zone]
+        has_data = values_c != nodata
+        idx = self.idx_c[has_data]
+        values = values_c[has_data]
+        areas = self.area_c[has_data]
         weighted = numpy.bincount(idx, weights=values * areas, minlength=n).astype(
             numpy.float64,
         )

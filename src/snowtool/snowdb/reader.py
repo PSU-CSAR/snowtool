@@ -51,10 +51,11 @@ class SnowDbReader:
     Built around an already-constructed catalog (reachable as :attr:`db`); the
     ``cache`` defaults to a fresh :class:`TiffCache` so a reader can be built with
     nothing but a catalog. The catalog-side reads (coverage guard, AOI raster
-    load) stay on :attr:`db`; this surface adds the two read-path knobs -- the COG
-    ``cache`` and the crossed-stats ``max_zone_cells`` cap -- and the crossed
-    reduction that consumes them. Both are passed in (the API sizes them from its
-    ``Settings``; the CLI/tests take the defaults); the reader imports no settings.
+    load) stay on :attr:`db`; this surface adds the three read-path knobs -- the COG
+    ``cache``, the crossed-stats ``max_zone_cells`` cap, and the concurrent-reduction
+    ``max_concurrent_rasters`` cap -- and the crossed reduction that consumes them.
+    All three are passed in (the API sizes them from its ``Settings``; the CLI/tests
+    take the defaults); the reader imports no settings.
     """
 
     def __init__(
@@ -82,7 +83,7 @@ class SnowDbReader:
         """The :class:`DatasetVariable`\\ s named by ``variable_keys``.
 
         ``None`` (or an empty selection) means every variable the dataset defines;
-        an unknown key raises a clean ``ValueError`` listing the choices.
+        an unknown key raises a clean :class:`QueryParameterError` listing the choices.
         """
         available = dataset.spec.variables
         keys = None if variable_keys is None else list(variable_keys)
@@ -159,6 +160,7 @@ class SnowDbReader:
             self.cache,
             dataset,
             zone_selections,
+            registry=registry,
             max_zone_cells=self.max_zone_cells,
             max_concurrent_rasters=self.max_concurrent_rasters,
         )

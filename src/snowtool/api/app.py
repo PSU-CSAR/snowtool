@@ -40,15 +40,17 @@ def _provide_reader(db: SnowDb, settings: Settings) -> SnowDbReader:
 
     The API owns the ``Settings``->domain translation: the reader takes plain
     read-path knobs, and this recipe sizes them from settings -- the COG cache from
-    ``tiff_cache_size`` and the crossed-stats cap from ``max_zone_cells``. gazebo
-    resolves ``db``/``settings`` from their app bindings and calls this inside the
-    app's event loop at lifespan, so the reader's loop-affine cache is born there.
+    ``tiff_cache_size``, the crossed-stats cap from ``max_zone_cells``, and the
+    concurrent-reduction cap from ``max_concurrent_rasters``. gazebo resolves
+    ``db``/``settings`` from their app bindings and calls this inside the app's
+    event loop at lifespan, so the reader's loop-affine cache is born there.
     (``snowdb`` itself imports no ``Settings``.)
     """
     return SnowDbReader(
         db,
         TiffCache(settings.tiff_cache_size),
         max_zone_cells=settings.max_zone_cells,
+        max_concurrent_rasters=settings.max_concurrent_rasters,
     )
 
 

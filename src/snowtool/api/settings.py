@@ -8,7 +8,10 @@ from pydantic_settings import (
 )
 
 from snowtool.snowdb.raster.tiff_cache import DEFAULT_TIFF_CACHE_SIZE
-from snowtool.snowdb.zonal_stats import DEFAULT_MAX_ZONE_CELLS
+from snowtool.snowdb.zonal_stats import (
+    DEFAULT_MAX_CONCURRENT_RASTERS,
+    DEFAULT_MAX_ZONE_CELLS,
+)
 
 
 class Settings(BaseSettings):
@@ -47,4 +50,10 @@ class Settings(BaseSettings):
     max_zone_cells: int = Field(
         DEFAULT_MAX_ZONE_CELLS,
         description='Cap on a crossed zonal-stats query product size (output rows).',
+    )
+
+    max_concurrent_rasters: int = Field(
+        DEFAULT_MAX_CONCURRENT_RASTERS,
+        description='Cap on concurrent per-raster reductions (bounds peak memory / '
+        'fetch fan-out on a wide date range; results are unaffected).',
     )
