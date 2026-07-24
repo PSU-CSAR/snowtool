@@ -17,10 +17,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 > layers is recommended but not required. A corrupt `index.geojson` still
 > aborts the API at server start (`get_app` primes the index read at boot);
 > for one-shot CLI constructions it surfaces at first index read rather than
-> at `SnowDb.open()` — otherwise zero path or format changes. This release is also a substantial line diet
-> from an internal quality pass: net −735 lines, including ~390 lines of
-> stale, duplicated, or reviewer-facing comments and six comments that were
-> simply wrong.
+> at `SnowDb.open()` — otherwise zero path or format changes. New COGs
+> (ingest, AOI rasters, zone layers) are now ZSTD-compressed; existing
+> DEFLATE COGs remain valid and readable since the compression tag is
+> per-file, so a mixed-compression dataset is expected and no rebuild or
+> migration is needed — no format version changed. This release is also a
+> substantial line diet from an internal quality pass: net −735 lines,
+> including ~390 lines of stale, duplicated, or reviewer-facing comments and
+> six comments that were simply wrong.
 
 ### Added
 
@@ -222,6 +226,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   engines run their pre-flight checks (existing-layer refusal, empty
   targets) before opening the source — a refused regenerate no longer
   triggers the ~1.5 GB NLCD download first.
+- All newly written COGs use ZSTD compression (was DEFLATE); see the **Live
+  databases** note above.
 
 ### Removed
 
@@ -283,6 +289,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   `index.geojson` surfaces at first index read. The API primes that read in
   `get_app`, so a long-lived server still fails fast at boot rather than on
   its first `/pourpoints` request.
+- SNODAS ingest now writes on the spec grid with a shape check and pins to
+  the masked (`us_`) region product (the `Region` enum labels previously
+  mislabeled `zz` as masked).
+- INSTARR refuses tiles outside the configured grid block instead of silently
+  mosaicking them into the wrong slot.
+- A pourpoint index write following a same-process dataset registration no
+  longer erases the new dataset's coverage.
+- Non-positive zone overrides (e.g. `band_step_ft=0`) return a clean client
+  error instead of a traceback/500.
+- CSV download filenames no longer contain `:`.
+- A corrupt `index.geojson` feature reports "run `pourpoint reindex`" instead
+  of a traceback.
+- A failed remote pourpoint download no longer grinds through the queued
+  backlog.
 
 ### Security
 
