@@ -65,7 +65,12 @@ from snowtool.snowdb.zones.parallel import (
 if TYPE_CHECKING:
     from affine import Affine
 
-    from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
+    from snowtool.snowdb.grid import Bounds
+    from snowtool.snowdb.zones.zone_layer import (
+        ZoneLayer,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
 
 BLOCK = 2048
 
@@ -121,8 +126,9 @@ class _ForestAccumulator(BinAccumulator):
 
 
 def generate_landcover(
-    source: rasterio.io.DatasetReader,
+    source: ZoneLayerSource,
     targets: list[ZoneLayerTarget],
+    bounds: Bounds,
     *,
     workers: int | None = None,
     block_size: int | None = None,
@@ -131,17 +137,27 @@ def generate_landcover(
 ) -> dict[str, str]:
     """Stream ``source`` once, binning percent forest cover into every target grid.
 
-    ``source`` is an opened NLCD land-cover raster (any CRS/resolution; natively
-    EPSG:5070 30 m). Only the window over the targets' combined extent is read.
-    ``workers`` of ``None`` uses one thread per CPU (capped at
+    ``source`` is a
+    :class:`~snowtool.snowdb.zones.landcover_source.LandCoverSource`; the engine
+    opens it over ``bounds`` (``(west, south, east, north)`` in EPSG:4326) and reads
+    the opened NLCD land-cover raster (any CRS/resolution; natively EPSG:5070 30 m).
+    Only the window over the targets' combined extent is read. ``workers`` of
+    ``None`` uses one thread per CPU (capped at
     :data:`~snowtool.snowdb.zones.parallel.MAX_AUTO_WORKERS`), ``1`` forces the
     serial path; ``block_size`` (``None`` -> :data:`BLOCK`) is the per-worker
     memory lever. The result -- including the generation hash -- is independent of
-    ``workers``. ``progress`` reports the per-block binning. Returns the single
+    ``workers``. ``progress`` reports the source's download (the heavy step for the
+    default Annual NLCD source) and then the per-block binning. Returns the single
     generation hash keyed by each target name (every value is equal -- one
     identifier for the whole pass). Refuses to overwrite an existing land-cover
     set unless ``force``.
     """
+    from snowtool.snowdb.zones.landcover_source import LandCoverSource
+
+    if not isinstance(source, LandCoverSource):
+        raise TypeError(
+            f'land-cover generation needs a LandCoverSource, got {source!r}',
+        )
     if not targets:
         return {}
 
@@ -152,26 +168,28 @@ def generate_landcover(
         # Check every target before the (potentially large) source read.
         require_absent_layers(targets, LANDCOVER_LAYERS, 'land cover')
 
-    source_crs = source.crs.to_wkt()
     accumulators = [_ForestAccumulator(target) for target in targets]
 
     # NLCD uses 0 for unclassified/background; treat it (and the file's declared
     # nodata) as invalid so empty cells read as nodata rather than 0% forest.
     forest = numpy.asarray(FOREST_CLASSES)
-    src_nodata = source.nodata
 
-    window = _source_window(source, targets)
-    if window is not None:
-        _LandCoverStreamer(
-            source,
-            source.transform,
-            window,
-            forest,
-            src_nodata,
-            accumulators,
-            source_crs,
-            bs,
-        ).run(n_workers, progress)
+    with source.open(bounds, progress=progress) as src:
+        source_crs = src.crs.to_wkt()
+        src_nodata = src.nodata
+
+        window = _source_window(src, targets)
+        if window is not None:
+            _LandCoverStreamer(
+                src,
+                src.transform,
+                window,
+                forest,
+                src_nodata,
+                accumulators,
+                source_crs,
+                bs,
+            ).run(n_workers, progress)
 
     # One generation id for the whole pass: a digest over every target's finalized
     # forest array (its only finalized layer, sorted by name for determinism),

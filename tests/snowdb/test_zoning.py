@@ -427,14 +427,17 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
             ),
         )
 
+        # A no-op engine: this test never builds the layer, so generate is never
+        # driven -- the stub just satisfies the base provider's engine contract.
+        _default_engine = staticmethod(
+            lambda source, targets, bounds, **kwargs: {},  # pragma: no cover
+        )
+
         def default_source(self, root):
             return _StubSource()
 
         def local_source(self, path):  # pragma: no cover - not exercised here
             return _StubSource()
-
-        def generate(self, source, targets, bounds, *, force=False, **options):
-            return {}
 
     providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
     # The dataset must *enable* the new provider (its zones block) for it to be

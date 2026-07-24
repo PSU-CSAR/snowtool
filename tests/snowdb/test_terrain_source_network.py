@@ -115,22 +115,20 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
     bounds = grid_extent_4326(grid)
 
     def _generate(directory, workers):
-        with source.open(bounds) as src:
-            target = ZoneLayerTarget(
-                name='t',
-                grid=grid,
-                tile_size=128,
-                directory=directory / 'terrain',
-            )
-            return generate_terrain(
-                src,
-                [target],
-                work_crs=source.work_crs,
-                work_resolution=source.work_resolution,
-                workers=workers,
-                block_size=256,
-                force=True,
-            )
+        target = ZoneLayerTarget(
+            name='t',
+            grid=grid,
+            tile_size=128,
+            directory=directory / 'terrain',
+        )
+        return generate_terrain(
+            source,
+            [target],
+            bounds,
+            workers=workers,
+            block_size=256,
+            force=True,
+        )
 
     serial = _skip_if_offline(lambda: _generate(tmp_path / 's', 1))
     parallel = _skip_if_offline(lambda: _generate(tmp_path / 'p', 4))

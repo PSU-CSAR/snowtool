@@ -10,9 +10,8 @@ assertions (west-facing aspect, forest percentages, ...).
 """
 
 import numpy
-import rasterio
 
-from snowtool.snowdb.grid import make_grid
+from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 WORK_EPSG = 5070
@@ -54,7 +53,7 @@ def make_target(
 
 def run_serial_vs_parallel(
     engine_fn,
-    source_path,
+    source,
     serial_target,
     parallel_target,
     read_layers,
@@ -66,27 +65,28 @@ def run_serial_vs_parallel(
     """Assert a parallel engine pass reproduces the serial pass bit-for-bit.
 
     Runs ``engine_fn`` once serially (``workers=1``) and once with ``workers``,
-    both over the same single ``source_path``, and asserts the generation hash
-    (keyed by ``hash_key``) matches and that every layer ``read_layers`` reads
-    back is array-equal. Returns the ``(serial_hash, parallel_hash)`` dicts so a
-    caller can pin additional per-engine facts.
+    both over the same single ``source`` (a ``ZoneLayerSource`` the engine opens
+    itself), and asserts the generation hash (keyed by ``hash_key``) matches and
+    that every layer ``read_layers`` reads back is array-equal. Returns the
+    ``(serial_hash, parallel_hash)`` dicts so a caller can pin additional per-engine
+    facts.
     """
-    with rasterio.open(source_path) as src:
-        serial_hash = engine_fn(
-            src,
-            [serial_target],
-            workers=1,
-            block_size=block_size,
-            force=True,
-        )
-    with rasterio.open(source_path) as src:
-        parallel_hash = engine_fn(
-            src,
-            [parallel_target],
-            workers=workers,
-            block_size=block_size,
-            force=True,
-        )
+    serial_hash = engine_fn(
+        source,
+        [serial_target],
+        grid_extent_4326(serial_target.grid),
+        workers=1,
+        block_size=block_size,
+        force=True,
+    )
+    parallel_hash = engine_fn(
+        source,
+        [parallel_target],
+        grid_extent_4326(parallel_target.grid),
+        workers=workers,
+        block_size=block_size,
+        force=True,
+    )
 
     assert serial_hash[hash_key] == parallel_hash[hash_key]
 

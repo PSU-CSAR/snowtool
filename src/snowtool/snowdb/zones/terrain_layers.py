@@ -27,6 +27,16 @@ from snowtool.snowdb.zones.zoning import (
     ThresholdZoning,
 )
 
+# Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
+# (metres, near-square) keeps slope/aspect undistorted; 10 m matches 3DEP. These
+# are only fallbacks -- the DemSource supplies the right values for its data (see
+# the terrain_generate module docstring), since the work resolution must track the
+# source's native resolution and the work CRS its region. They live here (not in
+# terrain_generate) so terrain_source can read them without importing the engine --
+# the engine imports the source's DemSource type, so the reverse would cycle.
+DEFAULT_WORK_CRS = 'EPSG:5070'
+DEFAULT_WORK_RESOLUTION = 10.0
+
 # On-disk format version of a terrain layer set, owned by TerrainProvider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
 # on a material change to the terrain layer encoding so existing sets read as stale.

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Protocol, Self
 
 import rasterio
 
@@ -36,6 +36,30 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zoning import ZoneScheme
+
+
+class GenerationEngine(Protocol):
+    """A zone-layer generation engine's call signature.
+
+    Matches :func:`~snowtool.snowdb.zones.terrain_generate.generate_terrain` and
+    :func:`~snowtool.snowdb.zones.landcover_generate.generate_landcover`: the engine
+    owns opening the ``source`` over ``bounds`` and binning it into every target.
+    Injectable (see :meth:`ZoneLayerProvider.__init__`) so a test can supply a fast
+    stand-in that is signature-checked against the real engine. Returns the
+    per-target provenance hash (all values equal).
+    """
+
+    def __call__(
+        self,
+        source: ZoneLayerSource,
+        targets: list[ZoneLayerTarget],
+        bounds: Bounds,
+        *,
+        workers: int | None = ...,
+        block_size: int | None = ...,
+        force: bool = ...,
+        progress: ProgressReporter = ...,
+    ) -> dict[str, str]: ...
 
 
 @dataclass(frozen=True)
@@ -219,8 +243,11 @@ class ZoneLayerProvider(ABC):
 
     One provider per zone-layer kind (terrain, land cover, ...). Subclasses set
     :attr:`name` (the registry/query id), :attr:`subdir` (the dataset
-    subdirectory its set lives in), :attr:`layers`, and :attr:`hash_tag`, and
-    implement :meth:`default_source` and :meth:`generate`.
+    subdirectory its set lives in), :attr:`layers`, :attr:`hash_tag`,
+    :attr:`format_version`, and :attr:`_default_engine` (a ``staticmethod``
+    wrapping the real engine function), and implement :meth:`default_source` and
+    :meth:`local_source`. :meth:`generate` is concrete here: it just delegates to
+    the (injectable) engine, which owns the ``source.open`` and the binning.
     """
 
     name: str
@@ -228,6 +255,49 @@ class ZoneLayerProvider(ABC):
     layers: tuple[ZoneLayer, ...]
     hash_tag: str
     format_version: int
+    # The real engine, wrapped in ``staticmethod`` on each subclass so it stays a
+    # plain function (not a bound method) when read off the class or instance. An
+    # un-injected provider binds it at construction; a test passes ``engine=`` a
+    # fast stand-in through the same seam.
+    _default_engine: GenerationEngine
+
+    def __init__(self: Self, engine: GenerationEngine | None = None) -> None:
+        self._engine: GenerationEngine = (
+            engine if engine is not None else type(self)._default_engine
+        )
+
+    def generate(
+        self: Self,
+        source: ZoneLayerSource,
+        targets: list[ZoneLayerTarget],
+        bounds: Bounds,
+        *,
+        force: bool = False,
+        options: GenerationOptions | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> dict[str, str]:
+        """Bin ``source`` over ``bounds`` into every target via the engine.
+
+        The engine owns the ``with source.open(bounds)`` and the streaming binning;
+        it is injectable (a test passes a fast stand-in via the constructor), and an
+        un-injected provider binds the real engine (:attr:`_default_engine`) at
+        construction -- the engine imports its provider's layer-definitions module,
+        not the provider, so there is no cycle. ``options`` carries engine knobs
+        (e.g. terrain's ``workers``/``block_size``); a provider ignores any it does
+        not use, and ``None`` defers to the engine defaults. ``progress`` reports
+        the long step (terrain's per-block reprojection, the NLCD download). Returns
+        the per-target provenance hash.
+        """
+        options = options or GenerationOptions()
+        return self._engine(
+            source,
+            targets,
+            bounds,
+            workers=options.workers,
+            block_size=options.block_size,
+            force=force,
+            progress=progress,
+        )
 
     @abstractmethod
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
@@ -244,31 +314,6 @@ class ZoneLayerProvider(ABC):
 
         Backs the CLI override flags (``--source PROVIDER PATH``): each provider
         knows the concrete local-file source for its data kind.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def generate(
-        self: Self,
-        source: ZoneLayerSource,
-        targets: list[ZoneLayerTarget],
-        bounds: Bounds,
-        *,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> dict[str, str]:
-        """Open ``source`` over ``bounds`` and bin its layers into every target.
-
-        Owns the ``with source.open(bounds)`` and the engine call. The engine is
-        injectable per provider (a test passes a fast stand-in via the constructor);
-        an un-injected provider binds the real engine at module import (the engine
-        imports its provider's layer-definitions module, not the provider, so there
-        is no cycle). Returns the per-target provenance hash. ``options`` carries
-        engine knobs (e.g.
-        terrain's ``workers``/``block_size``); a provider ignores any it does not
-        use, and ``None`` defers to the engine defaults. ``progress`` reports the
-        long step (terrain's per-block reprojection, the NLCD download).
         """
         raise NotImplementedError
 

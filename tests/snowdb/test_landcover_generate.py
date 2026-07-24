@@ -16,6 +16,7 @@ from rasterio.crs import CRS
 
 from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
+from snowtool.snowdb.grid import grid_extent_4326
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.zones.landcover import LandCoverProvider
 from snowtool.snowdb.zones.landcover_generate import generate_landcover
@@ -24,6 +25,7 @@ from snowtool.snowdb.zones.landcover_layers import (
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
 )
+from snowtool.snowdb.zones.landcover_source import LocalFile
 
 from ._engine_harness import (
     ORIGIN_X,
@@ -68,6 +70,19 @@ def _target(tmp_path, name='t', **kwargs):
     return make_target(tmp_path / name / 'landcover', name=name, **kwargs)
 
 
+def _bounds(*targets):
+    """The combined EPSG:4326 extent of ``targets`` -- the ``bounds`` the engine
+    passes to ``source.open`` (a ``LocalFile`` ignores it and reads the whole file,
+    but the engine still reads only the window over the target footprints)."""
+    boxes = [grid_extent_4326(t.grid) for t in targets]
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
 def test_generate_writes_forest_layer_with_expected_percentages(tmp_path):
     # West half forest, east half non-forest; a fully-nodata block in the corner.
     array = numpy.full((SRC_N, SRC_N), NONFOREST, dtype='uint8')
@@ -77,8 +92,12 @@ def test_generate_writes_forest_layer_with_expected_percentages(tmp_path):
     src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        hashes = generate_landcover(src, [target], force=True)
+    hashes = generate_landcover(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
 
     landcover = _landcover_set(target.directory)
     assert landcover.present()
@@ -104,8 +123,7 @@ def test_generate_computes_fractional_percent(tmp_path):
     src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        generate_landcover(src, [target], force=True)
+    generate_landcover(LocalFile(src_path), [target], _bounds(target), force=True)
 
     with rasterio.open(_landcover_set(target.directory).layer_path(FOREST_COVER)) as ds:
         forest_pct = ds.read(1)
@@ -118,8 +136,12 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        first = generate_landcover(src, [target], force=True)
+    first = generate_landcover(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
 
     landcover = _landcover_set(target.directory)
     with rasterio.open(landcover.layer_path(FOREST_COVER)) as ds:
@@ -136,8 +158,12 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
             assert ds.tags()[NLCD_HASH_TAG] == expected
 
     # Regenerating the same source is deterministic -> identical id.
-    with rasterio.open(src_path) as src:
-        second = generate_landcover(src, [target], force=True)
+    second = generate_landcover(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
     assert second['t'] == expected
 
 
@@ -149,8 +175,12 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
     fine = _target(tmp_path, 'fine')
     coarse = _target(tmp_path, 'coarse', px=80.0, n=64, tile=64)
 
-    with rasterio.open(src_path) as src:
-        hashes = generate_landcover(src, [fine, coarse], force=True)
+    hashes = generate_landcover(
+        LocalFile(src_path),
+        [fine, coarse],
+        _bounds(fine, coarse),
+        force=True,
+    )
 
     assert set(hashes) == {'fine', 'coarse'}
     for target in (fine, coarse):
@@ -189,7 +219,7 @@ def test_landcover_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_
 
     run_serial_vs_parallel(
         generate_landcover,
-        src_path,
+        LocalFile(src_path),
         serial_t,
         parallel_t,
         _read_forest,
@@ -203,7 +233,6 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
     src_path = _source_nlcd(tmp_path / 'nlcd.tif', array)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        generate_landcover(src, [target], force=True)
-        with pytest.raises(ArtifactExistsError, match='already has'):
-            generate_landcover(src, [target], force=False)
+    generate_landcover(LocalFile(src_path), [target], _bounds(target), force=True)
+    with pytest.raises(ArtifactExistsError, match='already has'):
+        generate_landcover(LocalFile(src_path), [target], _bounds(target), force=False)

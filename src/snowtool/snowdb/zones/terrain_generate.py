@@ -11,10 +11,12 @@ The three stages
 ----------------
 1. **Resample to a fine, projected work grid (once).** The source is lazily
    reprojected (bilinear, via :class:`rasterio.vrt.WarpedVRT`) into one common
-   lattice: a projected CRS at a fine resolution (``work_crs`` / ``work_resolution``;
-   defaults :data:`DEFAULT_WORK_CRS` = CONUS Albers, :data:`DEFAULT_WORK_RESOLUTION`
-   = 10 m, matching 3DEP). This shared intermediate is the only true resample, and
-   it is of elevation.
+   lattice: a projected CRS at a fine resolution (the source's ``work_crs`` /
+   ``work_resolution``; defaults
+   :data:`~snowtool.snowdb.zones.terrain_layers.DEFAULT_WORK_CRS` = CONUS Albers,
+   :data:`~snowtool.snowdb.zones.terrain_layers.DEFAULT_WORK_RESOLUTION` = 10 m,
+   matching 3DEP). This shared intermediate is the only true resample, and it is of
+   elevation.
 2. **Derive everything at the work resolution.** Streaming in blocks (with a
    one-pixel halo so the 3x3 Horn window is exact across block edges), each fine
    pixel gets a slope, an aspect, an aspect class (N/E/S/W or flat), and
@@ -44,7 +46,8 @@ area-mean, so ``average`` semantics survive for elevation.
 
 ``work_resolution`` should match the source's native ground resolution (too fine
 invents detail, too coarse discards it), so it is a property of the ``DemSource``
-(3DEP pins 10 m); the constants here are only fallbacks.
+(3DEP pins 10 m); the ``DEFAULT_WORK_*`` constants in ``terrain_layers`` are only
+fallbacks.
 
 Parallelism and memory
 ----------------------
@@ -120,16 +123,13 @@ from snowtool.snowdb.zones.terrain_layers import (
 if TYPE_CHECKING:
     from affine import Affine
 
-    from snowtool.snowdb.grid import Extent
-    from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
+    from snowtool.snowdb.grid import Bounds, Extent
+    from snowtool.snowdb.zones.zone_layer import (
+        ZoneLayer,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
 
-# Defaults for the projected, fine work grid aspect is computed on. CONUS Albers
-# (metres, near-square) keeps slope/aspect undistorted; 10 m matches 3DEP. These
-# are only fallbacks -- the DemSource supplies the right values for its data (see
-# the module docstring), since the work resolution must track the source's native
-# resolution and the work CRS its region.
-DEFAULT_WORK_CRS = 'EPSG:5070'
-DEFAULT_WORK_RESOLUTION = 10.0
 # Default work-grid block edge (pixels). Block size is a non-lever for throughput
 # (the pyproj transform is flat per-pixel; only the ~1-pixel halo re-read and the
 # Python loop count scale with it, both negligible), but it *is* the per-worker
@@ -379,11 +379,10 @@ def _clip_grid_to_bounds(
 
 
 def generate_terrain(
-    source: rasterio.io.DatasetReader,
+    source: ZoneLayerSource,
     targets: list[ZoneLayerTarget],
+    bounds: Bounds,
     *,
-    work_crs: str = DEFAULT_WORK_CRS,
-    work_resolution: float | None = DEFAULT_WORK_RESOLUTION,
     workers: int | None = None,
     block_size: int | None = None,
     force: bool = False,
@@ -391,21 +390,29 @@ def generate_terrain(
 ) -> dict[str, str]:
     """Stream ``source`` once, binning terrain into every target grid.
 
-    ``source`` is an opened DEM mosaic (any CRS/resolution), lazily reprojected to
-    the work grid (``work_crs`` at ``work_resolution`` metres). ``work_resolution``
-    of ``None`` lets GDAL pick it from the source (right for an unknown local DEM);
-    3DEP pins 10 m. ``workers`` of ``None`` uses one thread per CPU (capped at
-    :data:`~snowtool.snowdb.zones.parallel.MAX_AUTO_WORKERS`), ``1`` forces the serial
-    path; ``block_size`` (``None``
-    -> :data:`DEFAULT_BLOCK_SIZE`) is the per-worker memory lever (see the module
-    docstring). The result -- including the generation hash -- is independent of
-    ``workers``. ``progress`` reports the per-block reprojection. Returns the one
-    generation hash keyed by each target name (all values equal). Refuses to
-    overwrite an existing terrain set unless ``force``.
+    ``source`` is a :class:`~snowtool.snowdb.zones.terrain_source.DemSource`; the
+    engine opens it over ``bounds`` (``(west, south, east, north)`` in EPSG:4326)
+    and lazily reprojects the DEM mosaic (any CRS/resolution) to the work grid
+    (``source.work_crs`` at ``source.work_resolution`` metres). A
+    ``work_resolution`` of ``None`` lets GDAL pick it from the source (right for an
+    unknown local DEM); 3DEP pins 10 m. ``workers`` of ``None`` uses one thread per
+    CPU (capped at :data:`~snowtool.snowdb.zones.parallel.MAX_AUTO_WORKERS`), ``1``
+    forces the serial path; ``block_size`` (``None`` -> :data:`DEFAULT_BLOCK_SIZE`)
+    is the per-worker memory lever (see the module docstring). The result --
+    including the generation hash -- is independent of ``workers``. ``progress``
+    reports the per-block reprojection. Returns the one generation hash keyed by
+    each target name (all values equal). Refuses to overwrite an existing terrain
+    set unless ``force``.
     """
+    from snowtool.snowdb.zones.terrain_source import DemSource
+
+    if not isinstance(source, DemSource):
+        raise TypeError(f'terrain generation needs a DemSource, got {source!r}')
     if not targets:
         return {}
 
+    work_crs = source.work_crs
+    work_resolution = source.work_resolution
     n_workers = effective_workers(workers)
     bs = block_size if block_size is not None else DEFAULT_BLOCK_SIZE
 
@@ -415,72 +422,74 @@ def generate_terrain(
 
     accumulators = [_GridAccumulator(target) for target in targets]
 
-    # Mask source fill using the source's own declared nodata. If it declares
-    # none, trust it (mask nothing) -- but warn, since an undeclared fill value
-    # would otherwise be aggregated as real elevation.
-    src_nodata = source.nodata
-    if src_nodata is None:
-        warnings.warn(
-            f'Source DEM {source.name!r} declares no nodata value; treating all '
-            'pixels as valid data. Declare a nodata value on the source if it '
-            'has fill pixels, or they will be aggregated as real elevations.',
-            SnowtoolWarning,
-            stacklevel=2,
+    with source.open(bounds, progress=progress) as src:
+        # Mask source fill using the source's own declared nodata. If it declares
+        # none, trust it (mask nothing) -- but warn, since an undeclared fill value
+        # would otherwise be aggregated as real elevation.
+        src_nodata = src.nodata
+        if src_nodata is None:
+            warnings.warn(
+                f'Source DEM {src.name!r} declares no nodata value; treating all '
+                'pixels as valid data. Declare a nodata value on the source if it '
+                'has fill pixels, or they will be aggregated as real elevations.',
+                SnowtoolWarning,
+                stacklevel=2,
+            )
+        full_transform, full_w, full_h = calculate_default_transform(
+            src.crs,
+            work_crs,
+            src.width,
+            src.height,
+            *src.bounds,
+            # None -> GDAL derives the native resolution mapped into the work CRS.
+            resolution=work_resolution,
         )
-    full_transform, full_w, full_h = calculate_default_transform(
-        source.crs,
-        work_crs,
-        source.width,
-        source.height,
-        *source.bounds,
-        # None -> GDAL derives the native resolution mapped into the work CRS.
-        resolution=work_resolution,
-    )
-    # Process only the part of the (full-source) work grid that actually feeds a
-    # target. The reprojection is lazy and per-block (a WarpedVRT over COG tiles), so
-    # clipping the work grid to the union of target footprints means the range reads
-    # only ever touch the *intersecting portions* of the source tiles -- not the
-    # whole tile files, even when a grid clips just a corner of them. The clip keeps
-    # the source lattice, so any cell that lands in a target is sampled identically
-    # to processing the whole source; only empty margin is skipped (the output, and
-    # the generation hash, are unchanged).
-    clipped = _clip_grid_to_bounds(
-        full_transform,
-        full_w,
-        full_h,
-        _target_bounds_in_work_crs(targets, work_crs),
-    )
-    if clipped is not None:
-        dst_transform, dst_w, dst_h = clipped
-        px, py = abs(dst_transform.a), abs(dst_transform.e)
-        with WarpedVRT(
-            source,
-            crs=work_crs,
-            transform=dst_transform,
-            width=dst_w,
-            height=dst_h,
-            resampling=Resampling.bilinear,
-            src_nodata=src_nodata,
-            # The streaming pass marks no-data with NaN (numpy.isfinite), so the
-            # working band must be float. rasterio already promotes the band to float
-            # to hold nodata=NaN (even for an integer source); we pin it explicitly so
-            # that contract is independent of rasterio's inference. float64 matches
-            # the downstream pipeline (the block read casts to float64 anyway).
-            dtype='float64',
-            nodata=numpy.nan,
-        ) as wvrt:
-            _TerrainStreamer(
-                wvrt,
-                dst_transform,
-                dst_w,
-                dst_h,
-                px,
-                py,
-                accumulators,
-                work_crs,
-                bs,
-            ).run(n_workers, progress)
-    # else: no target overlaps the source -> accumulators stay empty (nodata terrain).
+        # Process only the part of the (full-source) work grid that actually feeds
+        # a target. The reprojection is lazy and per-block (a WarpedVRT over COG
+        # tiles), so clipping the work grid to the union of target footprints means
+        # the range reads only ever touch the *intersecting portions* of the source
+        # tiles -- not the whole tile files, even when a grid clips just a corner of
+        # them. The clip keeps the source lattice, so any cell that lands in a
+        # target is sampled identically to processing the whole source; only empty
+        # margin is skipped (the output, and the generation hash, are unchanged).
+        clipped = _clip_grid_to_bounds(
+            full_transform,
+            full_w,
+            full_h,
+            _target_bounds_in_work_crs(targets, work_crs),
+        )
+        if clipped is not None:
+            dst_transform, dst_w, dst_h = clipped
+            px, py = abs(dst_transform.a), abs(dst_transform.e)
+            with WarpedVRT(
+                src,
+                crs=work_crs,
+                transform=dst_transform,
+                width=dst_w,
+                height=dst_h,
+                resampling=Resampling.bilinear,
+                src_nodata=src_nodata,
+                # The streaming pass marks no-data with NaN (numpy.isfinite), so the
+                # working band must be float. rasterio already promotes the band to
+                # float to hold nodata=NaN (even for an integer source); we pin it
+                # explicitly so that contract is independent of rasterio's inference.
+                # float64 matches the downstream pipeline (the block read casts to
+                # float64 anyway).
+                dtype='float64',
+                nodata=numpy.nan,
+            ) as wvrt:
+                _TerrainStreamer(
+                    wvrt,
+                    dst_transform,
+                    dst_w,
+                    dst_h,
+                    px,
+                    py,
+                    accumulators,
+                    work_crs,
+                    bs,
+                ).run(n_workers, progress)
+        # else: no target overlaps the source -> accumulators stay empty (nodata).
 
     # One generation id for the whole pass: a digest over every target's
     # finalized elevation only (the first layer each finalize returns -- it

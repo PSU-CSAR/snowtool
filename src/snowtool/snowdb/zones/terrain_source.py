@@ -39,7 +39,7 @@ from rasterio.crs import CRS
 from snowtool.exceptions import RemoteSourceError
 from snowtool.snowdb.grid import Bounds
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
-from snowtool.snowdb.zones.terrain_generate import (
+from snowtool.snowdb.zones.terrain_layers import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
 )

@@ -13,7 +13,7 @@ from rasterio.crs import CRS
 
 from snowtool.exceptions import RemoteSourceError
 from snowtool.snowdb.zones import terrain_source
-from snowtool.snowdb.zones.terrain_generate import (
+from snowtool.snowdb.zones.terrain_layers import (
     DEFAULT_WORK_CRS,
     DEFAULT_WORK_RESOLUTION,
 )

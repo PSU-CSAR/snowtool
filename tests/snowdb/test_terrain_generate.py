@@ -42,6 +42,7 @@ from snowtool.snowdb.zones.terrain_layers import (
     TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
 )
+from snowtool.snowdb.zones.terrain_source import LocalFile
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
 from ..conftest import CapturingProgress
@@ -136,13 +137,31 @@ def _target(tmp_path):
     return make_target(tmp_path / 'terrain')
 
 
+def _bounds(*targets):
+    """The combined EPSG:4326 extent of ``targets`` -- the ``bounds`` the engine
+    passes to ``source.open`` (a ``LocalFile`` ignores it and reads the whole file,
+    but the engine still clips its work grid to the target footprints)."""
+    boxes = [grid_extent_4326(t.grid) for t in targets]
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
 def test_generate_reports_one_block_progress_task_to_completion(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
     reporter = CapturingProgress()
 
-    with rasterio.open(src_path) as src:
-        generate_terrain(src, [target], force=True, progress=reporter)
+    generate_terrain(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+        progress=reporter,
+    )
 
     # Exactly one tracked task (the whole streaming pass), advanced once per block
     # to its declared total -- so the bar reaches 100% regardless of worker count.
@@ -158,8 +177,12 @@ def test_generate_writes_terrain_set_with_expected_orientation(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        hashes = generate_terrain(src, [target], force=True)
+    hashes = generate_terrain(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
 
     terrain = _terrain_set(target.directory)
     assert terrain.present()
@@ -190,8 +213,7 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        first = generate_terrain(src, [target], force=True)
+    first = generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
 
     terrain = _terrain_set(target.directory)
     with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
@@ -211,8 +233,12 @@ def test_generate_hash_is_one_stable_generation_id(tmp_path):
             assert ds.tags()[DEM_HASH_TAG] == expected
 
     # Regenerating the same source is deterministic -> identical id.
-    with rasterio.open(src_path) as src:
-        second = generate_terrain(src, [target], force=True)
+    second = generate_terrain(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
     assert second['t'] == expected
 
 
@@ -223,8 +249,7 @@ def test_generate_masks_nodata_from_integer_source(tmp_path):
     src_path = _int_source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        generate_terrain(src, [target], force=True)
+    generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
 
     with rasterio.open(_terrain_set(target.directory).layer_path(ELEVATION)) as ds:
         elevation = ds.read(1)
@@ -243,8 +268,8 @@ def test_generate_warns_when_source_declares_no_nodata(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif', nodata=None)
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src, pytest.warns(SnowtoolWarning):
-        generate_terrain(src, [target], force=True)
+    with pytest.warns(SnowtoolWarning):
+        generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
 
 
 def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
@@ -265,8 +290,12 @@ def test_generate_bins_into_multiple_grids_in_one_pass(tmp_path):
         directory=tmp_path / 'coarse' / 'terrain',
     )
 
-    with rasterio.open(src_path) as src:
-        hashes = generate_terrain(src, [fine, coarse], force=True)
+    hashes = generate_terrain(
+        LocalFile(src_path),
+        [fine, coarse],
+        _bounds(fine, coarse),
+        force=True,
+    )
 
     assert set(hashes) == {'t', 'coarse'}
     # Both grids generated together share one generation id.
@@ -286,8 +315,8 @@ def test_generate_auto_derives_resolution_when_none(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        generate_terrain(src, [target], work_resolution=None, force=True)
+    # LocalFile defaults work_resolution to None, so GDAL derives it.
+    generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
 
     terrain = _terrain_set(target.directory)
     assert terrain.present()
@@ -301,10 +330,9 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
     src_path = _source_dem(tmp_path / 'src.tif')
     target = _target(tmp_path)
 
-    with rasterio.open(src_path) as src:
-        generate_terrain(src, [target], force=True)
-        with pytest.raises(ArtifactExistsError, match='already has'):
-            generate_terrain(src, [target], force=False)
+    generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
+    with pytest.raises(ArtifactExistsError, match='already has'):
+        generate_terrain(LocalFile(src_path), [target], _bounds(target), force=False)
 
 
 @pytest.mark.parametrize('workers', [2, 4, 8])
@@ -322,7 +350,7 @@ def test_parallel_matches_serial_bit_for_bit(tmp_path, workers, block_size):
 
     run_serial_vs_parallel(
         generate_terrain,
-        src_path,
+        LocalFile(src_path),
         serial_t,
         parallel_t,
         _read_layers,
@@ -359,22 +387,22 @@ def test_parallel_matches_serial_for_multiple_targets(tmp_path):
     serial_fine, serial_coarse = _targets(tmp_path / 'serial')
     parallel_fine, parallel_coarse = _targets(tmp_path / 'parallel')
 
-    with rasterio.open(src_path) as src:
-        serial_hash = generate_terrain(
-            src,
-            [serial_fine, serial_coarse],
-            workers=1,
-            block_size=block_size,
-            force=True,
-        )
-    with rasterio.open(src_path) as src:
-        parallel_hash = generate_terrain(
-            src,
-            [parallel_fine, parallel_coarse],
-            workers=4,
-            block_size=block_size,
-            force=True,
-        )
+    serial_hash = generate_terrain(
+        LocalFile(src_path),
+        [serial_fine, serial_coarse],
+        _bounds(serial_fine, serial_coarse),
+        workers=1,
+        block_size=block_size,
+        force=True,
+    )
+    parallel_hash = generate_terrain(
+        LocalFile(src_path),
+        [parallel_fine, parallel_coarse],
+        _bounds(parallel_fine, parallel_coarse),
+        workers=4,
+        block_size=block_size,
+        force=True,
+    )
 
     assert serial_hash == parallel_hash
     for serial_t, parallel_t in (
@@ -447,8 +475,7 @@ def test_generate_clips_to_subregion_target_of_larger_source(tmp_path):
         directory=tmp_path / 'sub' / 'terrain',
     )
 
-    with rasterio.open(src_path) as src:
-        generate_terrain(src, [target], force=True)
+    generate_terrain(LocalFile(src_path), [target], _bounds(target), force=True)
 
     terrain = _terrain_set(target.directory)
     with rasterio.open(terrain.layer_path(ELEVATION)) as ds:
@@ -512,14 +539,13 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
             tile_size=96,
             directory=directory / 'terrain',
         )
-        with rasterio.open(src_path) as src:
-            return generate_terrain(
-                src,
-                [target],
-                work_resolution=res,
-                workers=workers,
-                force=True,
-            )
+        return generate_terrain(
+            LocalFile(src_path, work_resolution=res),
+            [target],
+            grid_extent_4326(sin_grid),
+            workers=workers,
+            force=True,
+        )
 
     serial = _run(tmp_path / 's', 1)
     parallel = _run(tmp_path / 'p', 4)
@@ -560,8 +586,12 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
         directory=tmp_path / 'far' / 'terrain',
     )
 
-    with rasterio.open(src_path) as src:
-        hashes = generate_terrain(src, [target], force=True)
+    hashes = generate_terrain(
+        LocalFile(src_path),
+        [target],
+        _bounds(target),
+        force=True,
+    )
 
     assert set(hashes) == {'far'}
     terrain = _terrain_set(target.directory)

@@ -35,65 +35,36 @@ builds and reads terrain like any other zone layer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import DEM_HASH_TAG
-from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.terrain_generate import generate_terrain
 from snowtool.snowdb.zones.terrain_layers import (
     TERRAIN_FORMAT_VERSION,
     TERRAIN_LAYERS,
 )
-from snowtool.snowdb.zones.zone_layer import GenerationOptions, ZoneLayerProvider
-
-# The layer/constant definitions live in ``terrain_layers`` -- import them from
-# there directly (this provider only wires up TERRAIN_LAYERS/TERRAIN_FORMAT_VERSION).
+from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import rasterio.io
-
-    from snowtool.snowdb.grid import Bounds
-    from snowtool.snowdb.zones.zone_layer import ZoneLayerSource, ZoneLayerTarget
-
-    class TerrainEngine(Protocol):
-        """The terrain generation engine's call signature.
-
-        Matches :func:`~snowtool.snowdb.zones.terrain_generate.generate_terrain`;
-        injectable (see :meth:`TerrainProvider.__init__`) so a test can supply a
-        fast stand-in that is signature-checked against the real engine. Returns
-        the per-target provenance hash (all values equal).
-        """
-
-        def __call__(
-            self,
-            source: rasterio.io.DatasetReader,
-            targets: list[ZoneLayerTarget],
-            *,
-            work_crs: str = ...,
-            work_resolution: float | None = ...,
-            workers: int | None = ...,
-            block_size: int | None = ...,
-            force: bool = ...,
-            progress: ProgressReporter = ...,
-        ) -> dict[str, str]: ...
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerSource
 
 
 class TerrainProvider(ZoneLayerProvider):
-    """The terrain zone-layer kind: elevation + aspect, derived from a DEM."""
+    """The terrain zone-layer kind: elevation + aspect, derived from a DEM.
+
+    The layer/format-version definitions live in ``terrain_layers`` (so the engine
+    can import them without importing this provider); the provider only wires them
+    up plus the DEM source and default engine.
+    """
 
     name = 'terrain'
     subdir = 'terrain'
     layers = TERRAIN_LAYERS
     hash_tag = DEM_HASH_TAG
     format_version = TERRAIN_FORMAT_VERSION
-
-    def __init__(self: Self, engine: TerrainEngine | None = None) -> None:
-        # The generation engine, injectable for tests; None binds the real
-        # streaming engine (terrain_generate imports terrain_layers, not this
-        # provider, so the default can be a plain module-level import).
-        self._engine: TerrainEngine = engine if engine is not None else generate_terrain
+    _default_engine = staticmethod(generate_terrain)
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default DEM source -- USGS 3DEP streamed from the public bucket."""
@@ -106,37 +77,3 @@ class TerrainProvider(ZoneLayerProvider):
         from snowtool.snowdb.zones.terrain_source import LocalFile
 
         return LocalFile(path)
-
-    def generate(
-        self: Self,
-        source: ZoneLayerSource,
-        targets: list[ZoneLayerTarget],
-        bounds: Bounds,
-        *,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> dict[str, str]:
-        """Stream the DEM ``source`` once, binning terrain into every target.
-
-        ``options`` carries the engine's block-level parallelism knobs
-        (``workers``, ``block_size``); the DEM source supplies the projected work
-        grid (``work_crs``/``work_resolution``). ``progress`` reports the engine's
-        per-block reprojection.
-        """
-        from snowtool.snowdb.zones.terrain_source import DemSource
-
-        if not isinstance(source, DemSource):  # pragma: no cover - defensive
-            raise TypeError(f'terrain generation needs a DemSource, got {source!r}')
-        options = options or GenerationOptions()
-        with source.open(bounds) as src:
-            return self._engine(
-                src,
-                targets,
-                work_crs=source.work_crs,
-                work_resolution=source.work_resolution,
-                workers=options.workers,
-                block_size=options.block_size,
-                force=force,
-                progress=progress,
-            )

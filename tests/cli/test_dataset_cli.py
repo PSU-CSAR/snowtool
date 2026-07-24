@@ -13,6 +13,7 @@ from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.zones.terrain import TerrainProvider
 
 from ..conftest import (
     full_marker_out_names,
@@ -689,17 +690,24 @@ def test_generate_is_idempotent(runner, cli_obj, source_dem):
 
 def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, source_dem):
     # --workers and --block-size must reach the terrain engine (the two knobs).
-    # Wrap the already-injected engine to capture its kwargs -- reconfiguring the
-    # injected dependency, not patching a module global.
+    # Wrap the already-injected fake engine to capture its kwargs and inject the
+    # capturing provider through the constructor seam -- reconfiguring the injected
+    # dependency, not patching a module global or the private _engine attribute.
     captured = {}
     terrain = next(p for p in cli_obj.zone_layer_providers if p.name == 'terrain')
     inner = terrain._engine
 
-    def _capture(source, targets, **kwargs):
+    def _capture(source, targets, bounds, **kwargs):
         captured.update(workers=kwargs.get('workers'), block=kwargs.get('block_size'))
-        return inner(source, targets, **kwargs)
+        return inner(source, targets, bounds, **kwargs)
 
-    terrain._engine = _capture
+    capturing_cli_obj = CliContext(
+        config=cli_obj.config,
+        zone_layer_providers=tuple(
+            TerrainProvider(engine=_capture) if p.name == 'terrain' else p
+            for p in cli_obj.zone_layer_providers
+        ),
+    )
 
     result = runner.invoke(
         cli,
@@ -717,7 +725,7 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
             '--block-size',
             '512',
         ],
-        obj=cli_obj,
+        obj=capturing_cli_obj,
     )
     assert result.exit_code == 0
     assert captured['workers'] == 3

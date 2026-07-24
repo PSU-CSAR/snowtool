@@ -18,71 +18,36 @@ builds and reads land cover like any other zone layer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Self
 
 from snowtool.snowdb.constants import NLCD_HASH_TAG
-from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.landcover_generate import generate_landcover
 from snowtool.snowdb.zones.landcover_layers import (
     LANDCOVER_FORMAT_VERSION,
     LANDCOVER_LAYERS,
 )
-from snowtool.snowdb.zones.zone_layer import GenerationOptions, ZoneLayerProvider
-
-# The layer/constant definitions live in ``landcover_layers`` -- import them from
-# there directly (this provider only wires up
-# LANDCOVER_LAYERS/LANDCOVER_FORMAT_VERSION).
+from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import rasterio.io
-
-    from snowtool.snowdb.grid import Bounds
-    from snowtool.snowdb.zones.zone_layer import (
-        GenerationOptions,
-        ZoneLayerSource,
-        ZoneLayerTarget,
-    )
-
-    class LandCoverEngine(Protocol):
-        """The land-cover generation engine's call signature.
-
-        Matches
-        :func:`~snowtool.snowdb.zones.landcover_generate.generate_landcover`;
-        injectable (see :meth:`LandCoverProvider.__init__`) so a test can supply a
-        fast stand-in that is signature-checked against the real engine. Returns
-        the per-target provenance hash (all values equal).
-        """
-
-        def __call__(
-            self,
-            source: rasterio.io.DatasetReader,
-            targets: list[ZoneLayerTarget],
-            *,
-            workers: int | None = ...,
-            block_size: int | None = ...,
-            force: bool = ...,
-            progress: ProgressReporter = ...,
-        ) -> dict[str, str]: ...
+    from snowtool.snowdb.zones.zone_layer import ZoneLayerSource
 
 
 class LandCoverProvider(ZoneLayerProvider):
-    """The land-cover zone-layer kind: percent forest cover, derived from NLCD."""
+    """The land-cover zone-layer kind: percent forest cover, derived from NLCD.
+
+    The layer/format-version definitions live in ``landcover_layers`` (so the
+    engine can import them without importing this provider); the provider only
+    wires them up plus the NLCD source and default engine.
+    """
 
     name = 'landcover'
     subdir = 'landcover'
     layers = LANDCOVER_LAYERS
     hash_tag = NLCD_HASH_TAG
     format_version = LANDCOVER_FORMAT_VERSION
-
-    def __init__(self: Self, engine: LandCoverEngine | None = None) -> None:
-        # The generation engine, injectable for tests; None binds the real
-        # streaming engine (landcover_generate imports landcover_layers, not this
-        # provider, so the default can be a plain module-level import).
-        self._engine: LandCoverEngine = (
-            engine if engine is not None else generate_landcover
-        )
+    _default_engine = staticmethod(generate_landcover)
 
     def default_source(self: Self, root: Path) -> ZoneLayerSource:
         """The default NLCD source -- the MRLC Annual NLCD bundle, cached locally.
@@ -99,37 +64,3 @@ class LandCoverProvider(ZoneLayerProvider):
         from snowtool.snowdb.zones.landcover_source import LocalFile
 
         return LocalFile(path)
-
-    def generate(
-        self: Self,
-        source: ZoneLayerSource,
-        targets: list[ZoneLayerTarget],
-        bounds: Bounds,
-        *,
-        force: bool = False,
-        options: GenerationOptions | None = None,
-        progress: ProgressReporter = NULL_PROGRESS,
-    ) -> dict[str, str]:
-        """Stream the NLCD ``source`` once, binning forest cover into every target.
-
-        ``options`` carries the engine's block-level parallelism knobs
-        (``workers``, ``block_size``). ``progress`` reports the source's download
-        (the heavy step for the default ~1.5 GB Annual NLCD source) and then the
-        engine's per-block binning.
-        """
-        from snowtool.snowdb.zones.landcover_source import LandCoverSource
-
-        if not isinstance(source, LandCoverSource):  # pragma: no cover - defensive
-            raise TypeError(
-                f'land-cover generation needs a LandCoverSource, got {source!r}',
-            )
-        options = options or GenerationOptions()
-        with source.open(bounds, progress=progress) as src:
-            return self._engine(
-                src,
-                targets,
-                workers=options.workers,
-                block_size=options.block_size,
-                force=force,
-                progress=progress,
-            )

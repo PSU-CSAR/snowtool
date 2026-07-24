@@ -137,11 +137,10 @@ def _target_crs(target):
 
 
 def _fake_terrain_engine(
-    src,
+    source,
     targets,
+    bounds,
     *,
-    work_crs=None,
-    work_resolution=None,
     workers=None,
     block_size=None,
     force=False,
@@ -149,8 +148,9 @@ def _fake_terrain_engine(
 ):
     """Stand in for generate_terrain: a uniform terrain set per target.
 
-    Matches the real engine's signature so it drops into ``TerrainProvider`` via
-    the ``engine=`` seam; only CLI wiring is under test here.
+    Matches the real engine's ``(source, targets, bounds, *, ...)`` signature so it
+    drops into ``TerrainProvider`` via the ``engine=`` seam; it never opens the
+    source, so only CLI wiring is under test here.
     """
     return {
         target.name: write_uniform_terrain(
@@ -164,8 +164,9 @@ def _fake_terrain_engine(
 
 
 def _fake_landcover_engine(
-    src,
+    source,
     targets,
+    bounds,
     *,
     workers=None,
     block_size=None,
@@ -174,8 +175,9 @@ def _fake_landcover_engine(
 ):
     """Stand in for generate_landcover: a uniform forest layer per target.
 
-    Matches the real engine's signature so it drops into ``LandCoverProvider`` via
-    the ``engine=`` seam; only CLI wiring is under test here.
+    Matches the real engine's ``(source, targets, bounds, *, ...)`` signature so it
+    drops into ``LandCoverProvider`` via the ``engine=`` seam; it never opens the
+    source, so only CLI wiring is under test here.
     """
     return {
         target.name: write_uniform_landcover(
