@@ -8,7 +8,7 @@ import math
 
 from dataclasses import dataclass
 from datetime import date
-from typing import IO, TYPE_CHECKING, Self
+from typing import IO, TYPE_CHECKING, Self, assert_never
 
 import numpy
 import numpy.typing
@@ -598,6 +598,10 @@ class _ZoneIndex:
                     result = weighted / area_sum
             case Reducer.TOTAL:
                 result = weighted
+            case _:
+                # Exhaustiveness: a new Reducer member fails typecheck here
+                # instead of surfacing as an UnboundLocalError below.
+                assert_never(reducer)
 
         # Empty cells divide to nan for MEAN already, but TOTAL needs it set
         # explicitly so a no-data cell reads nan rather than a spurious 0.
