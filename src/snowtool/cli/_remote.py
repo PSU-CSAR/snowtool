@@ -227,9 +227,13 @@ def _fetch_github_tree(
         ThreadPoolExecutor(max_workers=_DOWNLOAD_WORKERS) as pool,
     ):
         futures = [pool.submit(download, path) for path in paths]
-        for future in as_completed(futures):
-            future.result()
-            task.advance()
+        try:
+            for future in as_completed(futures):
+                future.result()
+                task.advance()
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
     return dest_dir
 
 

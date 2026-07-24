@@ -5,10 +5,16 @@ The HTTP fetch paths are exercised by the ``network``-marked tests in
 network -- URL parsing, the flat-name collision guard, and the local passthrough.
 """
 
+import json
+import threading
+import time
+
 import pytest
 
 from snowtool.cli._remote import (
+    _RAW,
     GitHubTree,
+    _fetch_github_tree,
     _flat_names,
     is_http_url,
     materialize_dir,
@@ -16,6 +22,7 @@ from snowtool.cli._remote import (
     parse_github_url,
 )
 from snowtool.exceptions import RemoteSourceError
+from snowtool.snowdb.progress import NULL_PROGRESS
 
 
 @pytest.mark.parametrize(
@@ -131,3 +138,38 @@ def test_materialize_dir_rejects_single_file_url():
         materialize_dir(url),
     ):
         pass
+
+
+def test_fetch_github_tree_stops_after_first_failure(tmp_path, monkeypatch):
+    """A failing download cancels the queued backlog instead of grinding through it."""
+    calls = {'raw': 0}
+    lock = threading.Lock()
+    # A full 40-char sha as the ref: _resolve_ref returns a non-None ref unchanged,
+    # so no ref-resolution API call is needed -- only the tree listing.
+    sha = 'a' * 40
+    paths = [f'reference/{i:02d}.geojson' for i in range(40)]
+    tree_json = json.dumps(
+        {
+            'truncated': False,
+            'tree': [{'path': p, 'type': 'blob'} for p in paths],
+        },
+    ).encode()
+
+    def fake_get_bytes(url, *, accept=None):
+        if url.startswith(_RAW):
+            with lock:
+                calls['raw'] += 1
+            # A hair of latency, so the pool doesn't race through all 40 "downloads"
+            # before the main thread gets a chance to see the first failure and
+            # cancel the rest -- real network I/O gives that room for free.
+            time.sleep(0.01)
+            raise RemoteSourceError('boom')
+        return tree_json
+
+    monkeypatch.setattr('snowtool.cli._remote._get_bytes', fake_get_bytes)
+    tree = GitHubTree('O', 'R', sha, 'reference')
+    with pytest.raises(RemoteSourceError, match='boom'):
+        _fetch_github_tree(tree, tmp_path, NULL_PROGRESS)
+    # Without cancel_futures, every queued download would still run to completion;
+    # only the handful already in flight at the moment of the first failure may.
+    assert calls['raw'] < 40
