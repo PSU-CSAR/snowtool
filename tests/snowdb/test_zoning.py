@@ -6,7 +6,7 @@ from itertools import pairwise
 import numpy
 import pytest
 
-from snowtool.exceptions import ZoneParamsError
+from snowtool.exceptions import QueryParameterError, ZoneParamsError
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb.config import (
     BandStepParams,
@@ -183,6 +183,20 @@ def test_aspect_component_bucket_count_is_overridable():
     assert [(b.min, b.max) for b in coarse] == [(-1, 0), (0, 1)]
     # The dataset param key that carries this override.
     assert scheme.param_key == 'buckets'
+
+
+@pytest.mark.parametrize(
+    ('scheme', 'override'),
+    [
+        (_banded(), 0),
+        (_banded(), -500),
+        (NORTHNESS.zoning, 0),
+    ],
+)
+def test_non_positive_overrides_raise_query_parameter_error(scheme, override):
+    """A bad user override is a typed client error, not a bare ValueError 500."""
+    with pytest.raises(QueryParameterError):
+        scheme.with_override(override)
 
 
 def test_bucketed_describe_reports_count_and_range():

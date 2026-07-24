@@ -404,7 +404,7 @@ class BandedZoning(ZoneScheme):
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_step, int) or self.default_step <= 0:
-            raise ValueError(
+            raise QueryParameterError(
                 f'band step must be a positive int, got {self.default_step!r}',
             )
 
@@ -474,7 +474,7 @@ class EvenBucketZoning(ZoneScheme):
 
     def __post_init__(self: Self) -> None:
         if not isinstance(self.default_buckets, int) or self.default_buckets < 1:
-            raise ValueError(
+            raise QueryParameterError(
                 f'bucket count must be a positive int, got {self.default_buckets!r}',
             )
 
