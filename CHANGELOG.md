@@ -19,8 +19,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [v0.4.0] - 2026-07-24
 
-### Added
-
 ### Changed
 
 - `stats` now requires an explicit variable selection: at least one CLI
@@ -32,12 +30,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   once and resolves every requested variable from that single listing, rather
   than once per (date, variable) — fewer directory reads over a wide archive,
   and a missing-variable date fails fast.
-
-### Removed
-
-### Fixed
-
-### Security
+- `SnowDbReader.zonal_stats` now requires a non-empty `variable_keys`; an empty
+  selection raises `QueryParameterError` instead of silently reading every
+  variable. The "never implicit" rule now holds in the read core, not only at
+  the CLI/HTTP boundaries that also enforce it.
 
 ## [v0.3.0] - 2026-07-24
 
