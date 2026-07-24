@@ -6,9 +6,7 @@ per-layer nodata sentinels, the aspect-class codes, the :class:`ZoneLayer`
 definitions, and the on-disk format version. It lives in its own module so the
 engine can import these without importing the provider: the provider imports the
 engine to bind its module-level default, so a shared source here is what keeps that
-one-directional (provider -> engine -> layers) instead of a cycle. The provider
-re-exports every name here, so external importers still read them off
-``snowtool.snowdb.zones.terrain``.
+one-directional (provider -> engine -> layers) instead of a cycle.
 """
 
 from __future__ import annotations

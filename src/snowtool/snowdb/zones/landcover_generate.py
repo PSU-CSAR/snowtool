@@ -7,12 +7,9 @@ degenerates to per-dataset generation; passing several shares the source read.
 Unlike :mod:`snowtool.snowdb.zones.terrain_generate`, land cover is categorical, so
 there is no slope/aspect, no Horn neighbourhood (hence no block halo), and no
 projected work grid -- aspect needs an undistorted metric grid, but a *fraction of
-pixels* does not. What the two engines do share -- the pre-flight existence guard,
-the generation-digest-then-stamp pass, and the point-in-cell binning arithmetic
-(cell assignment, pixel-centre coordinates) -- lives in
-:mod:`snowtool.snowdb.zones.generate_common`. Each fine source pixel's centre is
-transformed (pyproj) into the target grid's CRS and binned into the cell it lands
-in (point-in-cell), so a source in any CRS/resolution bins correctly onto any grid.
+pixels* does not. Each fine source pixel's centre is transformed (pyproj) into the
+target grid's CRS and binned into the cell it lands in (point-in-cell), so a
+source in any CRS/resolution bins correctly onto any grid.
 
 Per target cell the engine accumulates a count of valid NLCD pixels and of forest
 pixels (classes in :data:`~snowtool.snowdb.constants.FOREST_CLASSES`); the layer
@@ -191,10 +188,7 @@ def generate_landcover(
                 bs,
             ).run(n_workers, progress)
 
-    # One generation id for the whole pass: a digest over every target's finalized
-    # forest array (its only finalized layer, sorted by name for determinism),
-    # stamped identically on every output -- so all layers produced together
-    # reconcile as one set.
+    # See finalize_and_stamp for the generation-hash contract.
     return finalize_and_stamp(
         accumulators,
         format_version=LANDCOVER_FORMAT_VERSION,

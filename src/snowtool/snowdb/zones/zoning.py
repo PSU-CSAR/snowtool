@@ -221,58 +221,30 @@ class ThresholdZone(Zone):
 class ZoneScheme(ABC):
     """How one zone layer's pixels map to zones.
 
-    A scheme is *resolved* to a configured instance before use, then queried with
-    no further parameters:
+    A scheme is *resolved* to a configured instance before use: :meth:`configured`
+    folds a dataset's configured zone ``params`` (its ``zones`` block -- e.g.
+    ``band_step_ft``, ``threshold_pct``) into a new scheme instance (categorical
+    takes no params and returns itself); :meth:`with_override` then folds in an
+    explicit per-query override value (the CLI/API ``LAYER:PARAM=VALUE`` token,
+    already typed by :meth:`parse_override`). After resolution, :meth:`zones`
+    enumerates the scheme's zones in ordinal order and :meth:`assign` maps an array
+    of native pixel values to per-pixel zone ordinals (``-1`` = out of zone, which
+    uniformly covers layer-nodata and out-of-domain values).
 
-    * :meth:`configured` folds a dataset's configured zone ``params`` (its
-      ``zones`` block -- e.g. ``band_step_ft``, ``threshold_pct``) into a new
-      scheme instance (the base scheme, e.g. categorical, takes no params and
-      returns itself).
-    * :meth:`with_override` then folds in an explicit per-query override value
-      (the CLI/API ``LAYER:PARAM=VALUE`` token, already typed by
-      :meth:`parse_override`).
-
-    After resolution, :meth:`zones` enumerates the scheme's zones in ordinal order
-    and :meth:`assign` maps an array of native pixel values to per-pixel zone
-    ordinals (``-1`` = out of zone, which uniformly covers layer-nodata and
-    out-of-domain values) -- both from the instance's own fields, taking no kwargs.
-
-    :meth:`configured` and :meth:`parse_override` are generic on the base, driven
-    by attributes a scheme sets to declare *what* it overrides:
-
-    * :attr:`param_key` -- the config/query param name (``'band_step_ft'``,
-      ``'threshold_pct'``, ...). ``None`` (the default) means the scheme takes no
-      override: it is a categorical axis, so :meth:`configured` rejects any params.
-      (An explicit *query* override is rejected earlier, by
-      :func:`~snowtool.snowdb.zonal_stats.parse_zone_selection`, before it would
-      reach :meth:`parse_override`.) It is a plain per-instance attribute (most
-      schemes fix it as a constant default, but the two threshold axes differ only
-      in this datum, so :class:`ThresholdZoning` passes it in).
-    * :attr:`_value_type` -- ``int`` or ``float``, how :meth:`parse_override`
-      types the token.
-    * :attr:`_value_noun` -- a short noun for the parse error (``'band step'``).
-
-    :meth:`with_override` is generic on the base too: an overridable scheme
-    declares :attr:`_value_field` -- the name of the frozen-dataclass field the
-    override lands on -- and the base folds the (already-typed) value onto it with
-    a one-line :func:`dataclasses.replace`.
-
-    :meth:`configured` exploits the config invariant (see
-    :mod:`snowtool.snowdb.config`) that every zone-params member carries *exactly
-    one* required field whose name IS the scheme's :attr:`param_key`: it validates
-    that shape and reads the value by name, so entropy vs. forest thresholds are
-    pure data (a different :attr:`param_key`, the same code path).
+    :meth:`configured`, :meth:`with_override`, and :meth:`parse_override` are
+    generic on the base, driven by attributes a scheme sets to declare *what* it
+    overrides: :attr:`param_key` (the config/query param name; ``None`` means no
+    override, e.g. categorical), :attr:`_value_type` (``int``/``float``, how the
+    token is parsed), :attr:`_value_noun` (parse-error noun), and
+    :attr:`_value_field` (the frozen-dataclass field the override lands on via
+    :func:`dataclasses.replace`).
     """
 
-    # An overridable scheme declares its param via these attributes; the base
-    # (categorical) leaves ``param_key`` ``None`` to opt out of override entirely.
     # ``param_key`` is instance-level (not ClassVar) so ``ThresholdZoning`` can carry
     # it as a real field; ``_value_type``/``_value_noun`` never vary per instance.
     param_key: str | None = None
     _value_type: ClassVar[type[int] | type[float]] = float
     _value_noun: ClassVar[str] = ''
-    # The frozen-dataclass field an override lands on (set by each overridable
-    # scheme); the base's generic :meth:`with_override` ``replace``s onto it.
     _value_field: ClassVar[str] = ''
 
     @abstractmethod
@@ -418,9 +390,6 @@ class BandedZoning(ZoneScheme):
     unit: str
     value_scale: float
     layer_nodata: float
-    # The dataset/query param that configures this scheme's band width, and how the
-    # generic base types its token (an int band step). ``param_key`` is a constant
-    # here (the base makes it instance-level so ThresholdZoning can vary it).
     param_key: str = 'band_step_ft'
     _value_type: ClassVar[type[int] | type[float]] = int
     _value_noun: ClassVar[str] = 'band step'
@@ -445,8 +414,7 @@ class BandedZoning(ZoneScheme):
     def zones(self: Self) -> tuple[BandZone, ...]:
         """The bands spanning the domain at ``default_step``.
 
-        Aligned to 0: band ``i`` is ``[i*step, (i+1)*step)``. Reproduces the old
-        ``ElevationBand.generate`` for the elevation domain.
+        Aligned to 0: band ``i`` is ``[i*step, (i+1)*step)``.
         """
         step = self.default_step
         start = int(self.domain_min // step)
@@ -489,9 +457,6 @@ class EvenBucketZoning(ZoneScheme):
     domain_max: float
     default_buckets: int
     layer_nodata: float
-    # The dataset/query param that configures this layer's bucket count, and how the
-    # generic base types its token (an int bucket count). ``param_key`` is a constant
-    # here (the base makes it instance-level so ThresholdZoning can vary it).
     param_key: str = 'buckets'
     _value_type: ClassVar[type[int] | type[float]] = int
     _value_noun: ClassVar[str] = 'bucket count'
@@ -567,12 +532,8 @@ class ThresholdZoning(ZoneScheme):
     layer_nodata: float
     below_label: str
     above_label: str
-    # Which threshold param configures this split: forest cover uses
-    # ``threshold_pct``; normalised aspect entropy uses ``entropy_threshold``. Unlike
-    # the other schemes this is a real per-instance field (the two split axes differ
-    # only in this datum) -- but the generic base
-    # :meth:`configured`/:meth:`parse_override` read it the same way regardless, so
-    # entropy vs. forest is pure data, not a code fork.
+    # Unlike the other schemes, a real per-instance field: the two split axes
+    # (forest cover, aspect entropy) differ only in this datum.
     param_key: Literal['threshold_pct', 'entropy_threshold'] = 'threshold_pct'
     _value_type: ClassVar[type[int] | type[float]] = float
     _value_noun: ClassVar[str] = 'threshold'

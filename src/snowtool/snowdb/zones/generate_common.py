@@ -12,9 +12,7 @@ pixel-centre coordinates), the per-target accumulator prologue
 (:class:`StreamingBinner`: the read lock, the thread-local per-target
 Transformers, the cancel/re-check-under-lock dance, the coordinate
 broadcast/mask/per-target-transform epilogue, the serial ordered reduce, and the
-``ordered_parallel_map`` wiring). Extracted here so a third provider does not
-have to copy any of it a third time -- and, critically, so the safety-critical
-comments guarding those invariants live in exactly one place.
+``ordered_parallel_map`` wiring).
 """
 
 from __future__ import annotations
@@ -125,11 +123,10 @@ def iter_blocks(
 ) -> list[Block]:
     """Enumerate ``width`` x ``height`` (from ``col_off``/``row_off``) in blocks.
 
-    Row-major order (``for by ... for bx ...``), exactly matching both engines'
-    prior inline enumeration, so switching either engine onto this helper leaves
-    its output -- and generation hash -- bit-identical. ``col_off``/``row_off``
-    cover landcover's source-window offset; terrain streams from the origin and
-    passes the defaults.
+    Row-major order (``for by ... for bx ...``) is provenance-visible: it feeds the
+    generation hash, so it must stay stable. ``col_off``/``row_off`` cover
+    landcover's source-window offset; terrain streams from the origin and passes
+    the defaults.
     """
     nbx = math.ceil(width / block_size)
     nby = math.ceil(height / block_size)
@@ -272,8 +269,7 @@ def cells_for_points(
     are meaningless placeholders the caller discards via ``in_bounds`` (e.g.
     ``cell[in_bounds]``) -- purely elementwise arithmetic, so this is identical
     to filtering ``row``/``col`` first. The expression order (``a * xt + b * yt +
-    c``, floor, then cast to int64) matches both call sites' prior inline code
-    exactly, keeping every existing generation hash bit-identical.
+    c``, floor, then cast to int64) is provenance-visible and must not change.
     """
     col = numpy.floor(
         inv_transform.a * xt + inv_transform.b * yt + inv_transform.c,
@@ -297,8 +293,8 @@ def pixel_centre_coords(
 
     ``(r0, c0)`` is the block's row/col origin within the full grid ``transform``
     covers. Returns broadcastable ``(height, 1)`` / ``(1, width)`` arrays rather
-    than a dense meshgrid, matching both call sites' prior inline code exactly
-    (same affine expansion, same broadcasting shape).
+    than a dense meshgrid; the affine expansion is provenance-visible and must not
+    change.
     """
     rows = (numpy.arange(height) + r0)[:, None]
     cols = (numpy.arange(width) + c0)[None, :]
@@ -309,21 +305,11 @@ def pixel_centre_coords(
 
 type _F64 = numpy.typing.NDArray[numpy.float64]
 # A block's per-pixel payload arrays the reducer splats into ``bin_into`` (terrain:
-# cls/cos/sin/z; land cover: is_forest). As returned by ``_load`` these are still
-# *unmasked* and block-shaped; :meth:`StreamingBinner._compute` flattens and masks
-# each to the kept pixels (the same ``keep`` it applies to the coordinates), so the
-# reducer only ever sees the kept-pixel form.
+# cls/cos/sin/z; land cover: is_forest).
 type Payload = tuple[numpy.typing.NDArray, ...]
-# What every :meth:`StreamingBinner._load` returns: the (unmasked, block-shaped)
-# payload, the broadcastable pixel-centre x/y (in the source CRS, shape (h,1)/(1,w)
-# per pixel_centre_coords), and a per-pixel keep-mask -- or None for a block that
-# contributes nothing. The base masks the payload *and* the reprojected centres by
-# the same ``keep``, so a payload array must be block-shaped (ravel-compatible with
-# ``keep``), not pre-masked.
+# See :meth:`StreamingBinner._load`.
 type Loaded = tuple[Payload, _F64, _F64, numpy.typing.NDArray[numpy.bool_]] | None
-# One block's binnable contribution as it reaches the serial reducer: the payload
-# plus, per target (accumulator order), the kept pixel centres already reprojected
-# into that target's CRS.
+# See :meth:`StreamingBinner._compute`.
 type BlockResult = tuple[Payload, list[tuple[_F64, _F64]]]
 
 

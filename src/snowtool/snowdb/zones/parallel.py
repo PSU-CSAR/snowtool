@@ -1,7 +1,7 @@
 """An ordered parallel-map / serial-reduce engine for streaming block work.
 
-This is the concurrency core lifted out of the terrain generator (and reusable by
-any streaming generator with the same shape): a pure, expensive per-item ``compute``
+This is the concurrency core (reusable by any streaming generator with the same
+shape): a pure, expensive per-item ``compute``
 runs on a worker pool while ``reduce`` folds each result serially, in item order, on
 the calling thread. The design is dominated by five load-bearing invariants -- read
 :func:`ordered_parallel_map` and its docstrings before touching this, because the

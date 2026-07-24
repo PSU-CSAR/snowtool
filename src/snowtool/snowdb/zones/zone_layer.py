@@ -67,9 +67,7 @@ class GenerationOptions:
     """Optional knobs for a zone-layer generation pass.
 
     A single typed value object threaded from the caller through the provider to
-    its engine, in place of an untyped option bag. Only terrain consumes these
-    today (block-level parallelism); a provider ignores any field it does not
-    use, and ``None`` defers to the engine's own default.
+    its engine, in place of an untyped option bag.
     """
 
     workers: int | None = None

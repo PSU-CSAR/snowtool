@@ -98,9 +98,7 @@ def _instarr_footprint() -> Geometry:
     populated tiles (every tile in the h08-h10 x v04-v05 block except the
     permanently-empty ones). This is the coverage footprint; absent it, coverage
     would default to the whole grid rectangle and mis-report basins over the empty
-    corner. Derived here from the canonical tiling for now; a future cut may
-    compute it from the data's real extent. The shapely union is validated into
-    the geojson-pydantic Geometry union (the persisted footprint type).
+    corner.
     """
     present = [
         _modis_tile_polygon(h, v)
@@ -222,14 +220,11 @@ class InstarrMosaicRaster(GridAlignedRaster):
 class InstarrIngester:
     """Parses a directory of SPIRES NRT tiles into per-date work for the driver.
 
-    The INSTARR implementation of :class:`~snowtool.snowdb.ingest.Ingester`. The
-    source tiles are tile-major on disk (``h##v##/YYYY/MM/SPIRES_NRT_*.nc``), so a
-    date's tiles are scattered; :meth:`plan` scans ``source`` for tiles, groups
+    The source tiles are tile-major on disk (``h##v##/YYYY/MM/SPIRES_NRT_*.nc``), so
+    a date's tiles are scattered; :meth:`plan` scans ``source`` for tiles, groups
     them by date, and yields one :class:`~snowtool.snowdb.ingest.DateIngest` per
-    date whose ``build_rasters`` produces one mosaicked COG per variable. The
-    driver hashes each date's contributing tiles, drives the write, and builds the
-    result. ``source`` may be a directory (scanned recursively) or a single tile
-    file.
+    date whose ``build_rasters`` produces one mosaicked COG per variable.
+    ``source`` may be a directory (scanned recursively) or a single tile file.
     """
 
     filename_re = re.compile(
@@ -246,9 +241,7 @@ class InstarrIngester:
             sorted(source.glob('**/SPIRES_NRT_*.nc')) if source.is_dir() else [source]
         )
 
-        # Parse each tile filename once and group the surviving matches by date; the
-        # date's tiles are then read straight off their matches (path via
-        # match.string is not needed -- the path is carried alongside).
+        # Parse each tile filename once and group the surviving matches by date.
         matches_by_date: dict[date, list[tuple[Path, re.Match[str]]]] = defaultdict(
             list,
         )
@@ -256,8 +249,8 @@ class InstarrIngester:
             match = self.filename_re.search(path.name)
             if match is None:
                 # Every glob-matched SPIRES_NRT_*.nc claims the format, so a file
-                # the regex cannot parse is malformed input -- refuse it loudly
-                # rather than silently dropping it from the mosaic.
+                # the regex cannot parse is malformed input, not one to silently
+                # drop from the mosaic.
                 raise IngestSourceError(
                     f'Malformed SPIRES NRT tile filename {path.name!r} (expected '
                     f'{self.filename_re.pattern!r}).',
@@ -308,9 +301,8 @@ class InstarrIngester:
     ) -> list[WritableRaster]:
         """A date's mosaicked rasters, one per variable (the ``build_rasters`` body).
 
-        Bound per date via :func:`functools.partial` in :meth:`plan`, so each date's
-        parsed inputs are captured explicitly as arguments rather than by keyword
-        defaults dodging late binding. ``source_hash`` is supplied by the driver.
+        Bound per date via :func:`functools.partial` in :meth:`plan`;
+        ``source_hash`` is supplied by the driver.
         """
         grid_params = dataset.spec.grid_params
         transform = dataset.grid.base_grid.transform

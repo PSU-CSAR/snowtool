@@ -27,8 +27,6 @@ from .swann import SWANN_800M_SPEC, SWANN_800M_VARIABLES, SwannIngester
 if TYPE_CHECKING:
     from snowtool.snowdb.ingest import Ingester
 
-# The built-in datasets; back the dataset templates and the tests (a SnowDb is
-# built from a RootConfig, not from these directly).
 DEFAULT_DATASET_SPECS: tuple[DatasetSpec, ...] = (
     SNODAS_SPEC,
     SWANN_800M_SPEC,
@@ -37,8 +35,8 @@ DEFAULT_DATASET_SPECS: tuple[DatasetSpec, ...] = (
 
 # The ingester registry: a dataset config names its ingester by one of these keys
 # and the ingest path resolves the code from here (reads/queries never touch it).
-# Specific ingesters only -- no generic/parameterized ones. Note the key is the
-# *kind* (``swann``), distinct from a dataset *name* (``swann-800m``).
+# Note the key is the *kind* (``swann``), distinct from a dataset *name*
+# (``swann-800m``).
 INGESTERS: dict[str, Ingester] = {
     'snodas': SnodasIngester(),
     'swann': SwannIngester(),
@@ -49,11 +47,9 @@ INGESTERS: dict[str, Ingester] = {
 def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     """Produce the self-describing :class:`DatasetConfig` for a built-in spec.
 
-    The inverse of :meth:`DatasetSpec.from_config`: the spec's grid, variables,
-    ``zones`` and ``footprint`` are already the persisted domain types, so they
-    pass straight through; only the ingester is mapped to its registry *name*.
-    Round-tripping a built-in spec through this and back reproduces the spec
-    exactly -- the guarantee behind the templates below.
+    The inverse of :meth:`DatasetSpec.from_config`; round-tripping a built-in spec
+    through this and back reproduces the spec exactly -- the guarantee behind the
+    templates below.
     """
     ingester_name = (
         next(n for n, i in INGESTERS.items() if type(i) is type(spec.ingester))

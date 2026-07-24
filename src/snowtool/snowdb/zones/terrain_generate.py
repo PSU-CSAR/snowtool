@@ -60,11 +60,6 @@ hash -- is identical regardless of worker count. Memory is the fixed target
 accumulators (~72 bytes/cell, sized by the target grids) plus transient per-worker
 block buffers (~``workers * block_size**2``); ``workers`` and ``block_size`` bound
 the latter. The design assumes the targets fit in RAM.
-
-What this engine shares with :mod:`snowtool.snowdb.zones.landcover_generate` -- the
-pre-flight existence guard, the generation-digest-then-stamp pass, and the
-point-in-cell binning arithmetic (cell assignment, pixel-centre coordinates) --
-lives in :mod:`snowtool.snowdb.zones.generate_common`.
 """
 
 from __future__ import annotations
@@ -444,14 +439,6 @@ def generate_terrain(
             # None -> GDAL derives the native resolution mapped into the work CRS.
             resolution=work_resolution,
         )
-        # Process only the part of the (full-source) work grid that actually feeds
-        # a target. The reprojection is lazy and per-block (a WarpedVRT over COG
-        # tiles), so clipping the work grid to the union of target footprints means
-        # the range reads only ever touch the *intersecting portions* of the source
-        # tiles -- not the whole tile files, even when a grid clips just a corner of
-        # them. The clip keeps the source lattice, so any cell that lands in a
-        # target is sampled identically to processing the whole source; only empty
-        # margin is skipped (the output, and the generation hash, are unchanged).
         clipped = _clip_grid_to_bounds(
             full_transform,
             full_w,
@@ -491,11 +478,7 @@ def generate_terrain(
                 ).run(n_workers, progress)
         # else: no target overlaps the source -> accumulators stay empty (nodata).
 
-    # One generation id for the whole pass: a digest over every target's
-    # finalized elevation only (the first layer each finalize returns -- it
-    # identifies the generation, not a per-raster hash), stamped identically on
-    # every layer of every terrain set so all rasters produced together
-    # reconcile as one set.
+    # See finalize_and_stamp for the generation-hash contract.
     return finalize_and_stamp(
         accumulators,
         format_version=TERRAIN_FORMAT_VERSION,

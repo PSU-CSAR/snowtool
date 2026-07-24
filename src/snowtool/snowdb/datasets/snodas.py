@@ -64,11 +64,7 @@ class Product(StrEnum):
     def from_product_codes(cls: type[Self], product_code: int, vcode: str) -> Self:
         """The product a filename's ``(product_code, vcode)`` identifies.
 
-        Precip shares one code (1025) split by vcode; every other product is
-        identified by its code alone (any vcode). The two-tier lookup tries the
-        exact ``(code, vcode)`` first (the precip pair) then falls back to the
-        vcode-agnostic ``(code, None)`` -- unambiguous, since 1025 registers only
-        the precip pair and no ``(code, None)``.
+        See :data:`_PRODUCTS` for the code/vcode assignment this inverts.
         """
         try:
             return (
@@ -105,10 +101,7 @@ _PRODUCTS: dict[Product, tuple[int, str, Unit]] = {
     Product.SUBLIMATION: (1050, '', _millimeters_100),
 }
 
-# The parse inverse: (code, vcode-or-None) -> Product. Precip registers its two
-# real vcodes; every other product registers vcode-agnostically under None (its
-# _PRODUCTS vcode is the empty string), which from_product_codes falls back to for
-# any parsed vcode (see its two-tier lookup).
+# The parse inverse of _PRODUCTS: (code, vcode-or-None) -> Product.
 _PRODUCT_BY_CODE_VCODE: dict[tuple[int, str | None], Product] = {
     (code, vcode or None): product for product, (code, vcode, _) in _PRODUCTS.items()
 }
@@ -231,11 +224,7 @@ class SNODASInputRaster:
     """One extracted SNODAS header file, ready to write itself as a COG.
 
     Pairs a :class:`SNODASName` (the filename fields) with the extracted header
-    ``path`` and the driver-computed ``source_hash``, implementing the
-    :class:`~snowtool.snowdb.ingest.WritableRaster` contract. Constructed only at
-    build time (after the skip check), with the hash a *required* argument -- so a
-    COG can never land without its ``SOURCE_HASH`` provenance tag, and there is no
-    stamp-later mutation.
+    ``path`` and the driver-computed ``source_hash``.
     """
 
     def __init__(self: Self, parsed: SNODASName, path: Path, source_hash: str) -> None:
@@ -254,9 +243,7 @@ class SNODASInputRaster:
 
     @staticmethod
     def trim_header(hdr: Path) -> None:
-        """gdal has a header line length limit of
-        256 chars for <2.3.0, or 1024 chars for >=2.3.0,
-        but we trim to the smaller size to be safe."""
+        """GDAL raw-driver header lines are length-limited; trim to 255 to be safe."""
         line_limit = 255
         lines: list[bytes] = []
         with hdr.open('rb') as f:
@@ -269,7 +256,6 @@ class SNODASInputRaster:
             f.writelines(lines)
 
     def write_cog(self: Self, output_dir: Path) -> None:
-        # GDAL's SNODAS/raw driver has a header line-length limit; trim first.
         self.trim_header(self.path)
 
         with rasterio.open(self.path) as src:
@@ -294,11 +280,7 @@ class SNODASInputRasterSet:
 
     Built from filename stems alone (:meth:`from_names`) -- the tar's member names,
     no extraction -- it validates that the set holds every product, is a single
-    date, and sits at the pinned time-step, then exposes the date and the
-    :attr:`out_names` the write path needs for its skip check. Extraction is deferred
-    to :meth:`build_rasters`, which runs only when a date is not skipped: it unpacks
-    the archive and pairs each header with its already-parsed name (and the
-    driver-computed source hash) as a writable raster.
+    date, and sits at the pinned time-step.
     """
 
     def __init__(
@@ -330,14 +312,8 @@ class SNODASInputRasterSet:
             )
         return dates.pop()
 
-    # Temporary policy gate: pin ingest to the 05 time-step hour. The hour in a
-    # SNODAS filename is the `hh` of the time-step code (TSyyyymmddhh) -- the
-    # standard daily product uses 05 for every variable (both the T0001
-    # snapshots and the T0024 24-hr integrations). The parser above stays
-    # general (any hour), but a dataset must hold a single consistent revision,
-    # so we refuse anything but the 05 daily product here (SWANN pins to
-    # `_early` for the same latency-over-finality reason). Remove this method
-    # (and its call in __init__) to allow other hours.
+    # Temporary policy gate: pin ingest to the 05 time-step hour so a dataset never
+    # mixes revisions.
     PINNED_TIMESTEP_HOUR: ClassVar[int] = 5
 
     def _validate_revision(self: Self) -> None:
@@ -418,13 +394,8 @@ class SNODASInputRasterSet:
     ) -> list[SNODASInputRaster]:
         """Extract ``source`` into ``extract_dir`` and pair each header with its name.
 
-        The :class:`~snowtool.snowdb.ingest.DateIngest.build_rasters` callback for
-        SNODAS, run by the write path *only* when the date is not skipped: this is
-        the sole place the tar is extracted. ``extract_dir`` is the scratch dir the
-        ingester opened for this ingest (cleaned deterministically when ``plan``'s
-        context exits); each extracted header is matched by stem to the name already
-        parsed at plan time, then wrapped as a writable raster carrying the
-        driver-computed source hash (required, not stamped later).
+        The sole place a SNODAS tar is extracted -- one archive, one date. Each
+        extracted header is matched by stem to the name already parsed at plan time.
         """
         self.extract_archive(source, extract_dir)
 
@@ -450,15 +421,9 @@ class SNODASInputRasterSet:
 class SnodasIngester:
     """Parses a SNODAS tar archive (one archive == one date) for the ingest driver.
 
-    The SNODAS implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
     :meth:`plan` reads only the tar's *member names* (``tarfile.getnames()``) to
-    identify and validate the date's product set and derive its ``out_names`` -- no
-    extraction. It yields a single :class:`~snowtool.snowdb.ingest.DateIngest` whose
-    ``build_rasters`` extracts the archive (the one and only extraction) into a
-    scratch dir the plan holds open, and pairs each header with the driver-computed
-    source hash. The write path calls ``build_rasters`` only when the date is not
-    skipped, so an already-current archive is never unpacked -- the scratch dir stays
-    empty and is cleaned when the plan context exits.
+    identify and validate the date's product set and derive its ``out_names`` --
+    no extraction.
     """
 
     def plan(
@@ -467,8 +432,6 @@ class SnodasIngester:
         dataset: Dataset,
     ) -> Iterator[DateIngest]:
         if source.is_dir():
-            # Guarded here so a directory earns a precise, typed error instead of
-            # tarfile's raw IsADirectoryError.
             raise SnowtoolError(
                 f'Expected a single SNODAS tar archive (one archive == one '
                 f'date), got a directory: {source}. Ingest archives one per '
@@ -506,8 +469,7 @@ class SnodasIngester:
 
 # SNODAS variables, one per product. All are intensive quantities (depths,
 # temperature) reported as area-weighted means; reads are int16 with the SNODAS
-# nodata sentinel. (Switching any to a TOTAL basin total is a future, domain-driven
-# change -- see the plan's reduced-unit note.)
+# nodata sentinel.
 SNODAS_VARIABLES = tuple(
     DatasetVariable(
         key=product.value,

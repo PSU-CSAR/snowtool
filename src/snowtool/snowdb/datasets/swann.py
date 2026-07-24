@@ -79,18 +79,11 @@ _SUBDATASET_TO_VARIABLE = {
 class SwannRaster(GridAlignedRaster):
     """One GDAL-readable band, ready to write itself as a grid-aligned COG.
 
-    A :class:`~snowtool.snowdb.ingest.GridAlignedRaster`: it supplies the band array
-    (:meth:`read_array`); the base owns the grid geometry + COG write.
-    ``source_uri`` is any URI rasterio can open -- for SWANN the ingester builds a
-    ``netcdf:<file>:<SWE|DEPTH>`` string, keeping the NetCDF-format knowledge in
-    the (format-aware) ingester rather than here. The array is read at write time
-    (GDAL returns the SWANN NetCDF north-up, rows north→south, already aligned to
-    the grid) and written on the dataset grid's own transform/CRS -- the
-    authoritative geometry from the spec, not GDAL's lat/lon-derived (float32)
-    geotransform. ``expected_shape`` is the dataset grid's ``(rows, cols)``; a
-    source band of any other shape (a truncated/regridded UA file) would land
-    mis-aligned under the spec transform, so a mismatch raises rather than write a
-    silently wrong COG.
+    Written on the dataset grid's own transform/CRS -- the authoritative geometry
+    from the spec, not GDAL's lat/lon-derived (float32) geotransform.
+    ``expected_shape`` is the dataset grid's ``(rows, cols)``; a source band of any
+    other shape (a truncated/regridded UA file) raises rather than write a
+    silently mis-aligned COG.
     """
 
     def __init__(
@@ -130,21 +123,13 @@ class SwannRaster(GridAlignedRaster):
 class SwannIngester:
     """Parses one SWANN 800m daily NetCDF (one file == one date) for the driver.
 
-    The SWANN implementation of :class:`~snowtool.snowdb.ingest.Ingester`: its
     :meth:`plan` parses the date + stage from the filename and yields a single
     :class:`~snowtool.snowdb.ingest.DateIngest` whose ``build_rasters`` produces a
-    grid-aligned :class:`SwannRaster` per variable. The driver hashes the file,
-    drives the write, and builds the result.
+    grid-aligned :class:`SwannRaster` per variable.
     """
 
-    # The product is published in three processing stages -- `_early` (newest),
-    # then `_provisional`, then `_stable` (finalized) -- all the same format.
-    # We pin ingest to `_early`: a dataset must hold a single consistent
-    # revision, and `_early` is available first (the latency-over-finality
-    # policy SNODAS also follows by pinning to its 05 time-step hour). The regex
-    # still matches all three stages so a wrong-stage file earns a precise error
-    # (below) rather than a generic "not a SWANN file"; `PINNED_STAGE` does the
-    # refusing. Drop the stage check to allow finalized data.
+    # Temporary policy gate: pin ingest to the `_early` stage so a dataset never
+    # mixes revisions.
     PINNED_STAGE = 'early'
     filename_re = re.compile(
         r'UA_SWE_Depth_800m_v1_(?P<date>\d{8})_(?P<stage>early|provisional|stable)\.nc$',
@@ -156,9 +141,6 @@ class SwannIngester:
         dataset: Dataset,
     ) -> Iterator[DateIngest]:
         if source.is_dir():
-            # Guarded before the filename regex so a directory earns a precise
-            # error rather than a misleading "does not match" message (or a raw
-            # read failure further in).
             raise SnowtoolError(
                 f'Expected a single SWANN 800m NetCDF file (one file == one '
                 f'date), got a directory: {source}. Ingest files one per '
