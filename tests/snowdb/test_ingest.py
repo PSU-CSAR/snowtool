@@ -529,30 +529,6 @@ def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
     )
 
 
-def test_snodas_skip_path_does_no_extraction(tmp_path, spec, monkeypatch):
-    """An already-current archive is skipped with ZERO tar extraction.
-
-    The converge-by-default bulk re-run: after the first ingest, re-ingesting the
-    identical tar must be skipped on the member-names + hash alone -- build_rasters
-    (the only extraction site) is never called, so the spy's call count does not rise.
-    """
-    ds = make_dataset(_snodas_spec(spec), tmp_path / 'db')
-    d = date(2019, 2, 2)
-    stems = _snodas_stems('20190202')
-    tar = tmp_path / 'snodas.tar'
-    _write_snodas_tar(tar, stems)
-    spy = _ExtractSpy(stems)
-    _patch_snodas_boundaries(monkeypatch, spy)
-
-    assert ds.ingest(tar).ingested == [d]
-    assert spy.calls == 1  # the first, real build
-
-    # Re-ingest the identical archive -> skipped, and NO further extraction.
-    result = ds.ingest(tar)
-    assert result == IngestResult(ingested=[], skipped=[d])
-    assert spy.calls == 1  # unchanged: the skip path extracted nothing
-
-
 def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
     tmp_path,
     spec,
@@ -572,7 +548,8 @@ def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
     assert ds.ingest(tar).ingested == [d]
     first_mtime = a_cog.stat().st_mtime_ns
 
-    # Same bytes -> skipped, files untouched, no re-extraction.
+    # Same bytes -> skipped, files untouched, and ZERO tar extraction: build_rasters
+    # (the only extraction site) is never called, so the spy's call count holds.
     result = ds.ingest(tar)
     assert result == IngestResult(ingested=[], skipped=[d])
     assert a_cog.stat().st_mtime_ns == first_mtime

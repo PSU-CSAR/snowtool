@@ -15,10 +15,10 @@ from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.zones.terrain import terrain_provider
 
-from ..conftest import (
+from ..conftest import write_swe_cog
+from .conftest import (
     full_marker_out_names,
     full_marker_rasters,
-    write_swe_cog,
 )
 
 

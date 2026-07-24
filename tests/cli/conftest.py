@@ -30,6 +30,7 @@ from snowtool.snowdb.zones.terrain import terrain_provider
 
 from ..conftest import (
     register_dataset_config,
+    write_marker_cog,
     write_uniform_landcover,
     write_uniform_terrain,
 )
@@ -73,6 +74,74 @@ def register_fake_ingester(monkeypatch, tmp_path, spec):
         return fake
 
     return _register
+
+
+class FakeRaster:
+    """A ``WritableRaster`` that drops a tiny real marker COG into the date dir.
+
+    ``out_name`` is the filename the COG lands under; it carries ``source_hash`` in
+    its ``SOURCE_HASH`` tag (what a real ingester stamps, and what the per-date skip
+    check reads back), so a fake ingester built on these drives the genuine atomic
+    ``Dataset.write_date_cogs`` path end-to-end.
+    """
+
+    def __init__(self, out_name: str, source_hash: str) -> None:
+        self.out_name = out_name
+        self.source_hash = source_hash
+
+    def write_cog(self, output_dir) -> None:
+        write_marker_cog(output_dir / self.out_name, self.source_hash)
+
+
+def _name_for_glob(glob: str) -> str:
+    """A concrete filename that matches ``glob`` (``*`` dropped, ``?``/``[..]`` pinned).
+
+    Turns a variable's ``fnmatch`` glob into one deterministic filename: ``*`` -> "",
+    ``?`` -> "0", ``[ab..]`` -> its first char. Distinct variable globs (which differ
+    by product code) yield distinct names, so a full set resolves one COG per variable.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(glob):
+        char = glob[i]
+        if char == '*':
+            i += 1
+        elif char == '?':
+            out.append('0')
+            i += 1
+        elif char == '[':
+            close = glob.index(']', i)
+            out.append(glob[i + 1])
+            i = close + 1
+        else:
+            out.append(char)
+            i += 1
+    return ''.join(out)
+
+
+def full_marker_out_names(dataset) -> frozenset[str]:
+    """The COG filenames :func:`full_marker_rasters` will land, one per spec variable.
+
+    A fake ingester's ``DateIngest.out_names``: the write path's per-date skip check
+    reads these (with the source hash) *before* ``build_rasters`` runs, so they must
+    match what that build produces.
+    """
+    return frozenset(
+        _name_for_glob(variable.glob) for variable in dataset.spec.variables.values()
+    )
+
+
+def full_marker_rasters(dataset, source_hash: str) -> list[FakeRaster]:
+    """One :class:`FakeRaster` per spec variable, covering every required variable.
+
+    A fake ingester's ``build_rasters`` returns this so the real ``write_date_cogs``
+    completeness check (every variable must resolve to exactly one COG) passes on a
+    full SNODAS spec without a real archive.
+    """
+    return [
+        FakeRaster(_name_for_glob(variable.glob), source_hash)
+        for variable in dataset.spec.variables.values()
+    ]
 
 
 @pytest.fixture(autouse=True)

@@ -6,8 +6,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from snowtool.api.app import get_app
+from snowtool.api.settings import Settings
 
 from ..conftest import init_with_builtins, populate_synthetic_root
+
+
+@pytest.fixture
+def test_settings(tmp_path) -> Settings:
+    return Settings(snowdb_config=tmp_path)
 
 
 @pytest.fixture
