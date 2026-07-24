@@ -25,7 +25,7 @@ import threading
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Self
 
 import numpy
 import rasterio
@@ -52,24 +52,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
 
 
-class GenerationAccumulator(Protocol):
-    """What :func:`finalize_and_stamp` needs from one target's accumulator.
-
-    Both :class:`~snowtool.snowdb.zones.terrain_generate._GridAccumulator` and
-    :class:`~snowtool.snowdb.zones.landcover_generate._ForestAccumulator`
-    satisfy this structurally (no inheritance needed): a ``target`` to name and
-    sort by, and a ``finalize`` that reduces the accumulator to its per-target
-    layer/array pairs. The generation hash is defined over the *first* pair's
-    array (terrain: the elevation array, first in its list; land cover: the
-    forest-pct array, its only pair), so each engine controls the digested
-    array purely by ordering its ``finalize`` output.
-    """
-
-    target: ZoneLayerTarget
-
-    def finalize(self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
-
-
 class BinAccumulator(ABC):
     """Per-target point-in-cell accumulator: the shared bin-geometry prologue.
 
@@ -79,9 +61,7 @@ class BinAccumulator(ABC):
     identical prologue -- the target, its ``rows``/``cols``/``transform``/``crs``,
     the inverse affine ``_inv`` its ``bin_into`` needs, and the ``_ncell`` flat
     size -- so a subclass only allocates its own count arrays and defines
-    ``bin_into``/``finalize``. It satisfies :class:`GenerationAccumulator`
-    structurally (``target`` + ``finalize``), so :func:`finalize_and_stamp`
-    consumes subclasses unchanged.
+    ``bin_into``/``finalize``.
     """
 
     def __init__(self: Self, target: ZoneLayerTarget) -> None:
@@ -197,7 +177,7 @@ def require_absent_layers(
 
 
 def finalize_and_stamp(
-    accumulators: Iterable[GenerationAccumulator],
+    accumulators: Iterable[BinAccumulator],
     *,
     format_version: int,
     hash_tag: str,
@@ -227,7 +207,7 @@ def finalize_and_stamp(
     """
     accs = list(accumulators)
     finalized: list[
-        tuple[GenerationAccumulator, list[tuple[ZoneLayer, numpy.typing.NDArray]]]
+        tuple[BinAccumulator, list[tuple[ZoneLayer, numpy.typing.NDArray]]]
     ] = []
     digest = hashlib.sha256()
     for acc in sorted(accs, key=lambda acc: acc.target.name):

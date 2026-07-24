@@ -454,7 +454,7 @@ def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
         nodata=-9999.0,
         glob='*',
     )
-    band = BandZone(key='0_1000', label='0-1000 ft', min=0, max=1000, unit='ft')
+    band = BandZone(label='0-1000 ft', min=0, max=1000, unit='ft')
 
     # A layer/cell arity mismatch (one layer, a zero-axis cell) makes the header's
     # strict-zip raise -- but only when the generator is advanced. A plain

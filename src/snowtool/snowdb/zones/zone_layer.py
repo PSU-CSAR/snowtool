@@ -95,10 +95,6 @@ class ZoneLayer:
     key: str
     zoning: ZoneScheme
 
-    @property
-    def count(self: Self) -> int:
-        return len(self.band_descriptions)
-
 
 @dataclass(frozen=True)
 class ZoneLayerTarget:

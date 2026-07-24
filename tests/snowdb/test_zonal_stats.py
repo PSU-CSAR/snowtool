@@ -295,8 +295,8 @@ def test_zone_index_crosses_two_axes_into_product_cells():
     side_ordinals = numpy.array([[0, 1], [0, 1]], dtype=numpy.int64)  # cols -> side
 
     elev_axis = (
-        BandZone(key='0_1000', label='0-1000 ft', min=0, max=1000, unit='ft'),
-        BandZone(key='1000_2000', label='1000-2000 ft', min=1000, max=2000, unit='ft'),
+        BandZone(label='0-1000 ft', min=0, max=1000, unit='ft'),
+        BandZone(label='1000-2000 ft', min=1000, max=2000, unit='ft'),
     )
 
     side_axis = (
@@ -376,7 +376,7 @@ def test_zone_index_excludes_pixels_out_of_any_axis():
     axis_a = numpy.array([[0, -1, 0]], dtype=numpy.int64)  # middle out on axis A
     axis_b = numpy.array([[0, 0, -1]], dtype=numpy.int64)  # last out on axis B
 
-    zones = (BandZone(key='z', label='z', min=0, max=1, unit='x'),)
+    zones = (BandZone(label='z', min=0, max=1, unit='x'),)
     index = _ZoneIndex.build([zones, zones], [axis_a, axis_b], area)
 
     # Only the first pixel is in-zone on both axes.
@@ -508,7 +508,6 @@ def test_parse_zone_selection_invalid(token, match):
 
 def _band(min_ft: int, max_ft: int) -> BandZone:
     return BandZone(
-        key=f'{min_ft}_{max_ft}',
         label=f'{min_ft}-{max_ft} ft',
         min=min_ft,
         max=max_ft,
@@ -549,7 +548,6 @@ def _stats_from_cells(
 
 _FLAT = ClassZone(key='flat', label='flat', code=4)
 _FORESTED = ThresholdZone(
-    key='above',
     label='forested',
     threshold=50,
     unit='%',

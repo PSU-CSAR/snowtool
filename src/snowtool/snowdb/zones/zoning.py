@@ -120,12 +120,9 @@ ZoneDescription = (
 class Zone(ABC):
     """A single zone along one axis -- one cell of a :class:`ZoneScheme`.
 
-    The base carries the identity every zone shares: ``key`` is a stable id for
-    the zone within its axis (a band's ``'<min>_<max>'`` or a class's name) and
-    ``label`` is its human label.
+    The base carries the identity every zone shares: ``label`` is its human label.
     """
 
-    key: str
     label: str
 
     @abstractmethod
@@ -176,8 +173,13 @@ class BandZone(Zone):
 
 @dataclass(frozen=True)
 class ClassZone(Zone):
-    """One discrete class, identified by its on-disk pixel ``code``."""
+    """One discrete class, identified by its on-disk pixel ``code``.
 
+    ``key`` is a stable id for the class (its name), read by
+    :meth:`CategoricalZoning.describe`.
+    """
+
+    key: str
     code: int
 
     def ref(self: Self, layer: str) -> ClassZoneRef:
@@ -451,7 +453,6 @@ class BandedZoning(ZoneScheme):
         end = int(self.domain_max // step) + 1
         return tuple(
             BandZone(
-                key=f'{i * step}_{(i + 1) * step}',
                 label=f'{i * step}-{(i + 1) * step} {self.unit}',
                 min=i * step,
                 max=(i + 1) * step,
@@ -520,7 +521,6 @@ class EvenBucketZoning(ZoneScheme):
             high = _as_number(self.domain_min + (i + 1) * width)
             bands.append(
                 BandZone(
-                    key=f'{low}_{high}',
                     label=f'{low} to {high}',
                     min=low,
                     max=high,
@@ -596,14 +596,12 @@ class ThresholdZoning(ZoneScheme):
         threshold = float(self.default_threshold)
         return (
             ThresholdZone(
-                key='below',
                 label=self.below_label,
                 threshold=threshold,
                 unit=self.unit,
                 side='below',
             ),
             ThresholdZone(
-                key='above',
                 label=self.above_label,
                 threshold=threshold,
                 unit=self.unit,
