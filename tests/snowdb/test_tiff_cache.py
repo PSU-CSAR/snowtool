@@ -6,6 +6,7 @@ import numpy
 import rasterio
 
 from snowtool.snowdb.raster import TiledRaster
+from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.raster.tiff_cache import TiffCache
 
 from ..conftest import synthetic_grid
@@ -102,6 +103,35 @@ def test_cache_is_bounded(tmp_path):
     assert bounded
     assert kept
     assert evicted
+
+
+def test_write_cog_emits_zstd(tmp_path):
+    """New COGs are ZSTD; the read path (async-tiff) decodes them natively."""
+    grid = synthetic_grid()
+    path = tmp_path / 'z.tif'
+    array = numpy.full((grid.base_grid.rows, grid.base_grid.cols), 7, dtype=numpy.int16)
+    write_cog(
+        path,
+        array,
+        transform=grid.base_grid.transform,
+        tile_size=TILE,
+        nodata=-9999,
+    )
+
+    with rasterio.open(path) as src:
+        assert src.profile['compress'] == 'zstd'
+
+    tiles = [grid[r, c] for r in range(2) for c in range(2)]
+
+    async def run():
+        cache = TiffCache(maxsize=8)
+        return await TiledRaster(path).load_tiles(tiles, cache)
+
+    blocks = asyncio.run(run())
+    assert len(blocks) == len(tiles)
+    for block in blocks:
+        assert block.shape == (TILE, TILE)
+        assert (block == 7).all()
 
 
 def test_concurrent_gets_open_once(tmp_path, monkeypatch):

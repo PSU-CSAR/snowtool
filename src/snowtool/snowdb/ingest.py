@@ -57,7 +57,9 @@ if TYPE_CHECKING:
 # driver (:func:`run_ingest`). It rides along in the versioned SOURCE_HASH the skip
 # compares, so bumping it makes every existing date read as stale (hash mismatch)
 # and rebuild on the next ingest. Bump on a material change to the ingested-COG
-# encoding (compression, band layout, nodata handling), not for source changes.
+# *decode contract* (band layout, nodata handling, value scaling) -- not on a
+# codec swap that decodes byte-identically (the compression tag is per-file;
+# DEFLATE- and ZSTD-era COGs coexist in one dataset).
 INGEST_FORMAT_VERSION = 1
 
 

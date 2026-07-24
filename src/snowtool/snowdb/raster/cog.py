@@ -51,7 +51,7 @@ def write_cog(
     tags: dict[str, str] | None = None,
     band_descriptions: tuple[str, ...] | None = None,
 ) -> None:
-    """Write ``array`` to ``path`` as a tiled, DEFLATE-compressed COG.
+    """Write ``array`` to ``path`` as a tiled, ZSTD-compressed COG.
 
     ``array`` may be 2D (single band) or 3D ``(bands, rows, cols)``. ``tags`` are
     written as dataset-level metadata (e.g. the AOI tile bbox / provenance hashes).
@@ -72,13 +72,14 @@ def write_cog(
         'transform': transform,
         'nodata': nodata,
         'blocksize': tile_size,
-        'compress': 'DEFLATE',
+        'compress': 'ZSTD',
         'predictor': predictor
         if predictor is not None
         else _default_predictor(
             array.dtype,
         ),
-        # rasterio's bundled GDAL caps DEFLATE at 9 (no libdeflate).
+        # GDAL's default ZSTD level, pinned so output stays deterministic across
+        # GDAL versions.
         'level': 9,
         # No overviews: the read path only ever reads full resolution (z=0).
         # Skipping them keeps the output smaller and deterministic.
