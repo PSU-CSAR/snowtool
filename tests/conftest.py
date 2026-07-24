@@ -23,6 +23,7 @@ from snowtool.snowdb.constants import DEM_HASH_TAG, NLCD_HASH_TAG
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG, write_cog
 from snowtool.snowdb.spec import DatasetSpec, GridParams
@@ -89,6 +90,21 @@ SWE_VALUE = 50  # uniform int16 SWE value
 NLCD_FOREST_CLASS = 42  # evergreen forest (in FOREST_CLASSES)
 NLCD_NONFOREST_CLASS = 81  # pasture/hay (not forest)
 FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
+
+
+def synthetic_grid(**overrides):
+    """The standard 512x512 / 2x2-tile synthetic grid (extent -120..-114.88,
+    39.88..45 -- each 2.56-degree tile spans 256 x 0.01-degree pixels)."""
+    params = {
+        'origin_x': -120.0,
+        'origin_y': 45.0,
+        'px_size': 0.01,
+        'cols': 512,
+        'rows': 512,
+        'tile_size': 256,
+    }
+    params.update(overrides)
+    return make_grid(**params)
 
 
 @pytest.fixture
@@ -211,6 +227,25 @@ def populate_synthetic_root(
         pourpoint_geojson,
         rasterize=rasterize,
         ingest=ingest,
+    )
+
+
+def make_test_spec(name: str) -> DatasetSpec:
+    """A bare 256x256 single-tile DatasetSpec named ``name`` (no variables/zones).
+
+    Shared by the ``db``/``manager`` suites, which only need a spec to bind into a
+    ``SnowDb``/``SnowDbManager`` and don't exercise its variables or zones.
+    """
+    return DatasetSpec(
+        name=name,
+        grid_params=GridParams(
+            origin_x=-120.0,
+            origin_y=45.0,
+            px_size=0.01,
+            cols=256,
+            rows=256,
+            tile_size=256,
+        ),
     )
 
 
@@ -463,6 +498,14 @@ def _rect_ring(box):
     """A closed rectangular ring (lon/lat) from an ``(x0, y0, x1, y1)`` box."""
     x0, y0, x1, y1 = box
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+
+
+def box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
+    """A rectangular Polygon geometry inside the synthetic grid's first tile."""
+    return {
+        'type': 'Polygon',
+        'coordinates': [_rect_ring((x0, y0, x1, y1))],
+    }
 
 
 def write_pourpoint_record(

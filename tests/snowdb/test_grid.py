@@ -21,6 +21,8 @@ from snowtool.snowdb.grid import (
     tiles_in_bbox,
 )
 
+from ..conftest import synthetic_grid
+
 SNODAS_GRID = SNODAS_SPEC.grid
 _GP = SNODAS_SPEC.grid_params  # SNODAS_SPEC is the source of truth for these
 
@@ -126,25 +128,12 @@ def test_tiles_in_bbox_single_tile() -> None:
 # --- bounding_tiles clamping (edge-straddling and off-grid bboxes) -----------
 
 
-def _synthetic_grid():
-    """The standard 512x512 / 2x2-tile synthetic grid (extent -120..-114.88,
-    39.88..45 -- each 2.56-degree tile spans 256 x 0.01-degree pixels)."""
-    return make_grid(
-        origin_x=-120.0,
-        origin_y=45.0,
-        px_size=0.01,
-        cols=512,
-        rows=512,
-        tile_size=256,
-    )
-
-
 def test_grid_extent_is_the_grid_bbox_in_its_own_crs() -> None:
-    assert grid_extent(_synthetic_grid()) == (-120.0, 39.88, -114.88, 45.0)
+    assert grid_extent(synthetic_grid()) == (-120.0, 39.88, -114.88, 45.0)
 
 
 def test_bounding_tiles_inside_the_grid() -> None:
-    grid = _synthetic_grid()
+    grid = synthetic_grid()
     ul, br = bounding_tiles(grid, (-119.9, 41.0, -117.0, 44.0))
     assert (ul.row, ul.col) == (0, 0)
     assert (br.row, br.col) == (1, 1)
@@ -166,7 +155,7 @@ def test_bounding_tiles_clamps_out_of_grid_bboxes(
     expected_ul,
     expected_br,
 ) -> None:
-    grid = _synthetic_grid()
+    grid = synthetic_grid()
     ul, br = bounding_tiles(grid, bounds)
     assert (ul.row, ul.col) == expected_ul
     assert (br.row, br.col) == expected_br
@@ -185,7 +174,7 @@ def test_bounding_tiles_clamps_out_of_grid_bboxes(
 )
 def test_bounding_tiles_raises_for_a_disjoint_bbox(bounds) -> None:
     with pytest.raises(GeometryOutsideGridError, match='do not intersect'):
-        bounding_tiles(_synthetic_grid(), bounds)
+        bounding_tiles(synthetic_grid(), bounds)
 
 
 # --- geodesic area (griffine native, via the grid's geographic CRS) -----------

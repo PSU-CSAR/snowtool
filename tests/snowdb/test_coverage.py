@@ -10,10 +10,9 @@ from snowtool.snowdb.coverage import (
     require_full_coverage,
 )
 from snowtool.snowdb.datasets.instarr import INSTARR_SPEC
-from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
 
-from ..conftest import write_pourpoint_record
+from ..conftest import synthetic_grid, write_pourpoint_record
 
 
 def _aoi(tmp_path, polygon, triplet='12345:MT:USGS'):
@@ -34,15 +33,7 @@ def _ring(x0, y0, x1, y1):
 
 # A WGS84 domain spanning lon [-120, -114.88], lat [39.88, 45].
 def _geographic_domain():
-    grid = make_grid(
-        origin_x=-120.0,
-        origin_y=45.0,
-        px_size=0.01,
-        cols=512,
-        rows=512,
-        tile_size=256,
-        crs=4326,
-    )
+    grid = synthetic_grid(crs=4326)
     return CoverageDomain.from_grid(grid, grid.crs)
 
 

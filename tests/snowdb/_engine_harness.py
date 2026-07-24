@@ -51,6 +51,19 @@ def make_target(
     )
 
 
+def _bounds(*targets):
+    """The combined EPSG:4326 extent of ``targets`` -- the ``bounds`` the engine
+    passes to ``source.open`` (a ``LocalFile`` ignores it and reads the whole file,
+    but the engine still clips/reads only the window over the target footprints)."""
+    boxes = [grid_extent_4326(t.grid) for t in targets]
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+
 def run_serial_vs_parallel(
     engine_fn,
     source,

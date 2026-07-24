@@ -23,7 +23,7 @@ from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.query import DateRangeQuery
 from snowtool.snowdb.reader import SnowDbReader
-from snowtool.snowdb.spec import DatasetSpec, GridParams
+from snowtool.snowdb.spec import DatasetSpec
 
 from ..conftest import (
     SWE_VALUE,
@@ -32,20 +32,6 @@ from ..conftest import (
     register_dataset_config,
     write_swe_cog,
 )
-
-
-def _spec(name: str) -> DatasetSpec:
-    return DatasetSpec(
-        name=name,
-        grid_params=GridParams(
-            origin_x=-120.0,
-            origin_y=45.0,
-            px_size=0.01,
-            cols=256,
-            rows=256,
-            tile_size=256,
-        ),
-    )
 
 
 def test_initialize_creates_the_base_layout(tmp_path):

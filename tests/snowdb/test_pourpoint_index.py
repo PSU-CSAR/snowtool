@@ -10,28 +10,12 @@ from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex, PourpointIndexEntry
 
-from ..conftest import write_pourpoint_record
-
-
-def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
-    """A rectangular Polygon geometry inside the synthetic grid's first tile."""
-    return {
-        'type': 'Polygon',
-        'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
-    }
+from ..conftest import box, synthetic_grid, write_pourpoint_record
 
 
 def _grids():
     """Two synthetic domains: one covering the test basin, one disjoint from it."""
-    covers = make_grid(
-        origin_x=-120.0,
-        origin_y=45.0,
-        px_size=0.01,
-        cols=512,
-        rows=512,
-        tile_size=256,
-        crs=4326,
-    )
+    covers = synthetic_grid(crs=4326)
     disjoint = make_grid(
         origin_x=-100.0,
         origin_y=45.0,
@@ -60,7 +44,7 @@ def _write_pourpoint(
     return write_pourpoint_record(
         path,
         triplet,
-        polygon=_box()['coordinates'][0],
+        polygon=box()['coordinates'][0],
         point_only=not with_polygon,
         properties={
             'name': name,
@@ -84,7 +68,7 @@ def test_geometry_hash_is_stable_and_hex(pourpoint_geojson):
 
 def test_geometry_hash_differs_for_a_different_polygon(tmp_path):
     a = Pourpoint.from_geojson(_write_pourpoint(tmp_path / 'a.geojson'))
-    shifted = _box(-118.9, 44.9, -118.0, 44.0)
+    shifted = box(-118.9, 44.9, -118.0, 44.0)
     point = {'type': 'Point', 'coordinates': [-118.45, 44.45]}
     b_path = tmp_path / 'b.geojson'
     b_path.write_text(

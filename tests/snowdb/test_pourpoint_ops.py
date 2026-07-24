@@ -22,6 +22,7 @@ from snowtool.snowdb.pourpoint import Pourpoint
 
 from ..conftest import (
     CapturingProgress,
+    box,
     make_manager,
     make_spec,
 )
@@ -29,17 +30,8 @@ from ..conftest import write_aoi_record as _write_aoi
 
 _POINT = {'type': 'Point', 'coordinates': [-119.45, 44.45]}
 
-
-def _box(x0=-119.9, y0=44.9, x1=-119.0, y1=44.0):
-    """A rectangular Polygon geometry inside the synthetic grid's first tile."""
-    return {
-        'type': 'Polygon',
-        'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
-    }
-
-
 # A polygon well inside the synthetic grid's first tile (see top-level conftest).
-_POLYGON = _box()
+_POLYGON = box()
 
 
 @pytest.fixture
@@ -565,7 +557,7 @@ def test_rasterize_aoi_builds_then_skips_then_rebuilds(
     stale = _write_aoi(
         tmp_path / 'stale',
         '12345:MT:USGS',
-        polygon=_box(-119.8, 44.8, -119.1, 44.1),
+        polygon=box(-119.8, 44.8, -119.1, 44.1),
     )
     stale_aoi = Pourpoint.from_geojson(stale)
     assert ds.aoi_raster_is_current(stale_aoi) is False
@@ -597,11 +589,11 @@ def test_rasterize_aois_built_and_skipped(manager, db, pourpoint_geojson):
 
 # A basin straddling the grid's north edge (45N): lon -119.9..-119.0, lat
 # 44.5..45.5 -- the top half spills off the grid.
-_STRADDLE = _box(-119.9, 45.5, -119.0, 44.5)
+_STRADDLE = box(-119.9, 45.5, -119.0, 44.5)
 # The same basin pre-clipped to the grid's north edge (the in-grid part).
-_STRADDLE_CLIPPED = _box(-119.9, 45.0, -119.0, 44.5)
+_STRADDLE_CLIPPED = box(-119.9, 45.0, -119.0, 44.5)
 # A basin entirely north of the grid.
-_OUTSIDE = _box(-119.9, 46.9, -119.0, 46.0)
+_OUTSIDE = box(-119.9, 46.9, -119.0, 46.0)
 
 
 def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):

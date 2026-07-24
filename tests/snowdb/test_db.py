@@ -22,7 +22,6 @@ from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.datasets import DEFAULT_DATASET_SPECS, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.spec import DatasetSpec, GridParams
 
 from ..conftest import (
     make_manager,
@@ -31,20 +30,9 @@ from ..conftest import (
     register_dataset_config,
     write_pourpoint_record,
 )
-
-
-def _spec(name: str) -> DatasetSpec:
-    return DatasetSpec(
-        name=name,
-        grid_params=GridParams(
-            origin_x=-120.0,
-            origin_y=45.0,
-            px_size=0.01,
-            cols=256,
-            rows=256,
-            tile_size=256,
-        ),
-    )
+from ..conftest import (
+    make_test_spec as _spec,
+)
 
 
 def test_binds_configured_dataset(tmp_path):

@@ -55,6 +55,7 @@ from ._engine_harness import (
     TARGET_PX,
     TARGET_TILE,
     WORK_EPSG,
+    _bounds,
     make_target,
     run_serial_vs_parallel,
 )
@@ -135,19 +136,6 @@ def _int_source_dem(path, *, nodata=-32768):
 
 def _target(tmp_path):
     return make_target(tmp_path / 'terrain')
-
-
-def _bounds(*targets):
-    """The combined EPSG:4326 extent of ``targets`` -- the ``bounds`` the engine
-    passes to ``source.open`` (a ``LocalFile`` ignores it and reads the whole file,
-    but the engine still clips its work grid to the target footprints)."""
-    boxes = [grid_extent_4326(t.grid) for t in targets]
-    return (
-        min(b[0] for b in boxes),
-        min(b[1] for b in boxes),
-        max(b[2] for b in boxes),
-        max(b[3] for b in boxes),
-    )
 
 
 def test_generate_reports_one_block_progress_task_to_completion(tmp_path):

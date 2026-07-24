@@ -5,9 +5,10 @@ import asyncio
 import numpy
 import rasterio
 
-from snowtool.snowdb.grid import make_grid
 from snowtool.snowdb.raster import TiledRaster
 from snowtool.snowdb.raster.tiff_cache import TiffCache
+
+from ..conftest import synthetic_grid
 
 TILE = 256
 
@@ -39,19 +40,8 @@ def _write_block_indexed_cog(path, grid):
     return array
 
 
-def _grid():
-    return make_grid(
-        origin_x=-120.0,
-        origin_y=45.0,
-        px_size=0.01,
-        cols=512,
-        rows=512,
-        tile_size=TILE,
-    )
-
-
 def test_load_tiles_batched_preserves_order(tmp_path):
-    grid = _grid()
+    grid = synthetic_grid()
     path = tmp_path / 'blocks.tif'
     full = _write_block_indexed_cog(path, grid)
     tiles = [grid[r, c] for r in range(2) for c in range(2)]
@@ -75,7 +65,7 @@ def test_load_tiles_batched_preserves_order(tmp_path):
 
 
 def test_cache_reuses_handle(tmp_path):
-    grid = _grid()
+    grid = synthetic_grid()
     path = tmp_path / 'blocks.tif'
     _write_block_indexed_cog(path, grid)
 
@@ -91,7 +81,7 @@ def test_cache_reuses_handle(tmp_path):
 
 
 def test_cache_is_bounded(tmp_path):
-    grid = _grid()
+    grid = synthetic_grid()
     paths = []
     for i in range(4):
         p = tmp_path / f'blocks_{i}.tif'
@@ -115,7 +105,7 @@ def test_cache_is_bounded(tmp_path):
 
 
 def test_concurrent_gets_open_once(tmp_path, monkeypatch):
-    grid = _grid()
+    grid = synthetic_grid()
     path = tmp_path / 'blocks.tif'
     _write_block_indexed_cog(path, grid)
 

@@ -1,5 +1,6 @@
 """The zone model: BandedZoning / CategoricalZoning assignment + the registry."""
 
+from dataclasses import replace
 from itertools import pairwise
 
 import numpy
@@ -55,18 +56,41 @@ def _elevation_scheme() -> BandedZoning:
     return scheme
 
 
+_BANDED = BandedZoning(
+    domain_min=0,
+    domain_max=2000,
+    default_step=1000,
+    unit='ft',
+    value_scale=M_TO_FT,
+    layer_nodata=ELEVATION_NODATA,
+)
+
+
+def _banded(**overrides) -> BandedZoning:
+    return replace(_BANDED, **overrides)
+
+
+_THRESHOLD = ThresholdZoning(
+    default_threshold=40,
+    domain_min=0,
+    domain_max=100,
+    unit='%',
+    value_scale=1,
+    layer_nodata=255,
+    below_label='unforested',
+    above_label='forested',
+)
+
+
+def _threshold(**overrides) -> ThresholdZoning:
+    return replace(_THRESHOLD, **overrides)
+
+
 # --- BandedZoning ------------------------------------------------------------
 
 
 def test_banded_zones_are_contiguous_and_aligned_to_zero():
-    scheme = BandedZoning(
-        domain_min=0,
-        domain_max=2000,
-        default_step=1000,
-        unit='ft',
-        value_scale=M_TO_FT,
-        layer_nodata=ELEVATION_NODATA,
-    )
+    scheme = _banded()
     zones = scheme.zones()
 
     assert all(isinstance(z, BandZone) for z in zones)
@@ -85,14 +109,7 @@ def test_banded_step_override_changes_band_width():
 
 
 def test_banded_assign_scales_meters_to_feet():
-    scheme = BandedZoning(
-        domain_min=0,
-        domain_max=2000,
-        default_step=1000,
-        unit='ft',
-        value_scale=M_TO_FT,
-        layer_nodata=ELEVATION_NODATA,
-    )
+    scheme = _banded()
     # 100 m ~ 328 ft -> band 0; 400 m ~ 1312 ft -> band 1; 700 m ~ 2297 ft -> band 2.
     values = numpy.array([[100.0, 400.0, 700.0]], dtype=numpy.float32)
     ordinals = scheme.assign(values)
@@ -100,14 +117,7 @@ def test_banded_assign_scales_meters_to_feet():
 
 
 def test_banded_assign_marks_nodata_and_out_of_domain_as_minus_one():
-    scheme = BandedZoning(
-        domain_min=0,
-        domain_max=1000,
-        default_step=1000,
-        unit='ft',
-        value_scale=M_TO_FT,
-        layer_nodata=ELEVATION_NODATA,
-    )
+    scheme = _banded(domain_max=1000)
     # nodata sentinel, and 5000 m (~16404 ft) far above the 0..2000 ft domain.
     values = numpy.array([[ELEVATION_NODATA, 5000.0]], dtype=numpy.float32)
     ordinals = scheme.assign(values)
@@ -115,14 +125,7 @@ def test_banded_assign_marks_nodata_and_out_of_domain_as_minus_one():
 
 
 def test_banded_describe_reports_param_default_and_unit():
-    scheme = BandedZoning(
-        domain_min=0,
-        domain_max=2000,
-        default_step=1000,
-        unit='ft',
-        value_scale=M_TO_FT,
-        layer_nodata=ELEVATION_NODATA,
-    )
+    scheme = _banded()
     assert scheme.describe() == BandedZoneDescription(
         param='band_step_ft',
         default=1000,
@@ -251,32 +254,14 @@ def test_forest_cover_uses_a_threshold_split():
 
 
 def test_threshold_assign_splits_below_and_at_or_above():
-    scheme = ThresholdZoning(
-        default_threshold=40,
-        domain_min=0,
-        domain_max=100,
-        unit='%',
-        value_scale=1,
-        layer_nodata=255,
-        below_label='unforested',
-        above_label='forested',
-    )
+    scheme = _threshold()
     # 39 -> below (0); 40 -> at-or-above (1); 100 -> above (1); 255 nodata -> -1.
     values = numpy.array([[39, 40, 100, 255]], dtype=numpy.uint8)
     numpy.testing.assert_array_equal(scheme.assign(values), [[0, 1, 1, -1]])
 
 
 def test_threshold_override_moves_the_split_and_relabels():
-    scheme = ThresholdZoning(
-        default_threshold=40,
-        domain_min=0,
-        domain_max=100,
-        unit='%',
-        value_scale=1,
-        layer_nodata=255,
-        below_label='unforested',
-        above_label='forested',
-    )
+    scheme = _threshold()
     values = numpy.array([[40, 60]], dtype=numpy.uint8)
     # With the split raised to 50, the 40% pixel drops below it.
     raised = scheme.with_override(50)
@@ -288,16 +273,7 @@ def test_threshold_override_moves_the_split_and_relabels():
 
 
 def test_threshold_describe_reports_param_default_and_unit():
-    scheme = ThresholdZoning(
-        default_threshold=40,
-        domain_min=0,
-        domain_max=100,
-        unit='%',
-        value_scale=1,
-        layer_nodata=255,
-        below_label='unforested',
-        above_label='forested',
-    )
+    scheme = _threshold()
     assert scheme.describe() == ThresholdZoneDescription(
         param='threshold_pct',
         default=40,
