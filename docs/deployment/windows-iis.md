@@ -62,6 +62,33 @@ IIS app-pool identity that runs the site):
 
     Open a new shell afterward to pick up the change.
 
+## Upgrading snowtool
+
+Upgrades reuse the machine-wide `UV_*` environment from step 1 above — no new
+`setx` needed. Two things matter: run elevated (the tool lives under
+`C:\ProgramData`), and stop the IIS site first — httpPlatformHandler's child
+process holds locks on the venv's files, and `uv` cannot replace a running
+`python.exe`.
+
+In an elevated PowerShell:
+
+```console
+Stop-IISSite -Name snowtool -Confirm:$false
+uv tool upgrade snowtool
+Start-IISSite -Name snowtool
+snowtool --version
+```
+
+The site name defaults to the install directory's name (`snowtool` for
+`C:\inetpub\snowtool`); pass yours if it differs. If the release notes mention
+`web.config` changes, re-run `snowtool windows iis install ...` with the
+original arguments after upgrading — it updates an existing site in place.
+
+If the tool was originally installed before `UV_PYTHON_INSTALL_DIR` was set
+(see above), use `uv tool install --reinstall --managed-python snowtool`
+instead of `uv tool upgrade` once, to rebuild the venv against the
+machine-wide interpreter.
+
 ## IIS setup
 
 With `snowtool` installed (above), provision the IIS site that hosts the API.
