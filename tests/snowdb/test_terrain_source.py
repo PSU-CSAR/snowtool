@@ -1,6 +1,7 @@
 """DEM sources: LocalFile, the osgeo-free VRT mosaic, and 3DEP tile discovery."""
 
 import asyncio
+import dataclasses
 import types
 
 import numpy
@@ -149,6 +150,22 @@ def test_build_mosaic_vrt_refuses_heterogeneous_tiles(tmp_path):
 
     with pytest.raises(RemoteSourceError, match='heterogeneous tiles'):
         build_mosaic_vrt([tile0, tile1], tmp_path / 'm.vrt')
+
+
+def test_build_mosaic_vrt_tolerates_float_noise_in_resolution(tmp_path):
+    # Real adjacent 3DEP tiles record the same nominal 1/3-arc-second resolution
+    # in their ModelPixelScale tags at slightly different precision (~1e-9 relative,
+    # a rounding artifact -- geographic pixel size is latitude-independent), so an
+    # exact float `==` on px/py wrongly rejects them. Perturb tile1's px by that
+    # order of noise and confirm the mosaic still stitches.
+    left = _parse_local(_tile(tmp_path / 'a.tif', 0.0, 4.0, 1.0, px=1.0))
+    right = _parse_local(_tile(tmp_path / 'b.tif', 4.0, 4.0, 2.0, px=1.0))
+    right = dataclasses.replace(right, px=right.px * (1 + 1e-9))
+
+    vrt = build_mosaic_vrt([left, right], tmp_path / 'm.vrt')
+
+    with rasterio.open(vrt) as ds:
+        assert (ds.width, ds.height) == (8, 4)
 
 
 def test_threedep_open_builds_a_vrt_over_discovered_tiles(tmp_path, monkeypatch):

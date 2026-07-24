@@ -330,14 +330,15 @@ def build_mosaic_vrt(tiles: list[MosaicTile], out_path: Path) -> Path:
 
     # The VRT header is taken wholesale from tile 0, so a heterogeneous mosaic would
     # silently mis-place or mis-type the odd tile. Enforce the documented precondition
-    # (same CRS + resolution + dtype + nodata) instead of assuming it.
+    # (same CRS + resolution + dtype + nodata) instead of assuming it. Resolution is
+    # compared with a relative tolerance: adjacent 3DEP tiles record the same nominal
+    # 1/3-arc-second scale in their headers at slightly different precision (~1e-9
+    # relative rounding), which an exact `==` would reject; 1e-6 still catches a
+    # genuinely different-resolution product while accepting that recording noise.
     for i, t in enumerate(tiles[1:], start=1):
-        if (t.crs_wkt, t.px, t.py, t.dtype, t.nodata) != (
-            crs_wkt,
-            px,
-            py,
-            dtype,
-            nodata,
+        if (t.crs_wkt, t.dtype, t.nodata) != (crs_wkt, dtype, nodata) or not (
+            math.isclose(t.px, px, rel_tol=1e-6)
+            and math.isclose(t.py, py, rel_tol=1e-6)
         ):
             raise RemoteSourceError(
                 'Cannot build a VRT mosaic from heterogeneous tiles: tile '
