@@ -377,7 +377,7 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
 def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     # A throwaway provider added only to the registry must be visible to every
     # generic seam -- Dataset.zones, artifact_status, diagnostics, the registry --
-    # with no edits to Dataset/SnowDb/diagnostics. (Verification #6.)
+    # with no edits to Dataset/SnowDb/diagnostics.
     class _StubSource(ZoneLayerSource):
         def open(self, bounds):  # pragma: no cover - never opened in this test
             raise NotImplementedError

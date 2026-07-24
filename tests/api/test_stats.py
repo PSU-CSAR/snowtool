@@ -292,11 +292,10 @@ def test_unknown_aoi_returns_404(synthetic_client) -> None:
 
 
 def test_doy_impossible_day_returns_400(synthetic_client) -> None:
-    # Feb 30 can occur in no year: DOYStatsQuery now shares DOYQuery's cross-field
+    # Feb 30 can occur in no year: DOYStatsQuery shares DOYQuery's cross-field
     # validator, so this fails FastAPI-native request validation. A query-scoped
-    # RequestValidationError is a 400 (gazebo's malformed-query-parameter problem),
-    # not the app-level 422 QueryParameterError this used to raise via the old
-    # hand-rolled try/except in stats_doy.
+    # RequestValidationError is a 400 (gazebo's malformed-query-parameter
+    # problem), not an app-level 422 QueryParameterError.
     response = synthetic_client.get(
         f'{BASE}/doy',
         params={'month': 2, 'day': 30, 'start_year': 2018, 'end_year': 2018},
@@ -409,8 +408,8 @@ def test_incomplete_data_returns_500(test_settings, spec, pourpoint_geojson) -> 
 
 def test_stats_filename_composes_slug_date_fragment_and_zone_count() -> None:
     # The filename is composed at the API boundary from the triplet slug, the
-    # query's date fragment, and the zone count -- the query no longer owns the
-    # whole name.
+    # query's date fragment, and the zone count; the query itself owns none of
+    # the filename.
     from datetime import date
 
     from snowtool.api.models.stats import stats_filename

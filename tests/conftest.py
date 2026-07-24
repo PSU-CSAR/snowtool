@@ -115,8 +115,7 @@ def test_settings(tmp_path) -> Settings:
 def make_snowdb(root, specs, **kwargs):
     """Build a SnowDb in code from inline dataset configs (no files written).
 
-    The config-object replacement for the old spec-injection constructor: it
-    builds a RootConfig rooted at ``root`` (its ``path`` set but the file not
+    Builds a RootConfig rooted at ``root`` (its ``path`` set but the file not
     written) with each spec embedded as an inline dataset, then constructs the
     SnowDb directly. Use this where a test wants a bound SnowDb without staging
     config files on disk.

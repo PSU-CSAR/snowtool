@@ -53,9 +53,7 @@ def test_no_ambient_env_var_leaves_injected_config_untouched(cli_obj):
     # The suite's autouse `_no_ambient_snowdb_config` fixture (tests/cli/conftest.py)
     # strips SNOWTOOL_SNOWDB_CONFIG for every CLI test, so an injected CliContext
     # (cli_obj serves the synthetic 'test' dataset) is never clobbered by a
-    # maintainer's exported env var -- the case the old `_apply_config`
-    # env-vs-flag branch used to guard explicitly, now covered by never letting
-    # the ambient env var reach the test in the first place.
+    # maintainer's exported env var reaching `_apply_config`'s env-vs-flag branch.
     result = CliRunner().invoke(
         cli,
         ['dataset', 'list', '--format', 'json'],
@@ -102,7 +100,7 @@ def test_malformed_config_is_a_clean_cli_error(tmp_path):
         # a SnowDb, Settings() would raise for the missing setting and exit nonzero.
         (['--version'], None),
         (['--help'], 'Commands'),
-        # --config is a per-command option now, shown on a command's help (and its
+        # --config is a per-command option, shown on a command's help (and its
         # help short-circuits before the callback, so no SnowDb is built).
         (['dataset', 'list', '--help'], '--config'),
         # serve surfaces the same --config, not gazebo's --snowtool-snowdb-config.

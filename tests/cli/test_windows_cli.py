@@ -189,17 +189,24 @@ def test_install_args_builds_expected_powershell_invocation():
         '-File',
     ]
     assert args[6].endswith('install_site.ps1')
-    assert '-SiteName' in args
-    assert 'snowtool' in args
-    assert '-SnowdbPath' in args
-    assert '/data/snowdb' in args
-    assert '-Hostname' in args
-    assert 'snow.example.org' in args
-    protocol_index = args.index('-Protocol')
-    assert args[protocol_index + 1] == 'https'
-    assert '-BasePythonPath' not in args
-    assert '-CertThumbprint' not in args
-    assert '-AccessLogDir' not in args
+    assert args[7:] == [
+        '-SiteName',
+        'snowtool',
+        '-PhysicalPath',
+        '/inetpub/snowtool',
+        '-VenvPath',
+        '/opt/tools/snowtool',
+        '-SnowdbPath',
+        '/data/snowdb',
+        '-Hostname',
+        'snow.example.org',
+        '-Port',
+        '443',
+        '-Protocol',
+        'https',
+        '-RecycleTime',
+        '03:00:00',
+    ]
 
 
 def test_install_args_includes_optional_paths_and_thumbprint_when_given():

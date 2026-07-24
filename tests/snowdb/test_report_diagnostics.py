@@ -162,8 +162,8 @@ def test_stale_format_zone_layers_empty_for_current_dataset(dataset):
 
 
 def test_stale_format_zone_layers_flags_an_old_format(dataset):
-    # Simulate a format bump: the provider now expects a newer version than what
-    # is stamped on the built terrain set, so it is flagged for a rebuild.
+    # A provider expecting a newer format version than what is stamped on the
+    # built terrain set is flagged for a rebuild.
     terrain = dataset.zones['terrain']
     stamped = terrain.stored_format_version()
     terrain.format_version = stamped + 1
@@ -327,7 +327,7 @@ def test_aoi_health_all_healthy(dataset, pourpoint_geojson):
 
 
 def test_aoi_health_flags_empty_aoi(dataset, grid):
-    # AOI rasters carry per-pixel cell area now (decoupled from the DEM). An
+    # AOI rasters carry per-pixel cell area (decoupled from the DEM). An
     # all-zero raster means the AOI polygon falls outside the grid -> flagged.
     write_cog(
         dataset._aoi_rasters / '99999_MT_USGS.tif',

@@ -97,8 +97,8 @@ class TestStagedDir:
         (dest / 'stale.tif').write_text('stale')
         with staged_dir(dest) as staging:
             (staging / 'fresh.tif').write_text('fresh')
-        # The whole dir was swapped -- the stale member from the old dir is
-        # gone, not merged with the new one.
+        # The whole dir is swapped -- a stale pre-existing member is gone, not
+        # merged with the new one.
         assert [p.name for p in dest.iterdir()] == ['fresh.tif']
         assert (dest / 'fresh.tif').read_text() == 'fresh'
 

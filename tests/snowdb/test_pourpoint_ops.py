@@ -91,7 +91,7 @@ def test_import_is_idempotent(manager, pourpoint_geojson):
     assert manager.db.pourpoint_triplets() == {'12345:MT:USGS'}
 
 
-# --- malformed source classification (3a) ------------------------------------
+# --- malformed source classification ------------------------------------------
 
 
 def _write_bad(path, kind):
@@ -604,8 +604,9 @@ def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):
     db['test'].rasterize_aoi(straddle)
     raster = db['test'].load_aoi_raster(straddle.station_triplet)
 
-    # The window is clamped to the single in-grid tile (the bug produced an
-    # inverted window here: griffine wrapped the negative tile row to the last).
+    # Guards against window inversion when the basin crosses the tile seam:
+    # the window must clamp to the single in-grid tile, not wrap the negative
+    # tile row to the last one.
     assert [(t.row, t.col) for t in raster.tiles] == [(0, 0)]
     # Only the in-grid part burns: 90 cols (lon -119.9..-119.0) x 50 rows
     # (lat 45.0..44.5) of 0.01-degree pixels.

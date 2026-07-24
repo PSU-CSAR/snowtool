@@ -159,7 +159,7 @@ def test_bounding_tiles_clamps_out_of_grid_bboxes(
     ul, br = bounding_tiles(grid, bounds)
     assert (ul.row, ul.col) == expected_ul
     assert (br.row, br.col) == expected_br
-    # A clamped window is never inverted (the original bug produced br < ul).
+    # Guards against window inversion: a clamped window must never yield br < ul.
     assert ul.row <= br.row
     assert ul.col <= br.col
 

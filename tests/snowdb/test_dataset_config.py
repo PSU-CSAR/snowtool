@@ -46,8 +46,8 @@ def _assert_spec_equivalent(resolved: DatasetSpec, spec: DatasetSpec) -> None:
     if spec.footprint is None:
         assert resolved.footprint is None
     else:
-        # Exact model equality (footprints are geojson-pydantic geometries now, so
-        # the round-trip must not perturb the served footprint at all).
+        # Exact model equality: footprints are geojson-pydantic geometries, so
+        # the round-trip must not perturb the served footprint at all.
         assert resolved.footprint is not None
         assert resolved.footprint == spec.footprint
 
@@ -274,8 +274,8 @@ def test_footprint_round_trips_through_json(tmp_path):
 )
 def test_load_wraps_a_malformed_config_as_a_config_error(tmp_path, content):
     # The canonical loader raises SnowDbConfigError (naming the offending path)
-    # for the same malformed-content cases db.py/manager.py used to wrap at each
-    # call site -- never a raw pydantic ValidationError or UnicodeDecodeError.
+    # for every malformed-content case -- never a raw pydantic ValidationError
+    # or UnicodeDecodeError.
     path = tmp_path / 'dataset.json'
     path.write_bytes(content)
 

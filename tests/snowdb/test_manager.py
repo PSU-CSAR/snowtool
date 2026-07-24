@@ -143,7 +143,7 @@ def test_rasterize_aoi_creates_a_missing_aoi_rasters_dir(dataset, pourpoint_geoj
     assert dataset.load_aoi_raster(pourpoint.station_triplet).path.exists()
 
 
-# --- staged dataset registration (3c) ----------------------------------------
+# --- staged dataset registration -----------------------------------------------
 
 
 def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojson):
@@ -176,9 +176,8 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     assert restaged.rasterized.skipped == [('12345:MT:USGS', 'test')]
     assert restaged.coverage == staged.coverage
     # Staging reports each slow phase sequentially: record parse, then AOI
-    # rasterize (per pourpoint x dataset pair). Coverage is no longer a separate
-    # phase -- the rasterize pass computes it once for its own Coverage.NONE skip
-    # and surfaces it on the result.
+    # rasterize (per pourpoint x dataset pair). The rasterize pass computes
+    # coverage once for its own Coverage.NONE skip and surfaces it on the result.
     assert [(t.label, t.total, t.advanced) for t in progress.tasks] == [
         ('parsing 1 pourpoint record(s)', 1, 1),
         ('rasterizing', 1, 1),
@@ -320,8 +319,8 @@ def test_create_dataset_rejects_a_relative_data_dir(tmp_path, spec):
 def test_resolve_dataset_partitions_paths_from_names(tmp_path, spec):
     # The token partition is syntactic: a separator/.json token is a path (the
     # catalog is never consulted); a bare token is a NAME resolved only from the
-    # root config -- an unregistered staged dataset no longer resolves by the
-    # old data/<name>/dataset.json convention.
+    # root config, so an unregistered staged dataset does not resolve by its
+    # data/<name>/dataset.json path alone.
     manager = SnowDbManager.initialize(tmp_path)
     staged_dir = tmp_path / 'data' / 'staged'
     staged_dir.mkdir(parents=True)
@@ -417,7 +416,7 @@ def test_set_dataset_active_rejects_an_unregistered_name(tmp_path):
         manager.set_dataset_active('nope', True)
 
 
-# --- register_dataset error paths (WS6) ---------------------------------------
+# --- register_dataset error paths ----------------------------------------------
 
 
 def test_register_dataset_rejects_a_malformed_linked_config(tmp_path):

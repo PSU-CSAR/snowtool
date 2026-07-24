@@ -83,7 +83,7 @@ def test_stats_json_elevation_override(runner, cli_obj, populated_root):
 
 
 def test_stats_json_compact_value_is_rejected(runner, cli_obj, populated_root):
-    # json-compact was folded into json; it is no longer a valid choice.
+    # json-compact is not a valid --format choice.
     result = runner.invoke(
         cli,
         [

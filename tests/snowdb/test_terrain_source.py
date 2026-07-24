@@ -171,7 +171,7 @@ def test_threedep_open_builds_a_vrt_over_discovered_tiles(tmp_path, monkeypatch)
         assert src.read(1)[0, 0] == 1.0
 
 
-# --- Discovery: existence + the review-#2 error-taxonomy guards ---------------
+# --- Discovery: existence + error-taxonomy guards ------------------------------
 
 
 class _TransientError(Exception):

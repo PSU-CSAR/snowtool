@@ -20,12 +20,7 @@ def _doctor(runner, cli_obj, *args):
 
 
 def _create(runner, cli_obj, source_dem, initialized_root, stage_test_dataset):
-    """Stage the synthetic dataset, then generate its zone layers explicitly.
-
-    'test' is registered directly (not via a template), so staging goes
-    straight through the manager method the CLI's ``dataset create`` calls --
-    ``create`` itself now only stamps a brand-new dataset from ``--template``.
-    """
+    """Stage the synthetic dataset, then generate its zone layers explicitly."""
     stage_test_dataset(cli_obj, initialized_root)
     generated = runner.invoke(
         cli,

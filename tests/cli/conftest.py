@@ -87,11 +87,10 @@ def _no_ambient_snowdb_config(monkeypatch):
     """Strip a maintainer's exported ``SNOWTOOL_SNOWDB_CONFIG`` for every CLI test.
 
     ``_apply_config`` (``cli/_context.py``) only ever *sets* ``CliContext.config``
-    from the env var -- it no longer special-cases "injected context, ambient env
-    var" -- so an env var exported in the shell running the suite would otherwise
-    leak into every real (non-injected) ``CliRunner().invoke(cli, ...)`` call here
-    (``test_context.py`` covers the injected-context case explicitly, with its own
-    ``monkeypatch.setenv``).
+    from the env var, so an env var exported in the shell running the suite
+    would otherwise leak into every real (non-injected) ``CliRunner().invoke(cli,
+    ...)`` call here (``test_context.py`` covers the injected-context case
+    explicitly, with its own ``monkeypatch.setenv``).
     """
     monkeypatch.delenv('SNOWTOOL_SNOWDB_CONFIG', raising=False)
 
@@ -105,9 +104,8 @@ def runner() -> CliRunner:
 def initialized_root(tmp_path, spec):
     """An initialized snowdb root with the synthetic 'test' dataset registered.
 
-    The dataset is staged + registered (a path link to its ``dataset.json``), so
-    opening the root serves 'test' -- the config-path equivalent of the old spec
-    injection.
+    The dataset is registered via a path link to its ``dataset.json``, so
+    opening the root serves 'test'.
     """
     manager = SnowDbManager.initialize(tmp_path)
     register_dataset_config(manager, 'test', config_from_spec(spec))
@@ -118,7 +116,7 @@ def initialized_root(tmp_path, spec):
 def stage_test_dataset():
     """Stage the already-registered 'test' dataset (skeleton + AOI rasters).
 
-    ``dataset create`` now only stamps a *new* dataset from ``--template``, so
+    ``dataset create`` only stamps a *new* dataset from ``--template``, so
     staging the synthetic 'test' dataset (registered directly by
     ``initialized_root``, not via a template) goes straight through the same
     manager method the CLI command calls.

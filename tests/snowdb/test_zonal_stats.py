@@ -669,8 +669,7 @@ def _two_band_stats() -> ZonalStats:
 
 
 def test_compact_zone_area_must_be_non_negative():
-    # Ported from the deleted generated-model tests: CompactZone keeps the same
-    # area_m2 >= 0 constraint the per-dataset model used to carry.
+    # CompactZone enforces area_m2 >= 0.
     with pytest.raises(ValidationError):
         CompactZone(zone=[], area_m2=-1.0)
 
@@ -716,9 +715,9 @@ def test_dump_to_csv_empty_zone_filtering(include_empty_zones, expected_rows):
 
 @pytest.mark.parametrize('include_empty_zones', [False, True])
 def test_iter_csv_matches_dump_to_csv(include_empty_zones):
-    # dump_to_csv is now just out.writelines(iter_csv(...)); pin that the
-    # generator's chunks concatenate to exactly what the buffered writer
-    # produces, for both the default-filtered and full-product cases.
+    # dump_to_csv is out.writelines(iter_csv(...)); pin that the generator's
+    # chunks concatenate to exactly what the buffered writer produces, for
+    # both the default-filtered and full-product cases.
     stats = _two_band_stats()
 
     out = io.StringIO()
@@ -771,10 +770,10 @@ def _zero_date_stats() -> ZonalStats:
     ],
 )
 def test_dump_compact_zero_dates(include_empty_zones, expected_areas):
-    # Deliberate behavior change: a zero-date query now reports its zones (with
-    # areas), not an empty body. Only the populated (area > 0) band survives the
-    # default filter; `results` is an empty matrix (no dates). Opting in restores
-    # the full crossed product, empty cells included.
+    # A zero-date query still reports its zones (with areas), not an empty body.
+    # Only the populated (area > 0) band survives the default filter; `results`
+    # is an empty matrix (no dates). Opting in restores the full crossed
+    # product, empty cells included.
     compact = _zero_date_stats().dump_compact(include_empty_zones=include_empty_zones)
     if not include_empty_zones:
         assert compact.zone_layers == ['terrain.elevation']

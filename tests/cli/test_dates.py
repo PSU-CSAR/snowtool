@@ -15,10 +15,10 @@ from snowtool.snowdb.query import DateRangeQuery, DOYQuery
     [
         ('20180427', date(2018, 4, 27)),
         ('2018-04-27', date(2018, 4, 27)),
-        # Timezone-independence regression (2e935b6): to_date must take .date()
-        # straight off the parsed datetime, not reinterpret it via astimezone,
-        # which shifted the result across the local-TZ boundary (e.g. '20240101'
-        # -> 2023-12-31 under TZ=Asia/Tokyo).
+        # Guards timezone independence: to_date must take .date() straight off
+        # the parsed datetime, not reinterpret it via astimezone, which would
+        # shift the result across the local-TZ boundary (e.g. '20240101' ->
+        # 2023-12-31 under TZ=Asia/Tokyo).
         ('20240101', date(2024, 1, 1)),
         ('2024-01-01', date(2024, 1, 1)),
         ('20240229', date(2024, 2, 29)),  # leap day

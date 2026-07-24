@@ -95,7 +95,7 @@ def test_info_after_create(
     assert info['zones']['terrain']['elevation'] == {'band_step_ft': 1000}
     assert info['is_geographic'] is True
     assert 'swe' in info['variables']
-    # Grid details (formerly `report grid`), now folded into `info`.
+    # Grid details are part of `info`.
     assert info['rows'] == 512
     assert info['n_tiles'] == 4
     # Typed, machine-stable fields: null (not the prose 'varies (geographic)')
@@ -112,26 +112,31 @@ def test_info_after_create(
 # --- dates / values ------------------------------------------------------------
 
 
-def test_dates_lists_ingested_dates(runner, cli_obj, initialized_root):
-    _write_swe(cli_obj)
-
-    result = runner.invoke(cli, ['dataset', 'dates', 'test'], obj=cli_obj)
-
-    assert result.exit_code == 0, result.output
-    assert '2018-04-27' in result.output
-
-
-def test_dates_filters_by_range(runner, cli_obj, initialized_root):
-    _write_swe(cli_obj)
+@pytest.mark.parametrize(
+    ('args', 'expected_dates'),
+    [
+        pytest.param([], ['2018-04-27', '2019-01-15'], id='lists-all-ingested-dates'),
+        pytest.param(['--start', '20190101'], ['2019-01-15'], id='filters-by-range'),
+    ],
+)
+def test_dates_lists_ingested_dates(
+    runner,
+    cli_obj,
+    initialized_root,
+    args,
+    expected_dates,
+):
+    _write_swe(cli_obj, '20180427')
+    _write_swe(cli_obj, '20190115')
 
     result = runner.invoke(
         cli,
-        ['dataset', 'dates', 'test', '--start', '20190101'],
+        ['dataset', 'dates', 'test', *args, '--format', 'json'],
         obj=cli_obj,
     )
 
     assert result.exit_code == 0, result.output
-    assert '2018-04-27' not in result.output
+    assert _json(result) == [{'date': d} for d in expected_dates]
 
 
 def test_dates_missing_lists_gap_with_explicit_range(runner, cli_obj, initialized_root):
@@ -263,8 +268,8 @@ def test_create_requires_initialized_root(runner, tmp_path):
 
 
 def test_create_requires_template(runner, cli_obj):
-    # --template is required: a template-less create (the old "restage an
-    # already-registered dataset" mode) is gone.
+    # --template is required: create always stamps a new dataset from a
+    # template, never restages an already-registered one.
     result = runner.invoke(cli, ['dataset', 'create', 'test'], obj=cli_obj)
 
     assert result.exit_code != 0

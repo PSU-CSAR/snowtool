@@ -27,10 +27,7 @@ def test_status_reflects_created_dataset(
     initialized_root,
     stage_test_dataset,
 ):
-    # 'test' is registered directly (not via a template), so staging goes
-    # straight through the manager method 'dataset create' calls -- that
-    # command itself now only stamps a brand-new dataset from --template.
-    # Zone layers still come only from the explicit generate-zones pass.
+    # Zone layers come only from the explicit generate-zones pass.
     stage_test_dataset(cli_obj, initialized_root)
     runner.invoke(
         cli,

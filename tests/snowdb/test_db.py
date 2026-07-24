@@ -239,7 +239,7 @@ def test_aoi_triplets(tmp_path, pourpoint_geojson):
     assert db.pourpoint_triplets() == {'12345:MT:USGS'}
 
 
-# --- coverage fallback (3b) --------------------------------------------------
+# --- coverage fallback --------------------------------------------------------
 
 
 def test_coverage_fallback_none_for_dataset_predating_index(
@@ -332,7 +332,7 @@ def test_pourpoint_page_loads_basins_when_requested(tmp_path, spec):
     assert basin.type == 'Polygon'
 
 
-# --- mtime-revalidated index cache (3b) --------------------------------------
+# --- mtime-revalidated index cache ---------------------------------------------
 
 
 def test_index_cache_reloads_after_out_of_band_import(
@@ -383,8 +383,8 @@ def _corrupt_to_point_only(db, triplet):
     """Swap an indexed triplet's on-disk record to a point-only Feature.
 
     Simulates the corruption case: an out-of-band ``records/`` edit not followed
-    by ``pourpoint reindex``, so the index still lists the triplet as
-    basin-bearing while the stored record no longer has a polygon.
+    by ``pourpoint reindex``, so the index lists the triplet as basin-bearing
+    while the stored record has only a point, not a polygon.
     """
     write_pourpoint_record(db.pourpoint_record_path(triplet), triplet, point_only=True)
 

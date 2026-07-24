@@ -605,11 +605,12 @@ class _StubAccumulator:
 
 
 def test_finalize_and_stamp_commits_no_layer_until_every_write_succeeded(tmp_path):
-    # A crash mid-write must never strand final layer files: before the fix, a
-    # failure partway through the COG writes left earlier targets' layers on
-    # disk, and require_absent_layers then refused to regenerate without force.
-    # The write is two-phase (.part sidecars for every target, then renames), so
-    # a failure anywhere in the write phase leaves no final file at all.
+    # Guards against a crash mid-write stranding final layer files: a failure
+    # partway through the COG writes must not leave earlier targets' layers on
+    # disk, which would make require_absent_layers refuse to regenerate without
+    # force. The write is two-phase (.part sidecars for every target, then
+    # renames), so a failure anywhere in the write phase leaves no final file
+    # at all.
     good = _target(tmp_path)
     bad = ZoneLayerTarget(
         name='u',
