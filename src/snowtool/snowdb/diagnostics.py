@@ -430,10 +430,7 @@ class DatasetInfoReport:
     :func:`grid_report` (grid geometry) rather than flat-copying their fields,
     alongside the spec-level fields (variables, zone config, active flag) and
     per-provider zone-layer presence/provenance -- one scan each, no duplicated
-    filesystem walks. Flattening this structured report into the ``dataset
-    info`` output record (and the table-only prose substitutions) is the CLI's
-    job (:mod:`snowtool.cli.dataset`), so the domain layer stays free of output
-    formats.
+    filesystem walks.
     ``grid.cell_area_m2`` is ``None`` on a geographic grid (per-pixel area
     raster, see :class:`GridReport`); ``min_elevation_m``/``max_elevation_m``
     are the shared elevation bracket
@@ -451,6 +448,55 @@ class DatasetInfoReport:
     max_elevation_m: float
     variables: tuple[str, ...]
     zone_layers: dict[str, dict[str, object]]  # provider -> {present, hash}
+
+    def to_row(self, *, table: bool = False) -> dict[str, object]:
+        """Flatten to the ``dataset info`` output record.
+
+        Spreads the nested ``status``/``grid`` reports back to the top level
+        (dropping their redundant ``name``/``artifacts``) so json/csv output is
+        a single flat record with a stable key order. ``date_count`` ->
+        ``dates`` (the CLI's public name); ``extent``/``variables`` to plain
+        lists (json/csv friendly); ``first_date``/``last_date`` to ISO strings
+        (or ``None``). With ``table=True``, applies the table-only prose
+        substitutions: a geographic grid's ``cell_area_m2`` (``None``) becomes
+        ``'varies (geographic)'``, and the two numeric elevation fields
+        collapse into a single ``elevation_bracket_m`` ``'MIN .. MAX'`` string;
+        json/csv keep the typed fields.
+        """
+        status = self.status
+        grid = self.grid
+        row: dict[str, object] = {
+            'name': self.name,
+            'active': self.active,
+            'present': status.present,
+            'crs': grid.crs,
+            'is_geographic': grid.is_geographic,
+            'rows': grid.rows,
+            'cols': grid.cols,
+            'tile_size': grid.tile_size,
+            'cell_area_m2': grid.cell_area_m2,
+            'px_size': grid.px_size,
+            'n_tiles': grid.n_tiles,
+            'extent': list(grid.extent),
+            'zones': self.zones,
+            'min_elevation_m': self.min_elevation_m,
+            'max_elevation_m': self.max_elevation_m,
+            'variables': list(self.variables),
+            'zone_layers': self.zone_layers,
+            'cogs': status.artifacts.cogs,
+            'aoi_rasters': status.artifacts.aoi_rasters,
+            'dates': status.date_count,
+            'first_date': status.first_date.isoformat() if status.first_date else None,
+            'last_date': status.last_date.isoformat() if status.last_date else None,
+        }
+        if table:
+            if row['cell_area_m2'] is None:
+                row['cell_area_m2'] = 'varies (geographic)'
+            row['elevation_bracket_m'] = (
+                f'{self.min_elevation_m} .. {self.max_elevation_m}'
+            )
+            del row['min_elevation_m'], row['max_elevation_m']
+        return row
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:

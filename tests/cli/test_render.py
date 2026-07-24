@@ -79,7 +79,6 @@ def test_info_table_record_renders_geographic_and_elevation_prose():
     # two numeric elevation fields collapse to a 'MIN .. MAX' bracket. json/csv
     # keep the typed fields (cell_area_m2=None, numeric min/max), pinned in
     # test_dataset_cli.py. This lives here with the other output-format cases.
-    from snowtool.cli.dataset import _info_table_record
     from snowtool.snowdb.dataset import DatasetArtifacts
     from snowtool.snowdb.diagnostics import (
         DatasetInfoReport,
@@ -117,7 +116,7 @@ def test_info_table_record_renders_geographic_and_elevation_prose():
         zone_layers={},
     )
 
-    record = _info_table_record(report)
+    record = report.to_row(table=True)
 
     assert record['cell_area_m2'] == 'varies (geographic)'
     assert record['elevation_bracket_m'] == '-100.0 .. 4500.0'

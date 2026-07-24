@@ -9,6 +9,8 @@ import click
 
 from snowtool.cli._context import CliContext, config_option, pass_snowdb
 from snowtool.cli._render import emit, format_option
+from snowtool.snowdb.diagnostics import dataset_status
+from snowtool.snowdb.manager import SnowDbManager
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -20,8 +22,6 @@ if TYPE_CHECKING:
 @pass_snowdb
 def status(snowdb: SnowDb, fmt: str) -> None:
     """Overview of every registered dataset: active flag, artifacts, date span."""
-    from snowtool.snowdb.diagnostics import dataset_status
-
     rows = [
         dataset_status(snowdb.registered[name]).to_row(active=name in snowdb.datasets)
         for name in sorted(snowdb.registered)
@@ -45,8 +45,6 @@ def init_snowdb(cli_ctx: CliContext, path: Path | None) -> None:
     raster + zone layers) and registers it inactive; ``dataset activate`` makes
     it live. Idempotent -- an existing root config is left untouched.
     """
-    from snowtool.snowdb.manager import SnowDbManager
-
     if path is not None:
         root = path
     elif cli_ctx.config is not None:

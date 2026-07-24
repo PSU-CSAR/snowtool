@@ -4,8 +4,8 @@ Commands compute plain rows (lists of dicts / dumped pydantic models) on the
 domain side and hand them to :func:`emit`, which is the only place output
 formatting lives -- so every command renders ``table``/``json``/``csv``
 identically. The ``--format`` option decorators (:data:`format_option`,
-:data:`nested_format_option`) live here beside :data:`FORMATS` so a command
-imports its option and emitter from one place.
+:data:`nested_format_option`) live here so a command imports its option and
+emitter from one place.
 """
 
 from __future__ import annotations
@@ -27,13 +27,10 @@ from snowtool.cli import _console
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-# The shared --format choices; commands reuse this for their option.
-FORMATS = ('table', 'json', 'csv')
-
 format_option = click.option(
     '--format',
     'fmt',
-    type=click.Choice(FORMATS),
+    type=click.Choice(('table', 'json', 'csv')),
     default='table',
     help='Output format.',
 )
@@ -113,11 +110,7 @@ def emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
         return
 
     if fmt == 'csv':
-        buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=list(record))
-        writer.writeheader()
-        writer.writerow({key: _scalar(value) for key, value in record.items()})
-        click.echo(buffer.getvalue(), nl=False)
+        emit([record], fmt)
         return
 
     table = Table(box=None, show_header=False, pad_edge=False)

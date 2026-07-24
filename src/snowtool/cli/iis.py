@@ -38,9 +38,22 @@ from snowtool.cli._iis.provisioning import (
 from snowtool.cli._iis.web_config import rasterio_data_env, render_web_config
 from snowtool.cli._windows_common import require_windows
 
-
-def _resolve_site_name(directory: Path, site_name: str | None) -> str:
-    return site_name if site_name is not None else directory.name
+_config_option = click.option(
+    '--config',
+    '-C',
+    'snowdb_config',
+    required=True,
+    envvar='SNOWTOOL_SNOWDB_CONFIG',
+    type=click.Path(path_type=Path),
+    help='Snowdb config the site is installed with (defaults to the '
+    "SNOWTOOL_SNOWDB_CONFIG env var). Its directory's app-pool permission "
+    'grant is set (install) or removed (remove).',
+)
+_site_name_option = click.option(
+    '--site-name',
+    default=None,
+    help='IIS site/app-pool name (defaults to the install directory name).',
+)
 
 
 @click.group()
@@ -52,22 +65,8 @@ def iis() -> None:
 @click.argument('directory', type=click.Path(path_type=Path))
 @click.option('--hostname', required=True, help='Hostname to bind the site to.')
 @click.option('--port', type=int, default=443, show_default=True, help='Port to bind.')
-@click.option(
-    '--config',
-    '-C',
-    'snowdb_config',
-    required=True,
-    envvar='SNOWTOOL_SNOWDB_CONFIG',
-    type=click.Path(path_type=Path),
-    help='Snowdb config the hosted process reads (defaults to the '
-    'SNOWTOOL_SNOWDB_CONFIG env var). Its directory is granted read+execute '
-    "access for the site's app pool identity.",
-)
-@click.option(
-    '--site-name',
-    default=None,
-    help='IIS site/app-pool name (defaults to the install directory name).',
-)
+@_config_option
+@_site_name_option
 @click.option(
     '--cert-thumbprint',
     default=None,
@@ -115,7 +114,7 @@ def install(
     place.
     """
     require_windows()
-    site_name = _resolve_site_name(directory, site_name)
+    site_name = site_name if site_name is not None else directory.name
 
     if not directory.parent.is_dir():
         raise click.ClickException(f'{directory.parent} does not exist.')
@@ -161,22 +160,8 @@ def install(
 
 @iis.command('remove')
 @click.argument('directory', type=click.Path(path_type=Path))
-@click.option(
-    '--config',
-    '-C',
-    'snowdb_config',
-    required=True,
-    envvar='SNOWTOOL_SNOWDB_CONFIG',
-    type=click.Path(path_type=Path),
-    help='Snowdb config the site was installed with (defaults to the '
-    "SNOWTOOL_SNOWDB_CONFIG env var). Its directory's app-pool permission "
-    'grant is removed.',
-)
-@click.option(
-    '--site-name',
-    default=None,
-    help='IIS site/app-pool name (defaults to the install directory name).',
-)
+@_config_option
+@_site_name_option
 def remove(directory: Path, snowdb_config: Path, site_name: str | None) -> None:
     """Remove the IIS site + app pool installed at DIRECTORY.
 
@@ -185,7 +170,7 @@ def remove(directory: Path, snowdb_config: Path, site_name: str | None) -> None:
     may hold logs) but deletes its web.config.
     """
     require_windows()
-    site_name = _resolve_site_name(directory, site_name)
+    site_name = site_name if site_name is not None else directory.name
 
     click.echo(f'Removing IIS site {site_name!r}...')
     run_powershell(
