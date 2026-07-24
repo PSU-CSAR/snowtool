@@ -435,13 +435,16 @@ def test_stats_filename_composes_slug_date_fragment_and_zone_count() -> None:
     )
 
 
-def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
-    # prime_iter_csv pulls the first (header) chunk eagerly, so a result whose
-    # header build would raise fails at the call -- not mid-stream after a 200 --
-    # while the chained iterator still replays every chunk byte-identically.
+def test_stats_csv_response_runs_the_header_build_before_iteration() -> None:
+    # stats_csv_response pulls the first (header) chunk eagerly, so a result
+    # whose header build would raise fails at the call -- not mid-stream after a
+    # 200 -- while the chained iterator still replays every chunk
+    # byte-identically.
+    import asyncio
+
     import numpy
 
-    from snowtool.api.models.stats import prime_iter_csv
+    from snowtool.api.models.stats import stats_csv_response
     from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
     from snowtool.snowdb.zonal_stats import ZonalStats
     from snowtool.snowdb.zones.zoning import BandZone
@@ -458,7 +461,7 @@ def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
 
     # A layer/cell arity mismatch (one layer, a zero-axis cell) makes the header's
     # strict-zip raise -- but only when the generator is advanced. A plain
-    # iter_csv() would not raise until consumed; prime_iter_csv() raises now.
+    # iter_csv() would not raise until consumed; stats_csv_response() raises now.
     bad = ZonalStats(
         {variable},
         ('terrain.elevation',),
@@ -468,7 +471,7 @@ def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
     )
     assert bad.iter_csv() is not None  # generator, nothing run yet
     with pytest.raises(ValueError, match=r'argument.*shorter|zip'):
-        prime_iter_csv(bad)
+        stats_csv_response(bad, 'bad.csv')
 
     # A well-formed result primes fine and replays byte-identically.
     good = ZonalStats(
@@ -478,4 +481,13 @@ def test_prime_iter_csv_runs_the_header_build_before_iteration() -> None:
         numpy.array([1.0], dtype=numpy.float64),
         (),
     )
-    assert ''.join(prime_iter_csv(good)) == ''.join(good.iter_csv())
+    response = stats_csv_response(good, 'good.csv')
+
+    async def _drain() -> str:
+        chunks: list[str] = []
+        async for chunk in response.body_iterator:
+            assert isinstance(chunk, str)
+            chunks.append(chunk)
+        return ''.join(chunks)
+
+    assert asyncio.run(_drain()) == ''.join(good.iter_csv())

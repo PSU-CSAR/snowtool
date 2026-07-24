@@ -37,7 +37,7 @@ router.add_link(Rel.DATA, 'list_pourpoints', title='Pourpoints')
 
 @router.get('/version', name='get_version')
 async def get_version() -> VersionInfo:
-    return VersionInfo.build()
+    return VersionInfo()
 
 
 @router.get('/problems', name='list_problems')

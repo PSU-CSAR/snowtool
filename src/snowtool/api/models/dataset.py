@@ -108,49 +108,28 @@ SHARED_STATS_QUERY = list(StatsQueryBase.model_fields)
 DOY_QUERY = list(DOYStatsQuery.model_fields)
 
 
-def dataset_stats_links(name: str) -> list[Link]:
-    """Links to dataset ``name``'s two stats query endpoints, triplet-templated.
+def stats_links(name: str, triplet: str | None = None) -> list[Link]:
+    """Links to dataset ``name``'s two stats endpoints.
 
-    The dataset resource's form: the station triplet is an unbound RFC 6570 path
-    variable and titles are unprefixed. The query params are the generic
-    form-query expansion (no per-zone override fields; ``f`` negotiates
-    json/csv).
+    Without ``triplet`` (the dataset resource's form) the triplet is an unbound
+    RFC 6570 path variable and titles are unprefixed; with it (the pourpoint
+    form) the triplet is bound, titles are dataset-prefixed, and each link
+    carries a machine-readable ``dataset`` field so a client holding several
+    datasets' pairs selects one by ``(rel, dataset)``. Query params are the
+    generic form-query expansion (``f`` negotiates json/csv).
     """
-    return _stats_link_pair(
-        path={'dataset': name},
-        template=['triplet'],
-        date_range_title='Date-range zonal statistics',
-        doy_title='Day-of-year zonal statistics',
-    )
-
-
-def pourpoint_stats_links(name: str, triplet: str) -> list[Link]:
-    """Links to dataset ``name``'s two stats query endpoints, bound to ``triplet``.
-
-    The pourpoint resource's form: the triplet is bound into the path, titles
-    are dataset-prefixed, and each link carries a machine-readable ``dataset``
-    field so a client holding several datasets' pairs selects one by
-    ``(rel, dataset)``. The query params are the generic form-query expansion
-    (no per-zone override fields; ``f`` negotiates json/csv).
-    """
-    return _stats_link_pair(
-        path={'dataset': name, 'triplet': triplet},
-        template=None,
-        date_range_title=f'{name} date-range zonal statistics',
-        doy_title=f'{name} day-of-year zonal statistics',
-        dataset=name,
-    )
-
-
-def _stats_link_pair(
-    *,
-    path: dict[str, str],
-    template: list[str] | None,
-    date_range_title: str,
-    doy_title: str,
-    **extra: str,
-) -> list[Link]:
-    """The shared (date-range, doy) link pair both resource forms emit."""
+    if triplet is None:
+        path = {'dataset': name}
+        template = ['triplet']
+        extra = {}
+        date_range_title = 'Date-range zonal statistics'
+        doy_title = 'Day-of-year zonal statistics'
+    else:
+        path = {'dataset': name, 'triplet': triplet}
+        template = None
+        extra = {'dataset': name}
+        date_range_title = f'{name} date-range zonal statistics'
+        doy_title = f'{name} day-of-year zonal statistics'
     return [
         Link.to_route(
             'stats_date_range',
@@ -207,7 +186,7 @@ class DatasetInfo(BaseModel):
             links=[
                 Link.self_link(),
                 Link.root_link(),
-                *dataset_stats_links(spec.name),
+                *stats_links(spec.name),
             ],
         )
 

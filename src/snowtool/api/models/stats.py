@@ -29,7 +29,7 @@ from snowtool.snowdb.query import DateRangeQuery, DOYFields, DOYQuery, PourPoint
 from snowtool.snowdb.zonal_stat_models import CompactStats
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Sequence
 
     from snowtool.snowdb.zonal_stats import ZonalStats
 
@@ -167,27 +167,6 @@ def stats_filename(
     return f'{slug}_{query.date_fragment()}{zonal}.csv'
 
 
-def prime_iter_csv(
-    stats: ZonalStats,
-    *,
-    include_empty_zones: bool = False,
-) -> Iterator[str]:
-    """``stats.iter_csv`` with its first (header) chunk already pulled.
-
-    :meth:`ZonalStats.iter_csv` is a plain generator, so nothing in it runs until
-    the first ``next()``. Pulling that first chunk here forces the header assembly
-    (the ``_axis_kinds``/strict-zip column build) to run *now* -- while we can still
-    return an error response -- instead of mid-stream after the 200 headers are
-    already sent. The primed chunk is chained back in front of the rest, so the
-    stream is complete and byte-identical.
-    """
-    chunks = stats.iter_csv(include_empty_zones=include_empty_zones)
-    # The header always yields, so there is exactly one first chunk (never a
-    # StopIteration); a dead guard for a zero-chunk stream would be misleading.
-    first = next(chunks)
-    return itertools.chain((first,), chunks)
-
-
 def stats_csv_response(
     stats: ZonalStats,
     filename: str,
@@ -196,12 +175,17 @@ def stats_csv_response(
 ) -> StreamingResponse:
     """Stream a :class:`ZonalStats` as a CSV attachment named ``filename``.
 
-    ``stats.iter_csv`` is primed here (its header build is run before the response
-    starts), so a bad result object still errors -- before the 200 headers are
-    sent -- rather than mid-stream. See :func:`prime_iter_csv`.
+    :meth:`ZonalStats.iter_csv` is a plain generator, so nothing in it runs until
+    the first ``next()``. Pulling that first (header) chunk here forces the
+    header assembly (the ``_axis_kinds``/strict-zip column build) to run *now* --
+    while we can still return an error response -- instead of mid-stream after
+    the 200 headers are already sent. The primed chunk is chained back in front
+    of the rest, so the stream is complete and byte-identical.
     """
+    chunks = stats.iter_csv(include_empty_zones=include_empty_zones)
+    first = next(chunks)
     return StreamingResponse(
-        prime_iter_csv(stats, include_empty_zones=include_empty_zones),
+        itertools.chain((first,), chunks),
         media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
