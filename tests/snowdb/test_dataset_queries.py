@@ -2,10 +2,12 @@
 
 from datetime import date
 
-from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
+from snowtool.snowdb.dataset import DatasetArtifacts
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.terrain_layers import ELEVATION
+
+from ..conftest import make_dataset
 
 
 def test_available_dates_empty_when_no_cogs(dataset):
@@ -108,7 +110,7 @@ def test_artifact_status_for_created_projected_dataset(tmp_path):
             crs=32611,
         ),
     )
-    dataset, _ = Dataset.create(spec, tmp_path / 'utm')
+    dataset = make_dataset(spec, tmp_path / 'utm')
 
     status = dataset.artifact_status()
     assert status.aoi_rasters is True

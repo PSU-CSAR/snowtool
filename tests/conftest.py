@@ -144,6 +144,18 @@ def make_manager(root, specs, **kwargs):
     return SnowDbManager(make_snowdb(root, specs, **kwargs))
 
 
+def make_dataset(spec, path, **kwargs):
+    """A Dataset bound to ``path`` with its skeleton ensured (the common test shape).
+
+    The dataset-level counterpart to :func:`make_snowdb`: construct the Dataset
+    and converge its directory skeleton in one step, mirroring what
+    ``SnowDbManager.stage_dataset`` does for a staged dataset.
+    """
+    ds = Dataset(spec, path, **kwargs)
+    ds.ensure_skeleton()
+    return ds
+
+
 def register_dataset_config(manager, name, config, *, active=True):
     """Stage ``config`` at ``data/<name>/dataset.json`` and register its link.
 
@@ -481,7 +493,7 @@ def source_nlcd(tmp_path, grid):
 @pytest.fixture
 def dataset(tmp_path, spec):
     """A fully created Dataset: directory, area raster, terrain + land-cover sets."""
-    ds, _ = Dataset.create(spec, tmp_path / 'db')
+    ds = make_dataset(spec, tmp_path / 'db')
     write_terrain(ds)
     write_landcover(ds)
     return ds

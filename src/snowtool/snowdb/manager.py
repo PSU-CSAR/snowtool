@@ -37,7 +37,6 @@ from snowtool.snowdb.config import (
     RootConfig,
 )
 from snowtool.snowdb.coverage import Coverage
-from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint_index import PourpointIndex
 from snowtool.snowdb.pourpoint_manager import AOIRasterizeResult, PourpointManager
@@ -48,6 +47,7 @@ from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVID
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
+    from snowtool.snowdb.dataset import Dataset
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.zones.zone_layer import (
@@ -429,10 +429,10 @@ class SnowDbManager:
         """
         dataset = self._build_staged_dataset(name, dataset_config_path)
 
-        # Converge-by-default: Dataset.create builds any missing skeleton part and
-        # reports whether it had to (an already-staged skeleton is tolerated, since
-        # the rasterize below is idempotent), so there is nothing to catch.
-        _, created = Dataset.create(dataset.spec, dataset.path)
+        # Converge-by-default: ensure_skeleton builds any missing skeleton part
+        # and reports whether it had to (an already-staged skeleton is tolerated,
+        # since the rasterize below is idempotent), so there is nothing to catch.
+        created = dataset.ensure_skeleton()
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.

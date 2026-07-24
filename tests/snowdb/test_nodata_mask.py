@@ -28,7 +28,7 @@ from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 
-from ..conftest import ORIGIN_X, ORIGIN_Y, PX, SIZE, TILE
+from ..conftest import ORIGIN_X, ORIGIN_Y, PX, SIZE, TILE, make_dataset
 
 # The synthetic pourpoint polygon spans lon -119.9..-119.0 (grid cols 10..100 at
 # PX=0.01 from ORIGIN_X=-120). Masking everything east of lon -119.45 (col 55)
@@ -116,7 +116,7 @@ def test_snowdb_resolves_nodata_mask_against_dataset_config_dir(
 
 
 def test_dataset_without_mask_has_none(tmp_path, spec):
-    ds, _ = Dataset.create(spec, tmp_path / 'db')
+    ds = make_dataset(spec, tmp_path / 'db')
     assert ds.nodata_mask is None
 
 
@@ -137,7 +137,7 @@ def test_mask_add_change_remove_marks_aoi_stale(
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     root = tmp_path / 'db'
 
-    unmasked, _ = Dataset.create(spec, root)
+    unmasked = make_dataset(spec, root)
     unmasked.rasterize_aoi(pp)
     assert unmasked.aoi_raster_is_current(pp)
 
@@ -166,10 +166,10 @@ def test_mask_burns_zero_area_outside_domain(
     nodata_mask,
 ):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
-    unmasked_ds, _ = Dataset.create(spec, tmp_path / 'plain')
+    unmasked_ds = make_dataset(spec, tmp_path / 'plain')
     unmasked_ds.rasterize_aoi(pp)
     unmasked = unmasked_ds.load_aoi_raster(pp.station_triplet)
-    masked_ds, _ = Dataset.create(
+    masked_ds = make_dataset(
         spec,
         tmp_path / 'masked',
         nodata_mask=nodata_mask,
@@ -192,7 +192,7 @@ def test_mask_burns_zero_area_outside_domain(
 def test_missing_mask_file_raises_nodata_mask_error(tmp_path, spec, pourpoint_geojson):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     missing = tmp_path / 'missing-mask.tif'
-    ds, _ = Dataset.create(spec, tmp_path / 'db', nodata_mask=missing)
+    ds = make_dataset(spec, tmp_path / 'db', nodata_mask=missing)
     with pytest.raises(NodataMaskError, match='nodata_mask'):
         ds.rasterize_aoi(pp)
 
@@ -215,7 +215,7 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
     ) as dst:
         dst.write(array, 1)
 
-    ds, _ = Dataset.create(spec, tmp_path / 'db', nodata_mask=bad)
+    ds = make_dataset(spec, tmp_path / 'db', nodata_mask=bad)
     with pytest.raises(NodataMaskError, match='does not match the dataset grid'):
         ds.rasterize_aoi(pp)
 

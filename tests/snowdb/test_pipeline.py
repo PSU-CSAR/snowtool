@@ -11,7 +11,6 @@ import rasterio
 from snowtool.snowdb.aoi_raster import AOIRaster
 from snowtool.snowdb.config import BandStepParams
 from snowtool.snowdb.constants import TILE_BBOX_TAG
-from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import SNODAS_VARIABLES
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.query import DateRangeQuery
@@ -30,6 +29,7 @@ from ..conftest import (
     SIZE,
     SWE_VALUE,
     TILE,
+    make_dataset,
     write_swe_cog,
     write_terrain,
 )
@@ -317,7 +317,7 @@ def _banded_dataset(directory, band_step_ft):
         variables=SNODAS_VARIABLES,
         zones={'terrain': {'elevation': BandStepParams(band_step_ft=band_step_ft)}},
     )
-    ds, _ = Dataset.create(spec, directory)
+    ds = make_dataset(spec, directory)
     write_terrain(ds)
     write_swe_cog(ds)
     return ds

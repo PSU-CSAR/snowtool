@@ -152,34 +152,26 @@ class Dataset:
         pair = self.nodata_mask_pair
         return pair[1] if pair is not None else None
 
-    @classmethod
-    def create(
-        cls: type[Self],
-        spec: DatasetSpec,
-        path: Path,
-        *,
-        nodata_mask: Path | None = None,
-    ) -> tuple[Self, bool]:
-        """Create the dataset's directory skeleton; converge-by-default.
+    def ensure_skeleton(self: Self) -> bool:
+        """Create any missing part of this dataset's directory skeleton.
 
-        Idempotent: builds any missing part of the skeleton (the dataset dir plus
-        its ``aoi-rasters/`` and ``cogs/`` subdirs) with ``exist_ok=True`` and
-        never clobbers, so a fresh call and a re-run of a fully- or partially-built
-        skeleton both succeed. Returns ``(dataset, created)`` where ``created`` is
-        whether the skeleton was incomplete before this call (i.e. this call made
-        it) -- the caller uses it to report new-vs-existing.
+        Converge-by-default and idempotent: builds the dataset dir plus its
+        ``aoi-rasters/`` and ``cogs/`` subdirs with ``exist_ok=True`` and never
+        clobbers, so a fresh call and a re-run over a fully- or partially-built
+        skeleton both succeed. Returns whether the skeleton was incomplete
+        before this call (i.e. this call made it) -- the caller uses it to
+        report new-vs-existing.
 
         Zone layers (terrain, land cover, ...) are *not* built here: each needs a
         source and is generated separately by
         :meth:`SnowDbManager.generate_zone_layers_for` (so generation can share one
         source read across every dataset).
         """
-        self = cls(spec, path, nodata_mask=nodata_mask)
         created = not (self._aoi_rasters.is_dir() and self._cogs.is_dir())
         self.path.mkdir(parents=True, exist_ok=True)
         self._aoi_rasters.mkdir(exist_ok=True)
         self._cogs.mkdir(exist_ok=True)
-        return self, created
+        return created
 
     def zone_target(self: Self, provider: ZoneLayerProvider) -> ZoneLayerTarget:
         """This dataset's grid as a target for ``provider``'s generation engine."""

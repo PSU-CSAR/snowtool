@@ -28,6 +28,7 @@ from snowtool.snowdb.spec import DatasetSpec
 from ..conftest import (
     SWE_VALUE,
     CapturingProgress,
+    make_dataset,
     make_manager,
     register_dataset_config,
     write_swe_cog,
@@ -84,8 +85,8 @@ def test_rasterize_aoi_burns_every_active_dataset(
     # `spec` (name='test') and `spec_b` (name='snodas') share the synthetic grid.
     data = tmp_path / 'data'
     data.mkdir()
-    Dataset.create(spec, data / spec.name)  # skeleton only; return unused
-    Dataset.create(spec_b, data / spec_b.name)
+    make_dataset(spec, data / spec.name)  # skeleton only; return unused
+    make_dataset(spec_b, data / spec_b.name)
 
     manager = make_manager(tmp_path, [spec, spec_b])
     pourpoint = Pourpoint.from_geojson(pourpoint_geojson)
@@ -106,26 +107,23 @@ def test_rasterize_aoi_burns_every_active_dataset(
         assert raster_path.parent == data / name / 'aoi-rasters'
 
 
-def test_dataset_create_is_idempotent(tmp_path, spec):
-    # Dataset.create converges: a first call builds the skeleton and reports
+def test_ensure_skeleton_is_idempotent(tmp_path, spec):
+    # ensure_skeleton converges: a first call builds the skeleton and reports
     # created=True; a re-run over the existing skeleton reports created=False and
     # does not raise (no refuse-to-clobber). It also converges a *partial*
     # skeleton (one subdir present) into the full one, still reporting created.
-    path = tmp_path / 'db'
+    ds = Dataset(spec, tmp_path / 'db')
 
-    ds, created = Dataset.create(spec, path)
-    assert created is True
+    assert ds.ensure_skeleton() is True
     assert ds._aoi_rasters.is_dir()
     assert ds._cogs.is_dir()
 
-    _, again = Dataset.create(spec, path)
-    assert again is False
+    assert ds.ensure_skeleton() is False
 
     # A partial skeleton (cogs/ removed) is still "not fully present" -> created,
     # and the missing half is rebuilt without clobbering the surviving half.
     shutil.rmtree(ds._cogs)
-    _, repaired = Dataset.create(spec, path)
-    assert repaired is True
+    assert ds.ensure_skeleton() is True
     assert ds._aoi_rasters.is_dir()
     assert ds._cogs.is_dir()
 

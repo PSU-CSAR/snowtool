@@ -16,13 +16,13 @@ from snowtool.exceptions import (
 )
 from snowtool.snowdb.aoi_raster import aoi_provenance
 from snowtool.snowdb.coverage import Coverage
-from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 
 from ..conftest import (
     CapturingProgress,
     box,
+    make_dataset,
     make_manager,
     make_spec,
 )
@@ -41,7 +41,7 @@ def manager(tmp_path, spec):
     Writes go through this manager; reads use the derived ``db`` fixture.
     """
     SnowDbManager.initialize(tmp_path)
-    Dataset.create(spec, tmp_path / 'data' / 'test')  # skeleton only; return unused
+    make_dataset(spec, tmp_path / 'data' / 'test')  # skeleton only; return unused
     return make_manager(tmp_path, [spec])
 
 

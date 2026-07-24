@@ -13,12 +13,11 @@ import rasterio
 from pyproj import Transformer
 from rasterio.crs import CRS
 
-from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.spec import DatasetSpec, GridParams
 from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
-from ..conftest import write_pourpoint_record, write_terrain
+from ..conftest import make_dataset, write_pourpoint_record, write_terrain
 
 PX = 1000.0  # 1 km square pixels -> constant 1e6 m^2 cells
 SIZE = 128
@@ -46,7 +45,7 @@ def spec():
 
 @pytest.fixture
 def dataset(tmp_path, spec):
-    ds, _ = Dataset.create(spec, tmp_path / 'db')
+    ds = make_dataset(spec, tmp_path / 'db')
     # Write a uniform terrain set directly (the streaming engine is tested
     # separately; running it here on a reprojected 10 m grid would be huge).
     write_terrain(ds, DEM_VALUE)

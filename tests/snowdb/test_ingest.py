@@ -21,7 +21,7 @@ from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.spec import DatasetSpec
 from snowtool.snowdb.variables import DatasetVariable, Reducer, Unit
 
-from ..conftest import CapturingProgress, write_marker_cog
+from ..conftest import CapturingProgress, make_dataset, write_marker_cog
 
 _MM = Unit(name='mm', scale_factor=1)
 
@@ -49,7 +49,7 @@ def two_var_dataset(tmp_path, spec):
         grid_params=spec.grid_params,
         variables=(_var('swe'), _var('depth')),
     )
-    return Dataset.create(two, tmp_path / 'db')[0]
+    return make_dataset(two, tmp_path / 'db')
 
 
 class _FakeRaster:
@@ -353,7 +353,7 @@ def test_ingest_delegates_to_ingester(tmp_path, spec):
         variables=(_var('swe'), _var('depth')),
         ingester=recorder,
     )
-    ds, _ = Dataset.create(ingestable, tmp_path / 'db')
+    ds = make_dataset(ingestable, tmp_path / 'db')
     src = tmp_path / 'src.tar'
     src.write_bytes(b'source bytes')
 
@@ -500,7 +500,7 @@ def test_snodas_ingester_writes_date_cogs(tmp_path, spec, monkeypatch):
     Only the SNODAS/GDAL extraction + rasterio write are stubbed; plan reads the real
     tar's member names, so the full product set + provenance-named COGs are exercised.
     """
-    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
+    ds = make_dataset(_snodas_spec(spec), tmp_path / 'db')
     d = date(2019, 2, 2)
     stems = _snodas_stems('20190202')
     tar = tmp_path / 'snodas.tar'
@@ -528,7 +528,7 @@ def test_snodas_skip_path_does_no_extraction(tmp_path, spec, monkeypatch):
     identical tar must be skipped on the member-names + hash alone -- build_rasters
     (the only extraction site) is never called, so the spy's call count does not rise.
     """
-    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
+    ds = make_dataset(_snodas_spec(spec), tmp_path / 'db')
     d = date(2019, 2, 2)
     stems = _snodas_stems('20190202')
     tar = tmp_path / 'snodas.tar'
@@ -552,7 +552,7 @@ def test_snodas_ingester_skips_unchanged_source_and_force_reingests(
 ):
     # Converge-by-default: re-ingesting the identical tar is skipped; a same-name
     # tar with different bytes rebuilds; --force always rebuilds.
-    ds, _ = Dataset.create(_snodas_spec(spec), tmp_path / 'db')
+    ds = make_dataset(_snodas_spec(spec), tmp_path / 'db')
     d = date(2019, 2, 2)
     stems = _snodas_stems('20190202')
     tar = tmp_path / 'snodas.tar'

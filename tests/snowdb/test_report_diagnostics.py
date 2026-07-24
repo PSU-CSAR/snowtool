@@ -22,6 +22,7 @@ from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import (
     TILE,
+    make_dataset,
     make_snowdb,
     snodas_swe_name,
     write_landcover,
@@ -46,12 +47,12 @@ def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
 def created_db(tmp_path, spec):
     """An initialized root with the synthetic dataset created + bound (read side).
 
-    The shared "initialize + Dataset.create + bind a SnowDb" trio for the
+    The shared "initialize + make_dataset + bind a SnowDb" trio for the
     coverage reports: returns ``(db, ds)`` where ``ds`` is the created dataset and
     ``db`` the reader over the same root.
     """
     SnowDbManager.initialize(tmp_path)
-    ds, _ = Dataset.create(spec, tmp_path / 'data' / 'test')
+    ds = make_dataset(spec, tmp_path / 'data' / 'test')
     return make_snowdb(tmp_path, [spec]), ds
 
 
