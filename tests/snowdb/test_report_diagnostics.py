@@ -109,9 +109,13 @@ def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
 
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.date == date(2018, 4, 27)
-    assert 'swe' not in finding.missing
-    assert set(finding.missing) == set(dataset.spec.variables) - {'swe'}
+    assert finding['check'] == 'dates'
+    assert finding['target'] == '2018-04-27'
+    # The issue names every missing variable except the one present (swe).
+    assert finding['issue'].startswith('missing ')
+    listed = set(finding['issue'].removeprefix('missing ').split(', '))
+    assert 'swe' not in listed
+    assert listed == set(dataset.spec.variables) - {'swe'}
 
 
 def test_completeness_report_respects_date_window(dataset, swe_cog):
@@ -129,10 +133,12 @@ def test_completeness_report_flags_duplicated_cog(dataset, swe_cog):
 
     findings = diagnostics.completeness_report(dataset)
 
-    corrupt = next(f for f in findings if f.date == date(2018, 4, 27))
-    assert 'swe' in corrupt.missing  # duplicated -> unresolved, so it is listed
-    clean = next(f for f in findings if f.date == date(2018, 4, 15))
-    assert 'swe' not in clean.missing  # the other date still reports normally
+    corrupt = next(f for f in findings if f['target'] == '2018-04-27')
+    # duplicated -> unresolved, so swe is listed among the missing variables
+    assert 'swe' in corrupt['issue'].removeprefix('missing ').split(', ')
+    clean = next(f for f in findings if f['target'] == '2018-04-15')
+    # the other date still reports normally (swe present, so not listed)
+    assert 'swe' not in clean['issue'].removeprefix('missing ').split(', ')
 
 
 # --- missing-files -----------------------------------------------------------
@@ -177,9 +183,13 @@ def test_stale_format_zone_layers_flags_an_old_format(dataset):
 
     findings = diagnostics.stale_format_zone_layers(dataset)
 
-    assert [(f.provider, f.stored, f.expected) for f in findings] == [
-        ('terrain', stamped, stamped + 1),
-    ]
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding['check'] == 'files'
+    assert finding['target'] == 'terrain'
+    assert finding['issue'] == (
+        f'stale zone-layer format (stored {stamped} != current {stamped + 1})'
+    )
 
 
 def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
@@ -187,8 +197,8 @@ def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
 
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
-    providers = {f.provider for f in diagnostics.stale_format_zone_layers(dataset)}
-    assert 'landcover' not in providers
+    targets = {f['target'] for f in diagnostics.stale_format_zone_layers(dataset)}
+    assert 'landcover' not in targets
 
 
 def test_stale_format_zone_layers_flags_a_built_untagged_set(dataset):
@@ -216,12 +226,21 @@ def test_stale_format_zone_layers_flags_a_built_untagged_set(dataset):
 
     findings = diagnostics.stale_format_zone_layers(dataset)
 
-    assert [(f.provider, f.stored, f.expected) for f in findings] == [
-        ('terrain', None, terrain.format_version),
-    ]
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding['target'] == 'terrain'
+    # A missing/legacy tag reads as stored=None.
+    assert finding['issue'] == (
+        f'stale zone-layer format (stored None != current {terrain.format_version})'
+    )
 
 
 # --- pourpoint-coverage ------------------------------------------------------------
+
+
+def _targets_by_issue(findings, issue):
+    """Sorted targets of the coverage findings carrying ``issue``."""
+    return tuple(sorted(f['target'] for f in findings if f['issue'] == issue))
 
 
 def test_pourpoint_coverage_unrasterized_then_covered(created_db, pourpoint_geojson):
@@ -232,12 +251,12 @@ def test_pourpoint_coverage_unrasterized_then_covered(created_db, pourpoint_geoj
     )
 
     before = diagnostics.pourpoint_coverage_report(db, ds)
-    assert before.unrasterized == ('12345:MT:USGS',)
-    assert before.orphan_rasters == ()
+    assert _targets_by_issue(before, 'no raster') == ('12345:MT:USGS',)
+    assert _targets_by_issue(before, 'orphan raster') == ()
 
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
     after = diagnostics.pourpoint_coverage_report(db, ds)
-    assert after.unrasterized == ()
+    assert _targets_by_issue(after, 'no raster') == ()
 
 
 def test_pourpoint_coverage_flags_orphan_raster(created_db, pourpoint_geojson):
@@ -246,7 +265,7 @@ def test_pourpoint_coverage_flags_orphan_raster(created_db, pourpoint_geojson):
 
     result = diagnostics.pourpoint_coverage_report(db, ds)
 
-    assert result.orphan_rasters == ('12345:MT:USGS',)
+    assert _targets_by_issue(result, 'orphan raster') == ('12345:MT:USGS',)
 
 
 def test_pourpoint_coverage_classifies_full_partial_none(created_db):
@@ -262,8 +281,8 @@ def test_pourpoint_coverage_classifies_full_partial_none(created_db):
 
     result = diagnostics.pourpoint_coverage_report(db, db.datasets['test'])
 
-    assert result.partial == ('200:MT:USGS',)
-    assert result.uncovered == ('300:MT:USGS',)
+    assert _targets_by_issue(result, 'partial coverage') == ('200:MT:USGS',)
+    assert _targets_by_issue(result, 'no coverage') == ('300:MT:USGS',)
 
 
 # --- query guard: SnowDb.require_pourpoint_coverage --------------------------------
@@ -348,7 +367,8 @@ def test_aoi_health_flags_empty_aoi(dataset, grid):
 
     bad = diagnostics.aoi_health_report(dataset)
     assert len(bad) == 1
-    assert 'empty AOI' in bad[0].issue
+    assert bad[0]['check'] == 'pourpoints'
+    assert 'empty AOI' in bad[0]['issue']
 
 
 def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
@@ -363,7 +383,7 @@ def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
     )
 
     bad = diagnostics.aoi_health_report(dataset)
-    assert any('TILE_BBOX' in h.issue for h in bad)
+    assert any('TILE_BBOX' in h['issue'] for h in bad)
 
 
 # --- value-ranges / grid -----------------------------------------------------

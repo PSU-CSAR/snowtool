@@ -96,6 +96,25 @@ def _scalar(value: Any) -> str:
     return str(value)
 
 
+def dataset_info_table_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply the ``dataset info`` *table*-only prose substitutions.
+
+    The domain report (:meth:`DatasetInfoReport.to_row`) emits one typed,
+    format-independent record; json/csv render it as-is. The borderless table
+    form alone reads better with prose in two spots, so the substitution lives
+    here in the renderer rather than in the domain method: a geographic grid's
+    null ``cell_area_m2`` becomes ``'varies (geographic)'``, and the two numeric
+    ``min_elevation_m``/``max_elevation_m`` fields collapse into a single
+    ``elevation_bracket_m`` ``'MIN .. MAX'`` string.
+    """
+    row = dict(record)
+    if row.get('cell_area_m2') is None:
+        row['cell_area_m2'] = 'varies (geographic)'
+    row['elevation_bracket_m'] = f'{row["min_elevation_m"]} .. {row["max_elevation_m"]}'
+    del row['min_elevation_m'], row['max_elevation_m']
+    return row
+
+
 def emit_record(record: Mapping[str, Any], fmt: str = 'table') -> None:
     """Render a single record (one entity, e.g. ``dataset info``) in ``fmt``.
 

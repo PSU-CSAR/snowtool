@@ -1,47 +1,8 @@
-"""Date-gap diagnostics (pure) and the dataset_status scan builder."""
+"""The dataset_status scan builder."""
 
 from datetime import date
 
-import pytest
-
-from snowtool.snowdb.diagnostics import dataset_status, date_gaps
-
-
-def d(day: int) -> date:
-    return date(2018, 4, day)
-
-
-@pytest.mark.parametrize(
-    ('dates', 'expected'),
-    [
-        ([], []),
-        ([d(1)], []),
-        ([d(1), d(2), d(3)], []),
-        ([d(1), d(3)], [(d(2), d(2))]),
-        ([d(1), d(5)], [(d(2), d(4))]),
-        ([d(1), d(3), d(4), d(8)], [(d(2), d(2)), (d(5), d(7))]),
-        ([d(8), d(1), d(3), d(3), d(4)], [(d(2), d(2)), (d(5), d(7))]),
-        # Nothing before the first or after the last date is a "gap".
-        ([d(2), d(3), d(4)], []),
-        (
-            [date(2018, 1, 30), date(2018, 2, 2)],
-            [(date(2018, 1, 31), date(2018, 2, 1))],
-        ),
-    ],
-    ids=[
-        'no_dates',
-        'single_date',
-        'contiguous',
-        'single_missing_day',
-        'multi_day_run',
-        'several_gaps_in_order',
-        'unordered_and_duplicate',
-        'only_interior_gaps',
-        'month_boundary',
-    ],
-)
-def test_date_gaps(dates, expected):
-    assert date_gaps(dates) == expected
+from snowtool.snowdb.diagnostics import dataset_status
 
 
 def test_dataset_status_for_created_dataset(dataset):

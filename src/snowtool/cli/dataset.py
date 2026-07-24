@@ -16,11 +16,17 @@ from snowtool.cli._confirm import run_removal
 from snowtool.cli._context import config_option, pass_manager, pass_snowdb
 from snowtool.cli._dates import DATE
 from snowtool.cli._progress import RichProgress
-from snowtool.cli._render import emit, emit_record, format_option
+from snowtool.cli._render import (
+    dataset_info_table_record,
+    emit,
+    emit_record,
+    format_option,
+)
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb.datasets import DATASET_TEMPLATES, template_nodata_mask
 from snowtool.snowdb.diagnostics import dataset_info_report
 from snowtool.snowdb.manager import SnowDbManager
+from snowtool.snowdb.query import DateRangeQuery
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
 
 if TYPE_CHECKING:
@@ -70,8 +76,10 @@ def dataset_info(snowdb: SnowDb, name: str, fmt: str) -> None:
     json/csv, rendered as ``MIN .. MAX`` prose in the table.
     """
     ds = snowdb.registered_dataset(name)
-    report = dataset_info_report(snowdb, ds)
-    emit_record(report.to_row(table=fmt == 'table'), fmt)
+    row = dataset_info_report(snowdb, ds).to_row()
+    if fmt == 'table':
+        row = dataset_info_table_record(row)
+    emit_record(row, fmt)
 
 
 @dataset.command('dates')
@@ -107,7 +115,9 @@ def dataset_dates(
     if missing:
         dates = diagnostics.missing_dates(ds, start=start, end=end)
     else:
-        dates = ds.available_dates(start=start, end=end)
+        dates = DateRangeQuery(start_date=start, end_date=end).select(
+            ds.available_dates(),
+        )
     emit([{'date': d.isoformat()} for d in dates], fmt)
 
 

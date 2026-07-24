@@ -1,11 +1,11 @@
 """Diagnostic helpers over snowdb domain data, kept out of the click callbacks.
 
 Two kinds live here, both returning plain dataclasses the CLI renders: pure
-functions over already-gathered data (e.g. :func:`date_gaps`), and dataset-scan
-*builders* (e.g. :func:`dataset_status`) that read a :class:`Dataset` via its
-query helpers. Keeping the scan/finding logic here -- not in click callbacks --
-makes it unit-testable without a CliRunner; the commands just gather inputs and
-format the results.
+functions over already-gathered data (e.g. :func:`missing_dates`), and
+dataset-scan *builders* (e.g. :func:`dataset_status`) that read a
+:class:`Dataset` via its query helpers. Keeping the scan/finding logic here --
+not in click callbacks -- makes it unit-testable without a CliRunner; the
+commands just gather inputs and format the results.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import math
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from snowtool.exceptions import (
@@ -25,9 +24,10 @@ from snowtool.exceptions import (
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.grid import grid_extent
 from snowtool.snowdb.progress import NULL_PROGRESS
+from snowtool.snowdb.query import DateRangeQuery
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from affine import Affine
@@ -36,23 +36,6 @@ if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.grid import Extent
     from snowtool.snowdb.progress import ProgressReporter
-
-
-def date_gaps(dates: Iterable[date]) -> list[tuple[date, date]]:
-    """Maximal runs of missing days *within* the span of ``dates``.
-
-    Each gap is returned as an inclusive ``(first_missing, last_missing)`` pair.
-    Only interior gaps are reported -- nothing before the earliest or after the
-    latest date -- so a contiguous (or fewer-than-two-date) input yields ``[]``.
-    Duplicate dates are ignored.
-    """
-    ordered = sorted(set(dates))
-    one_day = timedelta(days=1)
-    return [
-        (earlier + one_day, later - one_day)
-        for earlier, later in pairwise(ordered)
-        if later - earlier > one_day
-    ]
 
 
 @dataclass(frozen=True)
@@ -138,15 +121,19 @@ def missing_dates(
 
 
 # --- report builders (read-only; the `dataset`/`doctor` commands render these) --
+#
+# A ``Finding`` is one row of ``snowtool doctor`` output: the flat, uniform
+# ``check``/``dataset``/``target``/``issue`` dict the CLI renders. The four
+# doctor-only checks below compose their ``target``/``issue`` prose *where the
+# condition is detected* and return these rows directly -- there is no separate
+# typed-intermediate tier for the CLI to re-flatten. The facts each row encodes
+# are pinned by ``tests/snowdb/test_report_diagnostics.py``.
+
+type Finding = dict[str, str]
 
 
-@dataclass(frozen=True)
-class IncompleteDate:
-    """An ingested date that is missing one or more of its dataset's variables."""
-
-    name: str
-    date: date
-    missing: tuple[str, ...]  # variable keys
+def _finding(check: str, dataset: str, target: str, issue: str) -> Finding:
+    return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
 
 
 def completeness_report(
@@ -154,17 +141,21 @@ def completeness_report(
     *,
     start: date | None = None,
     end: date | None = None,
-) -> list[IncompleteDate]:
-    """Ingested dates (optionally within ``start``/``end``) missing variables."""
-    findings: list[IncompleteDate] = []
-    for d in dataset.available_dates(start=start, end=end):
+) -> list[Finding]:
+    """``dates`` findings: ingested dates (optionally within ``start``/``end``)
+    missing one or more of their dataset's variables."""
+    name = dataset.spec.name
+    findings: list[Finding] = []
+    window = DateRangeQuery(start_date=start, end_date=end)
+    for d in window.select(dataset.available_dates()):
         unresolved = dataset.unresolved_variables(d)
         if unresolved:
             findings.append(
-                IncompleteDate(
-                    dataset.spec.name,
-                    d,
-                    tuple(sorted(unresolved)),
+                _finding(
+                    'dates',
+                    name,
+                    d.isoformat(),
+                    f'missing {", ".join(sorted(unresolved))}',
                 ),
             )
     return findings
@@ -195,62 +186,46 @@ def missing_artifacts(dataset: Dataset) -> list[str]:
     return missing
 
 
-@dataclass(frozen=True)
-class ZoneLayerFormat:
-    """A built zone-layer set whose stamped format version is out of date.
-
-    ``stored`` is the version read off the set's provenance tag (``None`` for a
-    missing/legacy tag); ``expected`` is the provider's current format version.
-    Only stale sets are emitted, so ``stored != expected`` always holds.
-    """
-
-    name: str  # dataset name
-    provider: str  # zone-layer provider (terrain, landcover, ...)
-    stored: int | None
-    expected: int
-
-
-def stale_format_zone_layers(dataset: Dataset) -> list[ZoneLayerFormat]:
-    """Built zone-layer sets stamped with an out-of-date on-disk format version.
+def stale_format_zone_layers(dataset: Dataset) -> list[Finding]:
+    """``files`` findings: built zone-layer sets stamped with an out-of-date
+    on-disk format version.
 
     Skips sets that are not built (``missing_artifacts`` already reports those);
     a built set whose stamped version differs from the provider's current one --
     including a missing/legacy tag (stored ``None``) -- is flagged for a rebuild.
+    The ``target`` is the provider name; the ``issue`` names the stored vs.
+    current versions.
     """
-    findings: list[ZoneLayerFormat] = []
+    name = dataset.spec.name
+    findings: list[Finding] = []
     for provider_name, zone_set in dataset.zones.items():
         if zone_set.format_is_current() is False:
             findings.append(
-                ZoneLayerFormat(
-                    name=dataset.spec.name,
-                    provider=provider_name,
-                    stored=zone_set.stored_format_version(),
-                    expected=zone_set.format_version,
+                _finding(
+                    'files',
+                    name,
+                    provider_name,
+                    f'stale zone-layer format (stored '
+                    f'{zone_set.stored_format_version()} != '
+                    f'current {zone_set.format_version})',
                 ),
             )
     return findings
 
 
-@dataclass(frozen=True)
-class PourpointCoverage:
-    """How a dataset's grid + burned rasters line up with the stored pourpoints.
+def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
+    """``pourpoints`` findings for how a dataset's grid + burned rasters line up
+    with the stored pourpoints.
 
-    ``unrasterized``/``orphan_rasters`` are about which AOI *rasters* exist;
-    ``partial``/``uncovered`` are the geometric coverage of each pourpoint's basin
-    by the dataset's grid (``partial`` = basin spills outside it, ``uncovered`` =
-    basin entirely off-grid). A fully-covered pourpoint appears in none of these.
+    ``no raster``/``orphan raster`` are about which AOI *rasters* exist;
+    ``partial coverage``/``no coverage`` are the geometric coverage of each
+    pourpoint's basin by the dataset's grid (partial = basin spills outside it,
+    no coverage = basin entirely off-grid). A fully-covered, rasterized
+    pourpoint yields no finding. The ``target`` is the station triplet.
     """
-
-    name: str
-    unrasterized: tuple[str, ...]  # pourpoints with no AOI raster in this dataset
-    orphan_rasters: tuple[str, ...]  # AOI rasters with no matching pourpoint
-    partial: tuple[str, ...]  # basin only partially inside the grid
-    uncovered: tuple[str, ...]  # basin entirely outside the grid
-
-
-def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> PourpointCoverage:
     from snowtool.snowdb.coverage import Coverage, dataset_coverage
 
+    name = dataset.spec.name
     triplets = snowdb.pourpoint_triplets()
     rasterized = dataset.aoi_raster_triplets()
     # Coverage is computed live from each stored basin (this is validation -- it
@@ -266,29 +241,29 @@ def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> PourpointCove
                 uncovered.append(pourpoint.station_triplet)
             case _:
                 pass
-    return PourpointCoverage(
-        name=dataset.spec.name,
-        unrasterized=tuple(sorted(triplets - rasterized)),
-        orphan_rasters=tuple(sorted(rasterized - triplets)),
-        partial=tuple(sorted(partial)),
-        uncovered=tuple(sorted(uncovered)),
-    )
+    return [
+        _finding('pourpoints', name, triplet, issue)
+        for issue, triplet_set in (
+            ('no raster', triplets - rasterized),
+            ('orphan raster', rasterized - triplets),
+            ('partial coverage', set(partial)),
+            ('no coverage', set(uncovered)),
+        )
+        for triplet in sorted(triplet_set)
+    ]
 
 
-@dataclass(frozen=True)
-class AoiRasterIssue:
-    """A burned AOI raster that failed to open cleanly, or reads as empty."""
+def aoi_health_report(dataset: Dataset) -> list[Finding]:
+    """``pourpoints`` findings for burned AOI rasters that won't read cleanly.
 
-    name: str
-    triplet: str
-    issue: str
-
-
-def aoi_health_report(dataset: Dataset) -> list[AoiRasterIssue]:
-    """Open each AOI raster and report any that won't read cleanly."""
+    Opens each AOI raster; a read failure, a missing tile-bbox tag, or an
+    all-zero (empty) raster becomes a finding whose ``target`` is the station
+    triplet and whose ``issue`` describes the fault.
+    """
     from snowtool.snowdb.aoi_raster import AOIRaster
 
-    findings: list[AoiRasterIssue] = []
+    name = dataset.spec.name
+    findings: list[Finding] = []
     for path in dataset.aoi_raster_paths():
         triplet = triplet_naming.stem_to_triplet(path.stem)
         issue: str | None = None
@@ -307,7 +282,7 @@ def aoi_health_report(dataset: Dataset) -> list[AoiRasterIssue]:
             if not aoi_raster.array.any():
                 issue = 'empty AOI (does not overlap the grid, or is entirely masked)'
         if issue is not None:
-            findings.append(AoiRasterIssue(dataset.spec.name, triplet, issue))
+            findings.append(_finding('pourpoints', name, triplet, issue))
     return findings
 
 
@@ -438,23 +413,22 @@ class DatasetInfoReport:
     variables: tuple[str, ...]
     zone_layers: dict[str, dict[str, object]]  # provider -> {present, hash}
 
-    def to_row(self, *, table: bool = False) -> dict[str, object]:
-        """Flatten to the ``dataset info`` output record.
+    def to_row(self) -> dict[str, object]:
+        """Flatten to the format-independent ``dataset info`` output record.
 
         Spreads the nested ``status``/``grid`` reports back to the top level
-        (dropping their redundant ``name``/``artifacts``) so json/csv output is
-        a single flat record with a stable key order. ``date_count`` ->
-        ``dates`` (the CLI's public name); ``extent``/``variables`` to plain
-        lists (json/csv friendly); ``first_date``/``last_date`` to ISO strings
-        (or ``None``). With ``table=True``, applies the table-only prose
-        substitutions: a geographic grid's ``cell_area_m2`` (``None``) becomes
-        ``'varies (geographic)'``, and the two numeric elevation fields
-        collapse into a single ``elevation_bracket_m`` ``'MIN .. MAX'`` string;
-        json/csv keep the typed fields.
+        (dropping their redundant ``name``/``artifacts``) so output is a single
+        flat record with a stable key order. ``date_count`` -> ``dates`` (the
+        CLI's public name); ``extent``/``variables`` to plain lists (json/csv
+        friendly); ``first_date``/``last_date`` to ISO strings (or ``None``).
+        The record is presentation-neutral -- one typed shape for every
+        ``--format``. The table form's prose substitutions
+        (``'varies (geographic)'`` for a geographic grid's null cell area, the
+        ``'MIN .. MAX'`` elevation bracket) live in the CLI renderer, not here.
         """
         status = self.status
         grid = self.grid
-        row: dict[str, object] = {
+        return {
             'name': self.name,
             'active': self.active,
             'present': status.present,
@@ -478,14 +452,6 @@ class DatasetInfoReport:
             'first_date': status.first_date.isoformat() if status.first_date else None,
             'last_date': status.last_date.isoformat() if status.last_date else None,
         }
-        if table:
-            if row['cell_area_m2'] is None:
-                row['cell_area_m2'] = 'varies (geographic)'
-            row['elevation_bracket_m'] = (
-                f'{self.min_elevation_m} .. {self.max_elevation_m}'
-            )
-            del row['min_elevation_m'], row['max_elevation_m']
-        return row
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
@@ -587,83 +553,49 @@ def grid_validation_report(dataset: Dataset) -> list[str]:
     return issues
 
 
-# --- doctor: the health-check registry + uniform finding rows ----------------
+# --- doctor: the health-check registry ---------------------------------------
+#
+# Every check has the one uniform ``(snowdb, dataset) -> list[Finding]``
+# signature :func:`run_health_checks` dispatches through -- only ``pourpoints``
+# actually needs the whole-db pourpoint registry to compare against, but the
+# others take ``snowdb`` too so the registry needs no per-check wrapping. Each
+# builder already emits ``Finding`` rows directly (composing ``target``/``issue``
+# where the condition is detected); the checks below only compose the two that
+# wrap a bare-string helper (``grid_validation_report``, ``missing_artifacts``)
+# and roll the two pourpoint scans together.
 
-type Finding = dict[str, str]
 
-
-def _finding(check: str, dataset: str, target: str, issue: str) -> Finding:
-    return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
-
-
-def _grid_findings(dataset: Dataset) -> list[Finding]:
+def _grid_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     return [
         _finding('grid', name, '', issue) for issue in grid_validation_report(dataset)
     ]
 
 
-def _dates_findings(dataset: Dataset) -> list[Finding]:
-    name = dataset.spec.name
-    return [
-        _finding(
-            'dates',
-            name,
-            inc.date.isoformat(),
-            f'missing {", ".join(inc.missing)}',
-        )
-        for inc in completeness_report(dataset)
-    ]
+def _dates_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
+    return completeness_report(dataset)
 
 
-def _files_findings(dataset: Dataset) -> list[Finding]:
+def _files_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
     name = dataset.spec.name
     findings = [
         _finding('files', name, artifact, 'missing')
         for artifact in missing_artifacts(dataset)
     ]
-    findings.extend(
-        _finding(
-            'files',
-            name,
-            stale.provider,
-            f'stale zone-layer format (stored {stale.stored} != '
-            f'current {stale.expected})',
-        )
-        for stale in stale_format_zone_layers(dataset)
-    )
+    findings.extend(stale_format_zone_layers(dataset))
     return findings
 
 
-def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
-    name = dataset.spec.name
-    coverage = pourpoint_coverage_report(snowdb, dataset)
-    findings = [
-        _finding('pourpoints', name, triplet, issue)
-        for issue, triplets in (
-            ('no raster', coverage.unrasterized),
-            ('orphan raster', coverage.orphan_rasters),
-            ('partial coverage', coverage.partial),
-            ('no coverage', coverage.uncovered),
-        )
-        for triplet in triplets
-    ]
-    findings.extend(
-        _finding('pourpoints', name, issue.triplet, issue.issue)
-        for issue in aoi_health_report(dataset)
-    )
-    return findings
+def _pourpoints_check(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
+    return pourpoint_coverage_report(snowdb, dataset) + aoi_health_report(dataset)
 
 
-# Only ``pourpoints`` needs the whole-db pourpoint registry to compare against;
-# the other three take just the dataset, wrapped to the one uniform calling
-# convention :func:`run_health_checks` dispatches through. Order is the
-# ``doctor`` output/CLI-help order.
+# Order is the ``doctor`` output/CLI-help order.
 HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[Finding]]] = {
-    'grid': lambda _snowdb, dataset: _grid_findings(dataset),
-    'dates': lambda _snowdb, dataset: _dates_findings(dataset),
-    'files': lambda _snowdb, dataset: _files_findings(dataset),
-    'pourpoints': _pourpoints_findings,
+    'grid': _grid_check,
+    'dates': _dates_check,
+    'files': _files_check,
+    'pourpoints': _pourpoints_check,
 }
 
 # The valid check names, in ``doctor``'s output/default-sweep order.
