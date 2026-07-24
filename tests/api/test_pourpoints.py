@@ -366,3 +366,16 @@ def test_list_aois_limit_over_max_returns_400(many_aois_client) -> None:
         many_aois_client.get('/pourpoints', params={'limit': 100000}),
         status=400,
     )
+
+
+def test_corrupt_index_aborts_app_startup(synthetic_settings) -> None:
+    # get_app primes the index read at boot, so a long-lived server fails fast
+    # on a corrupt index.geojson instead of 500ing its first /pourpoints request.
+    from pydantic import ValidationError
+
+    from snowtool.snowdb.db import SnowDb
+
+    index_path = SnowDb.open(synthetic_settings.snowdb_config).pourpoint_index_path
+    index_path.write_text('not a feature collection')
+    with pytest.raises(ValidationError):
+        get_app(settings=synthetic_settings)

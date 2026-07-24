@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 > generation hashes). One diagnostics change is visible on older stores:
 > `doctor` now flags a built zone-layer set whose COGs predate provenance
 > tagging as stale (previously it silently skipped them); rebuilding those
-> layers is recommended but not required. A corrupt `index.geojson` now
-> surfaces at first index read rather than at `SnowDb.open()` — otherwise
-> zero path or format changes. This release is also a substantial line diet
+> layers is recommended but not required. A corrupt `index.geojson` still
+> aborts the API at server start (`get_app` primes the index read at boot);
+> for one-shot CLI constructions it surfaces at first index read rather than
+> at `SnowDb.open()` — otherwise zero path or format changes. This release is also a substantial line diet
 > from an internal quality pass: net −735 lines, including ~390 lines of
 > stale, duplicated, or reviewer-facing comments and six comments that were
 > simply wrong.
@@ -278,9 +279,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - The API pourpoint-detail route ran its basin parse (disk + shapely) on the
   event loop while the list route deliberately offloaded to a worker thread;
   both routes now offload uniformly.
-- A corrupt `index.geojson` now surfaces at first index read instead of at
-  `SnowDb.open()` — a minor error-timing shift with no other observable
-  change.
+- `SnowDb` no longer parses the pourpoint index at construction; a corrupt
+  `index.geojson` surfaces at first index read. The API primes that read in
+  `get_app`, so a long-lived server still fails fast at boot rather than on
+  its first `/pourpoints` request.
 
 ### Security
 

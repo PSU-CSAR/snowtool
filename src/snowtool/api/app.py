@@ -62,6 +62,10 @@ def get_app(
     # datasets and registered as the app-scoped SnowDb provider so routes inject
     # the same instance.
     catalog = SnowDb.open(settings.snowdb_config)
+    # Read the pourpoint index now so a corrupt index.geojson aborts server
+    # start instead of surfacing on the first /pourpoints request. Only the
+    # long-lived app pays this eagerly -- one-shot constructions stay lazy.
+    catalog.pourpoint_index()
 
     providers = Providers()
     providers.app(Settings, lambda: settings)

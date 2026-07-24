@@ -663,3 +663,11 @@ def test_finalize_and_stamp_commits_no_layer_until_every_write_succeeded(tmp_pat
     assert (bad.directory / ASPECT_MAJORITY.filename).is_file()
     assert not list(good.directory.glob('*.part'))
     assert not list(bad.directory.glob('*.part'))
+
+
+def test_generate_rejects_a_non_dem_source(tmp_path):
+    from snowtool.snowdb.zones import landcover_source
+
+    source = landcover_source.LocalFile(tmp_path / 'nlcd.tif')
+    with pytest.raises(TypeError, match='needs a DemSource'):
+        generate_terrain(source, [], (-121.0, 44.0, -120.0, 45.0))

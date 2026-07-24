@@ -223,3 +223,11 @@ def test_generate_refuses_to_overwrite_without_force(tmp_path):
     generate_landcover(LocalFile(src_path), [target], _bounds(target), force=True)
     with pytest.raises(ArtifactExistsError, match='already has'):
         generate_landcover(LocalFile(src_path), [target], _bounds(target), force=False)
+
+
+def test_generate_rejects_a_non_landcover_source(tmp_path):
+    from snowtool.snowdb.zones import terrain_source
+
+    source = terrain_source.LocalFile(tmp_path / 'dem.tif')
+    with pytest.raises(TypeError, match='needs a LandCoverSource'):
+        generate_landcover(source, [], (-121.0, 44.0, -120.0, 45.0))
