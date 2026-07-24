@@ -18,7 +18,7 @@ from snowtool.cli._dates import DATE
 from snowtool.cli._progress import RichProgress
 from snowtool.cli._render import emit, emit_record, format_option
 from snowtool.snowdb import diagnostics
-from snowtool.snowdb.datasets import DATASET_TEMPLATES
+from snowtool.snowdb.datasets import DATASET_TEMPLATES, template_nodata_mask
 from snowtool.snowdb.diagnostics import dataset_info_report
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.zones.zone_layer import GenerationOptions
@@ -178,8 +178,6 @@ def create_dataset(
     link are preserved). To force-rebuild AOI rasters regardless, use
     ``pourpoint rasterize --all --rebuild -d NAME``.
     """
-    from snowtool.snowdb.datasets import template_nodata_mask
-
     created = manager.create_dataset(
         name,
         DATASET_TEMPLATES[template],
