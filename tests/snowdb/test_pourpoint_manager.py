@@ -15,7 +15,9 @@ from snowtool.exceptions import (
     PourpointPruneDestinationRequiredError,
 )
 from snowtool.snowdb.aoi_raster import aoi_provenance
+from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 from snowtool.snowdb.coverage import Coverage
+from snowtool.snowdb.datasets import config_from_spec
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 
@@ -23,8 +25,8 @@ from ..conftest import (
     CapturingProgress,
     box,
     make_dataset,
-    make_manager,
     make_spec,
+    register_dataset_config,
 )
 from ..conftest import write_aoi_record as _write_aoi
 
@@ -36,13 +38,16 @@ _POLYGON = box()
 
 @pytest.fixture
 def manager(tmp_path, spec):
-    """An initialized snowdb (write side) with the synthetic 'test' dataset.
+    """An initialized snowdb (write side) with the synthetic 'test' dataset
+    registered on disk (so a fresh open, as coverage-domain derivation does,
+    sees it too).
 
     Writes go through this manager; reads use the derived ``db`` fixture.
     """
-    SnowDbManager.initialize(tmp_path)
+    init_manager = SnowDbManager.initialize(tmp_path)
     make_dataset(spec, tmp_path / 'data' / 'test')  # skeleton only; return unused
-    return make_manager(tmp_path, [spec])
+    register_dataset_config(init_manager, 'test', config_from_spec(spec))
+    return SnowDbManager.open(tmp_path)
 
 
 @pytest.fixture
@@ -414,7 +419,9 @@ def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spe
     # guard fails and the entry is rebuilt from disk on the next import --
     # picking up both the new coverage key and the record's current content.
     other = make_spec('other', spec)
-    manager2 = make_manager(tmp_path, [spec, other])
+    make_dataset(other, tmp_path / 'data' / 'other')
+    register_dataset_config(manager, 'other', config_from_spec(other))
+    manager2 = SnowDbManager.open(tmp_path)
     manager2.pourpoints.import_(_write_aoi(tmp_path / 'new', '22222:MT:USGS').parent)
 
     index = manager2.db.pourpoint_index()
@@ -422,6 +429,42 @@ def test_new_dataset_registration_defeats_entry_reuse(manager, db, tmp_path, spe
     assert set(entry.coverage) == {'test', 'other'}
     assert entry.coverage['other'] is Coverage.FULL
     assert entry.name == 'MUTATED'  # rebuilt from disk, not reused
+
+
+def test_index_write_after_same_manager_register_keeps_new_dataset_coverage(
+    tmp_path,
+    spec,
+    pourpoint_geojson,
+):
+    """A pourpoint write after register_dataset must not erase the new dataset's key.
+
+    The manager's db is an open-time snapshot; domains must come from the
+    on-disk config so the just-registered dataset survives the index rebuild.
+    """
+    # 1. A manager with dataset A ('test') registered on disk; import one
+    # basin-bearing pourpoint.
+    init_manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(init_manager, 'test', config_from_spec(spec))
+    manager = SnowDbManager.open(tmp_path)
+    manager.pourpoints.import_(pourpoint_geojson)
+
+    # 2. Stage/register a second dataset ('other') on the SAME manager, passing
+    # the coverage mapping stage_dataset produces so its key is folded in.
+    other = make_spec('other', spec)
+    other_config = config_from_spec(other)
+    ds_dir = other_config.resolve_data_dir('other', root=manager.db.root)
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    other_config_path = ds_dir / DATASET_CONFIG_FILENAME
+    other_config.save(other_config_path)
+    staged = manager.stage_dataset('other', other_config_path)
+    manager.register_dataset('other', other_config_path, coverage=staged.coverage)
+
+    # 3. Re-import the pourpoint source via manager.pourpoints.import_(...).
+    manager.pourpoints.import_(pourpoint_geojson)
+
+    index = manager.db.pourpoint_index()
+    entry = index['12345:MT:USGS']
+    assert set(entry.coverage) == {'test', 'other'}  # 'other's key survives
 
 
 def test_missing_index_self_heals_on_import(manager, db, tmp_path):
@@ -649,9 +692,6 @@ def test_rasterize_aois_skips_off_grid_basins(manager, db, tmp_path):
 
 
 def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, spec):
-    from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
-    from snowtool.snowdb.datasets import config_from_spec
-
     src = tmp_path / 'src'
     _write_aoi(src, '33333:MT:USGS', polygon=_STRADDLE)
     _write_aoi(src, '55555:MT:USGS', polygon=_OUTSIDE)

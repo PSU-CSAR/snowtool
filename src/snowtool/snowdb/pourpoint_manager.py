@@ -10,9 +10,11 @@ from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
     PourpointPruneDestinationRequiredError,
+    SnowDbConfigError,
 )
 from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
+from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
 from snowtool.snowdb.progress import NULL_PROGRESS
@@ -22,7 +24,6 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.dataset import Dataset
-    from snowtool.snowdb.db import SnowDb
     from snowtool.snowdb.progress import ProgressReporter
 
 
@@ -62,8 +63,22 @@ class AOIRasterizeResult:
 
 
 def _coverage_domains(db: SnowDb) -> dict[str, CoverageDomain]:
-    """Every registered dataset's coverage domain, keyed by name."""
-    return {name: ds.coverage_domain for name, ds in db.registered.items()}
+    """Every registered dataset's coverage domain, keyed by name.
+
+    Re-derived from the on-disk root config (a fresh ``SnowDb.open``), not from
+    ``db.registered`` -- the manager's db is an open-time snapshot, and an index
+    write that follows a same-process ``register_dataset`` must fold the new
+    dataset's key rather than erase it (the snapshot contract in
+    :class:`~snowtool.snowdb.manager.SnowDbManager`).
+    """
+    if db.root is None:
+        raise SnowDbConfigError(
+            db.root,
+            'cannot re-derive coverage domains: this SnowDb has no root config '
+            '(built in code, with no path to re-open).',
+        )
+    fresh = SnowDb.open(db.root, zone_layer_providers=db.zone_layer_providers.values())
+    return {name: ds.coverage_domain for name, ds in fresh.registered.items()}
 
 
 def _update_index(

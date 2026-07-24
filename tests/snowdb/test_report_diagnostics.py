@@ -13,6 +13,8 @@ from snowtool.snowdb import diagnostics
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
+from snowtool.snowdb.datasets import config_from_spec
+from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.raster.cog import write_cog
@@ -22,8 +24,8 @@ from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import (
     TILE,
-    make_dataset,
     make_snowdb,
+    register_dataset_config,
     snodas_swe_name,
     write_landcover,
     write_pourpoint_record,
@@ -45,15 +47,19 @@ def _write_basin(records_dir, triplet, *, x0, y0, x1, y1):
 
 @pytest.fixture
 def created_db(tmp_path, spec):
-    """An initialized root with the synthetic dataset created + bound (read side).
+    """An initialized root with the synthetic dataset created, registered on disk,
+    and bound (read side).
 
-    The shared "initialize + make_dataset + bind a SnowDb" trio for the
-    coverage reports: returns ``(db, ds)`` where ``ds`` is the created dataset and
-    ``db`` the reader over the same root.
+    The shared "initialize + register + bind a SnowDb" trio for the coverage
+    reports: returns ``(db, ds)`` where ``ds`` is the created dataset and ``db``
+    the reader over the same root. Registered on disk (not just inline) so a
+    ``PourpointManager`` write against ``db`` -- which now derives its coverage
+    domains from a fresh on-disk open -- still sees ``'test'``.
     """
-    SnowDbManager.initialize(tmp_path)
-    ds = make_dataset(spec, tmp_path / 'data' / 'test')
-    return make_snowdb(tmp_path, [spec]), ds
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    db = SnowDb.open(tmp_path)
+    return db, db['test']
 
 
 # --- coverage / completeness -------------------------------------------------

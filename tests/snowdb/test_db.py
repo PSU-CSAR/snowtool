@@ -250,7 +250,9 @@ def test_coverage_fallback_none_for_dataset_predating_index(
     # The index is built while only 'test' exists, so its entry carries no key for
     # a dataset registered later. A dataset the index predates reads as NONE (not a
     # raw KeyError), even though geometrically the shared grid would fully cover it.
-    manager = make_manager(tmp_path, [spec])
+    manager = SnowDbManager.initialize(tmp_path)
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+    manager = SnowDbManager.open(tmp_path)
     manager.pourpoints.import_(pourpoint_geojson)
 
     other = make_spec('other', spec, variables=())
@@ -273,6 +275,7 @@ def _seed_three_pourpoints(tmp_path, spec):
     Each basin is a small rectangle inside the first tile with its outflow point
     at a distinct longitude, so a point-in-box predicate can pick a subset.
     """
+    SnowDbManager.initialize(tmp_path)
     manager = make_manager(tmp_path, [spec])
     src = tmp_path / 'src'
     src.mkdir()
