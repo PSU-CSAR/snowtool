@@ -45,12 +45,6 @@ INGESTERS: dict[str, Ingester] = {
     'instarr': InstarrIngester(),
 }
 
-# Reverse map for building a config from a spec: each ingester kind is one class,
-# so its type identifies its registry name.
-_INGESTER_NAME_BY_TYPE: dict[type, str] = {
-    type(ingester): name for name, ingester in INGESTERS.items()
-}
-
 
 def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     """Produce the self-describing :class:`DatasetConfig` for a built-in spec.
@@ -62,7 +56,7 @@ def config_from_spec(spec: DatasetSpec) -> DatasetConfig:
     exactly -- the guarantee behind the templates below.
     """
     ingester_name = (
-        _INGESTER_NAME_BY_TYPE[type(spec.ingester)]
+        next(n for n, i in INGESTERS.items() if type(i) is type(spec.ingester))
         if spec.ingester is not None
         else None
     )

@@ -269,8 +269,7 @@ def write_aoi_raster(
     many pourpoints hashes the mask file once, not once per AOI. Passing the path
     and hash as one tuple makes the half-specified state unrepresentable.
     """
-    mask_path = nodata_mask[0] if nodata_mask is not None else None
-    mask_hash = nodata_mask[1] if nodata_mask is not None else None
+    mask_path, mask_hash = nodata_mask or (None, None)
     start_tile, end_tile = bounding_tiles(grid, geometry.bounds)
     # Re-parsing grid.crs (rather than threading Dataset.grid_crs through) is
     # safe here: DatasetSpec.crs is the single source both grid.crs and

@@ -84,16 +84,7 @@ class Product(StrEnum):
 
     def to_glob(self: Self) -> str:
         code, vcode, _ = _PRODUCTS[self]
-        return ''.join(
-            [
-                '?' * 6,
-                'v[01]',
-                str(code),
-                '?',
-                vcode,
-                '*TTNATS*.tif',
-            ],
-        )
+        return f'??????v[01]{code}?{vcode}*TTNATS*.tif'
 
     def unit(self: Self) -> Unit:
         return _PRODUCTS[self][2]

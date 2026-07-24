@@ -177,7 +177,7 @@ def stats_csv_response(
 
     :meth:`ZonalStats.iter_csv` is a plain generator, so nothing in it runs until
     the first ``next()``. Pulling that first (header) chunk here forces the
-    header assembly (the ``_axis_kinds``/strict-zip column build) to run *now* --
+    header assembly (the sample-cell/strict-zip column build) to run *now* --
     while we can still return an error response -- instead of mid-stream after
     the 200 headers are already sent. The primed chunk is chained back in front
     of the rest, so the stream is complete and byte-identical.

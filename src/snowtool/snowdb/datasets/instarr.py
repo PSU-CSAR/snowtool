@@ -83,10 +83,6 @@ _V_MIN, _V_MAX = 4, 5
 # per-date data gap).
 _EMPTY_TILES = frozenset({(10, 5)})
 
-# Validates a GeoJSON geometry mapping into the geojson-pydantic Geometry union
-# (the persisted footprint type; DatasetConfig.footprint holds the same).
-_GEOMETRY_ADAPTER: TypeAdapter[Geometry] = TypeAdapter(Geometry)
-
 
 def _modis_tile_polygon(h: int, v: int) -> shapely.Polygon:
     """The MODIS sinusoidal extent of tile ``(h, v)`` as a shapely box."""
@@ -112,7 +108,9 @@ def _instarr_footprint() -> Geometry:
         for v in range(_V_MIN, _V_MAX + 1)
         if (h, v) not in _EMPTY_TILES
     ]
-    return _GEOMETRY_ADAPTER.validate_python(
+    # Validates the shapely union into the geojson-pydantic Geometry union (the
+    # persisted footprint type; DatasetConfig.footprint holds the same).
+    return TypeAdapter(Geometry).validate_python(
         shapely.geometry.mapping(shapely.union_all(present)),
     )
 

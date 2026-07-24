@@ -130,14 +130,10 @@ def missing_dates(
     if end is None:
         end = date.today()  # noqa: DTZ011 - a calendar date, not a timestamp
 
-    one_day = timedelta(days=1)
-    missing: list[date] = []
-    current = start
-    while current <= end:
-        if current not in ingested:
-            missing.append(current)
-        current += one_day
-    return missing
+    n_days = (end - start).days + 1
+    return [
+        d for i in range(n_days) if (d := start + timedelta(days=i)) not in ingested
+    ]
 
 
 # --- report builders (read-only; the `dataset`/`doctor` commands render these) --
@@ -160,11 +156,7 @@ def completeness_report(
 ) -> list[IncompleteDate]:
     """Ingested dates (optionally within ``start``/``end``) missing variables."""
     findings: list[IncompleteDate] = []
-    for d in dataset.available_dates():
-        if start is not None and d < start:
-            continue
-        if end is not None and d > end:
-            continue
+    for d in dataset.available_dates(start=start, end=end):
         unresolved = dataset.unresolved_variables(d)
         if unresolved:
             findings.append(

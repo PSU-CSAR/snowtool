@@ -257,10 +257,11 @@ class ZonalStats:
         zone geometry alone -- decided the same way whether or not the query matched
         any dates. The whole-basin (K=0) cell always has area and is never dropped.
         """
-        all_cells = list(range(len(self._cells)))
-        if include_empty_zones:
-            return all_cells
-        return [idx for idx in all_cells if self._areas[idx] > 0]
+        return [
+            i
+            for i in range(len(self._cells))
+            if include_empty_zones or self._areas[i] > 0
+        ]
 
     def dump_compact(
         self: Self,
@@ -304,15 +305,6 @@ class ZonalStats:
             results=results,
         )
 
-    def _axis_kinds(self: Self) -> tuple[Zone, ...]:
-        """A sample zone per axis, to type the CSV columns (header + row layout).
-
-        Every cell shares the same per-axis zone kind (one scheme per axis), so any
-        cell is a faithful template. There is always at least one cell (every scheme
-        yields at least one zone).
-        """
-        return self._cells[0]
-
     def iter_csv(self: Self, *, include_empty_zones: bool = False) -> Iterator[str]:
         """Return an iterator over CSV chunks for this result (one header or row each).
 
@@ -335,7 +327,8 @@ class ZonalStats:
         # expands to two typed, unit-bearing columns, a categorical axis to one.
         # The header comes from a sample cell's columns, every row from its own.
         # Then area + each variable.
-        sample = self._axis_kinds()
+        # any cell is a faithful per-axis sample: one scheme per axis, >=1 cell always
+        sample = self._cells[0]
         headers: list[str] = ['date']
         for layer, zone in zip(self.zone_layers, sample, strict=True):
             headers.extend(header for header, _ in zone.csv_columns(layer))

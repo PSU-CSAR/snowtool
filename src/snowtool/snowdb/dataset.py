@@ -192,10 +192,6 @@ class Dataset:
             directory=self.zones[provider.name].directory,
         )
 
-    @staticmethod
-    def _format_date(date: date) -> str:
-        return date.strftime('%Y%m%d')
-
     def raster_paths_from_query(
         self: Self,
         query: DateQuery,
@@ -509,7 +505,7 @@ class Dataset:
 
     def date_dir(self: Self, d: date) -> Path:
         """The ``cogs/<YYYYMMDD>/`` directory for date ``d`` (may not exist)."""
-        return self._cogs / self._format_date(d)
+        return self._cogs / d.strftime('%Y%m%d')
 
     def available_dates(
         self: Self,
