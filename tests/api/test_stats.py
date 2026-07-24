@@ -157,7 +157,7 @@ def test_csv_date_range_filename(synthetic_client) -> None:
     )
     assert response.status_code == 200
     assert response.headers['content-disposition'] == (
-        'attachment; filename="12345:MT:USGS_2018-04-27-2018-04-27_zonal_1.csv"'
+        'attachment; filename="12345-MT-USGS_2018-04-27-2018-04-27_zonal_1.csv"'
     )
 
 
@@ -169,7 +169,7 @@ def test_csv_date_range_filename_no_zone(synthetic_client) -> None:
     )
     assert response.status_code == 200
     assert response.headers['content-disposition'] == (
-        'attachment; filename="12345:MT:USGS_2018-04-27-2018-04-27.csv"'
+        'attachment; filename="12345-MT-USGS_2018-04-27-2018-04-27.csv"'
     )
 
 
@@ -187,7 +187,7 @@ def test_csv_doy_filename(synthetic_client) -> None:
     )
     assert response.status_code == 200
     assert response.headers['content-disposition'] == (
-        'attachment; filename="12345:MT:USGS_4-27_2018-2018.csv"'
+        'attachment; filename="12345-MT-USGS_4-27_2018-2018.csv"'
     )
 
 
@@ -421,16 +421,16 @@ def test_stats_filename_composes_slug_date_fragment_and_zone_count() -> None:
     )
     assert (
         stats_filename('12345:MT:USGS', date_range, zone_count=0)
-        == '12345:MT:USGS_2018-04-27-2018-04-27.csv'
+        == '12345-MT-USGS_2018-04-27-2018-04-27.csv'
     )
     assert (
         stats_filename('12345:MT:USGS', date_range, zone_count=2)
-        == '12345:MT:USGS_2018-04-27-2018-04-27_zonal_2.csv'
+        == '12345-MT-USGS_2018-04-27-2018-04-27_zonal_2.csv'
     )
     doy = DOYQuery(month=4, day=27, start_year=2018, end_year=2020)
     assert (
         stats_filename('12345:MT:USGS', doy, zone_count=0)
-        == '12345:MT:USGS_4-27_2018-2020.csv'
+        == '12345-MT-USGS_4-27_2018-2020.csv'
     )
 
 

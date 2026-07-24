@@ -144,7 +144,7 @@ def stats_filename(
     zone_count: int,
 ) -> str:
     """Compose the CSV download filename at the API boundary."""
-    slug = '-'.join(triplet.split())
+    slug = triplet.replace(':', '-')  # ':' is not path-safe (see snowdb.triplet_naming)
     zonal = f'_zonal_{zone_count}' if zone_count else ''
     return f'{slug}_{query.date_fragment()}{zonal}.csv'
 
