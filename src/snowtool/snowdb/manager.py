@@ -481,9 +481,10 @@ class SnowDbManager:
         used to orchestrate step-by-step in the CLI.
 
         Resolves the dataset's data directory the way a later ``SnowDb.open`` will
-        (:meth:`~snowtool.snowdb.db.SnowDb.dataset_dir`), writes ``config`` beside
-        its data as ``data/<name>/dataset.json`` so :meth:`stage_dataset` can build
-        from it and :meth:`register_dataset` can link it, stages every artifact
+        (:meth:`~snowtool.snowdb.config.DatasetConfig.resolve_data_dir`), writes
+        ``config`` beside its data as ``data/<name>/dataset.json`` so
+        :meth:`stage_dataset` can build from it and :meth:`register_dataset` can
+        link it, stages every artifact
         (skeleton, AOI rasters, coverage -- but never zone layers; those are the
         separate :meth:`generate_zone_layers_for` pass), and registers the staged
         dataset. Converge-by-default like ingest and staging: the directory mkdir
@@ -532,7 +533,7 @@ class SnowDbManager:
                 'Omit data_dir for the conventional data/<name>, or pass an '
                 'absolute path.',
             )
-        directory = self.db.dataset_dir(name, config)
+        directory = config.resolve_data_dir(name, root=self.db.root)
         directory.mkdir(parents=True, exist_ok=True)
 
         if nodata_mask_source is not None:

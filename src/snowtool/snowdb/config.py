@@ -47,6 +47,29 @@ CONFIG_FILENAME = 'snowdb_conf.json'
 DATASET_CONFIG_FILENAME = 'dataset.json'
 
 
+def resolve_path(
+    link: str | Path,
+    *,
+    root: Path | None,
+    base: Path | None = None,
+) -> Path:
+    """Resolve a config path: absolute -> as-is; relative -> against ``base``
+    (``root`` by default). A relative path with no root has nothing to resolve
+    against, so it raises."""
+    p = Path(link)
+    if p.is_absolute():
+        return p
+    anchor = base if base is not None else root
+    if anchor is None:
+        raise SnowDbConfigError(
+            root,
+            f'cannot resolve relative path {str(p)!r}: this config has no '
+            'location (built in code, not saved). Make the path absolute, or '
+            'save the config first.',
+        )
+    return anchor / p
+
+
 class ResourceModel(BaseModel):
     """Base for every persisted snowtool entity.
 
@@ -180,6 +203,40 @@ class DatasetConfig(ResourceModel):
     # adding/changing/removing it makes existing AOI rasters read as stale (see
     # Dataset.rasterize_aoi).
     nodata_mask: Path | None = None
+
+    def resolve_data_dir(
+        self: Self,
+        name: str,
+        *,
+        root: Path | None,
+        base: Path | None = None,
+    ) -> Path:
+        """Where ``name``'s data lives -- the single rule reads and writes share.
+
+        The config's ``data_dir`` (absolute -> anywhere; relative -> against
+        ``base``), else ``base`` itself, else the convention ``data/<name>``.
+        ``base`` defaults to ``root``.
+        """
+        location = self.data_dir
+        if location is None:
+            location = base if base is not None else Path('data') / name
+        return resolve_path(location, root=root, base=base)
+
+    def resolve_nodata_mask(
+        self: Self,
+        *,
+        root: Path | None,
+        base: Path | None = None,
+    ) -> Path | None:
+        """Where this config's nodata mask lives, or ``None``.
+
+        Resolved exactly like ``data_dir``: absolute -> anywhere; relative ->
+        against ``base`` (``root`` by default). There is no convention default:
+        no config entry means no mask.
+        """
+        if self.nodata_mask is None:
+            return None
+        return resolve_path(self.nodata_mask, root=root, base=base)
 
     @field_validator('variables', mode='before')
     @classmethod

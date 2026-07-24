@@ -38,6 +38,7 @@ from snowtool.snowdb.config import (
     DatasetConfig,
     InlineDatasetLink,
     RootConfig,
+    resolve_path,
 )
 from snowtool.snowdb.coverage import (
     Coverage,
@@ -79,7 +80,8 @@ class SnowDb:
         index/records locations, and each registered dataset). A dataset is either
         embedded *inline* (its config carried in the link) or *referenced* by a path
         link to a ``dataset.json``; either way it is deserialized into a
-        :class:`DatasetSpec` and bound to its data directory (see :meth:`dataset_dir`).
+        :class:`DatasetSpec` and bound to its data directory (see
+        :meth:`~snowtool.snowdb.config.DatasetConfig.resolve_data_dir`).
         The code follows the config rather than assuming paths.
         """
         self.config = config
@@ -90,8 +92,11 @@ class SnowDb:
         self.root = config.path.parent if config.path is not None else None
         self.data_path = self.root / 'data' if self.root is not None else None
 
-        self.pourpoint_records_path = self._resolve_path(config.pourpoint_records)
-        self.pourpoint_index_path = self._resolve_path(config.pourpoint_index)
+        self.pourpoint_records_path = resolve_path(
+            config.pourpoint_records,
+            root=self.root,
+        )
+        self.pourpoint_index_path = resolve_path(config.pourpoint_index, root=self.root)
 
         # The zone-layer providers (terrain, land cover, ...) every dataset is
         # built/read with. Injected (not a global) so tests/entrypoints can supply
@@ -127,7 +132,7 @@ class SnowDb:
                     detail=f'inline dataset {name!r} is not usable',
                 )
             else:  # PathDatasetLink
-                resolved = self._resolve_path(link.path)
+                resolved = resolve_path(link.path, root=self.root)
                 if not resolved.is_file():
                     raise SnowDbConfigError(
                         self.root,
@@ -160,7 +165,7 @@ class SnowDb:
             configured = config.sources.get(name)
             if configured is not None:
                 self.zone_layer_sources[name] = provider.local_source(
-                    self._resolve_path(configured),
+                    resolve_path(configured, root=self.root),
                 )
             elif self.root is not None:
                 self.zone_layer_sources[name] = provider.default_source(self.root)
@@ -175,57 +180,6 @@ class SnowDb:
         self._index_mtime: int | None = None
         self.pourpoint_index()
 
-    def _resolve_path(self: Self, link: str | Path, base: Path | None = None) -> Path:
-        """Resolve a config path: absolute -> as-is; relative -> against ``base``
-        (the root by default). A relative path with no root has nothing to resolve
-        against, so it raises."""
-        p = Path(link)
-        if p.is_absolute():
-            return p
-        anchor = base if base is not None else self.root
-        if anchor is None:
-            raise SnowDbConfigError(
-                self.root,
-                f'cannot resolve relative path {str(p)!r}: this config has no '
-                'location (built in code, not saved). Make the path absolute, or '
-                'save the config first.',
-            )
-        return anchor / p
-
-    def dataset_dir(
-        self: Self,
-        name: str,
-        dataset_config: DatasetConfig,
-        *,
-        base: Path | None = None,
-    ) -> Path:
-        """Where ``name``'s data lives -- the single rule reads and writes share.
-
-        The config's ``data_dir`` (absolute -> anywhere; relative -> against
-        ``base``), else ``base`` itself, else the convention ``data/<name>``.
-        ``base`` defaults to the root.
-        """
-        location = dataset_config.data_dir
-        if location is None:
-            location = base if base is not None else Path('data') / name
-        return self._resolve_path(location, base)
-
-    def dataset_nodata_mask(
-        self: Self,
-        dataset_config: DatasetConfig,
-        *,
-        base: Path | None = None,
-    ) -> Path | None:
-        """Where ``dataset_config``'s nodata mask lives, or ``None``.
-
-        Resolved exactly like ``data_dir``: absolute -> anywhere; relative ->
-        against ``base`` (the root by default). There is no convention default:
-        no config entry means no mask.
-        """
-        if dataset_config.nodata_mask is None:
-            return None
-        return self._resolve_path(dataset_config.nodata_mask, base)
-
     def bind_dataset(
         self: Self,
         name: str,
@@ -237,18 +191,17 @@ class SnowDb:
         """Resolve ``dataset_config``'s paths and construct its :class:`Dataset`.
 
         The single place a dataset config becomes a bound Dataset: the data
-        directory (:meth:`dataset_dir`) and the optional nodata mask
-        (:meth:`dataset_nodata_mask`) resolve against ``base`` -- ``None`` for
-        an inline dataset (the root, with the ``data/<name>`` convention), the
-        config file's own directory for a referenced one. The manager's
-        staged-dataset path shares this, so an unregistered config binds
-        exactly as a later ``SnowDb.open`` will bind it.
+        directory and the optional nodata mask resolve against ``base`` --
+        ``None`` for an inline dataset (the root, with the ``data/<name>``
+        convention), the config file's own directory for a referenced one. The
+        manager's staged-dataset path shares this, so an unregistered config
+        binds exactly as a later ``SnowDb.open`` will bind it.
         """
         return Dataset(
             spec,
-            self.dataset_dir(name, dataset_config, base=base),
+            dataset_config.resolve_data_dir(name, root=self.root, base=base),
             self.zone_layer_providers.values(),
-            nodata_mask=self.dataset_nodata_mask(dataset_config, base=base),
+            nodata_mask=dataset_config.resolve_nodata_mask(root=self.root, base=base),
         )
 
     @classmethod

@@ -678,7 +678,7 @@ def test_stage_dataset_records_coverage_and_skips_off_grid(manager, tmp_path, sp
 
     other = make_spec('other', spec)
     config = config_from_spec(other)
-    ds_dir = manager.db.dataset_dir('other', config)
+    ds_dir = config.resolve_data_dir('other', root=manager.db.root)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)

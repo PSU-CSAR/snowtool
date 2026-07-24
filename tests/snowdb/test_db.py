@@ -524,7 +524,7 @@ def test_bare_link_without_active_key_reads_as_active(tmp_path, spec):
     # key round-trips through RootConfig as active=True.
     manager = SnowDbManager.initialize(tmp_path)
     config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir(spec.name, config)
+    ds_dir = config.resolve_data_dir(spec.name, root=manager.db.root)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config.save(ds_dir / DATASET_CONFIG_FILENAME)
 

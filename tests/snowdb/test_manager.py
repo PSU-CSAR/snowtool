@@ -168,7 +168,7 @@ def test_staged_dataset_registration_end_to_end(tmp_path, spec, pourpoint_geojso
     manager.pourpoints.import_(pourpoint_geojson)
 
     config = config_from_spec(spec)
-    ds_dir = manager.db.dataset_dir('test', config)
+    ds_dir = config.resolve_data_dir('test', root=manager.db.root)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)

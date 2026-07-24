@@ -137,7 +137,7 @@ def register_dataset_config(manager, name, config, *, active=True):
     """
     from snowtool.snowdb.config import DATASET_CONFIG_FILENAME
 
-    ds_dir = manager.db.dataset_dir(name, config)
+    ds_dir = config.resolve_data_dir(name, root=manager.db.root)
     ds_dir.mkdir(parents=True, exist_ok=True)
     config_path = ds_dir / DATASET_CONFIG_FILENAME
     config.save(config_path)
