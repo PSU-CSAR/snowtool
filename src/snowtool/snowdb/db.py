@@ -34,10 +34,12 @@ from snowtool.exceptions import (
     PourpointNotFoundError,
     SnowDbConfigError,
     UnknownDatasetError,
+    ZoneLayerSourceNotConfiguredError,
 )
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
+    DATA_DIRNAME,
     DatasetConfig,
     InlineDatasetLink,
     RootConfig,
@@ -50,6 +52,7 @@ from snowtool.snowdb.coverage import (
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.pourpoint import Pourpoint
 from snowtool.snowdb.pourpoint_index import PourpointIndex
+from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.spec import DatasetSpec, load_dataset_spec, resolve_spec
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
@@ -59,6 +62,7 @@ if TYPE_CHECKING:
     from geojson_pydantic import MultiPolygon, Polygon
 
     from snowtool.snowdb.pourpoint_index import PourpointIndexEntry
+    from snowtool.snowdb.progress import ProgressReporter
     from snowtool.snowdb.zones.zone_layer import (
         ZoneLayerProvider,
         ZoneLayerSource,
@@ -92,7 +96,7 @@ class SnowDb:
         # against. A config built in code (no path) has no root -- fine as long as
         # every link it uses is absolute; a relative one raises when resolved.
         self.root = config.path.parent if config.path is not None else None
-        self.data_path = self.root / 'data' if self.root is not None else None
+        self.data_path = self.root / DATA_DIRNAME if self.root is not None else None
 
         self.pourpoint_records_path = resolve_path(
             config.pourpoint_records,
@@ -121,6 +125,12 @@ class SnowDb:
                     location=self.root,
                     detail=f'inline dataset {name!r} is not usable',
                 )
+                self.registered[name] = self._bind_dataset(
+                    name,
+                    spec,
+                    dataset_config,
+                    base=base,
+                )
             else:  # PathDatasetLink
                 resolved = resolve_path(link.path, root=self.root)
                 if not resolved.is_file():
@@ -128,14 +138,7 @@ class SnowDb:
                         self.root,
                         f'dataset {name!r} link points at a missing config: {resolved}',
                     )
-                dataset_config, spec = load_dataset_spec(resolved, name)
-                base = resolved.parent
-            self.registered[name] = self.bind_dataset(
-                name,
-                spec,
-                dataset_config,
-                base=base,
-            )
+                self.registered[name] = self.bind_dataset_from_file(name, resolved)
         self.datasets = {
             name: ds
             for name, ds in self.registered.items()
@@ -166,7 +169,28 @@ class SnowDb:
         self._index: PourpointIndex | None = None
         self._index_mtime: int | None = None
 
-    def bind_dataset(
+    def bind_dataset_from_file(
+        self: Self,
+        name: str,
+        config_path: Path,
+    ) -> Dataset:
+        """Load a dataset config file and bind it into a :class:`Dataset`.
+
+        The single home for the "config file -> bound Dataset" tail: resolve the
+        path, parse+resolve it through the canonical
+        :func:`~snowtool.snowdb.spec.load_dataset_spec`, and bind with the
+        config file's own directory as the resolution base. Both the read
+        path-link branch (:meth:`__init__`) and the manager's staged-dataset
+        path go through here, so a not-yet-registered config binds *exactly* as a
+        later ``SnowDb.open`` will bind it. A malformed or unresolvable config
+        raises :class:`~snowtool.exceptions.SnowDbConfigError` from the loader
+        (not a raw pydantic/decode or bare ``ValueError``).
+        """
+        resolved = Path(config_path).resolve()
+        dataset_config, spec = load_dataset_spec(resolved, name)
+        return self._bind_dataset(name, spec, dataset_config, base=resolved.parent)
+
+    def _bind_dataset(
         self: Self,
         name: str,
         spec: DatasetSpec,
@@ -179,9 +203,9 @@ class SnowDb:
         The single place a dataset config becomes a bound Dataset: the data
         directory and the optional nodata mask resolve against ``base`` --
         ``None`` for an inline dataset (the root, with the ``data/<name>``
-        convention), the config file's own directory for a referenced one. The
-        manager's staged-dataset path shares this, so an unregistered config
-        binds exactly as a later ``SnowDb.open`` will bind it.
+        convention), the config file's own directory for a referenced one.
+        :meth:`bind_dataset_from_file` is the public entry for the file-backed
+        case (inline configs bind directly here in :meth:`__init__`).
         """
         return Dataset(
             spec,
@@ -218,6 +242,29 @@ class SnowDb:
             zone_layer_providers=zone_layer_providers,
         )
 
+    def reopened(self: Self) -> Self:
+        """A fresh read view of this database re-read from disk.
+
+        The single fresh-state primitive: re-``open``\\ s the root config (and
+        every dataset config/spec/grid it links) from ``self.root``, carrying the
+        same injected ``zone_layer_providers``, so a caller that must observe a
+        sibling write committed since this instance was built (an index update
+        that must fold a just-registered dataset's coverage rather than erase it)
+        reads the current on-disk truth instead of this open-time snapshot.
+        A database built in code with no root has nothing to re-open, so this
+        raises :class:`~snowtool.exceptions.SnowDbConfigError`.
+        """
+        if self.root is None:
+            raise SnowDbConfigError(
+                self.root,
+                'cannot reopen this SnowDb: it has no root config (built in '
+                'code, with no path to re-open).',
+            )
+        return type(self).open(
+            self.root,
+            zone_layer_providers=self.zone_layer_providers.values(),
+        )
+
     # --- global pourpoint query helpers (drive the pourpoint commands) ---
 
     def pourpoint_paths(self: Self) -> list[Path]:
@@ -226,10 +273,33 @@ class SnowDb:
             return []
         return sorted(self.pourpoint_records_path.glob('*.geojson'))
 
-    def pourpoints(self: Self) -> Iterator[Pourpoint]:
-        """Parse and yield every stored pourpoint record."""
-        for path in self.pourpoint_paths():
-            yield Pourpoint.from_geojson(path)
+    def pourpoints(
+        self: Self,
+        *,
+        progress: ProgressReporter = NULL_PROGRESS,
+    ) -> list[Pourpoint]:
+        """Parse and return every stored pourpoint record (all basin-bearing).
+
+        Every stored record is basin-bearing (the import boundary,
+        ``_classify_sources``, partitions point-only sources before they reach
+        ``records/``), so each is constructed through
+        :meth:`Pourpoint.from_basin_record` -- the one guard enforcing that
+        invariant on read: a corrupt basin-less record raises the typed
+        :class:`~snowtool.exceptions.IndexedPourpointMissingBasinError` naming
+        its file, rather than the untyped ``ValueError`` a downstream
+        ``.geometry`` access would raise. ``progress`` reports the parse as one
+        tracked task, advancing once per record.
+        """
+        record_paths = self.pourpoint_paths()
+        pourpoints: list[Pourpoint] = []
+        with progress.track(
+            f'parsing {len(record_paths)} pourpoint record(s)',
+            total=len(record_paths),
+        ) as task:
+            for path in record_paths:
+                pourpoints.append(Pourpoint.from_basin_record(path))
+                task.advance()
+        return pourpoints
 
     def pourpoint_triplets(self: Self) -> set[types.StationTriplet]:
         """The station triplets of every stored pourpoint, read from filenames.
@@ -421,9 +491,10 @@ class SnowDb:
                     f'Dataset {name!r} is registered but inactive. '
                     f"Activate it with 'snowtool dataset activate {name}'.",
                 ) from None
-            active = ', '.join(sorted(self.datasets)) or '(none)'
-            raise UnknownDatasetError(
-                f'No such dataset {name!r}. Active datasets: {active}.',
+            raise UnknownDatasetError.for_name(
+                name,
+                self.datasets,
+                kind='Active',
             ) from None
 
     def registered_dataset(self: Self, name: str, *, hint: str = '') -> Dataset:
@@ -443,9 +514,31 @@ class SnowDb:
         try:
             return self.registered[name]
         except KeyError:
-            registered = ', '.join(sorted(self.registered)) or '(none)'
-            raise UnknownDatasetError(
-                f'No such dataset {name!r}. Registered datasets: {registered}.{hint}',
+            raise UnknownDatasetError.for_name(
+                name,
+                self.registered,
+                kind='Registered',
+                hint=hint,
+            ) from None
+
+    def zone_layer_source(self: Self, name: str) -> ZoneLayerSource:
+        """The generation source configured for zone-layer provider ``name``.
+
+        The checked counterpart to indexing ``zone_layer_sources``: a provider
+        with no configured source *and* no root to anchor its default against
+        (a database built in code) has no entry, so this raises the typed
+        :class:`~snowtool.exceptions.ZoneLayerSourceNotConfiguredError` naming
+        the fix (``--source PROVIDER PATH`` or a ``sources`` config entry)
+        rather than the bare ``KeyError`` a direct index would surface deep in
+        generation. Only generation calls this; reads never touch sources.
+        """
+        try:
+            return self.zone_layer_sources[name]
+        except KeyError:
+            raise ZoneLayerSourceNotConfiguredError(
+                f'Zone-layer provider {name!r} has no configured source. '
+                f'Pass one with `--source {name} PATH`, or add a '
+                f"'sources' entry for it in the root config.",
             ) from None
 
     def __iter__(self: Self) -> Iterator[str]:

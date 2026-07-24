@@ -46,6 +46,11 @@ CONFIG_FILENAME = 'snowdb_conf.json'
 # but ``dataset create`` stages here.
 DATASET_CONFIG_FILENAME = 'dataset.json'
 
+# The conventional subdirectory of the root holding every dataset's data
+# (``data/<name>/``). The single name the layout, the read binder, and the
+# inline-dataset resolution convention all share.
+DATA_DIRNAME = 'data'
+
 
 def resolve_path(
     link: str | Path,
@@ -219,7 +224,7 @@ class DatasetConfig(ResourceModel):
         """
         location = self.data_dir
         if location is None:
-            location = base if base is not None else Path('data') / name
+            location = base if base is not None else Path(DATA_DIRNAME) / name
         return resolve_path(location, root=root, base=base)
 
     def resolve_nodata_mask(

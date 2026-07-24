@@ -10,7 +10,6 @@ from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
     PourpointPruneDestinationRequiredError,
-    SnowDbConfigError,
 )
 from snowtool.snowdb.atomic import atomic_copy
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
@@ -65,19 +64,16 @@ class AOIRasterizeResult:
 def _coverage_domains(db: SnowDb) -> dict[str, CoverageDomain]:
     """Every registered dataset's coverage domain, keyed by name.
 
-    Re-derived from the on-disk root config (a fresh ``SnowDb.open``), not from
-    ``db.registered`` -- the manager's db is an open-time snapshot, and an index
-    write that follows a same-process ``register_dataset`` must fold the new
-    dataset's key rather than erase it (the snapshot contract in
-    :class:`~snowtool.snowdb.manager.SnowDbManager`).
+    Re-derived from the on-disk root config (:meth:`SnowDb.reopened`, the shared
+    fresh-view primitive), not from ``db.registered`` -- the manager's db is an
+    open-time snapshot, and an index write that follows a same-process
+    ``register_dataset`` must fold the new dataset's key rather than erase it
+    (the snapshot contract in
+    :class:`~snowtool.snowdb.manager.SnowDbManager`). ``reopened`` raises the
+    typed :class:`~snowtool.exceptions.SnowDbConfigError` for a rootless
+    (built-in-code) db.
     """
-    if db.root is None:
-        raise SnowDbConfigError(
-            db.root,
-            'cannot re-derive coverage domains: this SnowDb has no root config '
-            '(built in code, with no path to re-open).',
-        )
-    fresh = SnowDb.open(db.root, zone_layer_providers=db.zone_layer_providers.values())
+    fresh = db.reopened()
     return {name: ds.coverage_domain for name, ds in fresh.registered.items()}
 
 
@@ -233,26 +229,6 @@ class PourpointManager:
         index.save(self.db.pourpoint_index_path)
         return index
 
-    def basins(self, *, progress: ProgressReporter = NULL_PROGRESS) -> list[Pourpoint]:
-        """Parse and return every stored pourpoint record (all basin-bearing).
-
-        The rasterize/coverage passes work on basins only, so every record is
-        loaded through :meth:`Pourpoint.from_basin_record` -- the one guard
-        enforcing the basin-bearing invariant on read (a corrupt basin-less
-        record raises the typed error naming its file). ``progress`` reports
-        the parse as one tracked task, advancing once per record.
-        """
-        record_paths = self.db.pourpoint_paths()
-        basins: list[Pourpoint] = []
-        with progress.track(
-            f'parsing {len(record_paths)} pourpoint record(s)',
-            total=len(record_paths),
-        ) as task:
-            for path in record_paths:
-                basins.append(Pourpoint.from_basin_record(path))
-                task.advance()
-        return basins
-
     def import_(
         self,
         src: Path,
@@ -335,10 +311,12 @@ class PourpointManager:
         Cascade-deletes the record plus every ``aoi-rasters/<triplet>.tif`` and
         updates the index incrementally (:func:`_update_index` -- surviving
         entries are reused, the removed one falls out). Idempotent: removing an
-        absent pourpoint is a no-op success.
+        absent pourpoint is a no-op success -- and, since nothing changed on
+        disk, it skips the index rebuild (a full ``SnowDb.reopened`` +
+        re-index) entirely rather than paying it to produce the same index.
         """
         existed = self.db.pourpoint_record_path(triplet).is_file()
-        if not dry_run:
+        if existed and not dry_run:
             _remove_pourpoint_files(self.db, triplet)
             _update_index(self.db, {}, progress=progress)
         return existed

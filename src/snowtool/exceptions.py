@@ -158,6 +158,28 @@ class UnknownDatasetError(SnowtoolError, ValueError):
     ``except ValueError`` call sites keep catching it.
     """
 
+    @classmethod
+    def for_name(
+        cls,
+        name: object,
+        choices: Iterable[str],
+        *,
+        kind: str = 'Active',
+        hint: str = '',
+    ) -> Self:
+        """The canonical 'no such dataset ``name``' error, listing the ``choices``.
+
+        ``kind`` labels the choice set (``'Active'``, ``'Registered'``), which
+        differs by lookup surface (the active subset vs. every registered name).
+        The choices are sorted and joined, or rendered ``(none)`` when empty --
+        one shape for every site that reports an unknown dataset. ``hint`` is an
+        optional trailing clause a caller with more context appends.
+        """
+        rendered = ', '.join(sorted(choices)) or '(none)'
+        return cls(
+            f'No such dataset {name!r}. {kind} datasets: {rendered}.{hint}',
+        )
+
 
 class InvalidDatasetNameError(SnowtoolError, ValueError):
     """Raised when a dataset name reads as a path token (see
@@ -171,6 +193,20 @@ class UnknownZoneLayerProviderError(SnowtoolError, ValueError):
 
     Covers both a ``--provider`` selection and a ``--source PROVIDER PATH``
     override naming a provider the database does not configure.
+    """
+
+
+class ZoneLayerSourceNotConfiguredError(SnowtoolError, ValueError):
+    """Raised when a zone-layer provider has no source to generate from.
+
+    A provider with no configured source falls back to its default (3DEP / the
+    MRLC bundle), which needs a root directory to anchor against. A database
+    built in code with no root has no such fallback, so a provider whose source
+    was never configured cannot be read at generation time; this names the fix
+    (``--source PROVIDER PATH`` for this run, or a ``sources`` entry in the root
+    config) rather than dying with a bare ``KeyError`` deep in generation.
+    Subclasses ``ValueError`` so existing ``except ValueError`` call sites keep
+    catching it.
     """
 
 

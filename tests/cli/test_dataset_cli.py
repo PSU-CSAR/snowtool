@@ -359,7 +359,10 @@ def test_activate_unregistered_name_errors(runner, tmp_path, command):
     result = runner.invoke(cli, ['dataset', command, 'nope'], obj=ctx)
 
     assert result.exit_code != 0
-    assert "No registered dataset 'nope'" in result.output
+    # The unknown-dataset message is now the shared factory's wording (normalized
+    # across __getitem__/registered_dataset/set_dataset_active): the "Registered"
+    # kind is preserved, still naming the offending token.
+    assert "No such dataset 'nope'. Registered datasets:" in result.output
 
 
 def test_create_unknown_template_errors(runner, tmp_path):

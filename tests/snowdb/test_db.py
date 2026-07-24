@@ -243,6 +243,25 @@ def test_aois_parse_global_geojson(tmp_path, pourpoint_geojson):
     assert pourpoints[0].station_triplet == '12345:MT:USGS'
 
 
+def test_pourpoints_raises_typed_error_on_basin_less_record(tmp_path, spec):
+    # SnowDb.pourpoints() feeds the rasterize/coverage pass and `doctor
+    # pourpoints`; every stored record is basin-bearing (the import boundary
+    # guarantees it), so a point-only record in records/ is a corrupt store. It
+    # must be constructed through Pourpoint.from_basin_record so it raises the
+    # typed error naming the file, not the untyped ValueError a downstream
+    # `.geometry` access would raise.
+    db = SnowDbManager.initialize(tmp_path).db
+    triplet = '12345:MT:USGS'
+    record = db.pourpoint_records_path / '12345_MT_USGS.geojson'
+    write_pourpoint_record(record, triplet, point_only=True)
+
+    with pytest.raises(
+        IndexedPourpointMissingBasinError,
+        match=r'12345_MT_USGS\.geojson',
+    ):
+        db.pourpoints()
+
+
 def test_aoi_triplets(tmp_path, pourpoint_geojson):
     # Triplets are filename-derived (the record filename is authoritative), so
     # the record must be named for its own triplet -- unlike test_aois_parse_
@@ -500,6 +519,65 @@ def test_getitem_raises_unknown_dataset_error_for_an_inactive_name(tmp_path, spe
         ),
     ):
         db['test']
+
+
+# --- reopened() (the shared fresh-view primitive) ----------------------------
+
+
+def test_reopened_reflects_a_registration_after_the_snapshot(tmp_path, spec):
+    # reopened() re-reads the on-disk root config, so a dataset registered after
+    # this SnowDb was opened is visible on the fresh view -- unlike the
+    # open-time snapshot, which never refreshes.
+    manager = SnowDbManager.initialize(tmp_path)
+    snapshot = SnowDb.open(tmp_path)
+    assert list(snapshot.registered) == []  # opened before any registration
+
+    register_dataset_config(manager, 'test', config_from_spec(spec))
+
+    assert list(snapshot.registered) == []  # snapshot is frozen
+    assert list(snapshot.reopened().registered) == ['test']  # fresh view sees it
+
+
+def test_reopened_raises_for_a_rootless_in_code_db(tmp_path):
+    # A SnowDb built in code with absolute links has no root to re-open, so the
+    # shared primitive raises the typed config error rather than a bare one.
+    dataset_config = config_from_spec(_spec('snodas'))
+    dataset_config.data_dir = tmp_path / 'anywhere' / 'snodas'
+    config = RootConfig.create()
+    config.pourpoint_records = str(tmp_path / 'pourpoints' / 'records')
+    config.pourpoint_index = str(tmp_path / 'pourpoints' / 'index.geojson')
+    config.datasets['snodas'] = InlineDatasetLink(dataset=dataset_config)
+    db = SnowDb(config)
+    assert db.root is None
+
+    with pytest.raises(SnowDbConfigError, match='cannot reopen'):
+        db.reopened()
+
+
+# --- zone_layer_source() (checked generation-source lookup) -------------------
+
+
+def test_zone_layer_source_raises_when_unconfigured_and_rootless(tmp_path):
+    # A rootless in-code db has no default-source fallback (no root to anchor),
+    # so a provider whose source was never configured has no entry. The checked
+    # lookup raises the typed error naming the fix, not a bare KeyError.
+    from snowtool.exceptions import ZoneLayerSourceNotConfiguredError
+
+    dataset_config = config_from_spec(_spec('snodas'))
+    dataset_config.data_dir = tmp_path / 'anywhere' / 'snodas'
+    config = RootConfig.create()
+    config.pourpoint_records = str(tmp_path / 'pourpoints' / 'records')
+    config.pourpoint_index = str(tmp_path / 'pourpoints' / 'index.geojson')
+    config.datasets['snodas'] = InlineDatasetLink(dataset=dataset_config)
+    db = SnowDb(config)
+    assert db.root is None
+    assert db.zone_layer_sources == {}  # nothing configured, no default fallback
+
+    with pytest.raises(
+        ZoneLayerSourceNotConfiguredError,
+        match=r'--source terrain PATH',
+    ):
+        db.zone_layer_source('terrain')
 
 
 def test_bare_link_without_active_key_reads_as_active(tmp_path, spec):

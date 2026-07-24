@@ -410,7 +410,10 @@ def test_inactive_dataset_is_registered_but_not_served(tmp_path, spec):
 def test_set_dataset_active_rejects_an_unregistered_name(tmp_path):
     manager = SnowDbManager.initialize(tmp_path)
 
-    with pytest.raises(ValueError, match="No registered dataset 'nope'"):
+    with pytest.raises(
+        ValueError,
+        match=r"No such dataset 'nope'\. Registered datasets: \(none\)\.",
+    ):
         manager.set_dataset_active('nope', True)
 
 

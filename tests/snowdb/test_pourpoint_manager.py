@@ -307,10 +307,10 @@ def test_reindex_rebuilds_from_records(manager, db, pourpoint_geojson):
     'call',
     [
         pytest.param(lambda m: m.pourpoints.reindex(), id='reindex'),
-        pytest.param(lambda m: m.pourpoints.basins(), id='basins'),
+        pytest.param(lambda m: m.db.pourpoints(), id='pourpoints'),
     ],
 )
-def test_reindex_and_basins_raise_on_basin_less_stored_record(
+def test_reindex_and_pourpoints_raise_on_basin_less_stored_record(
     manager,
     db,
     pourpoint_geojson,
@@ -318,9 +318,9 @@ def test_reindex_and_basins_raise_on_basin_less_stored_record(
 ):
     # Every stored record is basin-bearing (the import boundary guarantees it), so
     # a point-only record in `records/` is a corrupt store. Both reindex() and
-    # basins() refuse loudly -- naming the offending file -- rather than silently
-    # dropping the record (reindex) or failing with an untyped ValueError
-    # downstream (basins()).
+    # SnowDb.pourpoints() refuse loudly -- naming the offending file -- rather than
+    # silently dropping the record (reindex) or failing with an untyped ValueError
+    # downstream (pourpoints() feeds the rasterize/coverage pass and `doctor`).
     manager.pourpoints.import_(pourpoint_geojson)
     triplet = '12345:MT:USGS'
     record_path = db.pourpoint_record_path(triplet)
@@ -650,7 +650,7 @@ def test_rasterize_straddling_basin_clamps_to_the_grid(db, tmp_path):
     # Guards against window inversion when the basin crosses the tile seam:
     # the window must clamp to the single in-grid tile, not wrap the negative
     # tile row to the last one.
-    assert [(t.row, t.col) for t in raster.tiles] == [(0, 0)]
+    assert [(t.row, t.col) for t in raster.window.tiles] == [(0, 0)]
     # Only the in-grid part burns: 90 cols (lon -119.9..-119.0) x 50 rows
     # (lat 45.0..44.5) of 0.01-degree pixels.
     assert (raster.array > 0).sum() == 90 * 50

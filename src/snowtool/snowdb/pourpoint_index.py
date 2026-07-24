@@ -57,7 +57,13 @@ if TYPE_CHECKING:
 
 
 class _IndexFeatureProperties(BaseModel):
-    """The index manifest ``Feature``'s ``properties`` block."""
+    """The index manifest ``Feature``'s ``properties`` block.
+
+    The single home for every per-pourpoint list field that rides in the
+    ``Feature``'s ``properties`` (the wire fields *other* than the triplet and
+    point, which live as the ``Feature``'s ``id``/``geometry``). Composed into
+    :class:`PourpointIndexEntry` so a new field is declared exactly here, once.
+    """
 
     name: str
     area_meters: float
@@ -70,21 +76,41 @@ _IndexFeatureCollection = FeatureCollection[_IndexFeature]
 
 
 class PourpointIndexEntry(BaseModel):
-    """One pourpoint's denormalized list-fields (a single manifest ``Feature``)."""
+    """One pourpoint's denormalized list-fields (a single manifest ``Feature``).
+
+    The two envelope fields (``triplet``, ``point``) ride on the wire as the
+    ``Feature``'s ``id``/``geometry``; every other field lives in ``properties``
+    (an :class:`_IndexFeatureProperties`), which is the single place they are
+    declared. Thin accessors surface the common properties fields so callers
+    read ``entry.name``/``entry.coverage`` as before.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     triplet: types.StationTriplet
-    name: str
     point: Point
-    # Internal rebuild signal (the basin polygon's WKB hash); not surfaced by the
-    # API, kept so a stale index can be detected/rebuilt.
-    geometry_hash: str
-    # Geodesic basin area (m^2); always present (see module docstring: an index
-    # entry only exists for a basin-bearing pourpoint).
-    area_meters: float
-    # Per-dataset coverage; incremental reuse rule is in the module docstring.
-    coverage: dict[str, Coverage] = Field(default_factory=dict)
+    properties: _IndexFeatureProperties
+
+    @property
+    def name(self: Self) -> str:
+        return self.properties.name
+
+    @property
+    def geometry_hash(self: Self) -> str:
+        """Internal rebuild signal (the basin polygon's WKB hash); not surfaced
+        by the API, kept so a stale index can be detected/rebuilt."""
+        return self.properties.geometry_hash
+
+    @property
+    def area_meters(self: Self) -> float:
+        """Geodesic basin area (m^2); always present (see module docstring: an
+        index entry only exists for a basin-bearing pourpoint)."""
+        return self.properties.area_meters
+
+    @property
+    def coverage(self: Self) -> dict[str, Coverage]:
+        """Per-dataset coverage; incremental reuse rule is in the module docstring."""
+        return self.properties.coverage
 
     @classmethod
     def from_pourpoint(
@@ -94,27 +120,34 @@ class PourpointIndexEntry(BaseModel):
     ) -> Self:
         return cls(
             triplet=pourpoint.station_triplet,
-            name=pourpoint.name,
             point=pourpoint.point,
-            geometry_hash=pourpoint.geometry_hash,
-            area_meters=pourpoint.area_meters,
-            coverage={
-                name: dataset_coverage(pourpoint, domain)
-                for name, domain in domains.items()
-            },
+            properties=_IndexFeatureProperties(
+                name=pourpoint.name,
+                area_meters=pourpoint.area_meters,
+                geometry_hash=pourpoint.geometry_hash,
+                coverage={
+                    name: dataset_coverage(pourpoint, domain)
+                    for name, domain in domains.items()
+                },
+            ),
         )
+
+    def with_coverage(self: Self, coverage: Mapping[str, Coverage]) -> Self:
+        """A copy of this entry with its ``properties.coverage`` replaced.
+
+        The frozen-entry rebuild primitive (:meth:`model_copy` under the hood):
+        the merge policy lives on :class:`PourpointIndex`, so this stays a plain
+        field replacement.
+        """
+        properties = self.properties.model_copy(update={'coverage': dict(coverage)})
+        return self.model_copy(update={'properties': properties})
 
     def _to_index_feature(self: Self) -> _IndexFeature:
         return _IndexFeature(
             type='Feature',
             id=self.triplet,
             geometry=self.point,
-            properties=_IndexFeatureProperties(
-                name=self.name,
-                area_meters=self.area_meters,
-                geometry_hash=self.geometry_hash,
-                coverage=self.coverage,
-            ),
+            properties=self.properties,
         )
 
     @classmethod
@@ -129,11 +162,8 @@ class PourpointIndexEntry(BaseModel):
             )
         return cls(
             triplet=str(feature.id),
-            name=feature.properties.name,
             point=feature.geometry,
-            geometry_hash=feature.properties.geometry_hash,
-            area_meters=feature.properties.area_meters,
-            coverage=feature.properties.coverage,
+            properties=feature.properties,
         )
 
 
@@ -225,6 +255,27 @@ class PourpointIndex:
         path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(self.to_feature_collection(), indent=2)
         atomic_write_text(path, f'{text}\n')
+
+    def merge_dataset_coverage(
+        self: Self,
+        name: str,
+        coverage: Mapping[types.StationTriplet, Coverage],
+    ) -> None:
+        """Fold ``name``'s per-pourpoint coverage into every entry (in place).
+
+        The single owner of the frozen-entry rebuild: each entry's
+        ``coverage`` map gains (or has replaced) the ``name`` key -- *merged*,
+        not replaced, so a dataset's key never erases another's -- with a
+        triplet absent from ``coverage`` reading as :attr:`Coverage.NONE`. A
+        no-op on an empty index (nothing to annotate; the next reindex re-derives
+        coverage for every dataset regardless), so callers need not special-case
+        it. Keeps the "frozen entries / merge-not-replace / missing-reads-NONE"
+        representation knowledge inside this module.
+        """
+        for triplet, entry in self.entries.items():
+            self.entries[triplet] = entry.with_coverage(
+                {**entry.coverage, name: coverage.get(triplet, Coverage.NONE)},
+            )
 
     def triplets(self: Self) -> set[types.StationTriplet]:
         return set(self.entries)

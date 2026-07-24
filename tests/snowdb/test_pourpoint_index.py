@@ -174,6 +174,58 @@ def test_index_build_and_save_load_round_trip(tmp_path):
     assert reloaded.entries == index.entries
 
 
+def test_index_save_load_save_is_byte_identical(tmp_path):
+    # The wire format is composed from one properties model (F7): a save -> load
+    # -> save cycle must reproduce the exact bytes (id=triplet, geometry=point,
+    # properties={name, area_meters, geometry_hash, coverage}), so the on-disk
+    # FeatureCollection stays compatible with a live snowdb.
+    records = tmp_path / 'records'
+    records.mkdir()
+    _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
+    _write_pourpoint(records / 'b.geojson', triplet='20000:MT:USGS')
+
+    index = PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
+    first = tmp_path / 'index.geojson'
+    index.save(first)
+
+    second = tmp_path / 'index2.geojson'
+    PourpointIndex.load(first).save(second)
+
+    assert second.read_bytes() == first.read_bytes()
+
+
+def test_merge_dataset_coverage_merges_not_replaces(tmp_path):
+    # merge_dataset_coverage folds a new dataset's key into every entry without
+    # erasing existing coverage keys; a triplet absent from the map reads as NONE.
+    records = tmp_path / 'records'
+    records.mkdir()
+    _write_pourpoint(records / 'a.geojson', triplet='10000:MT:USGS')
+    _write_pourpoint(records / 'b.geojson', triplet='20000:MT:USGS')
+    index = PourpointIndex.build(sorted(records.glob('*.geojson')), _grids())
+    # Every entry already carries the two build-time keys.
+    assert set(index['10000:MT:USGS'].coverage) == {'covers', 'disjoint'}
+
+    index.merge_dataset_coverage('new', {'10000:MT:USGS': Coverage.FULL})
+
+    a = index['10000:MT:USGS'].coverage
+    b = index['20000:MT:USGS'].coverage
+    # The prior keys survive (merge, not replace) and the new one is added.
+    assert a == {
+        'covers': Coverage.FULL,
+        'disjoint': Coverage.NONE,
+        'new': Coverage.FULL,
+    }
+    # A triplet absent from the coverage map reads as NONE for the new key.
+    assert b['new'] is Coverage.NONE
+
+
+def test_merge_dataset_coverage_is_a_noop_on_an_empty_index(tmp_path):
+    index = PourpointIndex.load(tmp_path / 'index.geojson')
+    assert len(index) == 0
+    index.merge_dataset_coverage('new', {'10000:MT:USGS': Coverage.FULL})
+    assert len(index) == 0
+
+
 def test_index_build_raises_on_point_only_record(tmp_path):
     # Every stored record is basin-bearing (the import boundary guarantees it), so
     # a point-only pourpoint in records/ is a corrupt store: build refuses loudly,

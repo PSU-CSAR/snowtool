@@ -31,6 +31,7 @@ from snowtool.exceptions import (
 )
 from snowtool.snowdb.config import (
     CONFIG_FILENAME,
+    DATA_DIRNAME,
     DATASET_CONFIG_FILENAME,
     DatasetConfig,
     PathDatasetLink,
@@ -191,7 +192,7 @@ class SnowDbManager:
         # pourpoints/ holds the index.geojson manifest; pourpoints/records/ the
         # per-pourpoint record files.
         (path / 'pourpoints' / 'records').mkdir(parents=True, exist_ok=True)
-        data_path = path / 'data'
+        data_path = path / DATA_DIRNAME
         data_path.mkdir(parents=True, exist_ok=True)
         config_path = path / CONFIG_FILENAME
         if config_path.is_file():
@@ -303,9 +304,10 @@ class SnowDbManager:
         """
         config, config_path = self._read_root_config()
         if name not in config.datasets:
-            registered = ', '.join(sorted(config.datasets)) or '(none)'
-            raise UnknownDatasetError(
-                f'No registered dataset {name!r}. Registered datasets: {registered}.',
+            raise UnknownDatasetError.for_name(
+                name,
+                config.datasets,
+                kind='Registered',
             )
         config.datasets[name].active = active
         config.save(config_path)
@@ -318,47 +320,21 @@ class SnowDbManager:
     ) -> None:
         """Add ``name``'s per-pourpoint coverage to the persisted index.
 
-        Loads the on-disk index and rebuilds every entry (frozen, so replaced via
-        :meth:`model_copy` rather than mutated) with ``name`` folded into its
-        ``coverage`` map (an absent triplet reads as :attr:`Coverage.NONE`), then
-        re-saves it atomically.
-        A no-op when the index is empty -- there is nothing to annotate, and the
-        coverage is re-derived for every dataset by the next reindex regardless.
+        Load -> merge -> save: the merge policy (frozen entries, merge-not-
+        replace, a missing triplet reading as :attr:`Coverage.NONE`, and the
+        empty-index no-op) lives on
+        :meth:`~snowtool.snowdb.pourpoint_index.PourpointIndex.merge_dataset_coverage`,
+        so this stays a thin persistence wrapper that never reaches into the
+        index's internals.
         """
         index = PourpointIndex.load(self.db.pourpoint_index_path)
         if not index:
+            # Nothing to annotate, and (matching the prior behavior) no empty
+            # index file is materialized where there was none. The next reindex
+            # re-derives coverage for every dataset regardless.
             return
-        for triplet, entry in index.entries.items():
-            index.entries[triplet] = entry.model_copy(
-                update={
-                    'coverage': {
-                        **entry.coverage,
-                        name: coverage.get(triplet, Coverage.NONE),
-                    },
-                },
-            )
+        index.merge_dataset_coverage(name, coverage)
         index.save(self.db.pourpoint_index_path)
-
-    def _build_staged_dataset(
-        self: Self,
-        name: str,
-        dataset_config_path: Path,
-    ) -> Dataset:
-        """Build a :class:`Dataset` from its config *directly*, bypassing the catalog.
-
-        Binding goes through :meth:`SnowDb.bind_dataset` with the config's own
-        location as the resolution base (the same call a path link gets at
-        ``SnowDb.open``), so a not-yet-registered dataset resolves exactly as it
-        will once registered -- without appearing in ``self.db.datasets`` yet.
-        A malformed or unresolvable staged config (reached via a CLI path token,
-        e.g. ``resolve_dataset``) raises
-        :class:`~snowtool.exceptions.SnowDbConfigError` from
-        :func:`~snowtool.snowdb.spec.load_dataset_spec`, not a raw pydantic/decode
-        or bare ``ValueError``.
-        """
-        resolved = Path(dataset_config_path).resolve()
-        config, spec = load_dataset_spec(resolved, name)
-        return self.db.bind_dataset(name, spec, config, base=resolved.parent)
 
     def resolve_dataset(self: Self, token: str) -> Dataset:
         """Resolve a dataset NAME or a config path to a :class:`Dataset`.
@@ -378,7 +354,11 @@ class SnowDbManager:
             path = Path(token)
             if not path.is_file():
                 raise UnknownDatasetError(f'No dataset config file at {path}.')
-            return self._build_staged_dataset(path.parent.name, path)
+            # Bind the staged config directly (the NAME comes from the parent
+            # dir), the same "config file -> Dataset" tail SnowDb.open uses, so a
+            # not-yet-registered dataset resolves exactly as it will once
+            # registered -- without appearing in self.db.datasets yet.
+            return self.db.bind_dataset_from_file(path.parent.name, path)
         return self.db.registered_dataset(
             token,
             hint=(
@@ -397,8 +377,9 @@ class SnowDbManager:
         """Build everything a new dataset needs, all *invisible* to readers.
 
         The staging half of the register split: it builds the dataset from its
-        config (:meth:`_build_staged_dataset`, so it works before the dataset is in
-        ``self.db.datasets``) and, entirely under ``data/<name>/`` -- a directory a
+        config (:meth:`SnowDb.bind_dataset_from_file`, so it works before the
+        dataset is in ``self.db.datasets``) and, entirely under ``data/<name>/``
+        -- a directory a
         reader ignores because datasets come only from the root config -- creates
         the skeleton, rasterizes every indexed (basin-bearing) pourpoint's basin
         onto the new grid, and computes each pourpoint's geometric coverage of
@@ -427,7 +408,7 @@ class SnowDbManager:
         :meth:`~snowtool.snowdb.pourpoint_manager.PourpointManager.rasterize_aois`
         with ``rebuild=True`` (the ``pourpoint rasterize --rebuild`` command).
         """
-        dataset = self._build_staged_dataset(name, dataset_config_path)
+        dataset = self.db.bind_dataset_from_file(name, dataset_config_path)
 
         # Converge-by-default: ensure_skeleton builds any missing skeleton part
         # and reports whether it had to (an already-staged skeleton is tolerated,
@@ -436,7 +417,7 @@ class SnowDbManager:
 
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
-        basins = self.pourpoints.basins(progress=progress)
+        basins = self.db.pourpoints(progress=progress)
         rasterized = self.pourpoints.rasterize_aois(
             basins,
             [dataset],
@@ -597,7 +578,7 @@ class SnowDbManager:
             source = (
                 provider.local_source(source_overrides[provider_name])
                 if provider_name in source_overrides
-                else self.db.zone_layer_sources[provider_name]
+                else self.db.zone_layer_source(provider_name)
             )
             progress = (
                 progress_factory(provider_name)
