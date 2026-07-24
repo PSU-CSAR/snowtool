@@ -3,9 +3,10 @@
 One streaming pass over a single DEM source produces co-registered terrain for
 *every* target grid at once: elevation, majority aspect class, the mean orientation
 components (northness/eastness = mean cos/sin of aspect), and the normalised
-aspect-direction entropy -- the layers of a
-:class:`~snowtool.snowdb.zones.terrain.TerrainSet`. Passing one target degenerates to
-per-dataset generation; passing several shares the expensive source read.
+aspect-direction entropy -- a dataset's terrain
+:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayerSet`. Passing one target
+degenerates to per-dataset generation; passing several shares the expensive
+source read.
 
 The three stages
 ----------------

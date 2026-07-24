@@ -11,11 +11,15 @@ rasterizing pourpoints, generating zone layers -- lives on
 :class:`~snowtool.snowdb.manager.SnowDbManager`, which *has* a ``SnowDb``. It is
 constructed per entrypoint (the API at app-lifespan scope, the CLI per invocation).
 
-``SnowDb`` itself holds only constants (config, paths, specs, datasets, coverage) and
-cache-free disk reads. The one piece of non-constant read-path state -- the
-:class:`~snowtool.snowdb.raster.tiff_cache.TiffCache` shared across a database's COG
-reads -- lives on its sibling :class:`~snowtool.snowdb.reader.SnowDbReader`, which
-*has* a ``SnowDb`` and owns ``zonal_stats`` (the sole cache consumer).
+``SnowDb`` itself holds constants (config, paths, specs, datasets, coverage) plus
+one piece of self-invalidating read state: the mtime-revalidated pourpoint-index
+cache (see :meth:`SnowDb.pourpoint_index`), which re-``stat``\\ s the index file on
+every access, so its lifetime never affects what a caller observes and it needs no
+external owner. The read-path cache whose lifetime *does* matter -- the
+:class:`~snowtool.snowdb.raster.tiff_cache.TiffCache` shared across a database's
+COG reads, loop-affine and bounded -- lives on its sibling
+:class:`~snowtool.snowdb.reader.SnowDbReader`, which *has* a ``SnowDb`` and owns
+``zonal_stats`` (the sole cache consumer).
 """
 
 from __future__ import annotations
