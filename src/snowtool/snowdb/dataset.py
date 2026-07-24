@@ -29,14 +29,13 @@ from snowtool.snowdb.raster.cog import SOURCE_HASH_TAG, read_tag
 from snowtool.snowdb.zones.zone_layer_providers import DEFAULT_ZONE_LAYER_PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable
 
     from griffine.grid import TiledAffineGrid
 
     from snowtool.snowdb.coverage import CoverageDomain
     from snowtool.snowdb.ingest import GridGeometry, IngestResult, WritableRaster
     from snowtool.snowdb.progress import ProgressReporter
-    from snowtool.snowdb.query import DateQuery
     from snowtool.snowdb.spec import DatasetSpec
     from snowtool.snowdb.variables import DatasetVariable
     from snowtool.snowdb.zones.zone_layer import (
@@ -201,20 +200,6 @@ class Dataset:
             tile_size=self.spec.grid_params.tile_size,
             directory=self.zones[provider.name].directory,
         )
-
-    def raster_paths_from_query(
-        self: Self,
-        query: DateQuery,
-        variable: DatasetVariable,
-    ) -> Iterator[tuple[date, Path]]:
-        # Filter the dates that actually exist (one directory listing) rather than
-        # probing every calendar day in the range; this also lets a query carry an
-        # open-ended interval, since selection is over a finite set. Each date's
-        # single COG (and the multiple-match guard) comes from variable_path.
-        for date_ in query.select(self.available_dates()):
-            path = self.variable_path(date_, variable)
-            if path is not None:
-                yield date_, path
 
     def aoi_raster_path_from_triplet(
         self: Self,
@@ -550,24 +535,49 @@ class Dataset:
     ) -> Path | None:
         """The single COG for ``variable`` on date ``d``, or ``None`` if absent.
 
-        Routes through the same :meth:`_glob_matches` engine (and directory
-        listing) as :meth:`_unresolved_variables`, so a date this reports resolved
-        is exactly one the completeness check counts complete.
+        The one-variable form of :meth:`resolve_variables`: same directory
+        listing, same :meth:`_glob_matches` engine, same duplicate-COG raise -- so
+        a date this reports resolved is exactly one the completeness check counts
+        complete.
+        """
+        return self.resolve_variables(d, [variable]).get(variable)
+
+    def resolve_variables(
+        self: Self,
+        d: date,
+        variables: Iterable[DatasetVariable],
+    ) -> dict[DatasetVariable, Path]:
+        """Resolve each of ``variables`` to its single COG for date ``d`` from one
+        directory listing.
+
+        The canonical variable resolver (:meth:`variable_path` is the one-variable
+        form): the date dir is listed *once* and every requested variable is matched
+        against that single listing, so a multi-variable query pays one directory
+        read per date, not one per (date, variable) -- which is what lets a
+        wide-archive query's up-front completeness check fail fast. A variable whose
+        glob matches no file is omitted (:meth:`RasterCollection.validate` turns the
+        resulting partial date into the typed integrity error); a variable matching
+        more than one file raises :class:`IncompleteDatasetDataError`.
         """
         date_dir = self.date_dir(d)
         if not date_dir.is_dir():
-            return None
-        matching = self._glob_matches(self._list_filenames(date_dir), variable.glob)
-        if len(matching) > 1:
-            # Two COGs match one variable's glob -- a stale duplicate that an old
-            # date on disk may still carry. Surface it as the typed integrity error
-            # rather than a bare RuntimeError.
-            raise IncompleteDatasetDataError.for_variables(
-                self.spec.name,
-                d,
-                [variable.key],
-            )
-        return date_dir / matching[0] if matching else None
+            return {}
+        names = self._list_filenames(date_dir)
+        resolved: dict[DatasetVariable, Path] = {}
+        for variable in variables:
+            matching = self._glob_matches(names, variable.glob)
+            if len(matching) > 1:
+                # Two COGs match one variable's glob -- a stale duplicate that an
+                # old date on disk may still carry. Surface it as the typed
+                # integrity error rather than a bare RuntimeError.
+                raise IncompleteDatasetDataError.for_variables(
+                    self.spec.name,
+                    d,
+                    [variable.key],
+                )
+            if matching:
+                resolved[variable] = date_dir / matching[0]
+        return resolved
 
     def unresolved_variables(self: Self, d: date) -> set[str]:
         """Spec variable keys unresolved (missing or duplicated) for date ``d``.

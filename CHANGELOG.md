@@ -17,6 +17,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.4.0] - 2026-07-24
+
+### Added
+
+### Changed
+
+- `stats` now requires an explicit variable selection: at least one CLI
+  `--variable` or HTTP `variable` query parameter. The implicit "all
+  variables" default is gone — reading every variable is a multiple of the
+  I/O, so the set is never implicit. A missing `--variable` is a CLI usage
+  error; an absent `variable` query parameter is a 400.
+- Building a multi-variable raster collection now lists each date directory
+  once and resolves every requested variable from that single listing, rather
+  than once per (date, variable) — fewer directory reads over a wide archive,
+  and a missing-variable date fails fast.
+
+### Removed
+
+### Fixed
+
+### Security
+
 ## [v0.3.0] - 2026-07-24
 
 > **Live databases:** no on-disk format changes in this release — existing
@@ -514,7 +536,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...v0.3.0
 [v0.2.2]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.0...v0.2.1

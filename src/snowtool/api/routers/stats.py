@@ -59,7 +59,7 @@ async def _run(
         triplet,
         dataset,
         query,
-        variable_keys=params.variable or None,
+        variable_keys=params.variable,
         zones=params.zone,
         allow_partial=params.allow_partial,
     )

@@ -47,8 +47,9 @@ _ZONE_DESC = (
     'variables. Default: whole basin.'
 )
 _VARIABLE_DESC = (
-    'Variable to report (repeatable; default: all). Use a variable key from '
-    'GET /datasets/{dataset}.'
+    'Variable to report (repeatable; at least one required). Use a variable key '
+    'from GET /datasets/{dataset}. Reading every variable is a multiple of the '
+    'I/O, so the set is never implicit.'
 )
 _ALLOW_PARTIAL_DESC = (
     'Permit a basin only partially covered by the dataset grid (default false: a '
@@ -69,7 +70,7 @@ _DATETIME_EXAMPLES = [
 
 class StatsQueryBase(BaseModel):
     zone: list[str] = Field(default_factory=list, description=_ZONE_DESC)
-    variable: list[str] = Field(default_factory=list, description=_VARIABLE_DESC)
+    variable: list[str] = Field(min_length=1, description=_VARIABLE_DESC)
     allow_partial: bool = Field(default=False, description=_ALLOW_PARTIAL_DESC)
     include_empty_zones: bool = Field(default=False, description=_INCLUDE_EMPTY_DESC)
     f: StatsFormat | None = Field(
