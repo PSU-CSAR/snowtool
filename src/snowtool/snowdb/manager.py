@@ -249,10 +249,8 @@ class SnowDbManager:
         ``Coverage.NONE`` until the next ``pourpoint reindex``. Going live still
         needs a service restart -- the ``SnowDb`` is built once at startup.
 
-        ``name`` must be usable as a bare :meth:`resolve_dataset` token and a
-        directory name, so a name containing a path separator or ending in
-        ``.json`` (which that method's syntactic partition would read as a
-        path) is rejected up front -- registration is the single choke point.
+        ``name`` must not read as a path token (see :func:`_is_path_token`);
+        registration is the single choke point that enforces this.
 
         For a ``path`` link that already exists on disk, the config it points at
         is parsed and resolved (:func:`~snowtool.snowdb.spec.load_dataset_spec`,
@@ -271,15 +269,7 @@ class SnowDbManager:
             )
         config, config_path = self._read_root_config()
         dataset_config_path = Path(dataset_config_path).resolve()
-        # A missing path is deliberately not validated here: it defers to the
-        # existing dangling-link error at SnowDb.open() time, preserving the
-        # documented contract that register commits the link, not the target.
         if dataset_config_path.is_file():
-            # Load + resolve the config through the canonical loader (discarding
-            # the result): it raises a clean SnowDbConfigError for a config that
-            # fails to parse *or* to resolve (an unknown ingester name), so a
-            # caller cannot commit a link to a config that would fail to bind at
-            # open time -- the same wrapping SnowDb.open applies to a linked config.
             load_dataset_spec(dataset_config_path, name)
         root = config_path.parent.resolve()
         # Relative when under the tree (keeps the tree relocatable); absolute when
@@ -373,11 +363,10 @@ class SnowDbManager:
     def resolve_dataset(self: Self, token: str) -> Dataset:
         """Resolve a dataset NAME or a config path to a :class:`Dataset`.
 
-        The token is partitioned *syntactically*, so a name and a file can
-        never shadow each other: a token containing a path separator or ending
-        in ``.json`` is a PATH; anything else is a NAME. A path token never
-        consults the catalog -- it must be an existing dataset config file
-        (its NAME taken from the parent directory), else
+        The token is partitioned syntactically (see :func:`_is_path_token`), so
+        a name and a file can never shadow each other. A path token never
+        consults the catalog -- it must be an existing dataset config file (its
+        NAME taken from the parent directory), else
         :class:`~snowtool.exceptions.UnknownDatasetError`. A name token never
         touches the filesystem -- it resolves only against the root config's
         registered datasets (active or not: management ops -- ingest, zone
@@ -448,13 +437,6 @@ class SnowDbManager:
         # Only basin-bearing pourpoints are rasterized/covered (point-only ones
         # have no basin), matching what the index holds.
         basins = self.pourpoints.basins(progress=progress)
-        # Every basin-bearing pourpoint goes to rasterize_aois regardless of its
-        # coverage: an off-grid basin (NONE) has no tile window on this grid, so
-        # rasterize_aois's own Coverage.NONE check skips it (into
-        # `rasterized.skipped`) rather than this method pre-filtering it out. That
-        # same pass computes each basin's geometric coverage for the skip and
-        # surfaces it, so the coverage the index needs is read back off the
-        # result rather than computed a second time here.
         rasterized = self.pourpoints.rasterize_aois(
             basins,
             [dataset],
@@ -516,13 +498,6 @@ class SnowDbManager:
         explicit :meth:`set_dataset_active`. Returns a :class:`CreatedDataset`
         carrying the staging result and whether this call registered the dataset.
         """
-        # A relative data_dir cannot be honored here: create writes the config file
-        # *at* the directory data_dir names, but SnowDb.open later resolves a
-        # relative data_dir against that config file's own directory -- so the same
-        # relative value would land the config at <root>/<dir> and then open would
-        # read its data from <root>/<dir>/<dir>. There is no config home to anchor
-        # against yet (data_dir is what picks it), so the single-rule claim can only
-        # hold if data_dir is absolute or omitted. Refuse the relative case up front.
         if config.data_dir is not None and not config.data_dir.is_absolute():
             raise SnowDbConfigError(
                 self.db.root,

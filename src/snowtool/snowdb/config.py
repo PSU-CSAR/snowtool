@@ -261,14 +261,8 @@ class DatasetConfig(ResourceModel):
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:
-        """Parse and validate a dataset config file.
-
-        A file that exists but doesn't parse/validate raises a clean
-        :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
-        than leaking a raw pydantic/decode error -- every call site (a linked
-        dataset config, a staged config resolved by path, a to-be-registered
-        config) wants the same treatment. See :meth:`ResourceModel._load_checked`.
-        """
+        """Parse and validate a dataset config file. See
+        :meth:`ResourceModel._load_checked`."""
         return cls._load_checked(path, 'a usable dataset config')
 
 
@@ -356,14 +350,8 @@ class RootConfig(ResourceModel):
 
     @classmethod
     def load(cls: type[Self], path: Path) -> Self:
-        """Parse a root config file and remember where it was loaded from.
-
-        A file that exists but isn't a valid root config is still "not a snowdb
-        this version understands", so this raises
-        :class:`~snowtool.exceptions.SnowDbConfigError` naming ``path`` rather
-        than leaking a raw pydantic/decode error. See
-        :meth:`ResourceModel._load_checked`.
-        """
+        """Parse a root config file and remember where it was loaded from. See
+        :meth:`ResourceModel._load_checked`."""
         path = Path(path)
         config = cls._load_checked(path, 'a readable snowdb root config')
         config.path = path

@@ -142,18 +142,14 @@ class DatasetSpec:
     ) -> DatasetSpec:
         """Deserialize a :class:`~snowtool.snowdb.config.DatasetConfig` into a spec.
 
-        A trivial pass-through (no merge, no runtime kind): the config's grid,
-        variables, ``zones`` and ``footprint`` are already the domain types, so
-        they carry straight over; only the ``ingester`` *name* is resolved to the
-        concrete ingester from the registry (``None`` for a read-only/derived
-        dataset). ``name`` is supplied separately because the config does not carry
-        one -- it comes from where the config is registered.
+        The config's grid, variables, ``zones`` and ``footprint`` are already the
+        domain types, so they carry straight over; only the ``ingester`` *name* is
+        resolved to the concrete ingester from the registry (``None`` for a
+        read-only/derived dataset). ``name`` is supplied separately because the
+        config does not carry one -- it comes from where the config is registered.
 
-        Raises a *bare* :class:`ValueError` for an unknown ingester name.
-        :func:`load_dataset_spec` is the file-facing wrapper that pairs this with
-        :meth:`~snowtool.snowdb.config.DatasetConfig.load` and re-wraps that
-        ``ValueError`` into a :class:`~snowtool.exceptions.SnowDbConfigError`;
-        prefer it whenever a config path is in hand.
+        Raises a *bare* :class:`ValueError` for an unknown ingester name; prefer
+        :func:`load_dataset_spec` whenever a config path is in hand.
         """
         from snowtool.snowdb.datasets import INGESTERS
 

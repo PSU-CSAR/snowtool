@@ -389,7 +389,7 @@ class Dataset:
         date on disk -- a reader sees the wholly-old dir or the wholly-new one --
         and (b) stale COGs from a prior, differently-named source vanish by
         construction rather than lingering beside the new ones and making a variable
-        unresolvable (the finding-5 duplicate-``__swe.tif`` bug).
+        unresolvable.
 
         Completeness is enforced at date granularity. Before any filesystem work the
         declared ``out_names`` must cover every spec variable, so a source short a
@@ -410,9 +410,6 @@ class Dataset:
         """
         expected_names = frozenset(out_names)
 
-        # Pre-validate the declared outputs before touching the filesystem (or
-        # reading the source): the names must cover every spec variable, so a source
-        # short an input variable fails fast rather than committing a partial date.
         missing = self._unresolved_variables(expected_names)
         if missing:
             raise IncompleteDatasetDataError.for_variables(
@@ -423,13 +420,6 @@ class Dataset:
 
         output_dir = self.date_dir(date)
 
-        # Skip-if-current (per-date): an existing dir already holding exactly the
-        # COGs this call would write *and* stamped with the same source hash is
-        # complete and up to date -- nothing to do. Decided on the declared names +
-        # hash alone, *before* build_rasters runs, so an up-to-date date is skipped
-        # without reading (extracting) its source. Any divergence (a missing member,
-        # a stale COG from an old source, or a same-name different-bytes re-release)
-        # falls through to a full, atomic rebuild below.
         if (
             not force
             and output_dir.is_dir()
@@ -438,7 +428,7 @@ class Dataset:
         ):
             return False
 
-        # Not skipped: now build the rasters (this is where SNODAS extracts its tar).
+        # This is where SNODAS extracts its tar.
         rasters = list(build_rasters())
 
         # staged_dir stages beside the target, so the cogs/ parent must exist (a
@@ -541,10 +531,9 @@ class Dataset:
         """The single COG for ``variable`` on date ``d``, or ``None`` if absent."""
         matching = list(self.date_dir(d).glob(variable.glob))
         if len(matching) > 1:
-            # Two COGs match one variable's glob -- a stale duplicate from a
-            # differently-named source that write_date_cogs' wholesale swap now
-            # prevents on write, but an old date on disk may still carry. Surface
-            # it as the typed integrity error rather than a bare RuntimeError.
+            # Two COGs match one variable's glob -- a stale duplicate an old date
+            # on disk may still carry. Surface it as the typed integrity error
+            # rather than a bare RuntimeError.
             raise IncompleteDatasetDataError.for_variables(
                 self.spec.name,
                 d,

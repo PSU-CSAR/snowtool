@@ -175,19 +175,13 @@ class ZonalStats:
         # their areas.
         self._areas = areas
         self._dates_index = {dt: idx for idx, dt in enumerate(sorted(dates))}
-        # float64, not float32: the per-cell reduction runs in float64
-        # (_ZoneIndex.reduce), and area/total stats reach ~1e9-scale values that
-        # float32 truncates to ~7 significant digits. The array is tiny
-        # (cells x dates x variables) and JSON output is float64 anyway, so store the
-        # full precision rather than round-tripping through float32.
+        # float64, not float32: area/total stats reach ~1e9-scale values that
+        # float32 truncates to ~7 significant digits, and the array is tiny.
         #
-        # The (dates x cells x variables) array is filled slice-by-slice via
-        # :meth:`fill` -- one whole (date, variable) cell-vector per assignment.
-        # Completeness is a construction invariant: ``RasterCollection.validate``
-        # guarantees every (date, variable) raster exists, so every slice is written
-        # exactly once and no hole-detection sentinel is needed. Start at 0.0 (a
-        # plain, documented fill); any cell not overwritten would only occur if that
-        # invariant were violated.
+        # Filled slice-by-slice via :meth:`fill` -- one whole (date, variable)
+        # cell-vector per assignment. Completeness is a construction invariant
+        # (``RasterCollection.validate`` guarantees every raster exists), so every
+        # slice is written exactly once and 0.0 is never read back unwritten.
         self._array = numpy.zeros(
             (
                 len(self._dates_index),

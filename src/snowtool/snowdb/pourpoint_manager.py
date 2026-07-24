@@ -75,16 +75,10 @@ def _update_index(
 ) -> PourpointIndex:
     """Incrementally rebuild ``index.geojson`` after an import/sync/remove.
 
-    Iterates the *surviving* record files (so removed/pruned triplets fall
-    out naturally) and, per record: a pourpoint parsed in-memory by this
-    operation (``imported``) is indexed without a disk re-parse; an existing
-    index entry whose coverage keys still equal the registered-dataset names
-    is reused as-is; anything else -- a missing/stale index, or a dataset
-    registered/removed since the entry was written -- is re-parsed from disk
-    (the self-healing fallback). The one change this cannot see is a grid
-    change for an already-registered dataset name; that requires an explicit
-    :meth:`PourpointManager.reindex`. ``progress`` reports the pass, advancing
-    once per record whether reused, rebuilt from memory, or parsed.
+    Iterates the *surviving* record files (so removed/pruned triplets fall out
+    naturally); see :mod:`~snowtool.snowdb.pourpoint_index` for the
+    reuse/rebuild contract. ``progress`` reports the pass, advancing once per
+    record whether reused, rebuilt from memory, or parsed.
     """
     domains = _coverage_domains(db)
     previous = PourpointIndex.load(db.pourpoint_index_path)
@@ -209,13 +203,12 @@ class PourpointManager:
     def reindex(self, *, progress: ProgressReporter = NULL_PROGRESS) -> PourpointIndex:
         """Rebuild ``index.geojson`` from the ``records/`` dir and persist it.
 
-        The explicit FULL rebuild: every record is re-parsed and the persisted
-        index is ignored -- the recovery path for out-of-band ``records/`` edits
-        and for a grid change to an already-registered dataset (the one change
-        the incremental :func:`_update_index` cannot see). Coverage is
-        re-derived against every *registered* dataset's current grid (active
-        or not -- an inactive dataset carries real coverage the moment it is
-        activated), so the manifest always reflects the live grids.
+        The explicit full rebuild described in
+        :mod:`~snowtool.snowdb.pourpoint_index`: every record is re-parsed and
+        the persisted index is ignored. Coverage is re-derived against every
+        *registered* dataset's current grid (active or not -- an inactive
+        dataset carries real coverage the moment it is activated), so the
+        manifest always reflects the live grids.
         """
         domains = _coverage_domains(self.db)
         index = PourpointIndex.build(

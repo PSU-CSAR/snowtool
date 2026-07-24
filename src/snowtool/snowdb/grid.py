@@ -26,10 +26,8 @@ from snowtool.exceptions import GeometryOutsideGridError
 # A geographic bounding box: (west, south, east, north) in EPSG:4326.
 Bounds = tuple[float, float, float, float]
 
-# A bounding box in some other (typically projected, or the grid's own) CRS:
-# (minx, miny, maxx, maxy), not necessarily 4326. Structurally identical to
-# ``Bounds``; the two aliases exist to document which convention a given tuple
-# follows, not to change behaviour.
+# A bounding box in some other (typically projected) CRS: (minx, miny, maxx, maxy).
+# Structurally identical to Bounds -- the axis order/meaning differs, not the type.
 Extent = tuple[float, float, float, float]
 
 

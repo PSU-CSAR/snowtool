@@ -8,7 +8,7 @@ still surfaces as a 500. Each maps onto a registered :class:`ProblemType` (see
 ``problems.py``) so the response carries a stable, resolvable ``type`` URI:
 
 * :class:`PourpointCoverageError` -> 409 (the AOI is not covered by the dataset grid)
-* :class:`PourpointNotFoundError` -> 404 (no stored AOI record for the triplet)
+* :class:`PourpointNotFoundError` -> 404 (no stored pourpoint record for the triplet)
 * :class:`AOIRasterNotFoundError` -> 404 (the AOI raster has not been built)
 * :class:`UnknownDatasetError` -> 404 (the dataset name is unregistered or inactive)
 * :class:`QueryParameterError` -> 422 (unknown variable/zone, runaway cross)

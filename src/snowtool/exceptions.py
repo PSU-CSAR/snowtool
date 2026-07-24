@@ -47,12 +47,12 @@ class SnowDbConfigError(SnowtoolError):
 class PourpointCoverageError(SnowtoolError):
     """Raised when a pourpoint is queried against a dataset not fully covering it.
 
-    Closes the silent-partial-stats gap: a basin that spills outside (or sits
-    entirely off) a dataset's grid would otherwise return zonal stats over only
-    its in-grid portion with no warning. Carries the triplet, dataset name, and
-    computed ``coverage`` so the caller can report which case fired. ``partial``
-    coverage is overridable (``allow_partial`` -- a knowingly-clipped query);
-    ``none`` is never allowed, as an off-grid basin has no pixels to compute.
+    A basin that spills outside (or sits entirely off) a dataset's grid would
+    otherwise return zonal stats over only its in-grid portion with no warning.
+    Carries the triplet, dataset name, and computed ``coverage`` so the caller
+    can report which case fired. ``partial`` coverage is overridable
+    (``allow_partial`` -- a knowingly-clipped query); ``none`` is never
+    allowed, as an off-grid basin has no pixels to compute.
 
     A plain carrier: :func:`~snowtool.snowdb.coverage.require_full_coverage` owns
     the ``Coverage`` enum and builds the rendered ``message``, so this class does
@@ -160,11 +160,9 @@ class UnknownDatasetError(SnowtoolError, ValueError):
 
 
 class InvalidDatasetNameError(SnowtoolError, ValueError):
-    """Raised when a dataset name cannot be used as a bare token/directory name.
-
-    Registration is the single choke point for names, so a name containing a
-    path separator or ending in ``.json`` (which ``resolve_dataset``'s syntactic
-    partition would read as a path) is rejected there with this type.
+    """Raised when a dataset name reads as a path token (see
+    ``snowtool.snowdb.manager._is_path_token``); rejected at registration, the
+    single choke point for names.
     """
 
 
@@ -190,8 +188,7 @@ class ArtifactExistsError(SnowtoolError):
 
     The zone-layer generators (terrain, land cover) refuse to overwrite a layer
     that is already present unless the caller passes ``--force``; this is that
-    refusal. (The one live raise site is
-    ``snowtool.snowdb.zones.generate_common``.)
+    refusal.
     """
 
 

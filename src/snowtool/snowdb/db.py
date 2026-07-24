@@ -103,25 +103,13 @@ class SnowDb:
         # `bind_dataset` reads these, so they must be set before the bind loop.
         self.zone_layer_providers = {p.name: p for p in zone_layer_providers}
 
-        # Resolve and bind every registered dataset (inline or referenced) in one
-        # pass: config link -> (DatasetConfig, base) -> DatasetSpec -> bound Dataset.
-        # Inline uses the root (base None: the `data/<name>` convention); a
-        # referenced one resolves and defaults beside its own config file. Each
-        # dataset is always bound to its directory, present or not: a dataset with
-        # no directory simply has no data yet, which keeps the read path resilient
-        # to an un-initialized root. `registered` is everything the root config
-        # knows (the management surface: ingest, zone generation, diagnostics);
-        # `datasets` is the active subset -- the read surface
-        # (query/API/available_zones) sees only those, so a link's `active` flag
-        # is the visibility toggle. Duplicate names are impossible: config.datasets
-        # is a dict, so its keys are already unique.
+        # `registered` is everything the root config knows (the management
+        # surface: ingest, zone generation, diagnostics); `datasets` is the
+        # active subset -- the read surface (query/API/available_zones) sees
+        # only those, so a link's `active` flag is the visibility toggle.
         self.registered: dict[str, Dataset] = {}
         for name, link in config.datasets.items():
             if isinstance(link, InlineDatasetLink):
-                # An inline link carries its config directly (no path to load),
-                # so it resolves through `from_config`; the root names the error
-                # if the ingester does not resolve, mirroring what the file-facing
-                # `load_dataset_spec` does for a path link.
                 dataset_config = link.dataset
                 base = None
                 spec = resolve_spec(
@@ -137,9 +125,6 @@ class SnowDb:
                         self.root,
                         f'dataset {name!r} link points at a missing config: {resolved}',
                     )
-                # load_dataset_spec loads + resolves the linked config, wrapping
-                # both a malformed file and an unresolvable ingester into a clean
-                # SnowDbConfigError naming `resolved`; nothing further to wrap.
                 dataset_config, spec = load_dataset_spec(resolved, name)
                 base = resolved.parent
             self.registered[name] = self.bind_dataset(
@@ -217,16 +202,13 @@ class SnowDb:
         config file itself. The config is *required*: a root without one is not a
         snowdb this version understands, so this raises
         :class:`~snowtool.exceptions.SnowDbConfigError` pointing at ``snowtool
-        init`` (the deliberate no-backwards-compat call -- there is no
-        lenient un-initialized read path). The I/O half of construction: it reads +
-        parses the root config, then hands it to the constructor.
+        init``. The I/O half of construction: it reads + parses the root config,
+        then hands it to the constructor.
         """
         path = Path(path)
         config_path = path / CONFIG_FILENAME if path.is_dir() else path
         if not config_path.is_file():
             raise SnowDbConfigError(path)
-        # RootConfig.load raises a clean SnowDbConfigError naming `config_path`
-        # if it exists but doesn't parse/validate; nothing further to wrap here.
         config = RootConfig.load(config_path)
         return cls(
             config,
@@ -300,20 +282,14 @@ class SnowDb:
     def pourpoint_index(self: Self) -> PourpointIndex:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
 
-        Serves ``pourpoint list`` without parsing the (large) basin records. The
-        index is maintained *incrementally* by import/sync/remove (an entry is
-        reused as-is while its record and the registered-dataset set are
-        unchanged); ``pourpoint reindex`` is the explicit full rebuild -- required
-        after out-of-band ``records/`` edits and after a grid change to an
-        already-registered dataset name (the one change incremental maintenance
-        cannot see; registering/removing a dataset self-heals). The result is
-        cached and revalidated against the file's mtime: it ``stat``s the index
-        file and reloads only when the mtime differs from the cached one (a
-        missing file is cached as an empty index, mtime ``None``). One stat per
-        access keeps a single ``SnowDb`` -- e.g. an app-lifespan API instance --
-        correct after an out-of-band reindex without re-parsing on every request,
-        so repeated reads within one process are cheap yet still reflect an
-        out-of-band rewrite.
+        Serves ``pourpoint list`` without parsing the (large) basin records; see
+        :mod:`~snowtool.snowdb.pourpoint_index` for the incremental-vs-reindex
+        maintenance contract. Cached and revalidated against the file's mtime: it
+        ``stat``s the index file and reloads only when the mtime differs from
+        the cached one (a missing file is cached as an empty index, mtime
+        ``None``), so a single ``SnowDb`` -- e.g. an app-lifespan API instance --
+        stays correct after an out-of-band reindex at the cost of one stat per
+        access.
         """
         try:
             mtime: int | None = self.pourpoint_index_path.stat().st_mtime_ns
@@ -443,8 +419,7 @@ class SnowDb:
         ``KeyError``) for a name that is unregistered *or* registered but
         inactive -- this surface serves only active datasets. A
         registered-but-inactive name gets a pointed "activate it" hint instead
-        of a generic miss, since the fix differs (every caller of this
-        surface -- the CLI's ``stats``, the HTTP API -- benefits identically).
+        of a generic miss, since the fix differs.
         """
         try:
             return self.datasets[name]

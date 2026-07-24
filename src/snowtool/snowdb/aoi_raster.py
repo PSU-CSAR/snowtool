@@ -220,9 +220,7 @@ def aoi_provenance(geometry_hash: str, nodata_mask_hash: str | None) -> str:
     a mask add/change/remove, or a format bump all invalidate existing rasters
     through the same equality check. An explicit ``None`` (a maskless dataset)
     keeps the digest identical to the pre-mask form, so those datasets never
-    see a spurious rebuild. Required rather than defaulted: a call site that
-    forgot the mask hash would compute maskless provenance *silently* --
-    exactly the staleness bug this tag exists to catch.
+    see a spurious rebuild.
     """
     digest = (
         geometry_hash
@@ -256,11 +254,8 @@ def write_aoi_raster(
 
     The stamped ``SNOWTOOL_AOI_HASH`` tag is :func:`aoi_provenance` of
     ``geometry_hash`` and ``nodata_mask_hash`` -- computed here, from the same
-    ``nodata_mask`` this call actually burns, so there is no caller-kept
-    sync invariant to maintain. Geometry and mask are the raster's only
-    provenance axes: the cell areas are a pure function of the fixed grid, and
-    elevation/terrain are read live at query time, so a terrain rebuild never
-    invalidates an AOI raster.
+    ``nodata_mask`` this call actually burns, so there is no caller-kept sync
+    invariant to maintain (see :func:`aoi_provenance` for what invalidates it).
 
     ``nodata_mask`` pairs the dataset's optional valid-domain raster with its
     file digest (see ``DatasetConfig.nodata_mask``, ``Dataset.nodata_mask_hash``):

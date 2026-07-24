@@ -492,13 +492,8 @@ class DatasetInfoReport:
 
 
 def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
-    """Assemble a :class:`DatasetInfoReport` for ``dataset info``.
-
-    Nests :func:`dataset_status` and :func:`grid_report` rather than
-    re-scanning the dataset -- this is the one place their fields are merged
-    with the spec-derived ones (variables, zone config, per-provider zone-layer
-    hashes) that neither builder carries.
-    """
+    """Assemble a :class:`DatasetInfoReport` for ``dataset info``; see that class
+    for the nesting rationale."""
     from snowtool.snowdb.constants import MAX_ELEVATION_M, MIN_ELEVATION_M
 
     spec = dataset.spec
@@ -664,11 +659,9 @@ def _pourpoints_findings(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
 
 
 # Only ``pourpoints`` needs the whole-db pourpoint registry to compare against;
-# the other three take just the dataset. Rather than have every check accept
-# (and ignore) a ``snowdb`` it has no use for -- the accidental-protocol wart
-# this replaces -- each entry is wrapped to the one uniform calling convention
-# :func:`run_health_checks` dispatches through, so the *bodies* stay honest
-# about what they read. Order is the ``doctor`` output/CLI-help order.
+# the other three take just the dataset, wrapped to the one uniform calling
+# convention :func:`run_health_checks` dispatches through. Order is the
+# ``doctor`` output/CLI-help order.
 HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[Finding]]] = {
     'grid': lambda _snowdb, dataset: _grid_findings(dataset),
     'dates': lambda _snowdb, dataset: _dates_findings(dataset),

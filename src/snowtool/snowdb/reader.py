@@ -120,14 +120,13 @@ class SnowDbReader:
         :class:`~snowtool.snowdb.zonal_stats.ZoneSelection` (the programmatic form)
         or a CLI/HTTP ``LAYER[:PARAM=VALUE]`` string token, parsed here up front
         so a malformed token or unknown layer fails fast, before the
-        ``RasterCollection`` build's dataset I/O. The parsed selections are
-        handed to :meth:`ZonalStats.calculate`, which owns axis *resolution*
-        and takes only resolved selections. Raises a
-        clean error
-        when the dataset/variable is unknown, a zone token is malformed or names an
-        unknown layer, the pourpoint is not covered
-        (:class:`~snowtool.exceptions.PourpointCoverageError`), or the AOI raster
-        has not been rasterized (:class:`FileNotFoundError`).
+        ``RasterCollection`` build's dataset I/O; the parsed selections are then
+        handed to :meth:`ZonalStats.calculate`, which owns axis resolution.
+
+        Raises a clean, typed error for each failure mode: an unknown
+        dataset/variable, a malformed or unknown-layer zone token, an uncovered
+        pourpoint (:class:`~snowtool.exceptions.PourpointCoverageError`), or an
+        AOI raster that has not been rasterized (:class:`FileNotFoundError`).
         """
         dataset = self.db[dataset_name]
         # Refuse a silently-clipped result: the AOI must be inside the dataset's
@@ -141,9 +140,7 @@ class SnowDbReader:
         # Parse the zone tokens up front, before the RasterCollection build below
         # touches the dataset on disk -- so a bad token surfaces as a clean
         # QueryParameterError rather than being masked by a later data-integrity
-        # error. (calculate rebuilds the registry for axis resolution; it is a
-        # trivial in-memory dict over the providers, so the parse-time build is
-        # not worth threading through.)
+        # error.
         registry = available_zones(dataset.providers.values())
         zone_selections = [
             parse_zone_selection(zone, registry) if isinstance(zone, str) else zone

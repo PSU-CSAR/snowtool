@@ -79,17 +79,10 @@ class PourpointIndexEntry(BaseModel):
     # Internal rebuild signal (the basin polygon's WKB hash); not surfaced by the
     # API, kept so a stale index can be detected/rebuilt.
     geometry_hash: str
-    # Geodesic basin area (m^2), computed from the polygon at reindex so the list
-    # can report it without parsing the (large) basin records. Always present: an
-    # index entry only exists for a basin-bearing pourpoint (point-only ones are
-    # never indexed), so the area is always computable.
+    # Geodesic basin area (m^2); always present (see module docstring: an index
+    # entry only exists for a basin-bearing pourpoint).
     area_meters: float
-    # Per-dataset geometric coverage of this pourpoint's basin, keyed by dataset
-    # name. Derived: a full rebuild (`PourpointIndex.build` with no `reuse`)
-    # recomputes it, registration folds a new dataset's key in, and incremental
-    # import/sync/remove reuse an entry only while its key set still matches the
-    # registered datasets -- so a grid change to an already-registered name
-    # needs a `pourpoint reindex`.
+    # Per-dataset coverage; incremental reuse rule is in the module docstring.
     coverage: dict[str, Coverage] = Field(default_factory=dict)
 
     @classmethod
@@ -170,26 +163,17 @@ class PourpointIndex:
     ) -> Self:
         """Build an index over ``paths`` (one ``records/<triplet>.geojson`` each).
 
-        The one loop shared by the explicit FULL rebuild (``pourpoint reindex``,
-        called with no ``reuse``/``preparsed`` -- every record is parsed from
-        disk) and the incremental update after an import/sync/remove (called
-        with the previous index as ``reuse`` and this operation's just-parsed
-        pourpoints as ``preparsed``). Per record, in order: a triplet present in
-        ``preparsed`` is indexed from that in-memory :class:`Pourpoint` (no disk
-        re-parse); else a triplet present in ``reuse`` whose entry's coverage keys
-        still equal ``domains`` is kept as-is; else the record is parsed from disk
-        and indexed. Every stored record is basin-bearing (the import boundary
-        guarantees it), so a basin-less parsed record is a corrupt store and
-        raises :class:`IndexedPourpointMissingBasinError` naming the offending
-        file rather than being silently dropped. Per-dataset coverage for a
-        freshly indexed
-        entry is computed against ``domains`` (dataset name ->
-        :class:`~snowtool.snowdb.coverage.CoverageDomain`) so it stays derived:
-        a full rebuild re-derives it, and a grid/domain change is picked up by a
-        plain ``pourpoint reindex`` -- the one change a ``reuse`` hit cannot see
-        (its coverage keys match but the domain behind an unchanged name may have
-        moved). ``progress`` reports the pass, advancing once per path whether
-        reused, indexed from memory, or parsed.
+        The one loop shared by a full rebuild and an incremental update; see the
+        module docstring for the reuse/rebuild contract. Per record, in order: a
+        triplet present in ``preparsed`` is indexed from that in-memory
+        :class:`Pourpoint` (no disk re-parse); else a triplet present in
+        ``reuse`` whose entry's coverage keys still equal ``domains`` is kept
+        as-is; else the record is parsed from disk and indexed. Every stored
+        record is basin-bearing (the import boundary guarantees it), so a
+        basin-less parsed record is a corrupt store and raises
+        :class:`IndexedPourpointMissingBasinError` naming the offending file
+        rather than being silently dropped. ``progress`` reports the pass,
+        advancing once per path whether reused, indexed from memory, or parsed.
         """
         paths = sorted(paths)
         entries: list[PourpointIndexEntry] = []
