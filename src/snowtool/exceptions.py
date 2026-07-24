@@ -330,3 +330,14 @@ class PourpointPruneDestinationRequiredError(SnowtoolError):
             f'{len(triplets)} stored pourpoint(s) would be removed; pass '
             '--prune-to ARCHIVE to archive them first, or --dry-run to preview.',
         )
+
+
+class LedgerWarning(SnowtoolWarning):
+    """
+    Raised when accessing the ledger for tracking failed download attempts fails
+    No need for it to be an error I think, just say "Hey writing to the ledger failed"
+    And move on with download attempt
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
