@@ -23,7 +23,10 @@ from shapely import Geometry
 from shapely.ops import transform as shapely_transform
 
 from snowtool import types
-from snowtool.exceptions import GeoJSONValidationError
+from snowtool.exceptions import (
+    GeoJSONValidationError,
+    IndexedPourpointMissingBasinError,
+)
 
 # A pourpoint's basin geometry: a single polygon or a multi-part basin,
 # discriminated on the GeoJSON ``type`` string (geojson-pydantic models).
@@ -187,6 +190,29 @@ class Pourpoint:
             awdb_id=properties.get('awdb_id'),
             usgs_id=properties.get('usgs_id'),
         )
+
+    @classmethod
+    def from_basin_record(cls: type[Self], path: Path) -> Self:
+        """Parse a stored ``records/`` file, enforcing the basin-bearing invariant.
+
+        The checked constructor for the snowdb record store. Every stored record
+        is basin-bearing -- the import boundary (``_classify_sources``)
+        partitions point-only sources before they ever reach ``records/`` -- but
+        :meth:`from_geojson` does not enforce it (a point-only pourpoint is a
+        valid parse), so the read paths that iterate ``records/`` (the
+        rasterize/coverage pass, the index build) construct through this one
+        guard: a record whose polygon is ``None`` (an out-of-band ``records/``
+        edit) raises :class:`IndexedPourpointMissingBasinError` naming the
+        offending file rather than flowing on to fail with an untyped
+        ``ValueError`` downstream.
+        """
+        pourpoint = cls.from_geojson(path)
+        if pourpoint.polygon is None:
+            raise IndexedPourpointMissingBasinError(
+                f'Corrupt pourpoint store: record {path.name} has no basin '
+                f'polygon (every stored record must be basin-bearing).',
+            )
+        return pourpoint
 
     # Pourpoints are treated as immutable after construction, so the derived
     # geometry/area/hash below are cached_property (computed once per instance;

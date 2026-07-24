@@ -41,7 +41,6 @@ from geojson_pydantic import Feature, FeatureCollection, Point
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowtool import types
-from snowtool.exceptions import IndexedPourpointMissingBasinError
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.atomic import atomic_write_text
 from snowtool.snowdb.coverage import Coverage, dataset_coverage
@@ -168,12 +167,11 @@ class PourpointIndex:
         triplet present in ``preparsed`` is indexed from that in-memory
         :class:`Pourpoint` (no disk re-parse); else a triplet present in
         ``reuse`` whose entry's coverage keys still equal ``domains`` is kept
-        as-is; else the record is parsed from disk and indexed. Every stored
-        record is basin-bearing (the import boundary guarantees it), so a
-        basin-less parsed record is a corrupt store and raises
-        :class:`IndexedPourpointMissingBasinError` naming the offending file
-        rather than being silently dropped. ``progress`` reports the pass,
-        advancing once per path whether reused, indexed from memory, or parsed.
+        as-is; else the record is parsed from disk (through
+        :meth:`Pourpoint.from_basin_record`, so a corrupt basin-less record
+        raises the typed error naming its file rather than being silently
+        dropped) and indexed. ``progress`` reports the pass, advancing once
+        per path whether reused, indexed from memory, or parsed.
         """
         paths = sorted(paths)
         entries: list[PourpointIndexEntry] = []
@@ -190,15 +188,11 @@ class PourpointIndex:
                 elif triplet in reuse and set(reuse[triplet].coverage) == set(domains):
                     entries.append(reuse[triplet])
                 else:
-                    pourpoint = Pourpoint.from_geojson(path)
-                    if pourpoint.polygon is None:
-                        raise IndexedPourpointMissingBasinError(
-                            f'Corrupt pourpoint store: record {path.name} has no '
-                            f'basin polygon (every stored record must be '
-                            f'basin-bearing).',
-                        )
                     entries.append(
-                        PourpointIndexEntry.from_pourpoint(pourpoint, domains),
+                        PourpointIndexEntry.from_pourpoint(
+                            Pourpoint.from_basin_record(path),
+                            domains,
+                        ),
                     )
                 task.advance()
         return cls.from_entries(entries)

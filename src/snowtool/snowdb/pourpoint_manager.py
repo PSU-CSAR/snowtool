@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from snowtool import types
 from snowtool.exceptions import (
     GeoJSONValidationError,
-    IndexedPourpointMissingBasinError,
     PourpointPruneDestinationRequiredError,
 )
 from snowtool.snowdb.atomic import atomic_copy
@@ -222,15 +221,11 @@ class PourpointManager:
     def basins(self, *, progress: ProgressReporter = NULL_PROGRESS) -> list[Pourpoint]:
         """Parse and return every stored pourpoint record (all basin-bearing).
 
-        The rasterize/coverage passes work on basins only. Every stored record is
-        basin-bearing -- the import boundary (:func:`_classify_sources`) guarantees it
-        by partitioning invalid/point-only sources before they ever reach ``records/``.
-        The parse itself does *not* enforce basin presence, so this method enforces
-        the invariant on read: a record whose polygon is ``None`` (an out-of-band
-        ``records/`` edit) raises :class:`IndexedPourpointMissingBasinError` naming the
-        record file, rather than flowing on to fail with an untyped ``ValueError``
-        downstream. ``progress`` reports the parse as one tracked task, advancing once
-        per record.
+        The rasterize/coverage passes work on basins only, so every record is
+        loaded through :meth:`Pourpoint.from_basin_record` -- the one guard
+        enforcing the basin-bearing invariant on read (a corrupt basin-less
+        record raises the typed error naming its file). ``progress`` reports
+        the parse as one tracked task, advancing once per record.
         """
         record_paths = self.db.pourpoint_paths()
         basins: list[Pourpoint] = []
@@ -239,13 +234,7 @@ class PourpointManager:
             total=len(record_paths),
         ) as task:
             for path in record_paths:
-                pourpoint = Pourpoint.from_geojson(path)
-                if pourpoint.polygon is None:
-                    raise IndexedPourpointMissingBasinError(
-                        f'Corrupt pourpoint store: record {path.name} has no basin '
-                        f'polygon (every stored record must be basin-bearing).',
-                    )
-                basins.append(pourpoint)
+                basins.append(Pourpoint.from_basin_record(path))
                 task.advance()
         return basins
 
