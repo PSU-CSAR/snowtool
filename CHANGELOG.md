@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - **CLI change:** the `stats --zone` override syntax is now the explicit
   `LAYER:PARAM=VALUE` (e.g. `terrain.elevation:band_step_ft=500`); the old
   positional `LAYER:VALUE` form is no longer accepted.
+- `SNOWTOOL_MAX_CONCURRENT_RASTERS`: the reader's per-query raster-read
+  concurrency cap — the peak-memory bound on a long-running API server — is
+  now a `Settings` field wired through the app factory like its two sibling
+  read-path knobs (`SNOWTOOL_TIFF_CACHE_SIZE`, `SNOWTOOL_MAX_ZONE_CELLS`);
+  previously it silently stayed at the built-in default.
 
 ### Changed
 
@@ -228,6 +233,26 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   triggers the ~1.5 GB NLCD download first.
 - All newly written COGs use ZSTD compression (was DEFLATE); see the **Live
   databases** note above.
+- The unknown-dataset error message is now built one way everywhere:
+  `No such dataset '<name>'. Active|Registered datasets: ...` (previously
+  three hand-assembled variants across the read and write surfaces).
+- `pourpoint remove` of a record that doesn't exist is now a true no-op: it
+  no longer re-reads the whole database and rewrites the index. Pourpoint
+  writes also share one "fresh view" primitive (`SnowDb.reopened()`) instead
+  of a second, heavier reopen mechanism beside the manager's.
+- A second structural quality pass (round 7) consolidated the duplicated
+  machinery the audit flagged, with no behavior or format change: one
+  generation-driver template for the terrain and land-cover engines, one
+  grid-geometry object shared by all three ingesters, one
+  `{stem}__{key}.tif` naming/derivation home for per-variable ingest, one
+  pourpoint-index properties model (was two mirrored models with
+  field-by-field mappers), one config→`Dataset` bind path, one filename
+  matcher for the variable↔COG contract, a typed `TileWindow` owning the
+  AOI tile-bbox tag (write, parse, and offset math in one place; tag format
+  byte-identical), and the `doctor` finding tier flattened to one encoding
+  (`diagnostics.py` shrank by 70 lines with byte-identical output). IIS
+  install/remove orchestration moved behind an injectable seam and its step
+  sequencing is now unit-tested off-Windows.
 
 ### Removed
 
@@ -303,6 +328,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   of a traceback.
 - A failed remote pourpoint download no longer grinds through the queued
   backlog.
+- A stored pourpoint record missing its basin polygon now raises the typed
+  `IndexedPourpointMissingBasinError` from every `records/` read path —
+  `doctor pourpoints` and `pourpoint rasterize --all` previously died with a
+  bare `ValueError` on exactly the corruption `doctor` exists to report.
+- Generating zone layers when a provider has no configured source now raises
+  a clear error naming the fix (`--source PROVIDER PATH` or a `sources`
+  config entry) instead of a bare `KeyError: 'terrain'`.
+- INSTARR ingest now validates each band's shape against the dataset grid
+  (the guard SNODAS and SWANN already had, now shared in the ingest base) —
+  a truncated source raises `IngestSourceError` instead of silently leaving
+  nodata in the mosaic.
+- Date-completeness checks and query-time variable resolution now share one
+  filename matcher; previously one used `fnmatch` and the other `Path.glob`,
+  so "date is complete" and "this variable resolves" could disagree on
+  edge-case filenames.
 
 ### Security
 
