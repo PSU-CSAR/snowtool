@@ -23,7 +23,7 @@ from __future__ import annotations
 import shutil
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, Self
 
 from snowtool import types
 from snowtool.exceptions import (
@@ -57,7 +57,6 @@ if TYPE_CHECKING:
 
     from snowtool.snowdb.pourpoint_index import PourpointIndexEntry
     from snowtool.snowdb.zones.zone_layer import (
-        AvailableZone,
         ZoneLayerProvider,
         ZoneLayerSource,
     )
@@ -172,13 +171,12 @@ class SnowDb:
 
         # The pourpoint index is read on every listing/coverage call (every API
         # request), so it is cached on the instance rather than re-parsed each
-        # time. The cache is *mtime-revalidated* (see `pourpoint_index`): primed
-        # here alongside the config reads, then re-read only when `index.geojson`'s
-        # mtime changes, so a long-running API server picks up an out-of-band
-        # `pourpoint import`/`reindex` without a restart at the cost of one stat.
+        # time. The cache is *mtime-revalidated* (see `pourpoint_index`):
+        # re-read only when `index.geojson`'s mtime changes, so a long-running
+        # API server picks up an out-of-band `pourpoint import`/`reindex`
+        # without a restart at the cost of one stat.
         self._index: PourpointIndex | None = None
         self._index_mtime: int | None = None
-        self.pourpoint_index()
 
     def bind_dataset(
         self: Self,
@@ -234,23 +232,6 @@ class SnowDb:
             config,
             zone_layer_providers=zone_layer_providers,
         )
-
-    def available_zones(self: Self) -> dict[str, AvailableZone]:
-        """The query-able zone layers across this database's *enabled* providers.
-
-        Keyed ``'<provider>.<layer.key>'`` (e.g. ``'terrain.elevation'``); the union
-        over every dataset's enabled providers, so a zone appears only if some
-        dataset serves it. Only layers that declare a zoning scheme appear. The
-        terrain aspect-orientation components are each their own banded axis
-        (``terrain.northness`` / ``terrain.eastness``), so they *are* listed. The
-        representation of a zone's valid values is its scheme's ``zones()``.
-        """
-        from snowtool.snowdb.zones.zone_layer import available_zones
-
-        zones: dict[str, AvailableZone] = {}
-        for dataset in self.datasets.values():
-            zones.update(available_zones(dataset.providers.values()))
-        return zones
 
     # --- global pourpoint query helpers (drive the pourpoint commands) ---
 
@@ -316,26 +297,6 @@ class SnowDb:
             )
         return pourpoint
 
-    def load_basin(
-        self: Self,
-        triplet: types.StationTriplet,
-        *,
-        index: PourpointIndex | None = None,
-    ) -> Polygon | MultiPolygon:
-        """The basin polygon of an *indexed* pourpoint ``triplet``.
-
-        A trivial accessor over :meth:`load_pourpoint`, which owns the
-        ``indexed => basin-bearing`` invariant: an unindexed triplet raises
-        :class:`PourpointNotFoundError` and a corrupt (basin-less) indexed record
-        raises :class:`IndexedPourpointMissingBasinError`, so ``polygon`` is never
-        ``None`` here -- the ``cast`` only narrows the type for the checker (no
-        runtime re-check, since ``load_pourpoint`` already enforced it).
-        """
-        return cast(
-            'Polygon | MultiPolygon',
-            self.load_pourpoint(triplet, index=index).polygon,
-        )
-
     def pourpoint_index(self: Self) -> PourpointIndex:
         """The persisted ``index.geojson`` manifest (empty if absent), mtime-cached.
 
@@ -381,7 +342,7 @@ class SnowDb:
         ``total`` (second return value), computed before the ``offset``/``limit``
         slice so pagination reports the full match count. Each page entry is
         paired with its basin polygon when ``with_basins`` -- a per-record
-        :meth:`load_basin` (the expensive view; the index stores points only),
+        :meth:`load_pourpoint` (the expensive view; the index stores points only),
         which enforces the ``indexed => basin-bearing`` invariant -- or ``None``
         otherwise (the caller uses the entry's point).
         """
@@ -395,7 +356,9 @@ class SnowDb:
         page: list[tuple[PourpointIndexEntry, Polygon | MultiPolygon | None]] = []
         for entry in entries[offset : offset + limit]:
             geometry = (
-                self.load_basin(entry.triplet, index=index) if with_basins else None
+                self.load_pourpoint(entry.triplet, index=index).polygon
+                if with_basins
+                else None
             )
             page.append((entry, geometry))
         return page, total

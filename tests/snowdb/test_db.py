@@ -431,33 +431,6 @@ def test_load_pourpoint_raises_on_indexed_point_only_record(
         db.load_pourpoint('99999:MT:USGS')
 
 
-def test_load_basin_raises_on_indexed_point_only_record(
-    tmp_path,
-    spec,
-    pourpoint_geojson,
-):
-    # `load_basin` is now a trivial accessor over `load_pourpoint`, so it
-    # inherits the same typed error on a corrupt (basin-less) indexed record.
-    manager = SnowDbManager.initialize(tmp_path)
-    register_dataset_config(manager, 'test', config_from_spec(spec))
-    SnowDbManager.open(tmp_path).pourpoints.import_(pourpoint_geojson)
-
-    db = SnowDb.open(tmp_path)
-    triplet = '12345:MT:USGS'
-    assert triplet in db.pourpoint_index()  # still indexed as basin-bearing
-    _corrupt_to_point_only(db, triplet)
-
-    with pytest.raises(
-        IndexedPourpointMissingBasinError,
-        match='has no basin polygon',
-    ):
-        db.load_basin(triplet)
-
-    # An unindexed triplet still gates on the index first (PourpointNotFound).
-    with pytest.raises(PourpointNotFoundError):
-        db.load_basin('99999:MT:USGS')
-
-
 def test_getitem_raises_unknown_dataset_error_for_an_unregistered_name(tmp_path, spec):
     db = make_snowdb(tmp_path, [spec])
 

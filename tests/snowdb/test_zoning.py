@@ -363,19 +363,6 @@ def test_available_zones_lists_zoneable_layers_including_components():
     assert elevation.scheme is ELEVATION.zoning
 
 
-def test_snowdb_available_zones_delegates(tmp_path, spec):
-
-    db = make_snowdb(tmp_path, [spec])
-    assert set(db.available_zones()) == {
-        'terrain.elevation',
-        'terrain.aspect',
-        'terrain.northness',
-        'terrain.eastness',
-        'terrain.aspect_entropy',
-        'landcover.forest_cover',
-    }
-
-
 def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
     # A terrain-only dataset: its zones enable terrain but not land cover.
     terrain_only = DatasetSpec(
@@ -397,8 +384,8 @@ def test_enablement_scopes_providers_generation_and_available_zones(tmp_path):
     # Bound to terrain only -- land cover is neither a provider nor a zone set.
     assert set(ds.zones) == {'terrain'}
     assert 'landcover' not in ds.providers
-    # available_zones reflects only what some dataset enables.
-    zones = db.available_zones()
+    # available_zones reflects only what the dataset enables.
+    zones = available_zones(ds.providers.values())
     assert 'terrain.elevation' in zones
     assert 'landcover.forest_cover' not in zones
     # Generation for a provider no dataset enables targets nothing.
@@ -459,6 +446,6 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     # Bound as a zone-layer set, reported by artifact status + the registry...
     assert 'tiny' in ds.zones
     assert 'tiny' in ds.artifact_status().zone_layers
-    assert 'tiny.tier' in db.available_zones()
+    assert 'tiny.tier' in available_zones(ds.providers.values())
     # ...and (since it isn't built on disk) surfaced as a missing artifact.
     assert any(m.startswith('tiny') for m in diagnostics.missing_artifacts(ds))
