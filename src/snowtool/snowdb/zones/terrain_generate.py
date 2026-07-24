@@ -68,11 +68,10 @@ from __future__ import annotations
 import math
 import warnings
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 import numpy
 import numpy.typing
-import rasterio
 
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import Resampling, calculate_default_transform, transform_bounds
@@ -81,21 +80,22 @@ from rasterio.windows import transform as window_transform
 
 from snowtool.exceptions import SnowtoolWarning
 from snowtool.snowdb.constants import DEM_HASH_TAG
+from snowtool.snowdb.grid import grid_extent
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.generate_common import (
     BinAccumulator,
     Block,
+    FinalizedLayers,
     Loaded,
     StreamingBinner,
     cells_for_points,
-    finalize_and_stamp,
     iter_blocks,
     pixel_centre_coords,
-    require_absent_layers,
+    rio_crs,
+    run_generation,
 )
 from snowtool.snowdb.zones.parallel import (
     CancelToken,
-    effective_workers,
 )
 from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_COMPONENT_NODATA,
@@ -118,10 +118,10 @@ from snowtool.snowdb.zones.terrain_layers import (
 
 if TYPE_CHECKING:
     from affine import Affine
+    from rasterio.io import DatasetReader
 
     from snowtool.snowdb.grid import Bounds, Extent
     from snowtool.snowdb.zones.zone_layer import (
-        ZoneLayer,
         ZoneLayerSource,
         ZoneLayerTarget,
     )
@@ -243,13 +243,13 @@ class _GridAccumulator(BinAccumulator):
             self.sum_sin += numpy.bincount(cf, weights=sin[inb][nf], minlength=nc)
             self.n_nonflat += numpy.bincount(cf, minlength=nc)
 
-    def finalize(
-        self: Self,
-    ) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]:
+    def finalize(self: Self) -> FinalizedLayers:
         """Reduce the accumulators to each terrain layer, paired with its array.
 
         Order matches :data:`~snowtool.snowdb.zones.terrain.TERRAIN_LAYERS`
         (elevation, aspect majority, northness, eastness, aspect entropy).
+        Elevation is the digest array (the one whose bytes feed the generation
+        hash).
         """
         h, w = self.height, self.width
         counts = self.counts.reshape(_N_CLASSES, h, w)
@@ -290,13 +290,17 @@ class _GridAccumulator(BinAccumulator):
                 ASPECT_ENTROPY_NODATA,
             )
 
-        return [
-            (ELEVATION, elevation.astype(numpy.float32)),
-            (ASPECT_MAJORITY, majority),
-            (NORTHNESS, northness.astype(numpy.float32)),
-            (EASTNESS, eastness.astype(numpy.float32)),
-            (ASPECT_ENTROPY, entropy.astype(numpy.float32)),
-        ]
+        elevation32 = elevation.astype(numpy.float32)
+        return FinalizedLayers(
+            artifacts=[
+                (ELEVATION, elevation32),
+                (ASPECT_MAJORITY, majority),
+                (NORTHNESS, northness.astype(numpy.float32)),
+                (EASTNESS, eastness.astype(numpy.float32)),
+                (ASPECT_ENTROPY, entropy.astype(numpy.float32)),
+            ],
+            digest_array=elevation32,
+        )
 
 
 def _target_bounds_in_work_crs(
@@ -323,12 +327,15 @@ def _target_bounds_in_work_crs(
     easts: list[float] = []
     norths: list[float] = []
     for target in targets:
-        t = target.transform
-        xmin, ymax = t.c, t.f
-        xmax = t.c + target.cols * t.a
-        ymin = t.f + target.rows * t.e
-        rio_crs = rasterio.crs.CRS.from_wkt(target.crs.to_wkt())
-        w, s, e, n = transform_bounds(rio_crs, work_crs, xmin, ymin, xmax, ymax)
+        xmin, ymin, xmax, ymax = grid_extent(target.grid)
+        w, s, e, n = transform_bounds(
+            rio_crs(target.crs),
+            work_crs,
+            xmin,
+            ymin,
+            xmax,
+            ymax,
+        )
         wests.append(w)
         souths.append(s)
         easts.append(e)
@@ -402,23 +409,18 @@ def generate_terrain(
     """
     from snowtool.snowdb.zones.terrain_source import DemSource
 
-    if not isinstance(source, DemSource):
-        raise TypeError(f'terrain generation needs a DemSource, got {source!r}')
-    if not targets:
-        return {}
-
-    work_crs = source.work_crs
-    work_resolution = source.work_resolution
-    n_workers = effective_workers(workers)
-    bs = block_size if block_size is not None else DEFAULT_BLOCK_SIZE
-
-    if not force:
-        # Check every target before the (expensive) source read.
-        require_absent_layers(targets, TERRAIN_LAYERS, 'terrain')
-
-    accumulators = [_GridAccumulator(target) for target in targets]
-
-    with source.open(bounds, progress=progress) as src:
+    def stream(
+        src: DatasetReader,
+        accumulators: list[_GridAccumulator],
+        n_workers: int,
+        bs: int,
+        progress: ProgressReporter,
+    ) -> None:
+        # run_generation has already type-guarded the source; the cast re-narrows
+        # it for the type checker so the DemSource attributes below are legible.
+        dem = cast('DemSource', source)
+        work_crs = dem.work_crs
+        work_resolution = dem.work_resolution
         # Mask source fill using the source's own declared nodata. If it declares
         # none, trust it (mask nothing) -- but warn, since an undeclared fill value
         # would otherwise be aggregated as real elevation.
@@ -446,44 +448,58 @@ def generate_terrain(
             full_h,
             _target_bounds_in_work_crs(targets, work_crs),
         )
-        if clipped is not None:
-            dst_transform, dst_w, dst_h = clipped
-            px, py = abs(dst_transform.a), abs(dst_transform.e)
-            with WarpedVRT(
-                src,
-                crs=work_crs,
-                transform=dst_transform,
-                width=dst_w,
-                height=dst_h,
-                resampling=Resampling.bilinear,
-                src_nodata=src_nodata,
-                # The streaming pass marks no-data with NaN (numpy.isfinite), so the
-                # working band must be float. rasterio already promotes the band to
-                # float to hold nodata=NaN (even for an integer source); we pin it
-                # explicitly so that contract is independent of rasterio's inference.
-                # float64 matches the downstream pipeline (the block read casts to
-                # float64 anyway).
-                dtype='float64',
-                nodata=numpy.nan,
-            ) as wvrt:
-                _TerrainStreamer(
-                    wvrt,
-                    dst_transform,
-                    dst_w,
-                    dst_h,
-                    px,
-                    py,
-                    accumulators,
-                    work_crs,
-                    bs,
-                ).run(n_workers, progress)
-        # else: no target overlaps the source -> accumulators stay empty (nodata).
+        if clipped is None:
+            # No target overlaps the source -> accumulators stay empty (nodata).
+            return
+        dst_transform, dst_w, dst_h = clipped
+        px, py = abs(dst_transform.a), abs(dst_transform.e)
+        with WarpedVRT(
+            src,
+            crs=work_crs,
+            transform=dst_transform,
+            width=dst_w,
+            height=dst_h,
+            resampling=Resampling.bilinear,
+            src_nodata=src_nodata,
+            # The streaming pass marks no-data with NaN (numpy.isfinite), so the
+            # working band must be float. rasterio already promotes the band to
+            # float to hold nodata=NaN (even for an integer source); we pin it
+            # explicitly so that contract is independent of rasterio's inference.
+            # float64 matches the downstream pipeline (the block read casts to
+            # float64 anyway).
+            dtype='float64',
+            nodata=numpy.nan,
+        ) as wvrt:
+            _TerrainStreamer(
+                wvrt,
+                dst_transform,
+                dst_w,
+                dst_h,
+                px,
+                py,
+                accumulators,
+                work_crs,
+                bs,
+            ).run(n_workers, progress)
 
-    # See finalize_and_stamp for the generation-hash contract.
-    return finalize_and_stamp(
-        accumulators,
+    return run_generation(
+        source,
+        targets,
+        bounds,
+        # Abstract base (its open() is the ABC's); only ever isinstance-checked.
+        source_type=DemSource,  # type: ignore[type-abstract]
+        source_error=f'terrain generation needs a DemSource, got {source!r}',
+        layers=TERRAIN_LAYERS,
+        kind='terrain',
         format_version=TERRAIN_FORMAT_VERSION,
         hash_tag=DEM_HASH_TAG,
+        default_block_size=DEFAULT_BLOCK_SIZE,
+        make_accumulator=_GridAccumulator,
+        stream=stream,
+        workers=workers,
+        block_size=block_size,
+        force=force,
+        progress=progress,
     )
 
 

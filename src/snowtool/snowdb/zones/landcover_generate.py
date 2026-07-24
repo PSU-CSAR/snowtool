@@ -41,13 +41,13 @@ from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.zones.generate_common import (
     BinAccumulator,
     Block,
+    FinalizedLayers,
     Loaded,
     StreamingBinner,
     cells_for_points,
-    finalize_and_stamp,
     iter_blocks,
     pixel_centre_coords,
-    require_absent_layers,
+    run_generation,
 )
 from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
@@ -56,15 +56,14 @@ from snowtool.snowdb.zones.landcover_layers import (
 )
 from snowtool.snowdb.zones.parallel import (
     CancelToken,
-    effective_workers,
 )
 
 if TYPE_CHECKING:
     from affine import Affine
+    from rasterio.io import DatasetReader
 
     from snowtool.snowdb.grid import Bounds
     from snowtool.snowdb.zones.zone_layer import (
-        ZoneLayer,
         ZoneLayerSource,
         ZoneLayerTarget,
     )
@@ -110,8 +109,12 @@ class _ForestAccumulator(BinAccumulator):
         if forest_cells.size:
             self.forest += numpy.bincount(forest_cells, minlength=n)
 
-    def finalize(self: Self) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]:
-        """Reduce the counts to the percent-forest layer (nodata where no pixels)."""
+    def finalize(self: Self) -> FinalizedLayers:
+        """Reduce the counts to the percent-forest layer (nodata where no pixels).
+
+        The single forest-cover array is the digest array (the one whose bytes
+        feed the generation hash).
+        """
         h, w = self.height, self.width
         valid = self.valid.reshape(h, w)
         forest = self.forest.reshape(h, w)
@@ -119,7 +122,7 @@ class _ForestAccumulator(BinAccumulator):
         has = valid > 0
         # forest <= valid, so the rounded percentage is always in 0..100.
         out[has] = numpy.rint(100.0 * forest[has] / valid[has]).astype(numpy.uint8)
-        return [(FOREST_COVER, out)]
+        return FinalizedLayers(artifacts=[(FOREST_COVER, out)], digest_array=out)
 
 
 def generate_landcover(
@@ -151,48 +154,53 @@ def generate_landcover(
     """
     from snowtool.snowdb.zones.landcover_source import LandCoverSource
 
-    if not isinstance(source, LandCoverSource):
-        raise TypeError(
-            f'land-cover generation needs a LandCoverSource, got {source!r}',
-        )
-    if not targets:
-        return {}
-
-    n_workers = effective_workers(workers)
-    bs = block_size if block_size is not None else BLOCK
-
-    if not force:
-        # Check every target before the (potentially large) source read.
-        require_absent_layers(targets, LANDCOVER_LAYERS, 'land cover')
-
-    accumulators = [_ForestAccumulator(target) for target in targets]
-
     # NLCD uses 0 for unclassified/background; treat it (and the file's declared
     # nodata) as invalid so empty cells read as nodata rather than 0% forest.
     forest = numpy.asarray(FOREST_CLASSES)
 
-    with source.open(bounds, progress=progress) as src:
+    def stream(
+        src: DatasetReader,
+        accumulators: list[_ForestAccumulator],
+        n_workers: int,
+        bs: int,
+        progress: ProgressReporter,
+    ) -> None:
         source_crs = src.crs.to_wkt()
         src_nodata = src.nodata
 
         window = _source_window(src, targets)
-        if window is not None:
-            _LandCoverStreamer(
-                src,
-                src.transform,
-                window,
-                forest,
-                src_nodata,
-                accumulators,
-                source_crs,
-                bs,
-            ).run(n_workers, progress)
+        if window is None:
+            # No target overlaps the source -> accumulators stay empty (nodata).
+            return
+        _LandCoverStreamer(
+            src,
+            src.transform,
+            window,
+            forest,
+            src_nodata,
+            accumulators,
+            source_crs,
+            bs,
+        ).run(n_workers, progress)
 
-    # See finalize_and_stamp for the generation-hash contract.
-    return finalize_and_stamp(
-        accumulators,
+    return run_generation(
+        source,
+        targets,
+        bounds,
+        # Abstract base (its open() is the ABC's); only ever isinstance-checked.
+        source_type=LandCoverSource,  # type: ignore[type-abstract]
+        source_error=f'land-cover generation needs a LandCoverSource, got {source!r}',
+        layers=LANDCOVER_LAYERS,
+        kind='land cover',
         format_version=LANDCOVER_FORMAT_VERSION,
         hash_tag=NLCD_HASH_TAG,
+        default_block_size=BLOCK,
+        make_accumulator=_ForestAccumulator,
+        stream=stream,
+        workers=workers,
+        block_size=block_size,
+        force=force,
+        progress=progress,
     )
 
 

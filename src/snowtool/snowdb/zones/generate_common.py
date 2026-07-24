@@ -36,6 +36,7 @@ from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.raster.cog import write_cog
 from snowtool.snowdb.zones.parallel import (
     CancelToken,
+    effective_workers,
     ordered_parallel_map,
 )
 
@@ -46,8 +47,42 @@ if TYPE_CHECKING:
     import numpy.typing
 
     from affine import Affine
+    from pyproj import CRS
+    from rasterio.io import DatasetReader
 
-    from snowtool.snowdb.zones.zone_layer import ZoneLayer, ZoneLayerTarget
+    from snowtool.snowdb.grid import Bounds
+    from snowtool.snowdb.zones.zone_layer import (
+        ZoneLayer,
+        ZoneLayerSource,
+        ZoneLayerTarget,
+    )
+
+
+@dataclass(frozen=True)
+class FinalizedLayers:
+    """One accumulator's finalized output: the layers to write and the digest array.
+
+    Makes the generation-hash contract structural rather than positional. Each
+    engine's :meth:`BinAccumulator.finalize` names its ``digest_array`` explicitly
+    (the one array whose bytes feed the generation hash), so
+    :func:`finalize_and_stamp` never has to trust ``artifacts[0]`` -- a reorder of
+    ``artifacts`` cannot silently change provenance. ``digest_array`` must remain
+    the *same* array each engine has always digested (terrain: elevation; land
+    cover: forest cover) so on-disk provenance hashes are byte-identical.
+    """
+
+    artifacts: list[tuple[ZoneLayer, numpy.typing.NDArray]]
+    digest_array: numpy.typing.NDArray
+
+
+def rio_crs(crs: CRS) -> rasterio.crs.CRS:
+    """A rasterio CRS from a pyproj/griffine grid CRS, via WKT.
+
+    The one place a grid CRS is turned into the ``rasterio.crs.CRS`` the raster
+    I/O (COG writes, warp-bounds transforms) needs. Shared so the conversion
+    reads the same at every call site.
+    """
+    return rasterio.crs.CRS.from_wkt(crs.to_wkt())
 
 
 class BinAccumulator(ABC):
@@ -93,9 +128,14 @@ class BinAccumulator(ABC):
         """
 
     @abstractmethod
-    def finalize(
-        self: Self,
-    ) -> list[tuple[ZoneLayer, numpy.typing.NDArray]]: ...
+    def finalize(self: Self) -> FinalizedLayers:
+        """Reduce the accumulators to this target's layers and its digest array.
+
+        Returns a :class:`FinalizedLayers` naming both the ``(layer, array)``
+        artifacts to write and the ``digest_array`` whose bytes feed the
+        generation hash -- so which array is digested is structural, not the
+        positional ``artifacts[0]`` it used to be.
+        """
 
 
 @dataclass(frozen=True)
@@ -182,17 +222,17 @@ def finalize_and_stamp(
     """Finalize every accumulator, compute one generation hash, then write.
 
     One generation id for the whole streaming pass: a sha256 digest over every
-    target's name plus its *first* finalized layer's array (sorted by target
-    name for determinism), turned into a
+    target's name plus its finalized :attr:`FinalizedLayers.digest_array` (sorted
+    by target name for determinism), turned into a
     :func:`~snowtool.snowdb.provenance.versioned_hash` and stamped identically
     (under ``hash_tag``) on every output of every target -- so everything
     produced together reconciles as one set. The iteration order (sorted for the
     digest, input order for the returned mapping), the per-accumulator update
     sequence (name bytes, then array bytes), and which array is digested are all
     provenance-visible and must stay exactly as each caller already relies on:
-    the digested array is definitionally the first pair each ``finalize``
-    returns (terrain lists elevation first; land cover returns only the forest
-    array), so each engine pins its digested array by ordering that list.
+    each engine's ``finalize`` names its own ``digest_array`` (terrain: elevation;
+    land cover: forest cover), so the digested array is structural rather than
+    the positional ``artifacts[0]`` it used to be.
 
     The write is two-phase so a crash cannot strand a partial layer set that
     :func:`require_absent_layers` would then refuse to regenerate: every COG of
@@ -203,23 +243,80 @@ def finalize_and_stamp(
     handful of atomic renames, never a partially-written file.
     """
     accs = list(accumulators)
-    finalized: list[
-        tuple[BinAccumulator, list[tuple[ZoneLayer, numpy.typing.NDArray]]]
-    ] = []
+    finalized: list[tuple[BinAccumulator, FinalizedLayers]] = []
     digest = hashlib.sha256()
     for acc in sorted(accs, key=lambda acc: acc.target.name):
-        artifacts = acc.finalize()
-        finalized.append((acc, artifacts))
+        result = acc.finalize()
+        finalized.append((acc, result))
         digest.update(acc.target.name.encode('utf-8'))
-        digest.update(artifacts[0][1].tobytes())
+        digest.update(result.digest_array.tobytes())
     generation_hash = versioned_hash(format_version, digest.hexdigest())
 
     pending: list[tuple[Path, Path]] = []
-    for acc, artifacts in finalized:
-        pending.extend(write_layers(acc.target, artifacts, generation_hash, hash_tag))
+    for acc, result in finalized:
+        pending.extend(
+            write_layers(acc.target, result.artifacts, generation_hash, hash_tag),
+        )
     for part, final in pending:
         part.replace(final)
     return dict.fromkeys((acc.target.name for acc in accs), generation_hash)
+
+
+def run_generation[Acc: BinAccumulator](
+    source: ZoneLayerSource,
+    targets: list[ZoneLayerTarget],
+    bounds: Bounds,
+    *,
+    source_type: type[ZoneLayerSource],
+    source_error: str,
+    layers: Iterable[ZoneLayer],
+    kind: str,
+    format_version: int,
+    hash_tag: str,
+    default_block_size: int,
+    make_accumulator: Callable[[ZoneLayerTarget], Acc],
+    stream: Callable[[DatasetReader, list[Acc], int, int, ProgressReporter], None],
+    workers: int | None,
+    block_size: int | None,
+    force: bool,
+    progress: ProgressReporter,
+) -> dict[str, str]:
+    """The shared spine of every input-driven scatter engine's public entry point.
+
+    Terrain and land cover run the identical outer pipeline -- reject a source of
+    the wrong type; short-circuit empty ``targets``; resolve worker count and block
+    size (each engine's own ``default_block_size``); pre-flight the existence guard
+    (unless ``force``); build one accumulator per target; open the source once; and
+    finalize-and-stamp the accumulators into one provenance hash. Only the middle
+    differs, and that is ``stream``: an opened-source callback that owns the
+    engine-specific window/warp derivation and runs the streaming binner, or returns
+    early (binning nothing -> an all-nodata layer set) when no target overlaps the
+    source. ``source_error`` is the ``TypeError`` message for a wrong source;
+    ``make_accumulator`` builds each target's engine-specific accumulator.
+    """
+    if not isinstance(source, source_type):
+        raise TypeError(source_error)
+    if not targets:
+        return {}
+
+    n_workers = effective_workers(workers)
+    bs = block_size if block_size is not None else default_block_size
+
+    if not force:
+        # Check every target before the (potentially expensive) source read.
+        require_absent_layers(targets, layers, kind)
+
+    accumulators = [make_accumulator(target) for target in targets]
+
+    with source.open(bounds, progress=progress) as src:
+        stream(src, accumulators, n_workers, bs, progress)
+
+    # See finalize_and_stamp for the generation-hash contract.
+    return finalize_and_stamp(
+        accumulators,
+        format_version=format_version,
+        hash_tag=hash_tag,
+    )
 
 
 def write_layers(
@@ -235,7 +332,7 @@ def write_layers(
     so no final layer file ever appears before the whole generation succeeded.
     """
     target.directory.mkdir(parents=True, exist_ok=True)
-    rio_crs = rasterio.crs.CRS.from_wkt(target.crs.to_wkt())
+    crs = rio_crs(target.crs)
     pending: list[tuple[Path, Path]] = []
     for layer, array in artifacts:
         final = target.directory / layer.filename
@@ -244,7 +341,7 @@ def write_layers(
             part,
             array,
             transform=target.transform,
-            crs=rio_crs,
+            crs=crs,
             nodata=layer.nodata,
             tile_size=target.tile_size,
             band_descriptions=layer.band_descriptions,

@@ -26,6 +26,7 @@ from snowtool.snowdb.zones.landcover_layers import (
 )
 from snowtool.snowdb.zones.landcover_source import LocalFile
 
+from ..conftest import write_geotiff
 from ._engine_harness import (
     ORIGIN_X,
     ORIGIN_Y,
@@ -50,20 +51,13 @@ NODATA = 0  # NLCD background/unclassified
 
 def _source_nlcd(path, array):
     transform = rasterio.transform.from_origin(ORIGIN_X, ORIGIN_Y, SRC_PX, SRC_PX)
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SRC_N,
-        width=SRC_N,
-        count=1,
-        dtype='uint8',
-        crs=CRS.from_epsg(WORK_EPSG),
+        array,
         transform=transform,
+        crs=CRS.from_epsg(WORK_EPSG),
         nodata=NODATA,
-    ) as dst:
-        dst.write(array, 1)
-    return path
+    )
 
 
 def _target(tmp_path, name='t', **kwargs):

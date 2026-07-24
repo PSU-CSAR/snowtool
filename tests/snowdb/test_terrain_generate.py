@@ -22,6 +22,7 @@ from snowtool.snowdb.datasets.instarr import MODIS_SINUSOIDAL_WKT
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
 from snowtool.snowdb.provenance import versioned_hash
 from snowtool.snowdb.zones.generate_common import (
+    FinalizedLayers,
     finalize_and_stamp,
     require_absent_layers,
 )
@@ -45,7 +46,7 @@ from snowtool.snowdb.zones.terrain_layers import (
 from snowtool.snowdb.zones.terrain_source import LocalFile
 from snowtool.snowdb.zones.zone_layer import ZoneLayerTarget
 
-from ..conftest import CapturingProgress
+from ..conftest import CapturingProgress, write_geotiff
 from ._engine_harness import (
     ORIGIN_X,
     ORIGIN_Y,
@@ -91,20 +92,13 @@ def _source_dem(path, *, nodata=NODATA):
     cols = numpy.arange(SRC_N, dtype='float32')
     elevation = numpy.broadcast_to(cols * SRC_PX, (SRC_N, SRC_N)).copy()
     transform = rasterio.transform.from_origin(ORIGIN_X, ORIGIN_Y, SRC_PX, SRC_PX)
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SRC_N,
-        width=SRC_N,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(WORK_EPSG),
+        elevation,
         transform=transform,
+        crs=CRS.from_epsg(WORK_EPSG),
         nodata=nodata,
-    ) as dst:
-        dst.write(elevation, 1)
-    return path
+    )
 
 
 def _int_source_dem(path, *, nodata=-32768):
@@ -118,20 +112,13 @@ def _int_source_dem(path, *, nodata=-32768):
     elevation = numpy.broadcast_to(cols * int(SRC_PX), (SRC_N, SRC_N)).astype('int16')
     elevation[:, : SRC_N // 2] = nodata
     transform = rasterio.transform.from_origin(ORIGIN_X, ORIGIN_Y, SRC_PX, SRC_PX)
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SRC_N,
-        width=SRC_N,
-        count=1,
-        dtype='int16',
-        crs=CRS.from_epsg(WORK_EPSG),
+        elevation,
         transform=transform,
+        crs=CRS.from_epsg(WORK_EPSG),
         nodata=nodata,
-    ) as dst:
-        dst.write(elevation, 1)
-    return path
+    )
 
 
 def _target(tmp_path):
@@ -506,19 +493,13 @@ def test_generate_into_modis_sinusoidal_target(tmp_path):
         (height, width),
     ).copy()
     src_path = tmp_path / 'src.tif'
-    with rasterio.open(
+    write_geotiff(
         src_path,
-        'w',
-        driver='GTiff',
-        height=height,
-        width=width,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(5070),
+        elevation,
         transform=rasterio.transform.from_origin(sw, sn, res, res),
+        crs=CRS.from_epsg(5070),
         nodata=NODATA,
-    ) as dst:
-        dst.write(elevation, 1)
+    )
 
     def _run(directory, workers):
         target = ZoneLayerTarget(
@@ -594,14 +575,22 @@ def test_generate_writes_nodata_when_target_disjoint_from_source(tmp_path):
 
 
 class _StubAccumulator:
-    """finalize_and_stamp's minimal contract: a target plus finalized artifacts."""
+    """finalize_and_stamp's minimal contract: a target plus finalized artifacts.
+
+    ``finalize`` returns a :class:`FinalizedLayers` naming its digest array (the
+    first artifact's, matching every real accumulator), exactly as the engine
+    accumulators do.
+    """
 
     def __init__(self, target, artifacts):
         self.target = target
         self._artifacts = artifacts
 
     def finalize(self):
-        return self._artifacts
+        return FinalizedLayers(
+            artifacts=self._artifacts,
+            digest_array=self._artifacts[0][1],
+        )
 
 
 def test_finalize_and_stamp_commits_no_layer_until_every_write_succeeded(tmp_path):
