@@ -46,6 +46,29 @@ from snowtool.snowdb.zones.terrain_layers import (
 pytest_plugins = ['gazebo.testing']
 
 
+def write_geotiff(path, array, *, transform, crs, nodata=None):
+    """Write a single-band synthetic GeoTIFF for test source rasters.
+
+    Height/width/dtype are derived from ``array``; ``crs`` accepts anything
+    rasterio does (an EPSG string, a ``CRS``, ...). Returns ``path``.
+    """
+    height, width = array.shape
+    with rasterio.open(
+        path,
+        'w',
+        driver='GTiff',
+        height=height,
+        width=width,
+        count=1,
+        dtype=array.dtype,
+        crs=crs,
+        transform=transform,
+        nodata=nodata,
+    ) as dst:
+        dst.write(array, 1)
+    return path
+
+
 class CapturingTask:
     """One task a :class:`CapturingProgress` recorded: its label/total and how far
     it was advanced (so a test can assert a bar was driven to completion)."""
@@ -278,20 +301,13 @@ def source_dem(tmp_path, grid):
     """A uniform-elevation source DEM on the grid extent."""
     path = tmp_path / 'source_dem.tif'
     array = numpy.full((SIZE, SIZE), DEM_ELEVATION_M, dtype=numpy.float32)
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SIZE,
-        width=SIZE,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(4326),
+        array,
         transform=grid.base_grid.transform,
+        crs=CRS.from_epsg(4326),
         nodata=DEM_NODATA,
-    ) as dst:
-        dst.write(array, 1)
-    return path
+    )
 
 
 def write_uniform_terrain(
@@ -449,20 +465,13 @@ def source_nlcd(tmp_path, grid):
     path = tmp_path / 'source_nlcd.tif'
     array = numpy.full((SIZE, SIZE), NLCD_NONFOREST_CLASS, dtype=numpy.uint8)
     array[:, : SIZE // 2] = NLCD_FOREST_CLASS
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SIZE,
-        width=SIZE,
-        count=1,
-        dtype='uint8',
-        crs=CRS.from_epsg(4326),
+        array,
         transform=grid.base_grid.transform,
+        crs=CRS.from_epsg(4326),
         nodata=0,
-    ) as dst:
-        dst.write(array, 1)
-    return path
+    )
 
 
 @pytest.fixture
@@ -587,7 +596,6 @@ def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):
         numpy.full((SIZE, SIZE), value, dtype=numpy.int16),
         transform=dataset.grid.base_grid.transform,
         tile_size=TILE,
-        predictor=2,
     )
     return path
 
@@ -617,7 +625,6 @@ def write_marker_cog(path, source_hash: str | None) -> None:
         numpy.zeros((16, 16), dtype='int16'),
         transform=from_origin(-100.0, 40.0, 0.01, 0.01),
         tile_size=16,
-        predictor=2,
         tags=tags,
     )
 

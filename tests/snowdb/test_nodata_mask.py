@@ -28,7 +28,15 @@ from snowtool.snowdb.grid import GridParams
 from snowtool.snowdb.manager import SnowDbManager
 from snowtool.snowdb.pourpoint import Pourpoint
 
-from ..conftest import ORIGIN_X, ORIGIN_Y, PX, SIZE, TILE, make_dataset
+from ..conftest import (
+    ORIGIN_X,
+    ORIGIN_Y,
+    PX,
+    SIZE,
+    TILE,
+    make_dataset,
+    write_geotiff,
+)
 
 # The synthetic pourpoint polygon spans lon -119.9..-119.0 (grid cols 10..100 at
 # PX=0.01 from ORIGIN_X=-120). Masking everything east of lon -119.45 (col 55)
@@ -40,20 +48,13 @@ def write_mask(path, grid, *, valid_through_col: int = MASK_BOUNDARY_COL):
     """A 0/1 uint8 mask on the full grid: cols < ``valid_through_col`` valid."""
     array = numpy.zeros((SIZE, SIZE), dtype=numpy.uint8)
     array[:, :valid_through_col] = 1
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=SIZE,
-        width=SIZE,
-        count=1,
-        dtype='uint8',
-        crs=CRS.from_epsg(4326),
+        array,
         transform=grid.base_grid.transform,
+        crs=CRS.from_epsg(4326),
         nodata=0,
-    ) as dst:
-        dst.write(array, 1)
-    return path
+    )
 
 
 @pytest.fixture
@@ -201,19 +202,13 @@ def test_mask_shape_mismatch_raises(tmp_path, spec, grid, pourpoint_geojson):
     pp = Pourpoint.from_geojson(pourpoint_geojson)
     bad = tmp_path / 'bad-mask.tif'
     array = numpy.ones((SIZE // 2, SIZE // 2), dtype=numpy.uint8)
-    with rasterio.open(
+    write_geotiff(
         bad,
-        'w',
-        driver='GTiff',
-        height=SIZE // 2,
-        width=SIZE // 2,
-        count=1,
-        dtype='uint8',
-        crs=CRS.from_epsg(4326),
+        array,
         transform=grid.base_grid.transform,
+        crs=CRS.from_epsg(4326),
         nodata=0,
-    ) as dst:
-        dst.write(array, 1)
+    )
 
     ds = make_dataset(spec, tmp_path / 'db', nodata_mask=bad)
     with pytest.raises(NodataMaskError, match='does not match the dataset grid'):

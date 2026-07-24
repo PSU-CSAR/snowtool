@@ -28,23 +28,18 @@ from snowtool.snowdb.zones.terrain_source import (
     discover_tiles,
 )
 
+from ..conftest import write_geotiff
+
 
 def _tile(path, x0, y0, value, n=4, px=1.0):
     transform = rasterio.transform.from_origin(x0, y0, px, px)
-    with rasterio.open(
+    return write_geotiff(
         path,
-        'w',
-        driver='GTiff',
-        height=n,
-        width=n,
-        count=1,
-        dtype='float32',
-        crs=CRS.from_epsg(4326),
+        numpy.full((n, n), value, dtype='float32'),
         transform=transform,
+        crs=CRS.from_epsg(4326),
         nodata=-9999.0,
-    ) as dst:
-        dst.write(numpy.full((n, n), value, dtype='float32'), 1)
-    return path
+    )
 
 
 def _parse_local(path) -> MosaicTile:
