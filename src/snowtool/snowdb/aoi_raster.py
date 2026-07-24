@@ -45,15 +45,82 @@ if TYPE_CHECKING:
 AOI_RASTER_FORMAT_VERSION = 1
 
 
-def tiles_from_tags(
+@dataclass(frozen=True)
+class TileWindow:
+    """The tile-bbox window an AOI raster spans: its tiles, origin, and shape.
+
+    The one geometry the write and read paths share. An AOI raster covers a
+    rectangular block of whole tiles; this bundles the tiles that block contains,
+    the base-grid pixel :attr:`origin` of its upper-left corner, and the window's
+    pixel :attr:`height`/:attr:`width`. The window round-trips through the
+    ``SNOWTOOL_TILE_BBOX`` tag (``ul_row ul_col br_row br_col``) via :attr:`tag`
+    and :meth:`from_tag`; :meth:`from_corner_tiles` builds it on the write side.
+    ``tiles`` is row-major from the upper-left tile to the lower-right, so
+    ``tiles[0]``/``tiles[-1]`` are those two corners.
+    """
+
+    tiles: list[AffineGridTile]
+    origin: PixelCoord
+    height: int
+    width: int
+
+    @classmethod
+    def from_corner_tiles(
+        cls: type[Self],
+        grid: TiledAffineGrid,
+        start_tile: AffineGridTile,
+        end_tile: AffineGridTile,
+    ) -> Self:
+        """The window spanning the inclusive tile box ``[start_tile, end_tile]``."""
+        origin = tile_base_origin(start_tile)
+        end_origin = tile_base_origin(end_tile)
+        return cls(
+            tiles=tiles_in_bbox(
+                grid,
+                start_tile.row,
+                start_tile.col,
+                end_tile.row,
+                end_tile.col,
+            ),
+            origin=origin,
+            height=end_origin.row + end_tile.rows - origin.row,
+            width=end_origin.col + end_tile.cols - origin.col,
+        )
+
+    @classmethod
+    def from_tag(cls: type[Self], grid: TiledAffineGrid, bbox: str) -> Self:
+        """The window a ``ul_row ul_col br_row br_col`` tag string encodes."""
+        ul_row, ul_col, br_row, br_col = (int(v) for v in bbox.split())
+        return cls.from_corner_tiles(grid, grid[ul_row, ul_col], grid[br_row, br_col])
+
+    @property
+    def tag(self: Self) -> str:
+        """The ``SNOWTOOL_TILE_BBOX`` tag string for this window (write side).
+
+        Byte-identical to the historical hand-formatted string, so existing AOI
+        rasters keep round-tripping through :meth:`from_tag`.
+        """
+        ul, br = self.tiles[0], self.tiles[-1]
+        return f'{ul.row} {ul.col} {br.row} {br.col}'
+
+    def place_offset(self: Self, tile: AffineGridTile) -> PixelCoord:
+        """A ``tile``'s upper-left pixel offset within this window's array."""
+        tile_origin = tile_base_origin(tile)
+        return PixelCoord(
+            row=tile_origin.row - self.origin.row,
+            col=tile_origin.col - self.origin.col,
+        )
+
+
+def window_from_tags(
     grid: TiledAffineGrid,
     tags: dict[str, str],
-) -> tuple[PixelCoord, list[AffineGridTile]]:
-    """Resolve an AOI window's origin and tiles from a COG's metadata.
+) -> TileWindow:
+    """Resolve an AOI raster's :class:`TileWindow` from a COG's metadata.
 
     AOI rasters store a ``ul_row ul_col br_row br_col`` tile bounding box in
-    ``SNOWTOOL_TILE_BBOX``. The upper-left tile is the window origin and every
-    tile in the box is read (the AOI mask nulls non-AOI pixels).
+    ``SNOWTOOL_TILE_BBOX``. Every tile in the box is read (the AOI mask nulls
+    non-AOI pixels).
     """
     try:
         bbox = tags[TILE_BBOX_TAG]
@@ -67,10 +134,7 @@ def tiles_from_tags(
             f'({TILE_BBOX_TAG}); re-rasterize the pourpoint for this dataset.',
         ) from e
 
-    ul_row, ul_col, br_row, br_col = (int(v) for v in bbox.split())
-    origin = tile_base_origin(grid[ul_row, ul_col])
-    tiles = tiles_in_bbox(grid, ul_row, ul_col, br_row, br_col)
-    return origin, tiles
+    return TileWindow.from_tag(grid, bbox)
 
 
 @dataclass
@@ -86,8 +150,7 @@ class AOIRaster:
 
     path: Path
     array: numpy.typing.NDArray[numpy.float32]
-    tiles: list[AffineGridTile]
-    origin: PixelCoord
+    window: TileWindow
 
     @classmethod
     def open(
@@ -97,14 +160,13 @@ class AOIRaster:
     ) -> Self:
         with rasterio.open(path) as ds:
             tags = ds.tags()
-            origin, tiles = tiles_from_tags(grid, tags)
+            window = window_from_tags(grid, tags)
             array: numpy.typing.NDArray[numpy.float32] = ds.read(1)
 
         return cls(
             path=path,
             array=array,
-            tiles=tiles,
-            origin=origin,
+            window=window,
         )
 
     async def read_window(
@@ -130,14 +192,13 @@ class AOIRaster:
             dtype=dtype,
         )
         # One coalesced fetch per source COG, then place each block.
-        blocks = await raster.load_tiles(self.tiles, cache)
-        for tile, block in zip(self.tiles, blocks, strict=True):
-            tile_origin = tile_base_origin(tile)
-            offset_row = tile_origin.row - self.origin.row
-            offset_col = tile_origin.col - self.origin.col
+        tiles = self.window.tiles
+        blocks = await raster.load_tiles(tiles, cache)
+        for tile, block in zip(tiles, blocks, strict=True):
+            offset = self.window.place_offset(tile)
             array[
-                offset_row : offset_row + tile.rows,
-                offset_col : offset_col + tile.cols,
+                offset.row : offset.row + tile.rows,
+                offset.col : offset.col + tile.cols,
             ] = block
         return array
 
@@ -266,6 +327,7 @@ def write_aoi_raster(
     """
     mask_path, mask_hash = nodata_mask or (None, None)
     start_tile, end_tile = bounding_tiles(grid, geometry.bounds)
+    window = TileWindow.from_corner_tiles(grid, start_tile, end_tile)
     # Re-parsing grid.crs (rather than threading Dataset.grid_crs through) is
     # safe here: DatasetSpec.crs is the single source both grid.crs and
     # Dataset.grid_crs are derived from, so the two parses can never disagree.
@@ -273,12 +335,9 @@ def write_aoi_raster(
     base_grid = grid.base_grid
     tile_size = grid.tile_rows
 
-    start = tile_base_origin(start_tile)
-    end_origin = tile_base_origin(end_tile)
-    end_row = end_origin.row + end_tile.rows
-    end_col = end_origin.col + end_tile.cols
-    height = end_row - start.row
-    width = end_col - start.col
+    start = window.origin
+    height = window.height
+    width = window.width
 
     # The tile's own affine is the upper-left transform of the AOI window, at
     # base (full) resolution.
@@ -305,9 +364,7 @@ def write_aoi_raster(
     aoi_area = numpy.where(aoi_mask, areas, numpy.float32(0)).astype(numpy.float32)
 
     tags = {
-        TILE_BBOX_TAG: (
-            f'{start_tile.row} {start_tile.col} {end_tile.row} {end_tile.col}'
-        ),
+        TILE_BBOX_TAG: window.tag,
         # Records the geometry + format version this raster was burned from, so a
         # changed basin OR a format bump is detected (and re-rasterized) by a cheap
         # tag read.

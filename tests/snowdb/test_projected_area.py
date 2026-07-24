@@ -108,7 +108,7 @@ def test_rasterize_aoi_reprojects_wgs84_geometry_onto_projected_grid(dataset, tm
     assert (aoi_raster.array[inside] == numpy.float32(dataset.spec.cell_area)).all()
     assert dataset.spec.cell_area == pytest.approx(PX * PX)
     # Every selected tile is within the 2x2-tile grid.
-    for tile in aoi_raster.tiles:
+    for tile in aoi_raster.window.tiles:
         assert 0 <= tile.row < SIZE // TILE
         assert 0 <= tile.col < SIZE // TILE
 

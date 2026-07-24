@@ -389,7 +389,6 @@ def test_incomplete_data_returns_500(test_settings, spec, pourpoint_geojson) -> 
         numpy.full((SIZE, SIZE), SWE_VALUE, dtype=numpy.int16),
         transform=dataset.grid.base_grid.transform,
         tile_size=TILE,
-        predictor=2,
     )
 
     with TestClient(get_app(settings=test_settings)) as client:

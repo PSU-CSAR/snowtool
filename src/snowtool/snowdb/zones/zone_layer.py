@@ -24,6 +24,7 @@ import rasterio
 
 from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.raster import TiledRaster
+from snowtool.snowdb.raster.cog import read_tag
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -184,8 +185,7 @@ class ZoneLayerSet:
         path = self.layer_path(self.layers[0])
         if not path.is_file():
             return None
-        with rasterio.open(path) as ds:
-            return ds.tags().get(self.hash_tag)
+        return read_tag(path, self.hash_tag)
 
     def stored_format_version(self: Self) -> int | None:
         """The format version stamped on the built set, or ``None`` if unbuilt or

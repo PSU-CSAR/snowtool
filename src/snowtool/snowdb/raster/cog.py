@@ -9,6 +9,7 @@ passes ``compute_stats=False``); they are a convenience for humans opening the C
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy
@@ -38,6 +39,18 @@ def _default_predictor(dtype: numpy.dtype) -> int:
     return 3 if numpy.issubdtype(dtype, numpy.floating) else 2
 
 
+def read_tag(path: Path, tag: str) -> str | None:
+    """Read a single dataset-level tag from a COG's header, or ``None`` if absent.
+
+    A header-only open (no array decode): the cheap read behind the several
+    ``read one provenance/geometry tag or None`` call sites (an AOI raster's
+    ``AOI_HASH``, a date dir's ``SOURCE_HASH``, a zone-layer set's provenance
+    hash). Each site keeps its own file-selection preamble and calls this.
+    """
+    with rasterio.open(path) as ds:
+        return ds.tags().get(tag)
+
+
 def write_cog(
     path,
     array: numpy.ndarray,
@@ -46,7 +59,6 @@ def write_cog(
     tile_size: int,
     crs: CRS = WGS84,
     nodata: float | int | None = None,
-    predictor: int | None = None,
     compute_stats: bool = True,
     tags: dict[str, str] | None = None,
     band_descriptions: tuple[str, ...] | None = None,
@@ -73,11 +85,7 @@ def write_cog(
         'nodata': nodata,
         'blocksize': tile_size,
         'compress': 'ZSTD',
-        'predictor': predictor
-        if predictor is not None
-        else _default_predictor(
-            array.dtype,
-        ),
+        'predictor': _default_predictor(array.dtype),
         # GDAL's default ZSTD level, pinned so output stays deterministic across
         # GDAL versions.
         'level': 9,

@@ -64,7 +64,7 @@ def test_rasterize_aoi(dataset, pourpoint_geojson, grid):
     assert TILE_BBOX_TAG in tags
     bbox = [int(x) for x in tags[TILE_BBOX_TAG].split()]
     assert len(bbox) == 4
-    assert len(aoi_raster.tiles) >= 1
+    assert len(aoi_raster.window.tiles) >= 1
 
     # The AOI raster burns per-pixel cell area (decoupled from the DEM): inside
     # pixels carry their geodesic cell area, 0 outside, over some but not the whole
@@ -85,10 +85,10 @@ def test_aoi_raster_reopen_roundtrips_tiles(dataset, pourpoint_geojson):
     assert dataset.rasterize_aoi(aoi, rebuild=True)
     written = dataset.load_aoi_raster(aoi.station_triplet)
     reopened = AOIRaster.open(written.path, dataset.grid)
-    assert {(t.row, t.col) for t in reopened.tiles} == {
-        (t.row, t.col) for t in written.tiles
+    assert {(t.row, t.col) for t in reopened.window.tiles} == {
+        (t.row, t.col) for t in written.window.tiles
     }
-    assert reopened.origin == written.origin
+    assert reopened.window.origin == written.window.origin
 
 
 def test_dump_compact_whole_basin(dataset, pourpoint_geojson, swe_cog):
