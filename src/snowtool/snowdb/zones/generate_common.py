@@ -292,9 +292,9 @@ def pixel_centre_coords(
     """Pixel-centre ``(x, y)`` coordinates for a ``height`` x ``width`` block.
 
     ``(r0, c0)`` is the block's row/col origin within the full grid ``transform``
-    covers. Returns broadcastable ``(height, 1)`` / ``(1, width)`` arrays rather
-    than a dense meshgrid; the affine expansion is provenance-visible and must not
-    change.
+    covers. Returns dense ``(height, width)`` arrays (the affine cross-terms broadcast
+    the skinny row/col vectors immediately). The affine expansion is provenance-visible
+    and must not change.
     """
     rows = (numpy.arange(height) + r0)[:, None]
     cols = (numpy.arange(width) + c0)[None, :]
@@ -418,9 +418,8 @@ class StreamingBinner[Acc: BinAccumulator](ABC):
         payload, x, y, keep = loaded
         keep = keep.ravel()
         payload = tuple(arr.ravel()[keep] for arr in payload)
-        shape = (x.shape[0], y.shape[1])
-        xf = numpy.broadcast_to(x, shape).ravel()[keep]
-        yf = numpy.broadcast_to(y, shape).ravel()[keep]
+        xf = x.ravel()[keep]
+        yf = y.ravel()[keep]
         coords = [tf.transform(xf, yf) for tf in self._transformers()]
         return payload, coords
 
