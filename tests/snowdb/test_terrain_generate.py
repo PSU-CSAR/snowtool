@@ -25,7 +25,7 @@ from snowtool.snowdb.zones.generate_common import (
     finalize_and_stamp,
     require_absent_layers,
 )
-from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain import terrain_provider
 from snowtool.snowdb.zones.terrain_generate import (
     _clip_grid_to_bounds,
     generate_terrain,
@@ -63,7 +63,7 @@ from ._engine_harness import (
 
 def _terrain_set(directory):
     """The terrain ZoneLayerSet rooted at ``directory`` (test reader)."""
-    return TerrainProvider().layer_set(directory)
+    return terrain_provider().layer_set(directory)
 
 
 def _read_layers(directory):

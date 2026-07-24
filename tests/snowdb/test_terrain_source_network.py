@@ -18,7 +18,7 @@ from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
 from snowtool.snowdb.grid import grid_extent_4326, make_grid
-from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain import terrain_provider
 from snowtool.snowdb.zones.terrain_generate import generate_terrain
 from snowtool.snowdb.zones.terrain_source import (
     ThreeDEP,
@@ -134,7 +134,7 @@ def test_parallel_engine_reproduces_serial_on_real_3dep(tmp_path):
     parallel = _skip_if_offline(lambda: _generate(tmp_path / 'p', 4))
 
     assert serial['t'] == parallel['t']
-    provider = TerrainProvider()
+    provider = terrain_provider()
     serial_set = provider.layer_set(tmp_path / 's' / 'terrain')
     parallel_set = provider.layer_set(tmp_path / 'p' / 'terrain')
     for layer in provider.layers:

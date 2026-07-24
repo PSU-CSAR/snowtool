@@ -26,7 +26,7 @@ from snowtool.snowdb.progress import NULL_PROGRESS, ProgressReporter
 from snowtool.snowdb.raster import TiledRaster
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from contextlib import AbstractContextManager
     from pathlib import Path
 
@@ -232,16 +232,24 @@ class ZoneLayerSource(ABC):
         raise NotImplementedError
 
 
-class ZoneLayerProvider(ABC):
+@dataclass(frozen=True)
+class ZoneLayerProvider:
     """A kind of zone layer: its layers, where they live, and how to build them.
 
-    One provider per zone-layer kind (terrain, land cover, ...). Subclasses set
-    :attr:`name` (the registry/query id), :attr:`subdir` (the dataset
-    subdirectory its set lives in), :attr:`layers`, :attr:`hash_tag`,
-    :attr:`format_version`, and :attr:`_default_engine` (a ``staticmethod``
-    wrapping the real engine function), and implement :meth:`default_source` and
-    :meth:`local_source`. :meth:`generate` is concrete here: it just delegates to
-    the (injectable) engine, which owns the ``source.open`` and the binning.
+    A plain data record, one instance per zone-layer kind (terrain, land cover,
+    ...) -- providers are data, not subclasses, exactly like dataset specs. The
+    built-in instances come from :func:`~snowtool.snowdb.zones.terrain.terrain_provider`
+    and :func:`~snowtool.snowdb.zones.landcover.landcover_provider` (each a factory
+    that fills in the kind's layers, provenance tag, format version, engine, and
+    source constructors) and are registered in ``DEFAULT_ZONE_LAYER_PROVIDERS``.
+    ``name`` is the registry/query id, ``subdir`` the dataset subdirectory the
+    kind's layer set lives in. ``engine`` is the generation engine (injectable:
+    a test passes a fast stand-in to the factory through the same field).
+    ``default_source`` builds the source read when none is configured -- handed
+    the snowdb root, so a source that caches a download can place its cache
+    under the database. ``local_source`` builds the source for an operator's
+    own on-disk raster (the CLI ``--source PROVIDER PATH`` override): each kind
+    knows the concrete local-file source for its data.
     """
 
     name: str
@@ -249,16 +257,9 @@ class ZoneLayerProvider(ABC):
     layers: tuple[ZoneLayer, ...]
     hash_tag: str
     format_version: int
-    # The real engine, wrapped in ``staticmethod`` on each subclass so it stays a
-    # plain function (not a bound method) when read off the class or instance. An
-    # un-injected provider binds it at construction; a test passes ``engine=`` a
-    # fast stand-in through the same seam.
-    _default_engine: GenerationEngine
-
-    def __init__(self: Self, engine: GenerationEngine | None = None) -> None:
-        self._engine: GenerationEngine = (
-            engine if engine is not None else type(self)._default_engine
-        )
+    engine: GenerationEngine
+    default_source: Callable[[Path], ZoneLayerSource]
+    local_source: Callable[[Path], ZoneLayerSource]
 
     def generate(
         self: Self,
@@ -272,18 +273,18 @@ class ZoneLayerProvider(ABC):
     ) -> dict[str, str]:
         """Bin ``source`` over ``bounds`` into every target via the engine.
 
-        The engine owns the ``with source.open(bounds)`` and the streaming binning;
-        it is injectable (a test passes a fast stand-in via the constructor), and an
-        un-injected provider binds the real engine (:attr:`_default_engine`) at
-        construction -- the engine imports its provider's layer-definitions module,
-        not the provider, so there is no cycle. ``options`` carries engine knobs
-        (e.g. terrain's ``workers``/``block_size``); a provider ignores any it does
-        not use, and ``None`` defers to the engine defaults. ``progress`` reports
-        the long step (terrain's per-block reprojection, the NLCD download). Returns
-        the per-target provenance hash.
+        The engine owns the ``with source.open(bounds)`` and the streaming
+        binning; it is a field, so a test injects a fast stand-in where the
+        factory binds the real one -- the engine imports its kind's
+        layer-definitions module, not the provider factory, so there is no
+        cycle. ``options`` carries engine knobs (e.g. terrain's ``workers``/
+        ``block_size``); a provider ignores any it does not use, and ``None``
+        defers to the engine defaults. ``progress`` reports the long step
+        (terrain's per-block reprojection, the NLCD download). Returns the
+        per-target provenance hash.
         """
         options = options or GenerationOptions()
-        return self._engine(
+        return self.engine(
             source,
             targets,
             bounds,
@@ -292,24 +293,6 @@ class ZoneLayerProvider(ABC):
             force=force,
             progress=progress,
         )
-
-    @abstractmethod
-    def default_source(self: Self, root: Path) -> ZoneLayerSource:
-        """The source this provider reads from when none is overridden.
-
-        ``root`` is the snowdb root, so a source that caches a download can place
-        its cache under the database.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def local_source(self: Self, path: Path) -> ZoneLayerSource:
-        """A source reading the operator's own on-disk raster at ``path``.
-
-        Backs the CLI override flags (``--source PROVIDER PATH``): each provider
-        knows the concrete local-file source for its data kind.
-        """
-        raise NotImplementedError
 
     def layer_set(self: Self, directory: Path) -> ZoneLayerSet:
         """The :class:`ZoneLayerSet` for this provider rooted at ``directory``."""

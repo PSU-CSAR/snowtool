@@ -27,15 +27,17 @@ Every layer carries a :data:`~snowtool.snowdb.constants.DEM_HASH_TAG` tag -- the
 sha256 of the generated elevation array -- so the whole set's provenance can be
 read back cheaply.
 
-:class:`TerrainProvider` is the
-:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayerProvider` for this kind: it names
-the layers, the ``terrain/`` subdirectory, and the DEM source/engine, so a dataset
-builds and reads terrain like any other zone layer.
+:func:`terrain_provider` builds the
+:class:`~snowtool.snowdb.zones.zone_layer.ZoneLayerProvider` record for this kind
+(the layer/format-version definitions live in ``terrain_layers`` so the engine can
+import them without importing this module): it only wires them up plus the DEM
+source constructors and the engine, so a dataset builds and reads terrain like any
+other zone layer.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
 
 from snowtool.snowdb.constants import DEM_HASH_TAG
 from snowtool.snowdb.zones.terrain_generate import generate_terrain
@@ -48,32 +50,36 @@ from snowtool.snowdb.zones.zone_layer import ZoneLayerProvider
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from snowtool.snowdb.zones.zone_layer import ZoneLayerSource
+    from snowtool.snowdb.zones.zone_layer import GenerationEngine, ZoneLayerSource
 
 
-class TerrainProvider(ZoneLayerProvider):
+def _default_source(root: Path) -> ZoneLayerSource:
+    """The default DEM source -- USGS 3DEP streamed from the public bucket."""
+    from snowtool.snowdb.zones.terrain_source import ThreeDEP
+
+    return ThreeDEP()
+
+
+def _local_source(path: Path) -> ZoneLayerSource:
+    """A local on-disk DEM file source (the ``--source terrain PATH`` path)."""
+    from snowtool.snowdb.zones.terrain_source import LocalFile
+
+    return LocalFile(path)
+
+
+def terrain_provider(engine: GenerationEngine = generate_terrain) -> ZoneLayerProvider:
     """The terrain zone-layer kind: elevation + aspect, derived from a DEM.
 
-    The layer/format-version definitions live in ``terrain_layers`` (so the engine
-    can import them without importing this provider); the provider only wires them
-    up plus the DEM source and default engine.
+    ``engine`` is the test seam: the default is the real streaming engine, and a
+    test passes a fast stand-in that is signature-checked against it.
     """
-
-    name = 'terrain'
-    subdir = 'terrain'
-    layers = TERRAIN_LAYERS
-    hash_tag = DEM_HASH_TAG
-    format_version = TERRAIN_FORMAT_VERSION
-    _default_engine = staticmethod(generate_terrain)
-
-    def default_source(self: Self, root: Path) -> ZoneLayerSource:
-        """The default DEM source -- USGS 3DEP streamed from the public bucket."""
-        from snowtool.snowdb.zones.terrain_source import ThreeDEP
-
-        return ThreeDEP()
-
-    def local_source(self: Self, path: Path) -> ZoneLayerSource:
-        """A local on-disk DEM file source (the ``--source terrain PATH`` path)."""
-        from snowtool.snowdb.zones.terrain_source import LocalFile
-
-        return LocalFile(path)
+    return ZoneLayerProvider(
+        name='terrain',
+        subdir='terrain',
+        layers=TERRAIN_LAYERS,
+        hash_tag=DEM_HASH_TAG,
+        format_version=TERRAIN_FORMAT_VERSION,
+        engine=engine,
+        default_source=_default_source,
+        local_source=_local_source,
+    )

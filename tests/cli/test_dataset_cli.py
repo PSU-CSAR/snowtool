@@ -13,7 +13,7 @@ from snowtool.snowdb.datasets import DATASET_TEMPLATES, config_from_spec
 from snowtool.snowdb.db import SnowDb
 from snowtool.snowdb.ingest import DateIngest
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain import terrain_provider
 
 from ..conftest import (
     full_marker_out_names,
@@ -700,7 +700,7 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
     # dependency, not patching a module global or the private _engine attribute.
     captured = {}
     terrain = next(p for p in cli_obj.zone_layer_providers if p.name == 'terrain')
-    inner = terrain._engine
+    inner = terrain.engine
 
     def _capture(source, targets, bounds, **kwargs):
         captured.update(workers=kwargs.get('workers'), block=kwargs.get('block_size'))
@@ -709,7 +709,7 @@ def test_generate_threads_workers_and_block_size_to_engine(runner, cli_obj, sour
     capturing_cli_obj = CliContext(
         config=cli_obj.config,
         zone_layer_providers=tuple(
-            TerrainProvider(engine=_capture) if p.name == 'terrain' else p
+            terrain_provider(engine=_capture) if p.name == 'terrain' else p
             for p in cli_obj.zone_layer_providers
         ),
     )

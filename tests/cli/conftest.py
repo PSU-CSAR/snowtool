@@ -25,8 +25,8 @@ from snowtool.snowdb import datasets as datasets_mod
 from snowtool.snowdb.config import CONFIG_FILENAME, DATASET_CONFIG_FILENAME, RootConfig
 from snowtool.snowdb.datasets import config_from_spec
 from snowtool.snowdb.manager import SnowDbManager
-from snowtool.snowdb.zones.landcover import LandCoverProvider
-from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.landcover import landcover_provider
+from snowtool.snowdb.zones.terrain import terrain_provider
 
 from ..conftest import (
     register_dataset_config,
@@ -147,7 +147,7 @@ def _fake_terrain_engine(
     """Stand in for generate_terrain: a uniform terrain set per target.
 
     Matches the real engine's ``(source, targets, bounds, *, ...)`` signature so it
-    drops into ``TerrainProvider`` via the ``engine=`` seam; it never opens the
+    drops into the terrain provider via the ``engine=`` seam; it never opens the
     source, so only CLI wiring is under test here.
     """
     return {
@@ -174,7 +174,7 @@ def _fake_landcover_engine(
     """Stand in for generate_landcover: a uniform forest layer per target.
 
     Matches the real engine's ``(source, targets, bounds, *, ...)`` signature so it
-    drops into ``LandCoverProvider`` via the ``engine=`` seam; it never opens the
+    drops into the land-cover provider via the ``engine=`` seam; it never opens the
     source, so only CLI wiring is under test here.
     """
     return {
@@ -203,7 +203,7 @@ def cli_obj(initialized_root, source_dem, source_nlcd) -> CliContext:
     return CliContext(
         config=initialized_root,
         zone_layer_providers=(
-            TerrainProvider(engine=_fake_terrain_engine),
-            LandCoverProvider(engine=_fake_landcover_engine),
+            terrain_provider(engine=_fake_terrain_engine),
+            landcover_provider(engine=_fake_landcover_engine),
         ),
     )

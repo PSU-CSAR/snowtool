@@ -17,7 +17,7 @@ from rasterio.crs import CRS
 from snowtool.exceptions import ArtifactExistsError
 from snowtool.snowdb.constants import FOREST_PCT_NODATA, NLCD_HASH_TAG
 from snowtool.snowdb.provenance import versioned_hash
-from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.landcover import landcover_provider
 from snowtool.snowdb.zones.landcover_generate import generate_landcover
 from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
@@ -40,7 +40,7 @@ from ._engine_harness import (
 
 def _landcover_set(directory):
     """The land-cover ZoneLayerSet rooted at ``directory`` (test reader)."""
-    return LandCoverProvider().layer_set(directory)
+    return landcover_provider().layer_set(directory)
 
 
 FOREST = 42  # evergreen forest (in FOREST_CLASSES)

@@ -29,7 +29,8 @@ AOI_MASK_NODATA = 0
 AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
 
 # Terrain provenance tag: a ``versioned_hash`` of the generated mean-elevation
-# array's sha256 (carrying TerrainProvider.format_version), stamped on every layer
+# array's sha256 (carrying the terrain provider's format_version), stamped on
+# every layer
 # of a dataset's terrain set (elevation + aspect). It identifies the DEM the whole
 # set was derived from, so a terrain set can be reconciled against the source it
 # came from. Unlike the AOI hash, this never rides on AOI rasters: AOI rasters are
@@ -39,7 +40,7 @@ AOI_HASH_TAG = 'SNOWTOOL_AOI_HASH'
 DEM_HASH_TAG = 'SNOWTOOL_DEM_HASH'
 
 # Land-cover provenance tag: a ``versioned_hash`` of the generated percent-forest
-# array's sha256 (carrying LandCoverProvider.format_version), stamped on every
+# array's sha256 (carrying the land-cover provider's format_version), stamped on every
 # layer of a dataset's land-cover set. It identifies the NLCD source the layer was
 # derived from -- the land-cover analogue of DEM_HASH_TAG. Like the DEM hash (and
 # unlike the AOI hash) it never rides on AOI rasters: the layer is read live from

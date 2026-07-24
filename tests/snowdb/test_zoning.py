@@ -382,12 +382,12 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
         def open(self, bounds):  # pragma: no cover - never opened in this test
             raise NotImplementedError
 
-    class TinyProvider(ZoneLayerProvider):
-        name = 'tiny'
-        subdir = 'tiny'
-        hash_tag = 'SNOWTOOL_TINY_HASH'
-        format_version = 1
-        layers = (
+    tiny_provider = ZoneLayerProvider(
+        name='tiny',
+        subdir='tiny',
+        hash_tag='SNOWTOOL_TINY_HASH',
+        format_version=1,
+        layers=(
             ZoneLayer(
                 filename='tier.tif',
                 dtype='uint8',
@@ -401,21 +401,15 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
                     ),
                 ),
             ),
-        )
-
+        ),
         # A no-op engine: this test never builds the layer, so generate is never
-        # driven -- the stub just satisfies the base provider's engine contract.
-        _default_engine = staticmethod(
-            lambda source, targets, bounds, **kwargs: {},  # pragma: no cover
-        )
+        # driven -- the stub just satisfies the provider's engine field.
+        engine=lambda source, targets, bounds, **kwargs: {},  # pragma: no cover
+        default_source=lambda root: _StubSource(),
+        local_source=lambda path: _StubSource(),  # pragma: no cover
+    )
 
-        def default_source(self, root):
-            return _StubSource()
-
-        def local_source(self, path):  # pragma: no cover - not exercised here
-            return _StubSource()
-
-    providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, TinyProvider())
+    providers = (*DEFAULT_ZONE_LAYER_PROVIDERS, tiny_provider)
     # The dataset must *enable* the new provider (its zones block) for it to be
     # bound/served -- enablement is opt-in.
     spec.zones = {**spec.zones, 'tiny': {'tier': None}}

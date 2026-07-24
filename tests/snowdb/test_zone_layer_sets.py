@@ -3,12 +3,12 @@
 import pytest
 
 from snowtool.snowdb.raster import TiledRaster
-from snowtool.snowdb.zones.landcover import LandCoverProvider
+from snowtool.snowdb.zones.landcover import landcover_provider
 from snowtool.snowdb.zones.landcover_layers import (
     FOREST_COVER,
     LANDCOVER_FORMAT_VERSION,
 )
-from snowtool.snowdb.zones.terrain import TerrainProvider
+from snowtool.snowdb.zones.terrain import terrain_provider
 from snowtool.snowdb.zones.terrain_layers import (
     ASPECT_MAJORITY,
     TERRAIN_FORMAT_VERSION,
@@ -18,7 +18,7 @@ from snowtool.snowdb.zones.zone_layer import ZoneLayerSet
 _CASES = [
     pytest.param(
         'terrain',
-        TerrainProvider,
+        terrain_provider,
         ASPECT_MAJORITY,
         'aspect_majority.tif',
         TERRAIN_FORMAT_VERSION,
@@ -26,21 +26,21 @@ _CASES = [
     ),
     pytest.param(
         'landcover',
-        LandCoverProvider,
+        landcover_provider,
         FOREST_COVER,
         'forest_cover_pct.tif',
         LANDCOVER_FORMAT_VERSION,
         id='landcover',
     ),
 ]
-_AXES = ('zone_key', 'provider_cls', 'layer', 'missing_filename', 'format_version')
+_AXES = ('zone_key', 'provider_factory', 'layer', 'missing_filename', 'format_version')
 
 
 @pytest.mark.parametrize(_AXES, _CASES)
 def test_present_and_provenance_hash_on_a_built_dataset(
     dataset,
     zone_key,
-    provider_cls,
+    provider_factory,
     layer,
     missing_filename,
     format_version,
@@ -62,7 +62,7 @@ def test_present_and_provenance_hash_on_a_built_dataset(
 def test_missing_layers_reports_an_absent_layer(
     dataset,
     zone_key,
-    provider_cls,
+    provider_factory,
     layer,
     missing_filename,
     format_version,
@@ -80,12 +80,12 @@ def test_missing_layers_reports_an_absent_layer(
 def test_hash_is_none_without(
     tmp_path,
     zone_key,
-    provider_cls,
+    provider_factory,
     layer,
     missing_filename,
     format_version,
 ):
-    zone_set = provider_cls().layer_set(tmp_path / zone_key)
+    zone_set = provider_factory().layer_set(tmp_path / zone_key)
     assert zone_set.present() is False
     assert zone_set.provenance_hash() is None
 
@@ -94,7 +94,7 @@ def test_hash_is_none_without(
 def test_raster_points_at(
     dataset,
     zone_key,
-    provider_cls,
+    provider_factory,
     layer,
     missing_filename,
     format_version,

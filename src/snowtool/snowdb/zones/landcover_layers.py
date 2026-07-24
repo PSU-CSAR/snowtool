@@ -16,7 +16,7 @@ from snowtool.snowdb.constants import FOREST_PCT_NODATA
 from snowtool.snowdb.zones.zone_layer import ZoneLayer
 from snowtool.snowdb.zones.zoning import ThresholdZoning
 
-# On-disk format version of a land-cover layer set, owned by LandCoverProvider and
+# On-disk format version of a land-cover layer set, owned by the land-cover provider and
 # stamped (via provenance.versioned_hash) onto NLCD_HASH_TAG by the generator. Bump
 # on a material change to the land-cover layer encoding so existing sets read stale.
 LANDCOVER_FORMAT_VERSION = 1

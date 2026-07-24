@@ -35,7 +35,7 @@ from snowtool.snowdb.zones.zoning import (
 DEFAULT_WORK_CRS = 'EPSG:5070'
 DEFAULT_WORK_RESOLUTION = 10.0
 
-# On-disk format version of a terrain layer set, owned by TerrainProvider and
+# On-disk format version of a terrain layer set, owned by the terrain provider and
 # stamped (via provenance.versioned_hash) onto DEM_HASH_TAG by the generator. Bump
 # on a material change to the terrain layer encoding so existing sets read as stale.
 # v2 added aspect_entropy.tif. v3 split the single two-band aspect_components.tif
