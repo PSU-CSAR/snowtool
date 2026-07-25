@@ -13,7 +13,7 @@ from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb import diagnostics
 from snowtool.snowdb import issues as issues_mod
 from snowtool.snowdb.aoi_raster import aoi_provenance, aoi_raster_issues
-from snowtool.snowdb.constants import TILE_BBOX_TAG
+from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
 from snowtool.snowdb.datasets import config_from_spec
@@ -350,16 +350,29 @@ def test_guard_wiring(guard_db, triplet, allow_partial, expectation):
 # --- pourpoints check: dedup + per-target roll-up ----------------------------
 
 
-def _write_empty_aoi(dataset, grid, triplet):
-    """Write an all-zero (but readable) AOI raster for ``triplet``."""
+def _write_empty_aoi(dataset, grid, triplet, *, record_path=None):
+    """Write an all-zero (but readable) AOI raster for ``triplet``.
+
+    When ``record_path`` (the triplet's stored basin record) is given, stamps
+    ``SNOWTOOL_AOI_HASH`` to match it so this hand-written stray/empty raster
+    reads as *current*, not stale -- these fixtures are about emptiness, not
+    freshness, which is covered separately.
+    """
     dataset._aoi_rasters.mkdir(parents=True, exist_ok=True)
+    tags = {TILE_BBOX_TAG: '0 0 0 0'}
+    if record_path is not None:
+        pourpoint = Pourpoint.from_basin_record(record_path)
+        tags[AOI_HASH_TAG] = aoi_provenance(
+            pourpoint.geometry_hash,
+            dataset.nodata_mask_hash,
+        )
     write_cog(
         dataset._aoi_rasters / f'{triplet.replace(":", "_")}.tif',
         numpy.zeros((TILE, TILE), dtype=numpy.float32),
         transform=grid.base_grid[0, 0].transform,
         tile_size=TILE,
         nodata=0,
-        tags={TILE_BBOX_TAG: '0 0 0 0'},
+        tags=tags,
         compute_stats=False,
     )
 
@@ -371,7 +384,7 @@ def test_pourpoints_check_reports_stray_raster_for_uncovered_basin(created_db, g
     # (`empty AOI raster`) alongside the root-cause `no coverage`, rolled onto one
     # row in coverage-then-health order.
     db, ds = created_db
-    _write_basin(
+    record_path = _write_basin(
         db.pourpoint_records_path,
         '300:MT:USGS',
         x0=-110.0,
@@ -379,7 +392,7 @@ def test_pourpoints_check_reports_stray_raster_for_uncovered_basin(created_db, g
         x1=-109.0,
         y1=44.0,
     )
-    _write_empty_aoi(ds, grid, '300:MT:USGS')
+    _write_empty_aoi(ds, grid, '300:MT:USGS', record_path=record_path)
 
     findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
 
@@ -417,7 +430,7 @@ def test_pourpoints_check_keeps_empty_aoi_for_covered_basin(created_db, grid):
     # fault: `empty AOI raster` is reported here just as it is for the off-grid
     # stray-raster case -- an all-zero raster always surfaces, covered or not.
     db, ds = created_db
-    _write_basin(
+    record_path = _write_basin(
         db.pourpoint_records_path,
         '100:MT:USGS',
         x0=-119.9,
@@ -425,7 +438,7 @@ def test_pourpoints_check_keeps_empty_aoi_for_covered_basin(created_db, grid):
         x1=-119.0,
         y1=44.0,
     )
-    _write_empty_aoi(ds, grid, '100:MT:USGS')
+    _write_empty_aoi(ds, grid, '100:MT:USGS', record_path=record_path)
 
     findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
 
@@ -453,6 +466,68 @@ def test_pourpoints_check_rolls_up_issues_for_one_target(created_db):
     for_200 = [f for f in findings if f['target'] == '200:MT:USGS']
     assert len(for_200) == 1
     assert for_200[0]['issue'] == 'no raster; partial coverage'
+
+
+def test_doctor_pourpoints_reports_stale_aoi_hash(created_db, pourpoint_geojson):
+    # Doctor now routes AOI validation through `aoi_raster_issues`, so a raster
+    # whose stamped SNOWTOOL_AOI_HASH no longer matches its basin record's
+    # current geometry hash (a basin edited out from under an already-rasterized
+    # pourpoint) is reported -- not just structural/emptiness faults.
+    db, ds = created_db
+    shutil.copy(
+        pourpoint_geojson,
+        db.pourpoint_records_path / '12345_MT_USGS.geojson',
+    )
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    ds.rasterize_aoi(pp)
+    path = ds.aoi_raster_path_from_triplet(pp.station_triplet)
+
+    # Re-stamp the raster's AOI-hash tag with a bogus value, simulating drift
+    # between the stored record and the burned raster's provenance.
+    with rasterio.open(path) as src:
+        array = src.read(1)
+        transform = src.transform
+        crs = src.crs
+        tags = dict(src.tags())
+    tags[AOI_HASH_TAG] = 'v1:deadbeef'
+    write_cog(
+        path,
+        array,
+        transform=transform,
+        crs=crs,
+        nodata=AOI_MASK_NODATA,
+        tile_size=TILE,
+        tags=tags,
+        compute_stats=False,
+    )
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    for_pp = [f for f in findings if f['target'] == pp.station_triplet]
+    assert len(for_pp) == 1
+    assert 'stale content' in for_pp[0]['issue']
+
+
+def test_doctor_pourpoints_no_spurious_findings_for_offset_basin(created_db, tmp_path):
+    # A basin whose tile-bbox does not start at tile (0, 0) must not spuriously
+    # trip the AOI-validation step now that it also checks grid-compat +
+    # freshness through `aoi_raster_issues` -- a normal, correctly-rasterized
+    # offset basin still reports nothing for `pourpoints`.
+    db, ds = created_db
+    record_path = _write_basin(
+        db.pourpoint_records_path,
+        '55555:MT:USGS',
+        x0=-115.7,
+        y0=40.0,
+        x1=-115.3,
+        y1=40.4,
+    )
+    pp = Pourpoint.from_geojson(record_path)
+    ds.rasterize_aoi(pp)
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    assert [f for f in findings if f['target'] == '55555:MT:USGS'] == []
 
 
 # --- doctor progress: per-item enumeration + live labels ---------------------
