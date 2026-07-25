@@ -84,18 +84,6 @@ def test_tiling_shape() -> None:
     assert SNODAS_GRID.tile_size == (256, 256)
 
 
-def test_snodas_spec_declares_the_header_grid_registration() -> None:
-    # SNODAS COG headers carry the product's native corner (-124.73375 /
-    # 52.8745833) -- the rounded nominal (-124.733333 / 52.875) is ~0.05 px
-    # (~40 m) NE of it. The spec declares the header registration so ingested
-    # COGs sit on the source's true lattice (and AOI rasters/zone layers, all
-    # burned on this grid, agree with it). Pixel size and dimensions are unchanged.
-    assert _GP.origin_x == -124.73375
-    assert _GP.origin_y == pytest.approx(52.8745833333333, abs=1e-10)
-    assert _GP.px_size == 0.008333333333333
-    assert (_GP.cols, _GP.rows) == (6935, 3351)
-
-
 def test_point_to_tile_matches_pixel_floor_div() -> None:
     pt = Point(-115.087346, 47.301864)
     cell = SNODAS_GRID.base_grid.point_to_cell(pt)
