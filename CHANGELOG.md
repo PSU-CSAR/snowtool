@@ -17,6 +17,64 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.5.0] - 2026-07-24
+
+> **Live databases (SNODAS grid change — action required):** the SNODAS grid
+> origin moves from the rounded *nominal* corner (`-124.733333 / 52.875`) to
+> SNODAS's *product-header* (native) corner (`-124.73375 / 52.8745833`) — ~0.05
+> px (~40 m) SW. Pixel size and dimensions (6935×3351) are unchanged. This
+> updates only the built-in spec (the template new datasets are created from);
+> an **existing** dataset's grid is persisted inline in its
+> `data/<name>/dataset.json`, so changing the spec does **not** move it — that
+> file's `grid.origin_x`/`origin_y` must be edited (or the dataset re-created
+> from the template). COGs are stamped onto the dataset's declared grid, so once
+> the grid is moved **every existing SNODAS COG sits on the old nominal grid and
+> `doctor grid` flags it**. To converge: **(1)** update the declared grid (spec
+> and/or on-disk `dataset.json`); **(2)** re-ingest the affected dates (raw
+> arrays unchanged; ingest only re-stamps the corrected transform); **(3)**
+> rebuild AOI rasters with `pourpoint rasterize --rebuild` — AOI provenance
+> hashes geometry + nodata mask but **not** the grid, so a plain converge will
+> *not* detect the origin shift and would leave them ~40 m off the COGs;
+> **(4)** regenerate terrain / land-cover zone layers (built on the grid; their
+> provenance tracks source content, not the grid). The shipped nodata mask stays
+> valid — it is applied per-cell on the same grid, so it shifts in lockstep.
+
+### Changed
+
+- The SNODAS dataset spec now declares the product-header grid registration
+  (`-124.73375 / 52.8745833`) instead of the rounded nominal corner, so newly
+  created datasets ingest COGs onto the source `.Hdr`'s true lattice rather than
+  a rounded one. Existing datasets carry their grid in `dataset.json`; see the
+  live-databases note above for moving one.
+- `doctor grid` now validates **every** ingested COG's header (shape + transform)
+  against the declared grid, not just the first present COG — a lattice drift on
+  any date is caught, and the finding's `target` names the specific file.
+- `doctor` now reports progress one increment per unit of work — per COG, per
+  pourpoint basin (coverage), per AOI raster, per date, plus the atomic
+  declaration/orphan/artifact steps — rather than one per (dataset, check). The
+  per-basin coverage scan in particular was previously a single step that stalled
+  the bar while it reprojected an entire pourpoint registry; it now advances one
+  basin at a time. All units are enumerated up front so the bar has an exact
+  total, and each step announces what it is doing (e.g. `snodas pourpoints: AOI
+  validation <triplet>`) as it runs (on a TTY; piped/CI output keeps the single
+  `doctor...` announcement).
+- `doctor` no longer reports the redundant `no raster` finding on an off-grid
+  pourpoint. A basin flagged `no coverage` (its geometry falls entirely outside
+  the dataset grid) cannot be rasterized — `rasterize_aoi` refuses it and the
+  batch path skips it — so a *missing* raster is the expected, healthy state.
+  `no raster` is now suppressed for uncovered basins, leaving only the
+  root-cause `no coverage`; a `partial coverage` basin can still be rasterized,
+  so `no raster` still stands there.
+- The `empty AOI` pourpoint finding is renamed `empty AOI raster` and its
+  message clarified (`covers no in-grid cells: off-grid or masked`), since it
+  reports an on-disk artifact, not the basin. It is *not* suppressed for
+  off-grid basins: the normal flow never writes an all-zero raster for one, so
+  its presence is a stray artifact worth flagging alongside `no coverage`.
+- `doctor` now collapses a target's findings onto one row. When a single
+  target trips multiple issues (e.g. a basin that is both `no raster` and
+  `partial coverage`), the issues are joined with `; ` into one row rather than
+  emitting a separate row per issue, so a target never spans multiple lines.
+
 ## [v0.4.0] - 2026-07-24
 
 ### Changed
@@ -532,7 +590,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.0...HEAD
+[v0.4.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...v0.3.0
 [v0.2.2]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...v0.2.2
