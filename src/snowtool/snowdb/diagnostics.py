@@ -17,11 +17,7 @@ from datetime import date, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 
-from snowtool.exceptions import (
-    IncompleteDatasetDataError,
-    QueryParameterError,
-    UnknownHealthCheckError,
-)
+from snowtool.exceptions import QueryParameterError, UnknownHealthCheckError
 from snowtool.snowdb import issues as issues_mod
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.grid import grid_extent
@@ -134,6 +130,17 @@ type Finding = dict[str, str]
 
 def _finding(check: str, dataset: str, target: str, issue: str) -> Finding:
     return {'check': check, 'dataset': dataset, 'target': target, 'issue': issue}
+
+
+def _findings_from_issues(
+    check: str,
+    dataset: str,
+    target: str,
+    issue_list: Sequence[issues_mod.Issue],
+) -> list[Finding]:
+    """Render a batch of typed :class:`~snowtool.snowdb.issues.Issue` to findings
+    sharing one ``check``/``dataset``/``target``."""
+    return [_finding(check, dataset, target, i.message) for i in issue_list]
 
 
 def completeness_report(
@@ -261,41 +268,35 @@ def pourpoint_coverage_report(snowdb: SnowDb, dataset: Dataset) -> list[Finding]
 def aoi_health_report(dataset: Dataset) -> list[Finding]:
     """``pourpoints`` findings for burned AOI rasters that won't read cleanly.
 
-    Opens each AOI raster; a read failure, a missing tile-bbox tag, or an
-    all-zero (empty) raster becomes a finding whose ``target`` is the station
-    triplet and whose ``issue`` describes the fault.
+    Opens each AOI raster; a read failure, a missing tile-bbox tag, a grid
+    mismatch, or an all-zero (empty) raster becomes a finding whose ``target``
+    is the station triplet and whose ``issue`` describes the fault. Freshness
+    is not checked here (no registry is available to resolve an expected hash
+    against) -- see :func:`_aoi_raster_findings` for the doctor step that adds it.
     """
     findings: list[Finding] = []
     for path in dataset.aoi_raster_paths():
-        findings.extend(_aoi_raster_health(dataset, path))
+        findings.extend(_aoi_raster_findings(dataset, path.stem, path, None))
     return findings
 
 
-def _aoi_raster_health(dataset: Dataset, path: Path) -> list[Finding]:
-    """The ``pourpoints`` finding (if any) for one burned AOI raster."""
-    from snowtool.snowdb.aoi_raster import AOIRaster
+def _aoi_raster_findings(
+    dataset: Dataset,
+    stem: str,
+    path: Path,
+    expected_hash: str | None,
+) -> list[Finding]:
+    """The ``pourpoints`` findings for one burned AOI raster.
 
-    triplet = triplet_naming.stem_to_triplet(path.stem)
-    issue: str | None = None
-    try:
-        aoi_raster = AOIRaster.open(path, dataset.grid)
-    except IncompleteDatasetDataError:
-        issue = (
-            'missing SNOWTOOL_TILE_BBOX tag (rebuild with `pourpoint rasterize '
-            '--rebuild`)'
-        )
-    except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
-        issue = f'unreadable: {e}'
-    else:
-        # Burned to all-zero (no in-basin cell area): the basin covers no in-grid
-        # cells, so the raster would contribute no pixels to any query -- either
-        # the basin is off-grid (a stray raster that should not exist) or it is
-        # on-grid but entirely over masked/nodata pixels.
-        if not aoi_raster.array.any():
-            issue = 'empty AOI raster (covers no in-grid cells: off-grid or masked)'
-    if issue is None:
-        return []
-    return [_finding('pourpoints', dataset.spec.name, triplet, issue)]
+    Delegates to :func:`~snowtool.snowdb.aoi_raster.aoi_raster_issues` -- the
+    shared structure/grid/freshness check -- and renders its typed
+    :class:`~snowtool.snowdb.issues.Issue` list to findings.
+    """
+    from snowtool.snowdb.aoi_raster import aoi_raster_issues
+
+    triplet = triplet_naming.stem_to_triplet(stem)
+    found = aoi_raster_issues(path, grid=dataset.grid, expected_hash=expected_hash)
+    return _findings_from_issues('pourpoints', dataset.spec.name, triplet, found)
 
 
 @dataclass(frozen=True)
@@ -689,13 +690,18 @@ def _pourpoint_coverage_findings(
         dataset.coverage_domain,
     )
     if coverage is Coverage.NONE:
-        return [_finding('pourpoints', name, triplet, 'no coverage')]
-    findings: list[Finding] = []
+        return _findings_from_issues(
+            'pourpoints',
+            name,
+            triplet,
+            [issues_mod.NoCoverage()],
+        )
+    found: list[issues_mod.Issue] = []
     if triplet not in rasterized:
-        findings.append(_finding('pourpoints', name, triplet, 'no raster'))
+        found.append(issues_mod.NoRaster())
     if coverage is Coverage.PARTIAL:
-        findings.append(_finding('pourpoints', name, triplet, 'partial coverage'))
-    return findings
+        found.append(issues_mod.PartialCoverage())
+    return _findings_from_issues('pourpoints', name, triplet, found)
 
 
 def _orphan_raster_findings(
@@ -704,10 +710,17 @@ def _orphan_raster_findings(
     triplets: set[str],
 ) -> list[Finding]:
     """``orphan raster`` findings: burned rasters with no backing record."""
-    return [
-        _finding('pourpoints', name, triplet, 'orphan raster')
-        for triplet in sorted(rasterized - triplets)
-    ]
+    findings: list[Finding] = []
+    for triplet in sorted(rasterized - triplets):
+        findings.extend(
+            _findings_from_issues(
+                'pourpoints',
+                name,
+                triplet,
+                [issues_mod.OrphanArtifact()],
+            ),
+        )
+    return findings
 
 
 def _pourpoints_steps(snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
@@ -741,13 +754,38 @@ def _pourpoints_steps(snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
     )
     for path in dataset.aoi_raster_paths():
         triplet = triplet_naming.stem_to_triplet(path.stem)
+        expected_hash = _expected_aoi_hash(snowdb, dataset, triplet)
         steps.append(
             CheckStep(
                 f'{name} pourpoints: AOI validation {triplet}',
-                partial(_aoi_raster_health, dataset, path),
+                partial(
+                    _aoi_raster_findings,
+                    dataset,
+                    path.stem,
+                    path,
+                    expected_hash,
+                ),
             ),
         )
     return steps
+
+
+def _expected_aoi_hash(
+    snowdb: SnowDb,
+    dataset: Dataset,
+    triplet: str,
+) -> str | None:
+    """The AOI provenance hash a raster for ``triplet`` should carry, or ``None``
+    when there is no backing basin record to compare against (an orphan raster,
+    reported separately by :func:`_orphan_raster_findings`)."""
+    from snowtool.snowdb.aoi_raster import aoi_provenance
+    from snowtool.snowdb.pourpoint import Pourpoint
+
+    record_path = snowdb.pourpoint_record_path(triplet)
+    if not record_path.is_file():
+        return None
+    pourpoint = Pourpoint.from_basin_record(record_path)
+    return aoi_provenance(pourpoint.geometry_hash, dataset.nodata_mask_hash)
 
 
 # Order is the ``doctor`` output/CLI-help order.
