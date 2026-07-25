@@ -1,5 +1,6 @@
 """Unit tests for the read-only report builders in snowdb.diagnostics."""
 
+import contextlib
 import shutil
 
 from datetime import date
@@ -341,6 +342,170 @@ def test_guard_wiring(guard_db, triplet, allow_partial, expectation):
             call()
 
 
+# --- pourpoints check: dedup + per-target roll-up ----------------------------
+
+
+def _write_empty_aoi(dataset, grid, triplet):
+    """Write an all-zero (but readable) AOI raster for ``triplet``."""
+    dataset._aoi_rasters.mkdir(parents=True, exist_ok=True)
+    write_cog(
+        dataset._aoi_rasters / f'{triplet.replace(":", "_")}.tif',
+        numpy.zeros((TILE, TILE), dtype=numpy.float32),
+        transform=grid.base_grid[0, 0].transform,
+        tile_size=TILE,
+        nodata=0,
+        tags={TILE_BBOX_TAG: '0 0 0 0'},
+        compute_stats=False,
+    )
+
+
+def test_pourpoints_check_reports_stray_raster_for_uncovered_basin(created_db, grid):
+    # An off-grid basin cannot be rasterized (`rasterize_aoi` refuses it; the batch
+    # path skips it), so an all-zero raster on disk is a stray artifact that should
+    # not exist -- a genuine anomaly, not a redundant symptom. It is reported
+    # (`empty AOI raster`) alongside the root-cause `no coverage`, rolled onto one
+    # row in coverage-then-health order.
+    db, ds = created_db
+    _write_basin(
+        db.pourpoint_records_path,
+        '300:MT:USGS',
+        x0=-110.0,
+        y0=44.9,
+        x1=-109.0,
+        y1=44.0,
+    )
+    _write_empty_aoi(ds, grid, '300:MT:USGS')
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    for_300 = [f for f in findings if f['target'] == '300:MT:USGS']
+    assert len(for_300) == 1
+    assert for_300[0]['issue'] == (
+        'no coverage; empty AOI raster (covers no in-grid cells: off-grid or masked)'
+    )
+
+
+def test_pourpoints_check_suppresses_no_raster_for_uncovered_basin(created_db):
+    # An off-grid basin cannot be rasterized (it has no in-grid pixels), so a
+    # missing raster is expected, not a fault. Only the root-cause `no coverage`
+    # is reported, not a redundant `no raster` -- for `partial coverage`, though,
+    # a raster is expected, so `no raster` still stands (see the roll-up test).
+    db, ds = created_db
+    _write_basin(
+        db.pourpoint_records_path,
+        '300:MT:USGS',
+        x0=-110.0,
+        y0=44.9,
+        x1=-109.0,
+        y1=44.0,
+    )
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    for_300 = [f for f in findings if f['target'] == '300:MT:USGS']
+    assert len(for_300) == 1
+    assert for_300[0]['issue'] == 'no coverage'
+
+
+def test_pourpoints_check_keeps_empty_aoi_for_covered_basin(created_db, grid):
+    # A covered basin whose raster is empty (e.g. entirely masked) is a genuine
+    # fault: `empty AOI raster` is reported here just as it is for the off-grid
+    # stray-raster case -- an all-zero raster always surfaces, covered or not.
+    db, ds = created_db
+    _write_basin(
+        db.pourpoint_records_path,
+        '100:MT:USGS',
+        x0=-119.9,
+        y0=44.9,
+        x1=-119.0,
+        y1=44.0,
+    )
+    _write_empty_aoi(ds, grid, '100:MT:USGS')
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    for_100 = [f for f in findings if f['target'] == '100:MT:USGS']
+    assert len(for_100) == 1
+    assert for_100[0]['issue'].startswith('empty AOI')
+
+
+def test_pourpoints_check_rolls_up_issues_for_one_target(created_db):
+    # A partial-coverage basin with no burned raster hits two pourpoint issues
+    # (`no raster` + `partial coverage`); doctor collapses them onto one row so a
+    # target never spans multiple lines. Emission order is coverage-report order.
+    db, ds = created_db
+    _write_basin(
+        db.pourpoint_records_path,
+        '200:MT:USGS',
+        x0=-120.5,
+        y0=44.9,
+        x1=-119.5,
+        y1=44.0,
+    )
+
+    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+
+    for_200 = [f for f in findings if f['target'] == '200:MT:USGS']
+    assert len(for_200) == 1
+    assert for_200[0]['issue'] == 'no raster; partial coverage'
+
+
+# --- doctor progress: per-item enumeration + live labels ---------------------
+
+
+class _RecordingTask:
+    def __init__(self, rec):
+        self._rec = rec
+
+    def advance(self, n=1):
+        self._rec.advances += n
+
+    def describe(self, label):
+        self._rec.descriptions.append(label)
+
+
+class RecordingProgress:
+    """A ProgressReporter that records the total and every describe/advance."""
+
+    def __init__(self):
+        self.total = None
+        self.advances = 0
+        self.descriptions = []
+
+    @contextlib.contextmanager
+    def track(self, label, *, total=None):
+        self.total = total
+        yield _RecordingTask(self)
+
+
+def test_run_health_checks_reports_one_step_per_raster_and_check(
+    created_db,
+    pourpoint_geojson,
+):
+    # One increment per unit of work (per COG for grid, per AOI raster for
+    # pourpoints, plus the atomic declaration/inventory steps), all enumerated
+    # up front so `total` is exact, and each step announces what it is doing.
+    db, ds = created_db
+    write_swe_cog(ds, '20180427')  # one COG
+    shutil.copy(pourpoint_geojson, db.pourpoint_records_path / '12345_MT_USGS.geojson')
+    ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))  # one AOI raster
+
+    rec = RecordingProgress()
+    diagnostics.run_health_checks(db, [ds], ['grid', 'pourpoints'], progress=rec)
+
+    # grid: declaration + 1 COG; pourpoints: per-basin coverage (1) + orphan
+    # rasters + 1 AOI raster. Coverage is one step *per pourpoint*, so a large
+    # registry advances the bar instead of stalling on a single inventory step.
+    assert rec.total == 5
+    assert rec.advances == 5
+    assert len(rec.descriptions) == 5
+    assert rec.descriptions[0] == 'test grid: declaration'
+    assert rec.descriptions[1].startswith('test grid: 20180427/')
+    assert rec.descriptions[2] == 'test pourpoints: coverage 12345:MT:USGS'
+    assert rec.descriptions[3] == 'test pourpoints: orphan rasters'
+    assert rec.descriptions[4] == 'test pourpoints: AOI validation 12345:MT:USGS'
+
+
 # --- aoi-health --------------------------------------------------------------
 
 
@@ -482,6 +647,30 @@ def test_grid_validation_flags_shape_mismatch(dataset):
     issues = diagnostics.grid_validation_report(dataset)
 
     assert any('512x512' in issue and 'is 256x256' in issue for issue in issues)
+
+
+def test_grid_check_validates_every_cog_not_just_the_first(created_db):
+    # A clean COG on an early date and a drifted COG on a later date: the grid
+    # check opens *every* header, so the later drift is caught even though the
+    # first COG is fine (a first-COG-only sample would miss it). The finding names
+    # the specific file so it is actionable.
+    db, ds = created_db
+    write_swe_cog(ds, '20180101')  # aligned to the declared grid -> clean
+    bad_dir = ds._cogs / '20180201'
+    bad_dir.mkdir(parents=True)
+    write_cog(
+        bad_dir / f'{snodas_swe_name("20180201")}.tif',
+        numpy.zeros((256, 256), dtype=numpy.int16),
+        transform=ds.grid.base_grid.transform,
+        tile_size=TILE,
+    )
+
+    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+
+    grid = [f for f in findings if f['check'] == 'grid']
+    assert len(grid) == 1
+    assert grid[0]['target'] == f'20180201/{snodas_swe_name("20180201")}.tif'
+    assert '256x256' in grid[0]['issue']
 
 
 def test_grid_validation_flags_transform_mismatch(dataset):
