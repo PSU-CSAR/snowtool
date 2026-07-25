@@ -585,6 +585,39 @@ def test_format_version_bump_makes_aoi_raster_stale(db, pourpoint_geojson, monke
     assert ds.aoi_raster_is_current(aoi) is True
 
 
+def test_aoi_raster_is_current_after_rasterize(dataset, pourpoint_geojson):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+    assert dataset.aoi_raster_is_current(pp) is True
+
+
+def test_aoi_raster_stale_when_geometry_changes(dataset, pourpoint_geojson, tmp_path):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+
+    # Same triplet, a different basin polygon -> a different geometry_hash, so
+    # the on-disk SNOWTOOL_AOI_HASH no longer matches: ContentStale, actionable.
+    changed = _write_aoi(
+        tmp_path / 'changed',
+        '12345:MT:USGS',
+        polygon=box(-119.8, 44.8, -119.1, 44.1),
+    )
+    changed_pp = Pourpoint.from_geojson(changed)
+    assert dataset.aoi_raster_is_current(changed_pp) is False
+
+
+def test_aoi_raster_stale_when_unreadable(dataset, pourpoint_geojson):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+
+    path = dataset.aoi_raster_path_from_triplet(pp.station_triplet)
+    path.write_bytes(b'not a tiff')
+
+    # A corrupt/unreadable raster is now actionable (rewriting fixes it), so it
+    # must read as not-current -- the regression guard for the Unreadable fix.
+    assert dataset.aoi_raster_is_current(pp) is False
+
+
 def test_rasterize_aoi_builds_then_skips_then_rebuilds(
     db,
     pourpoint_geojson,
