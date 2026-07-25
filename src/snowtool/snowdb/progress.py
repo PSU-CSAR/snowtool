@@ -25,6 +25,14 @@ class ProgressTask(Protocol):
 
     def advance(self, n: int = 1) -> None: ...
 
+    def describe(self, label: str) -> None:
+        """Update the task's live label (what it is currently working on).
+
+        A no-op for reporters that render a fixed label; the CLI reporter swaps
+        the description so a single tracked bar can name each unit as it runs.
+        """
+        ...
+
 
 class ProgressReporter(Protocol):
     """Opens a tracked task for a long operation.
@@ -44,6 +52,9 @@ class ProgressReporter(Protocol):
 
 class _NullTask:
     def advance(self: _NullTask, n: int = 1) -> None:
+        pass
+
+    def describe(self: _NullTask, label: str) -> None:
         pass
 
 

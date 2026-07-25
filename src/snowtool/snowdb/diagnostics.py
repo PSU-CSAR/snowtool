@@ -14,6 +14,7 @@ import math
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 
 from snowtool.exceptions import (
@@ -27,7 +28,7 @@ from snowtool.snowdb.progress import NULL_PROGRESS
 from snowtool.snowdb.query import DateRangeQuery
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
     from affine import Affine
@@ -144,21 +145,26 @@ def completeness_report(
 ) -> list[Finding]:
     """``dates`` findings: ingested dates (optionally within ``start``/``end``)
     missing one or more of their dataset's variables."""
-    name = dataset.spec.name
-    findings: list[Finding] = []
     window = DateRangeQuery(start_date=start, end_date=end)
+    findings: list[Finding] = []
     for d in window.select(dataset.available_dates()):
-        unresolved = dataset.unresolved_variables(d)
-        if unresolved:
-            findings.append(
-                _finding(
-                    'dates',
-                    name,
-                    d.isoformat(),
-                    f'missing {", ".join(sorted(unresolved))}',
-                ),
-            )
+        findings.extend(_date_completeness(dataset, d))
     return findings
+
+
+def _date_completeness(dataset: Dataset, d: date) -> list[Finding]:
+    """The ``dates`` finding (if any) for a single ingested date ``d``."""
+    unresolved = dataset.unresolved_variables(d)
+    if not unresolved:
+        return []
+    return [
+        _finding(
+            'dates',
+            dataset.spec.name,
+            d.isoformat(),
+            f'missing {", ".join(sorted(unresolved))}',
+        ),
+    ]
 
 
 def missing_artifacts(dataset: Dataset) -> list[str]:
@@ -260,30 +266,37 @@ def aoi_health_report(dataset: Dataset) -> list[Finding]:
     all-zero (empty) raster becomes a finding whose ``target`` is the station
     triplet and whose ``issue`` describes the fault.
     """
-    from snowtool.snowdb.aoi_raster import AOIRaster
-
-    name = dataset.spec.name
     findings: list[Finding] = []
     for path in dataset.aoi_raster_paths():
-        triplet = triplet_naming.stem_to_triplet(path.stem)
-        issue: str | None = None
-        try:
-            aoi_raster = AOIRaster.open(path, dataset.grid)
-        except IncompleteDatasetDataError:
-            issue = (
-                'missing SNOWTOOL_TILE_BBOX tag '
-                '(rebuild with `pourpoint rasterize --rebuild`)'
-            )
-        except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
-            issue = f'unreadable: {e}'
-        else:
-            # Burned to all-zero (no in-basin cell area): the AOI polygon falls
-            # outside the grid, so it would contribute no pixels to any query.
-            if not aoi_raster.array.any():
-                issue = 'empty AOI (does not overlap the grid, or is entirely masked)'
-        if issue is not None:
-            findings.append(_finding('pourpoints', name, triplet, issue))
+        findings.extend(_aoi_raster_health(dataset, path))
     return findings
+
+
+def _aoi_raster_health(dataset: Dataset, path: Path) -> list[Finding]:
+    """The ``pourpoints`` finding (if any) for one burned AOI raster."""
+    from snowtool.snowdb.aoi_raster import AOIRaster
+
+    triplet = triplet_naming.stem_to_triplet(path.stem)
+    issue: str | None = None
+    try:
+        aoi_raster = AOIRaster.open(path, dataset.grid)
+    except IncompleteDatasetDataError:
+        issue = (
+            'missing SNOWTOOL_TILE_BBOX tag (rebuild with `pourpoint rasterize '
+            '--rebuild`)'
+        )
+    except Exception as e:  # noqa: BLE001 - a health scan reports any read failure
+        issue = f'unreadable: {e}'
+    else:
+        # Burned to all-zero (no in-basin cell area): the basin covers no in-grid
+        # cells, so the raster would contribute no pixels to any query -- either
+        # the basin is off-grid (a stray raster that should not exist) or it is
+        # on-grid but entirely over masked/nodata pixels.
+        if not aoi_raster.array.any():
+            issue = 'empty AOI raster (covers no in-grid cells: off-grid or masked)'
+    if issue is None:
+        return []
+    return [_finding('pourpoints', dataset.spec.name, triplet, issue)]
 
 
 @dataclass(frozen=True)
@@ -489,14 +502,16 @@ def dataset_info_report(snowdb: SnowDb, dataset: Dataset) -> DatasetInfoReport:
     )
 
 
-def _first_present_cog(dataset: Dataset) -> Path | None:
-    """The first variable COG present on disk (scanning dates ascending)."""
+def _iter_cog_paths(dataset: Dataset) -> Iterator[Path]:
+    """Every ingested COG on disk, ascending by date then filename.
+
+    Lists each ``cogs/<date>/`` directory once and yields all its ``.tif`` files,
+    so the grid check can validate *every* data file's header (not just a
+    representative), and tolerate a stray/duplicate COG a per-variable resolve
+    would raise on.
+    """
     for d in dataset.available_dates():
-        for variable in dataset.spec.variables.values():
-            path = dataset.variable_path(d, variable)
-            if path is not None:
-                return path
-    return None
+        yield from sorted(dataset.date_dir(d).glob('*.tif'))
 
 
 def _transforms_close(a: Affine, b: Affine) -> bool:
@@ -507,95 +522,251 @@ def _transforms_close(a: Affine, b: Affine) -> bool:
     )
 
 
-def grid_validation_report(dataset: Dataset) -> list[str]:
-    """Cheap declaration-vs-reality checks for ``snowtool doctor``.
+def _grid_declaration_issues(dataset: Dataset) -> list[str]:
+    """The declaration-only grid problems (no raster I/O).
 
-    Returns a list of human-readable problems (empty == consistent):
+    An ingester with no variables has nothing to write -- almost certainly a
+    misconfiguration. (The reverse -- variables but no ingester -- is *not*
+    flagged: that is a valid read-only/derived dataset, populated out of band.)
+    A deeper variables-vs-ingester check (the ingester's *required* keys being a
+    subset of those declared) would need the ``Ingester`` protocol to expose its
+    expected keys; that is left as a follow-up.
+    """
+    spec = dataset.spec
+    if spec.ingester is not None and not spec.variables:
+        return ['has an ingester but declares no variables']
+    return []
 
-    1. **Ingester vs variables.** An ingester with no variables has nothing to
-       write -- almost certainly a misconfiguration. (The reverse -- variables but
-       no ingester -- is *not* flagged: that is a valid read-only/derived dataset,
-       populated out of band.)
-    2. **Declared grid vs the first present COG.** Opens the first variable COG on
-       disk and checks its shape + transform against the declared grid, catching a
-       config that has drifted from the real rasters. Skipped when no COG exists
-       yet (that is a completeness concern, not an inconsistency).
 
-    A deeper variables-vs-ingester check (the ingester's *required* variable keys
-    being a subset of those declared) would need the ``Ingester`` protocol to
-    expose its expected keys; that is left as a follow-up.
+def _cog_grid_issues(dataset: Dataset, cog: Path) -> list[str]:
+    """Shape + transform problems for one COG against the declared grid.
+
+    Opens ``cog``'s header and checks its dimensions and transform against the
+    dataset's declared grid, catching a config that has drifted from the real
+    rasters (or a file ingested onto a different lattice).
     """
     import rasterio
 
+    grid = dataset.spec.grid_params
+    declared = dataset.grid.base_grid.transform
+    with rasterio.open(cog) as src:
+        actual = src.transform
+        width, height = src.width, src.height
     issues: list[str] = []
-    spec = dataset.spec
-
-    if spec.ingester is not None and not spec.variables:
-        issues.append('has an ingester but declares no variables')
-
-    cog = _first_present_cog(dataset)
-    if cog is not None:
-        grid = spec.grid_params
-        declared = dataset.grid.base_grid.transform
-        with rasterio.open(cog) as src:
-            actual = src.transform
-            width, height = src.width, src.height
-        if (width, height) != (grid.cols, grid.rows):
-            issues.append(
-                f'declared grid is {grid.cols}x{grid.rows} (cols x rows) but COG '
-                f'{cog.name} is {width}x{height}',
-            )
-        if not _transforms_close(declared, actual):
-            issues.append(
-                f'declared grid transform {tuple(declared)[:6]} does not match '
-                f'COG {cog.name} transform {tuple(actual)[:6]}',
-            )
+    if (width, height) != (grid.cols, grid.rows):
+        issues.append(
+            f'declared grid is {grid.cols}x{grid.rows} (cols x rows) but COG '
+            f'{cog.name} is {width}x{height}',
+        )
+    if not _transforms_close(declared, actual):
+        issues.append(
+            f'declared grid transform {tuple(declared)[:6]} does not match '
+            f'COG {cog.name} transform {tuple(actual)[:6]}',
+        )
     return issues
 
 
-# --- doctor: the health-check registry ---------------------------------------
+def grid_validation_report(dataset: Dataset) -> list[str]:
+    """Declaration-vs-reality grid problems (empty == consistent).
+
+    The declaration check (:func:`_grid_declaration_issues`) plus the shape +
+    transform check (:func:`_cog_grid_issues`) run against **every** ingested
+    COG, so a lattice drift on any date is caught, not just the first. The
+    ``doctor`` sweep enumerates the same work one COG at a time for progress
+    (see :func:`_grid_steps`); this aggregate is for direct callers/tests.
+    """
+    issues = _grid_declaration_issues(dataset)
+    for cog in _iter_cog_paths(dataset):
+        issues.extend(_cog_grid_issues(dataset, cog))
+    return issues
+
+
+# --- doctor: enumerable health-check steps -----------------------------------
 #
-# Every check has the one uniform ``(snowdb, dataset) -> list[Finding]``
-# signature :func:`run_health_checks` dispatches through -- only ``pourpoints``
-# actually needs the whole-db pourpoint registry to compare against, but the
-# others take ``snowdb`` too so the registry needs no per-check wrapping. Each
-# builder already emits ``Finding`` rows directly (composing ``target``/``issue``
-# where the condition is detected); the checks below only compose the two that
-# wrap a bare-string helper (``grid_validation_report``, ``missing_artifacts``)
-# and roll the two pourpoint scans together.
+# `run_health_checks` shows one progress increment per unit of work, so a check
+# is not a single ``(snowdb, dataset) -> findings`` call but an *enumeration* of
+# `CheckStep`s: a live-progress label plus a deferred `run`. Enumeration only
+# lists directories (cheap); each `run` does the expensive open/parse. Listing
+# every step across all datasets up front lets the reporter set an exact total
+# and announce each unit (a COG, an AOI raster, a date) as it runs.
 
 
-def _grid_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
-    name = dataset.spec.name
+@dataclass(frozen=True)
+class CheckStep:
+    """One unit of ``doctor`` work: a progress ``label`` and a deferred ``run``
+    that produces its findings when executed."""
+
+    label: str
+    run: Callable[[], list[Finding]]
+
+
+def _grid_declaration_findings(dataset: Dataset, name: str) -> list[Finding]:
     return [
-        _finding('grid', name, '', issue) for issue in grid_validation_report(dataset)
+        _finding('grid', name, '', issue) for issue in _grid_declaration_issues(dataset)
     ]
 
 
-def _dates_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
-    return completeness_report(dataset)
+def _cog_grid_findings(
+    dataset: Dataset,
+    name: str,
+    cog: Path,
+    target: str,
+) -> list[Finding]:
+    return [
+        _finding('grid', name, target, issue)
+        for issue in _cog_grid_issues(dataset, cog)
+    ]
 
 
-def _files_check(_snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
+def _grid_steps(_snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
     name = dataset.spec.name
-    findings = [
+    steps = [
+        CheckStep(
+            f'{name} grid: declaration',
+            partial(_grid_declaration_findings, dataset, name),
+        ),
+    ]
+    # One step per COG so every data file's header is validated (not just a
+    # representative), each advancing the bar under its own label.
+    for cog in _iter_cog_paths(dataset):
+        target = f'{cog.parent.name}/{cog.name}'
+        steps.append(
+            CheckStep(
+                f'{name} grid: {target}',
+                partial(_cog_grid_findings, dataset, name, cog, target),
+            ),
+        )
+    return steps
+
+
+def _dates_steps(_snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
+    name = dataset.spec.name
+    return [
+        CheckStep(
+            f'{name} dates: {d.isoformat()}',
+            partial(_date_completeness, dataset, d),
+        )
+        for d in dataset.available_dates()
+    ]
+
+
+def _missing_artifact_findings(dataset: Dataset, name: str) -> list[Finding]:
+    return [
         _finding('files', name, artifact, 'missing')
         for artifact in missing_artifacts(dataset)
     ]
-    findings.extend(stale_format_zone_layers(dataset))
+
+
+def _files_steps(_snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
+    name = dataset.spec.name
+    return [
+        CheckStep(
+            f'{name} files: artifacts',
+            partial(_missing_artifact_findings, dataset, name),
+        ),
+        CheckStep(
+            f'{name} files: zone-layer formats',
+            partial(stale_format_zone_layers, dataset),
+        ),
+    ]
+
+
+def _pourpoint_coverage_findings(
+    dataset: Dataset,
+    record_path: Path,
+    triplet: str,
+    rasterized: frozenset[str],
+) -> list[Finding]:
+    """Coverage findings for one pourpoint basin (parses + reprojects it).
+
+    This is the per-basin unit of the coverage scan -- the expensive part
+    (parsing the record and reprojecting the basin into the grid CRS), one
+    pourpoint at a time so ``doctor``'s bar advances through a large registry
+    instead of stalling on a single monolithic step.
+
+    An off-grid basin (``NONE``) cannot be rasterized -- ``rasterize_aoi`` refuses
+    it and the batch path skips it -- so a *missing* raster is expected and only
+    ``no coverage`` is reported (a *stray* all-zero raster is still caught by the
+    per-raster AOI-validation steps). A ``PARTIAL`` basin can and should be
+    rasterized, so ``no raster`` stands there. Issue order (``no raster`` before
+    ``partial coverage``) matches the collapsed-row order the tests pin.
+    """
+    from snowtool.snowdb.coverage import Coverage, dataset_coverage
+    from snowtool.snowdb.pourpoint import Pourpoint
+
+    name = dataset.spec.name
+    coverage = dataset_coverage(
+        Pourpoint.from_basin_record(record_path),
+        dataset.coverage_domain,
+    )
+    if coverage is Coverage.NONE:
+        return [_finding('pourpoints', name, triplet, 'no coverage')]
+    findings: list[Finding] = []
+    if triplet not in rasterized:
+        findings.append(_finding('pourpoints', name, triplet, 'no raster'))
+    if coverage is Coverage.PARTIAL:
+        findings.append(_finding('pourpoints', name, triplet, 'partial coverage'))
     return findings
 
 
-def _pourpoints_check(snowdb: SnowDb, dataset: Dataset) -> list[Finding]:
-    return pourpoint_coverage_report(snowdb, dataset) + aoi_health_report(dataset)
+def _orphan_raster_findings(
+    name: str,
+    rasterized: frozenset[str],
+    triplets: set[str],
+) -> list[Finding]:
+    """``orphan raster`` findings: burned rasters with no backing record."""
+    return [
+        _finding('pourpoints', name, triplet, 'orphan raster')
+        for triplet in sorted(rasterized - triplets)
+    ]
+
+
+def _pourpoints_steps(snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
+    name = dataset.spec.name
+    # Cheap up front (filenames + a glob); the per-basin reprojection is deferred
+    # into one step each so the progress total is exact and the bar advances.
+    rasterized = frozenset(dataset.aoi_raster_triplets())
+    steps = [
+        CheckStep(
+            f'{name} pourpoints: coverage {triplet_naming.stem_to_triplet(p.stem)}',
+            partial(
+                _pourpoint_coverage_findings,
+                dataset,
+                p,
+                triplet_naming.stem_to_triplet(p.stem),
+                rasterized,
+            ),
+        )
+        for p in snowdb.pourpoint_paths()
+    ]
+    steps.append(
+        CheckStep(
+            f'{name} pourpoints: orphan rasters',
+            partial(
+                _orphan_raster_findings,
+                name,
+                rasterized,
+                snowdb.pourpoint_triplets(),
+            ),
+        ),
+    )
+    for path in dataset.aoi_raster_paths():
+        triplet = triplet_naming.stem_to_triplet(path.stem)
+        steps.append(
+            CheckStep(
+                f'{name} pourpoints: AOI validation {triplet}',
+                partial(_aoi_raster_health, dataset, path),
+            ),
+        )
+    return steps
 
 
 # Order is the ``doctor`` output/CLI-help order.
-HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[Finding]]] = {
-    'grid': _grid_check,
-    'dates': _dates_check,
-    'files': _files_check,
-    'pourpoints': _pourpoints_check,
+HEALTH_CHECKS: dict[str, Callable[[SnowDb, Dataset], list[CheckStep]]] = {
+    'grid': _grid_steps,
+    'dates': _dates_steps,
+    'files': _files_steps,
+    'pourpoints': _pourpoints_steps,
 }
 
 # The valid check names, in ``doctor``'s output/default-sweep order.
@@ -615,8 +786,11 @@ def run_health_checks(
     Resolves ``checks`` first: an unknown name raises
     :class:`~snowtool.exceptions.UnknownHealthCheckError`, duplicates are
     dropped (order-preserving), and an empty selection defaults to every check
-    in :data:`HEALTH_CHECK_NAMES`. Then runs every (dataset, check) pair,
-    advancing ``progress`` one tick per pair.
+    in :data:`HEALTH_CHECK_NAMES`. Then enumerates every check's steps (one per
+    COG, AOI raster, date, ...) across all datasets up front so ``progress`` has
+    an exact total, and runs each step, naming it on the bar and advancing one
+    tick per step. Findings sharing a ``(check, dataset, target)`` are collapsed
+    onto one row (:func:`_collapse_by_target`).
     """
     unknown = sorted(set(checks) - set(HEALTH_CHECK_NAMES))
     if unknown:
@@ -626,10 +800,33 @@ def run_health_checks(
         )
     selected = list(dict.fromkeys(checks)) if checks else list(HEALTH_CHECK_NAMES)
 
+    steps: list[CheckStep] = []
+    for dataset in datasets:
+        for check in selected:
+            steps.extend(HEALTH_CHECKS[check](snowdb, dataset))
+
     findings: list[Finding] = []
-    with progress.track('doctor', total=len(datasets) * len(selected)) as task:
-        for dataset in datasets:
-            for check in selected:
-                findings.extend(HEALTH_CHECKS[check](snowdb, dataset))
-                task.advance()
-    return findings
+    with progress.track('doctor', total=len(steps)) as task:
+        for step in steps:
+            task.describe(step.label)
+            findings.extend(step.run())
+            task.advance()
+    return _collapse_by_target(findings)
+
+
+def _collapse_by_target(findings: Sequence[Finding]) -> list[Finding]:
+    """Roll findings that share a ``(check, dataset, target)`` onto one row.
+
+    A target that trips several issues (e.g. a basin that is both ``no raster``
+    and ``partial coverage``) becomes a single row whose ``issue`` joins them with
+    ``'; '`` -- so ``doctor`` never spreads one target across multiple lines --
+    preserving first-seen order both across rows and within the joined issue.
+    """
+    collapsed: dict[tuple[str, str, str], Finding] = {}
+    for finding in findings:
+        key = (finding['check'], finding['dataset'], finding['target'])
+        if (existing := collapsed.get(key)) is not None:
+            existing['issue'] += f'; {finding["issue"]}'
+        else:
+            collapsed[key] = dict(finding)
+    return list(collapsed.values())

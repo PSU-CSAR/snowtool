@@ -44,6 +44,9 @@ class _RichTask:
     def advance(self: _RichTask, n: int = 1) -> None:
         self._progress.advance(self._task_id, n)
 
+    def describe(self: _RichTask, label: str) -> None:
+        self._progress.update(self._task_id, description=label)
+
 
 class RichProgress:
     """A :class:`~snowtool.snowdb.progress.ProgressReporter` backed by rich.
