@@ -83,7 +83,15 @@ class RichProgress:
             return
         progress = Progress(
             SpinnerColumn(),
-            TextColumn('[progress.description]{task.description}'),
+            # markup=False renders the description as literal text: labels carry
+            # station triplets like ``15908000:AK:USGS`` whose ``:...:`` segments
+            # rich would otherwise interpret as console markup / emoji shortcodes
+            # (e.g. ``:id:`` -> an emoji). The style is applied via ``style=``.
+            TextColumn(
+                '{task.description}',
+                style='progress.description',
+                markup=False,
+            ),
             BarColumn(),
             MofNCompleteColumn(),
             TimeElapsedColumn(),

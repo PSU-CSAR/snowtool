@@ -67,6 +67,16 @@ def doctor(
         include_inactive=include_inactive,
     )
 
+    # Announce before enumerating: building the step list across every dataset
+    # (listing COGs, AOI rasters, and pourpoint records) takes a moment on a
+    # large store, and without this the command looks hung before the bar opens.
+    selected = ', '.join(checks) if checks else 'grid, dates, files, pourpoints'
+    names = ', '.join(d.spec.name for d in datasets) or '(none)'
+    _console.err().print(
+        f'[dim]doctor: checking {len(datasets)} dataset(s) ({names}); '
+        f'checks: {selected}. Enumerating…[/dim]',
+    )
+
     findings = diagnostics.run_health_checks(
         snowdb,
         datasets,
