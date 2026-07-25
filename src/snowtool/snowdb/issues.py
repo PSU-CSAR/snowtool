@@ -105,6 +105,10 @@ class Unreadable(Issue):
     detail: str = ''
 
     @property
+    def actionable(self) -> bool:
+        return True
+
+    @property
     def message(self) -> str:
         return f'unreadable: {self.detail}'
 

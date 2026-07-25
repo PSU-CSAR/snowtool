@@ -20,7 +20,7 @@ from snowtool.snowdb import issues
             False,
         ),
         (issues.MissingArtifact(), 'missing', True),
-        (issues.Unreadable('boom'), 'unreadable: boom', False),
+        (issues.Unreadable('boom'), 'unreadable: boom', True),
         (
             issues.MissingProvenanceTag('SNOWTOOL_TILE_BBOX'),
             'missing SNOWTOOL_TILE_BBOX tag '

@@ -19,7 +19,12 @@ from snowtool.exceptions import (
     SnowtoolError,
 )
 from snowtool.snowdb import triplet_naming
-from snowtool.snowdb.aoi_raster import AOIRaster, aoi_provenance, write_aoi_raster
+from snowtool.snowdb.aoi_raster import (
+    AOIRaster,
+    aoi_provenance,
+    aoi_raster_issues,
+    write_aoi_raster,
+)
 from snowtool.snowdb.atomic import staged_dir
 from snowtool.snowdb.constants import AOI_HASH_TAG
 from snowtool.snowdb.pourpoint import Pourpoint
@@ -275,16 +280,25 @@ class Dataset:
         return read_tag(path, AOI_HASH_TAG)
 
     def aoi_raster_is_current(self: Self, pourpoint: Pourpoint) -> bool:
-        """Whether a burned AOI raster exists AND matches ``pourpoint``'s geometry
-        AND the current burned-raster format version.
+        """Whether a burned AOI raster exists AND has no actionable issue.
 
-        ``False`` means missing or stale (changed geometry *or* an old format
-        version) -- either way :meth:`rasterize_aoi` should (re)build it.
+        Delegates to :func:`~snowtool.snowdb.aoi_raster.aoi_raster_issues` -- the
+        same health check ``doctor`` reports with -- so "current" means: the file
+        exists, is readable, is on the current grid, has its tile-bbox tag, and
+        its stored ``SNOWTOOL_AOI_HASH`` matches ``pourpoint``'s geometry (plus
+        this dataset's nodata-mask hash) and the current format version. An
+        empty-but-otherwise-current raster
+        (:class:`~snowtool.snowdb.issues.EmptyArtifact`) still counts as current --
+        rebuilding it would produce the same empty raster, so
+        :meth:`rasterize_aoi` correctly skips it; a corrupt/unreadable raster, a
+        grid move, or a changed basin do not, and force a rebuild.
         """
-        return self.aoi_raster_hash(pourpoint.station_triplet) == aoi_provenance(
-            pourpoint.geometry_hash,
-            self.nodata_mask_hash,
-        )
+        path = self.aoi_raster_path_from_triplet(pourpoint.station_triplet)
+        if not path.is_file():
+            return False
+        expected_hash = aoi_provenance(pourpoint.geometry_hash, self.nodata_mask_hash)
+        found = aoi_raster_issues(path, grid=self.grid, expected_hash=expected_hash)
+        return not any(issue.actionable for issue in found)
 
     def remove_aoi_raster(
         self: Self,
