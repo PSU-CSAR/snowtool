@@ -19,6 +19,7 @@ from rasterio.features import rasterize
 from rasterio.windows import Window
 
 from snowtool.exceptions import IncompleteDatasetDataError, NodataMaskError
+from snowtool.snowdb import issues as issues_mod
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
 from snowtool.snowdb.grid import (
     PixelCoord,
@@ -289,6 +290,77 @@ def aoi_provenance(geometry_hash: str, nodata_mask_hash: str | None) -> str:
         else f'{geometry_hash}+{nodata_mask_hash}'
     )
     return versioned_hash(AOI_RASTER_FORMAT_VERSION, digest)
+
+
+def aoi_raster_issues(
+    path: Path,
+    *,
+    grid: TiledAffineGrid,
+    expected_hash: str | None,
+) -> list[issues_mod.Issue]:
+    """The health of the AOI raster at ``path``: freshness + structure + grid.
+
+    The single source of truth for "is this AOI raster OK?", shared by the
+    write path (skip-unless-issues) and ``doctor`` (report). Reads the raster's
+    *own* stored transform, shape, and tags from the file (a missing
+    ``SNOWTOOL_TILE_BBOX`` tag or any other read failure short-circuits with the
+    corresponding issue), then checks each of the following independently and
+    accumulates the results:
+
+    - an all-zero array (:class:`~snowtool.snowdb.issues.EmptyArtifact`);
+    - grid + structure: the raster's own on-disk transform and shape against
+      what ``grid`` expects for the raster's stored tile-bbox window -- the
+      upper-left tile transform and the window's height/width (via
+      :func:`~snowtool.snowdb.issues.grid_issues`). Reading the transform/shape
+      from the *file* (not re-deriving them from ``grid``) is what makes this
+      catch a raster burned on an old grid that has since moved: a shifted grid
+      yields a different expected UL-tile transform than the one on disk. A
+      truncated/corrupt file yields a shape that disagrees with its window.
+    - freshness: when ``expected_hash`` is given, the stored ``SNOWTOOL_AOI_HASH``
+      tag against it (:class:`~snowtool.snowdb.issues.ContentStale`).
+      ``expected_hash=None`` means the caller has no record to compare against
+      (an orphan raster), so freshness is skipped entirely -- that case is
+      reported elsewhere.
+
+    Empty result means healthy and current.
+    """
+    try:
+        with rasterio.open(path) as ds:
+            actual_transform = ds.transform
+            actual_shape = (ds.height, ds.width)
+            tags = ds.tags()
+            array = ds.read(1)
+        # Resolves the stored tile-bbox against the *current* grid: the UL-tile
+        # transform + window shape it yields are what an on-grid raster must
+        # match. Raises IncompleteDatasetDataError when the tag is absent.
+        window = window_from_tags(grid, tags)
+    except IncompleteDatasetDataError:
+        return [issues_mod.MissingProvenanceTag(TILE_BBOX_TAG)]
+    except Exception as e:  # noqa: BLE001 - a health check reports any read failure
+        return [issues_mod.Unreadable(str(e))]
+
+    result: list[issues_mod.Issue] = []
+
+    if not array.any():
+        result.append(issues_mod.EmptyArtifact())
+
+    result.extend(
+        issues_mod.grid_issues(
+            declared_transform=window.tiles[0].transform,
+            actual_transform=actual_transform,
+            declared_shape=(window.height, window.width),
+            actual_shape=actual_shape,
+        ),
+    )
+
+    if expected_hash is not None:
+        stored = tags.get(AOI_HASH_TAG)
+        if stored != expected_hash:
+            result.append(
+                issues_mod.ContentStale(stored=stored, expected=expected_hash),
+            )
+
+    return result
 
 
 def write_aoi_raster(

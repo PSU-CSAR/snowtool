@@ -11,6 +11,8 @@ import rasterio
 
 from snowtool.exceptions import PourpointCoverageError
 from snowtool.snowdb import diagnostics
+from snowtool.snowdb import issues as issues_mod
+from snowtool.snowdb.aoi_raster import aoi_provenance, aoi_raster_issues
 from snowtool.snowdb.constants import TILE_BBOX_TAG
 from snowtool.snowdb.coverage import Coverage
 from snowtool.snowdb.dataset import Dataset
@@ -24,10 +26,13 @@ from snowtool.snowdb.zones.landcover_layers import FOREST_COVER
 from snowtool.snowdb.zones.terrain_layers import ELEVATION
 
 from ..conftest import (
+    ORIGIN_X,
+    PX,
     TILE,
     make_snowdb,
     register_dataset_config,
     snodas_swe_name,
+    synthetic_grid,
     write_landcover,
     write_pourpoint_record,
     write_swe_cog,
@@ -549,6 +554,83 @@ def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
 
     bad = diagnostics.aoi_health_report(dataset)
     assert any('TILE_BBOX' in h['issue'] for h in bad)
+
+
+def test_aoi_raster_issues_clean_for_current_raster(dataset, pourpoint_geojson):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+    path = dataset.aoi_raster_path_from_triplet(pp.station_triplet)
+
+    result = aoi_raster_issues(
+        path,
+        grid=dataset.grid,
+        expected_hash=aoi_provenance(pp.geometry_hash, dataset.nodata_mask_hash),
+    )
+
+    assert result == []
+
+
+def test_aoi_raster_issues_clean_for_offset_basin(dataset, tmp_path):
+    # False-positive guard: a basin whose tile-bbox does NOT start at tile (0, 0)
+    # must still be clean. Its UL-tile transform is offset from the grid origin,
+    # so comparing the raster's own transform (not the grid base transform) is
+    # what keeps this from spuriously flagging GridMismatch. The synthetic grid
+    # spans lon [-120, -114.88], lat [39.88, 45]; a box around (-115.5, 40.2)
+    # lands in tile (1, 1).
+    record = _write_basin(
+        tmp_path,
+        '55555:MT:USGS',
+        x0=-115.7,
+        y0=40.0,
+        x1=-115.3,
+        y1=40.4,
+    )
+    pp = Pourpoint.from_geojson(record)
+    dataset.rasterize_aoi(pp)
+    path = dataset.aoi_raster_path_from_triplet(pp.station_triplet)
+
+    result = aoi_raster_issues(
+        path,
+        grid=dataset.grid,
+        expected_hash=aoi_provenance(pp.geometry_hash, dataset.nodata_mask_hash),
+    )
+
+    assert result == []
+
+
+def test_aoi_raster_issues_flags_grid_drift(dataset, pourpoint_geojson):
+    # True-positive: the SAME on-disk raster, read against a grid whose origin is
+    # shifted by one pixel, must be flagged -- proving real grid drift (not a
+    # value re-derived from the current grid) is detected.
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+    path = dataset.aoi_raster_path_from_triplet(pp.station_triplet)
+
+    shifted_grid = synthetic_grid(origin_x=ORIGIN_X + PX)
+
+    result = aoi_raster_issues(
+        path,
+        grid=shifted_grid,
+        expected_hash=aoi_provenance(pp.geometry_hash, dataset.nodata_mask_hash),
+    )
+
+    assert any(isinstance(i, issues_mod.GridMismatch) for i in result)
+    assert all(i.actionable for i in result if isinstance(i, issues_mod.GridMismatch))
+
+
+def test_aoi_raster_issues_flags_stale_hash(dataset, pourpoint_geojson):
+    pp = Pourpoint.from_geojson(pourpoint_geojson)
+    dataset.rasterize_aoi(pp)
+    path = dataset.aoi_raster_path_from_triplet(pp.station_triplet)
+
+    result = aoi_raster_issues(
+        path,
+        grid=dataset.grid,
+        expected_hash='v1:deadbeef',  # deliberately not what was stamped
+    )
+
+    assert any(isinstance(i, issues_mod.ContentStale) for i in result)
+    assert all(i.actionable for i in result if isinstance(i, issues_mod.ContentStale))
 
 
 # --- value-ranges / grid -----------------------------------------------------
