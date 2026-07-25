@@ -22,6 +22,7 @@ from snowtool.exceptions import (
     QueryParameterError,
     UnknownHealthCheckError,
 )
+from snowtool.snowdb import issues as issues_mod
 from snowtool.snowdb import triplet_naming
 from snowtool.snowdb.grid import grid_extent
 from snowtool.snowdb.progress import NULL_PROGRESS
@@ -30,8 +31,6 @@ from snowtool.snowdb.query import DateRangeQuery
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
-
-    from affine import Affine
 
     from snowtool.snowdb.dataset import Dataset, DatasetArtifacts
     from snowtool.snowdb.db import SnowDb
@@ -514,14 +513,6 @@ def _iter_cog_paths(dataset: Dataset) -> Iterator[Path]:
         yield from sorted(dataset.date_dir(d).glob('*.tif'))
 
 
-def _transforms_close(a: Affine, b: Affine) -> bool:
-    """Whether two affine transforms agree to within float noise."""
-    return all(
-        math.isclose(x, y, rel_tol=1e-9, abs_tol=1e-9)
-        for x, y in zip(tuple(a)[:6], tuple(b)[:6], strict=True)
-    )
-
-
 def _grid_declaration_issues(dataset: Dataset) -> list[str]:
     """The declaration-only grid problems (no raster I/O).
 
@@ -543,7 +534,10 @@ def _cog_grid_issues(dataset: Dataset, cog: Path) -> list[str]:
 
     Opens ``cog``'s header and checks its dimensions and transform against the
     dataset's declared grid, catching a config that has drifted from the real
-    rasters (or a file ingested onto a different lattice).
+    rasters (or a file ingested onto a different lattice). Delegates the
+    comparison to :func:`snowtool.snowdb.issues.grid_issues` -- the same check
+    used for every other grid-bound artifact -- and renders each returned
+    ``Issue`` back to a string so callers keep their ``list[str]`` shape.
     """
     import rasterio
 
@@ -552,18 +546,13 @@ def _cog_grid_issues(dataset: Dataset, cog: Path) -> list[str]:
     with rasterio.open(cog) as src:
         actual = src.transform
         width, height = src.width, src.height
-    issues: list[str] = []
-    if (width, height) != (grid.cols, grid.rows):
-        issues.append(
-            f'declared grid is {grid.cols}x{grid.rows} (cols x rows) but COG '
-            f'{cog.name} is {width}x{height}',
-        )
-    if not _transforms_close(declared, actual):
-        issues.append(
-            f'declared grid transform {tuple(declared)[:6]} does not match '
-            f'COG {cog.name} transform {tuple(actual)[:6]}',
-        )
-    return issues
+    found = issues_mod.grid_issues(
+        declared_transform=declared,
+        actual_transform=actual,
+        declared_shape=(grid.rows, grid.cols),
+        actual_shape=(height, width),
+    )
+    return [issue.message for issue in found]
 
 
 def grid_validation_report(dataset: Dataset) -> list[str]:

@@ -9,11 +9,15 @@ string via ``message``, and declares whether re-writing the artifact resolves it
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from affine import Affine
 
 
 @dataclass(frozen=True)
@@ -180,3 +184,37 @@ class UnverifiableFreshness(Issue):
 def render(issues: Iterable[Issue]) -> str:
     """Join issue messages with '; ' (doctor's one-row-per-target rendering)."""
     return '; '.join(issue.message for issue in issues)
+
+
+def grid_issues(
+    *,
+    declared_transform: Affine,
+    actual_transform: Affine,
+    declared_shape: tuple[int, int],
+    actual_shape: tuple[int, int],
+) -> list[Issue]:
+    """Grid-compatibility issues for any grid-bound artifact.
+
+    Compares an artifact's transform + shape to the declared grid. Shape must be
+    exact; the transform is compared to within float noise (the artifacts are
+    written from the same declared grid, so a real mismatch is a drift, not
+    rounding). Empty result == aligned.
+    """
+    result: list[Issue] = []
+    if actual_shape != declared_shape:
+        result.append(ShapeMismatch(declared=declared_shape, actual=actual_shape))
+    if not _transforms_close(declared_transform, actual_transform):
+        result.append(
+            GridMismatch(
+                declared=tuple(declared_transform)[:6],
+                actual=tuple(actual_transform)[:6],
+            ),
+        )
+    return result
+
+
+def _transforms_close(a: Affine, b: Affine) -> bool:
+    return all(
+        math.isclose(x, y, rel_tol=1e-9, abs_tol=1e-9)
+        for x, y in zip(tuple(a)[:6], tuple(b)[:6], strict=True)
+    )

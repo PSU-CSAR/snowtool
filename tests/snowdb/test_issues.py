@@ -2,6 +2,8 @@
 
 import pytest
 
+from affine import Affine
+
 from snowtool.snowdb import issues
 
 
@@ -64,3 +66,58 @@ def test_render_joins_messages_in_order():
     joined = issues.render([issues.NoRaster(), issues.PartialCoverage()])
     assert joined == 'no raster; partial coverage'
     assert issues.render([]) == ''
+
+
+def test_grid_issues_clean_when_matching():
+    t = Affine(0.00833333, 0.0, -124.73375, 0.0, -0.00833333, 52.8745833)
+    assert (
+        issues.grid_issues(
+            declared_transform=t,
+            actual_transform=t,
+            declared_shape=(3351, 6935),
+            actual_shape=(3351, 6935),
+        )
+        == []
+    )
+
+
+def test_grid_issues_flags_transform_and_shape():
+    declared = Affine(0.00833333, 0.0, -124.73375, 0.0, -0.00833333, 52.8745833)
+    actual = Affine(0.00833333, 0.0, -124.73333, 0.0, -0.00833333, 52.875)
+    result = issues.grid_issues(
+        declared_transform=declared,
+        actual_transform=actual,
+        declared_shape=(3351, 6935),
+        actual_shape=(256, 256),
+    )
+    types = {type(i) for i in result}
+    assert issues.ShapeMismatch in types
+    assert issues.GridMismatch in types
+
+
+def test_grid_issues_tolerates_float_noise():
+    a = Affine(
+        0.008333333333333,
+        0.0,
+        -124.73375,
+        0.0,
+        -0.008333333333333,
+        52.8745833333333,
+    )
+    b = Affine(
+        0.008333333333333,
+        0.0,
+        -124.7337499999950,
+        0.0,
+        -0.008333333333333,
+        52.8745833333312,
+    )
+    assert (
+        issues.grid_issues(
+            declared_transform=a,
+            actual_transform=b,
+            declared_shape=(3351, 6935),
+            actual_shape=(3351, 6935),
+        )
+        == []
+    )
