@@ -68,6 +68,7 @@ nav:
   - Configuration: configuration.md
   - Walkthrough: walkthrough.md
   - Usage: usage.md
+  - Checking a snowdb (doctor): doctor.md
   - Internals:
       - Architecture: internals/architecture.md
       - A snowdb on disk: internals/on-disk-layout.md
