@@ -812,20 +812,28 @@ def _pourpoints_steps(snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
     )
     for path in dataset.aoi_raster_paths():
         triplet = triplet_naming.stem_to_triplet(path.stem)
-        expected_hash = _expected_aoi_hash(snowdb, dataset, triplet)
         steps.append(
             CheckStep(
                 f'{name} pourpoints: AOI validation {triplet}',
-                partial(
-                    _aoi_raster_findings,
-                    dataset,
-                    path.stem,
-                    path,
-                    expected_hash,
-                ),
+                # Defer both the record parse (expected hash) and the raster read
+                # into the step body -- computing them here, during enumeration,
+                # parses every basin record before the progress bar opens.
+                partial(_aoi_raster_step_findings, snowdb, dataset, path),
             ),
         )
     return steps
+
+
+def _aoi_raster_step_findings(
+    snowdb: SnowDb,
+    dataset: Dataset,
+    path: Path,
+) -> list[Finding]:
+    """A doctor AOI-validation step: resolve the expected hash from the registry
+    (deferred), then run the shared AOI check."""
+    triplet = triplet_naming.stem_to_triplet(path.stem)
+    expected_hash = _expected_aoi_hash(snowdb, dataset, triplet)
+    return _aoi_raster_findings(dataset, path.stem, path, expected_hash)
 
 
 def _expected_aoi_hash(
