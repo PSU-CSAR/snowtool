@@ -10,7 +10,7 @@ import pytest
 import rasterio
 
 from snowtool.exceptions import PourpointCoverageError
-from snowtool.snowdb import diagnostics
+from snowtool.snowdb import diagnostics, health_checks
 from snowtool.snowdb import issues as issues_mod
 from snowtool.snowdb.aoi_raster import aoi_provenance, aoi_raster_issues
 from snowtool.snowdb.constants import AOI_HASH_TAG, AOI_MASK_NODATA, TILE_BBOX_TAG
@@ -111,7 +111,7 @@ def test_missing_dates_requires_start_when_no_ingested_dates(dataset):
 
 
 def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
-    findings = diagnostics.completeness_report(dataset)
+    findings = health_checks.completeness_report(dataset)
 
     assert len(findings) == 1
     finding = findings[0]
@@ -126,7 +126,7 @@ def test_completeness_report_flags_incomplete_date(dataset, swe_cog):
 
 def test_completeness_report_respects_date_window(dataset, swe_cog):
     # The only date (2018-04-27) is outside this window, so nothing is reported.
-    assert diagnostics.completeness_report(dataset, start=date(2019, 1, 1)) == []
+    assert health_checks.completeness_report(dataset, start=date(2019, 1, 1)) == []
 
 
 def test_completeness_report_flags_duplicated_cog(dataset, swe_cog):
@@ -137,7 +137,7 @@ def test_completeness_report_flags_duplicated_cog(dataset, swe_cog):
     shutil.copyfile(swe_cog, duplicate)
     write_swe_cog(dataset, '20180415')  # a clean date alongside the corrupt one
 
-    findings = diagnostics.completeness_report(dataset)
+    findings = health_checks.completeness_report(dataset)
 
     corrupt = next(f for f in findings if f['target'] == '2018-04-27')
     # duplicated -> unresolved, so swe is listed among the missing variables
@@ -151,7 +151,7 @@ def test_completeness_report_flags_duplicated_cog(dataset, swe_cog):
 
 
 def test_missing_artifacts_empty_for_created_dataset(dataset):
-    assert diagnostics.missing_artifacts(dataset) == []
+    assert health_checks.missing_artifacts(dataset) == []
 
 
 def test_missing_artifacts_reports_deleted_terrain(dataset):
@@ -160,7 +160,7 @@ def test_missing_artifacts_reports_deleted_terrain(dataset):
 
     # The finding names the provider and the specific absent layer file.
     finding = next(
-        m for m in diagnostics.missing_artifacts(dataset) if m.startswith('terrain')
+        m for m in health_checks.missing_artifacts(dataset) if m.startswith('terrain')
     )
     assert ELEVATION.filename in finding
 
@@ -170,14 +170,14 @@ def test_missing_artifacts_reports_deleted_landcover(dataset):
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
     finding = next(
-        m for m in diagnostics.missing_artifacts(dataset) if m.startswith('landcover')
+        m for m in health_checks.missing_artifacts(dataset) if m.startswith('landcover')
     )
     assert FOREST_COVER.filename in finding
 
 
 def test_stale_format_zone_layers_empty_for_current_dataset(dataset):
     # Freshly built sets carry the current format version -> no findings.
-    assert diagnostics.stale_format_zone_layers(dataset) == []
+    assert health_checks.stale_format_zone_layers(dataset) == []
 
 
 def test_stale_format_zone_layers_flags_an_old_format(dataset):
@@ -187,7 +187,7 @@ def test_stale_format_zone_layers_flags_an_old_format(dataset):
     stamped = terrain.stored_format_version()
     terrain.format_version = stamped + 1
 
-    findings = diagnostics.stale_format_zone_layers(dataset)
+    findings = health_checks.stale_format_zone_layers(dataset)
 
     assert len(findings) == 1
     finding = findings[0]
@@ -203,7 +203,7 @@ def test_stale_format_zone_layers_skips_unbuilt_sets(dataset):
 
     dataset.zones['landcover'].layer_path(FOREST_COVER).unlink()
 
-    targets = {f['target'] for f in diagnostics.stale_format_zone_layers(dataset)}
+    targets = {f['target'] for f in health_checks.stale_format_zone_layers(dataset)}
     assert 'landcover' not in targets
 
 
@@ -230,7 +230,7 @@ def test_stale_format_zone_layers_flags_a_built_untagged_set(dataset):
     )
     assert terrain.provenance_hash() is None
 
-    findings = diagnostics.stale_format_zone_layers(dataset)
+    findings = health_checks.stale_format_zone_layers(dataset)
 
     assert len(findings) == 1
     finding = findings[0]
@@ -256,27 +256,28 @@ def test_pourpoint_coverage_unrasterized_then_covered(created_db, pourpoint_geoj
         db.pourpoint_records_path / '12345_MT_USGS.geojson',
     )
 
-    before = diagnostics.pourpoint_coverage_report(db, ds)
+    before = health_checks.run_health_checks(db, [ds], ['pourpoints'])
     assert _targets_by_issue(before, 'no raster') == ('12345:MT:USGS',)
     assert _targets_by_issue(before, 'orphan raster') == ()
 
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
-    after = diagnostics.pourpoint_coverage_report(db, ds)
-    assert _targets_by_issue(after, 'no raster') == ()
+    after = health_checks.run_health_checks(db, [ds], ['pourpoints'])
+    assert [f for f in after if f['target'] == '12345:MT:USGS'] == []
 
 
 def test_pourpoint_coverage_flags_orphan_raster(created_db, pourpoint_geojson):
-    db, ds = created_db  # no global AOIs
+    db, ds = created_db  # a burned raster with no backing record -> orphan
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
 
-    result = diagnostics.pourpoint_coverage_report(db, ds)
+    result = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     assert _targets_by_issue(result, 'orphan raster') == ('12345:MT:USGS',)
 
 
 def test_pourpoint_coverage_classifies_full_partial_none(created_db):
-    # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45].
-    db, _ds = created_db
+    # The synthetic grid spans lon [-120, -114.88], lat [39.88, 45]. None of the
+    # basins are rasterized, so a coverable basin also trips `no raster`.
+    db, ds = created_db
     records = db.pourpoint_records_path
     # Fully inside.
     _write_basin(records, '100:MT:USGS', x0=-119.9, y0=44.9, x1=-119.0, y1=44.0)
@@ -285,10 +286,14 @@ def test_pourpoint_coverage_classifies_full_partial_none(created_db):
     # Entirely east of the grid -> none.
     _write_basin(records, '300:MT:USGS', x0=-110.0, y0=44.9, x1=-109.0, y1=44.0)
 
-    result = diagnostics.pourpoint_coverage_report(db, db.datasets['test'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
+    by_target = {f['target']: f['issue'] for f in findings}
 
-    assert _targets_by_issue(result, 'partial coverage') == ('200:MT:USGS',)
-    assert _targets_by_issue(result, 'no coverage') == ('300:MT:USGS',)
+    # Full-but-unrasterized -> `no raster`; partial -> `no raster; partial
+    # coverage`; off-grid -> just `no coverage` (`no raster` suppressed).
+    assert by_target['100:MT:USGS'] == 'no raster'
+    assert by_target['200:MT:USGS'] == 'no raster; partial coverage'
+    assert by_target['300:MT:USGS'] == 'no coverage'
 
 
 # --- query guard: SnowDb.require_pourpoint_coverage --------------------------------
@@ -394,7 +399,7 @@ def test_pourpoints_check_reports_stray_raster_for_uncovered_basin(created_db, g
     )
     _write_empty_aoi(ds, grid, '300:MT:USGS', record_path=record_path)
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     for_300 = [f for f in findings if f['target'] == '300:MT:USGS']
     assert len(for_300) == 1
@@ -418,7 +423,7 @@ def test_pourpoints_check_suppresses_no_raster_for_uncovered_basin(created_db):
         y1=44.0,
     )
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     for_300 = [f for f in findings if f['target'] == '300:MT:USGS']
     assert len(for_300) == 1
@@ -440,7 +445,7 @@ def test_pourpoints_check_keeps_empty_aoi_for_covered_basin(created_db, grid):
     )
     _write_empty_aoi(ds, grid, '100:MT:USGS', record_path=record_path)
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     for_100 = [f for f in findings if f['target'] == '100:MT:USGS']
     assert len(for_100) == 1
@@ -461,7 +466,7 @@ def test_pourpoints_check_rolls_up_issues_for_one_target(created_db):
         y1=44.0,
     )
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     for_200 = [f for f in findings if f['target'] == '200:MT:USGS']
     assert len(for_200) == 1
@@ -501,7 +506,7 @@ def test_doctor_pourpoints_reports_stale_aoi_hash(created_db, pourpoint_geojson)
         compute_stats=False,
     )
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     for_pp = [f for f in findings if f['target'] == pp.station_triplet]
     assert len(for_pp) == 1
@@ -525,7 +530,7 @@ def test_doctor_pourpoints_no_spurious_findings_for_offset_basin(created_db, tmp
     pp = Pourpoint.from_geojson(record_path)
     ds.rasterize_aoi(pp)
 
-    findings = diagnostics.run_health_checks(db, [ds], ['pourpoints'])
+    findings = health_checks.run_health_checks(db, [ds], ['pourpoints'])
 
     assert [f for f in findings if f['target'] == '55555:MT:USGS'] == []
 
@@ -571,7 +576,7 @@ def test_run_health_checks_reports_one_step_per_raster_and_check(
     ds.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))  # one AOI raster
 
     rec = RecordingProgress()
-    diagnostics.run_health_checks(db, [ds], ['grid', 'pourpoints'], progress=rec)
+    health_checks.run_health_checks(db, [ds], ['grid', 'pourpoints'], progress=rec)
 
     # grid: declaration + 1 COG; pourpoints: per-basin coverage (1) + orphan
     # rasters + 1 AOI raster. Coverage is one step *per pourpoint*, so a large
@@ -589,37 +594,12 @@ def test_run_health_checks_reports_one_step_per_raster_and_check(
 # --- aoi-health --------------------------------------------------------------
 
 
-def test_aoi_health_all_healthy(dataset, pourpoint_geojson):
-    dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson))
-
-    health = diagnostics.aoi_health_report(dataset)
-
-    assert health == []
-
-
-def test_aoi_health_flags_empty_aoi(dataset, grid):
-    # AOI rasters carry per-pixel cell area (decoupled from the DEM). An
-    # all-zero raster means the AOI polygon falls outside the grid -> flagged.
+def test_aoi_raster_issues_reports_missing_tile_bbox(dataset, grid):
+    # A raster with no SNOWTOOL_TILE_BBOX tag cannot resolve its window -> the
+    # shared AOI check short-circuits with a MissingProvenanceTag issue.
+    path = dataset._aoi_rasters / '88888_MT_USGS.tif'
     write_cog(
-        dataset._aoi_rasters / '99999_MT_USGS.tif',
-        numpy.zeros((TILE, TILE), dtype=numpy.float32),
-        transform=grid.base_grid[0, 0].transform,
-        tile_size=TILE,
-        nodata=0,
-        tags={TILE_BBOX_TAG: '0 0 0 0'},
-        compute_stats=False,
-    )
-
-    bad = diagnostics.aoi_health_report(dataset)
-    assert len(bad) == 1
-    assert bad[0]['check'] == 'pourpoints'
-    assert 'empty AOI' in bad[0]['issue']
-
-
-def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
-    # A raster with no SNOWTOOL_TILE_BBOX tag -> ValueError on open.
-    write_cog(
-        dataset._aoi_rasters / '88888_MT_USGS.tif',
+        path,
         numpy.ones((TILE, TILE), dtype=numpy.uint8),
         transform=grid.base_grid[0, 0].transform,
         tile_size=TILE,
@@ -627,8 +607,9 @@ def test_aoi_health_reports_missing_tile_bbox(dataset, grid):
         compute_stats=False,
     )
 
-    bad = diagnostics.aoi_health_report(dataset)
-    assert any('TILE_BBOX' in h['issue'] for h in bad)
+    found = aoi_raster_issues(path, grid=dataset.grid, expected_hash=None)
+    assert [type(i) for i in found] == [issues_mod.MissingProvenanceTag]
+    assert found[0].tag == TILE_BBOX_TAG
 
 
 def test_aoi_raster_issues_clean_for_current_raster(dataset, pourpoint_geojson):
@@ -798,31 +779,21 @@ def test_dataset_info_report(tmp_path, spec):
 # --- grid validation ---------------------------------------------------------
 
 
-def test_grid_validation_clean_when_cog_matches(dataset, swe_cog):
-    # swe_cog is written on the declared grid (matching transform + 512x512).
-    assert diagnostics.grid_validation_report(dataset) == []
+def test_grid_check_clean_when_cog_matches(created_db):
+    # A COG written on the declared grid (matching transform + 512x512) is clean.
+    db, ds = created_db
+    write_swe_cog(ds, '20180427')
+
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
+    assert [f for f in findings if f['check'] == 'grid'] == []
 
 
-def test_grid_validation_skipped_without_a_cog(dataset):
-    # No variable COG ingested yet -> grid check has nothing to compare against.
-    assert diagnostics.grid_validation_report(dataset) == []
-
-
-def test_grid_validation_flags_shape_mismatch(dataset):
-
-    date_dir = dataset._cogs / '20180101'
-    date_dir.mkdir(parents=True)
-    # A 256x256 COG on a 512x512 declared grid (transform still matches origin/px).
-    write_cog(
-        date_dir / f'{snodas_swe_name("20180101")}.tif',
-        numpy.zeros((256, 256), dtype=numpy.int16),
-        transform=dataset.grid.base_grid.transform,
-        tile_size=TILE,
-    )
-
-    issues = diagnostics.grid_validation_report(dataset)
-
-    assert any('512x512' in issue and 'is 256x256' in issue for issue in issues)
+def test_grid_check_clean_without_any_raster(created_db):
+    # No COG or zone layer built yet -> nothing to compare against and the
+    # declaration is clean, so the grid check reports nothing.
+    db, ds = created_db
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
+    assert [f for f in findings if f['check'] == 'grid'] == []
 
 
 def test_grid_check_validates_every_cog_not_just_the_first(created_db):
@@ -841,7 +812,7 @@ def test_grid_check_validates_every_cog_not_just_the_first(created_db):
         tile_size=TILE,
     )
 
-    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
 
     grid = [f for f in findings if f['check'] == 'grid']
     assert len(grid) == 1
@@ -849,12 +820,12 @@ def test_grid_check_validates_every_cog_not_just_the_first(created_db):
     assert '256x256' in grid[0]['issue']
 
 
-def test_grid_validation_flags_transform_mismatch(dataset):
-
-    date_dir = dataset._cogs / '20180101'
-    date_dir.mkdir(parents=True)
+def test_grid_check_flags_transform_mismatch(created_db):
     # Right shape, but the origin is shifted a full degree off the declared grid.
-    shifted = dataset.grid.base_grid.transform * rasterio.Affine.translation(0, 0)
+    db, ds = created_db
+    date_dir = ds._cogs / '20180101'
+    date_dir.mkdir(parents=True)
+    shifted = ds.grid.base_grid.transform
     shifted = rasterio.Affine(
         shifted.a,
         shifted.b,
@@ -870,13 +841,12 @@ def test_grid_validation_flags_transform_mismatch(dataset):
         tile_size=TILE,
     )
 
-    issues = diagnostics.grid_validation_report(dataset)
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
 
-    assert any('transform' in issue for issue in issues)
+    assert any('transform' in f['issue'] for f in findings if f['check'] == 'grid')
 
 
-def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
-
+def test_grid_check_flags_ingester_without_variables(tmp_path, spec):
     class _Ingester:
         def ingest(self, source, dataset, *, force=False, **_):  # pragma: no cover
             from snowtool.snowdb.ingest import IngestResult
@@ -890,9 +860,18 @@ def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
         ingester=_Ingester(),
     )
     ds = Dataset(bare, tmp_path / 'bare', ())
+    # The grid check ignores the SnowDb (only pourpoints needs it), so any bound
+    # db satisfies the signature; the declaration finding comes from `ds` alone.
+    db = make_snowdb(tmp_path, [spec])
 
-    assert diagnostics.grid_validation_report(ds) == [
-        'has an ingester but declares no variables',
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
+    assert findings == [
+        {
+            'check': 'grid',
+            'dataset': 'bare',
+            'target': '',
+            'issue': 'has an ingester but declares no variables',
+        },
     ]
 
 
@@ -928,7 +907,7 @@ def test_grid_check_flags_misaligned_zone_layer(created_db):
         tile_size=profile['blockxsize'],
     )
 
-    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
 
     grid_findings = [f for f in findings if f['check'] == 'grid']
     matching = [f for f in grid_findings if ELEVATION.filename in f['target']]
@@ -942,7 +921,7 @@ def test_grid_check_clean_for_aligned_zone_layers(created_db):
     write_terrain(ds)
     write_landcover(ds)
 
-    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
 
     assert [f for f in findings if f['check'] == 'grid'] == []
 
@@ -973,7 +952,7 @@ def test_grid_check_flags_misaligned_nodata_mask(created_db, grid):
     # nodata_mask_pair is a cached_property; the mask is used post-construction
     # here so nothing else has forced it to cache the (now-stale) None state.
 
-    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+    findings = health_checks.run_health_checks(db, [ds], ['grid'])
 
     grid_findings = [f for f in findings if f['check'] == 'grid']
     matching = [f for f in grid_findings if f['target'] == 'nodata-mask.tif']

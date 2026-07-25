@@ -1,7 +1,7 @@
 """The ``doctor`` command: run health checks, report findings, exit 1 on any.
 
 Each check maps a dataset to uniform finding rows (``check``/``dataset``/
-``target``/``issue``) built from :mod:`snowtool.snowdb.diagnostics`, so the
+``target``/``issue``) built from :mod:`snowtool.snowdb.health_checks`, so the
 output is one flat, machine-readable table across every check -- empty means
 healthy, which is the cron/CI contract (exit 1 otherwise). The four checks:
 
@@ -25,7 +25,7 @@ from snowtool.cli._context import config_option, pass_snowdb
 from snowtool.cli._datasets import dataset_option, resolve_datasets
 from snowtool.cli._progress import RichProgress
 from snowtool.cli._render import emit, format_option
-from snowtool.snowdb import diagnostics
+from snowtool.snowdb import health_checks
 
 if TYPE_CHECKING:
     from snowtool.snowdb.db import SnowDb
@@ -70,14 +70,14 @@ def doctor(
     # Announce before enumerating: building the step list across every dataset
     # (listing COGs, AOI rasters, and pourpoint records) takes a moment on a
     # large store, and without this the command looks hung before the bar opens.
-    selected = ', '.join(checks) if checks else 'grid, dates, files, pourpoints'
+    selected = ', '.join(checks or health_checks.HEALTH_CHECK_NAMES)
     names = ', '.join(d.spec.name for d in datasets) or '(none)'
     _console.err().print(
         f'[dim]doctor: checking {len(datasets)} dataset(s) ({names}); '
         f'checks: {selected}. Enumerating…[/dim]',
     )
 
-    findings = diagnostics.run_health_checks(
+    findings = health_checks.run_health_checks(
         snowdb,
         datasets,
         checks,

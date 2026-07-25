@@ -7,7 +7,7 @@ import numpy
 import pytest
 
 from snowtool.exceptions import QueryParameterError, ZoneParamsError
-from snowtool.snowdb import diagnostics
+from snowtool.snowdb import health_checks
 from snowtool.snowdb.config import (
     BandStepParams,
     BucketParams,
@@ -435,4 +435,4 @@ def test_a_new_provider_needs_no_plumbing_edits(tmp_path, spec):
     assert 'tiny' in ds.artifact_status().zone_layers
     assert 'tiny.tier' in available_zones(ds.providers.values())
     # ...and (since it isn't built on disk) surfaced as a missing artifact.
-    assert any(m.startswith('tiny') for m in diagnostics.missing_artifacts(ds))
+    assert any(m.startswith('tiny') for m in health_checks.missing_artifacts(ds))

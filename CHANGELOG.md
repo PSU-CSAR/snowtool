@@ -17,6 +17,33 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.5.1] - 2026-07-24
+
+Internal refactor of the `doctor` health checks; no change to CLI behavior or
+output.
+
+### Changed
+
+- The `doctor` health-check machinery moved out of
+  `snowtool.snowdb.diagnostics` into a new `snowtool.snowdb.health_checks`
+  module. `diagnostics` now holds only the read-only report builders (`status`,
+  `dataset info`, value ranges); the checks, their typed-issue rendering, and
+  `run_health_checks` live in `health_checks`.
+- The per-raster grid check (COGs, zone layers, the nodata mask) is now one
+  shared helper instead of three near-identical ones, and `doctor`'s startup
+  announcement derives its check list from the registry rather than a hard-coded
+  string.
+
+### Removed
+
+- The aggregate diagnostics functions `pourpoint_coverage_report`,
+  `aoi_health_report`, and `grid_validation_report`. They duplicated the
+  per-step health checks `doctor` actually runs — and `pourpoint_coverage_report`
+  had drifted from them (still emitting `no raster` for off-grid basins that
+  `doctor` suppresses). `run_health_checks` is now the single source of truth;
+  callers select a single check (e.g. `run_health_checks(db, [ds],
+  ['pourpoints'])`) in place of the removed helpers.
+
 ## [v0.5.0] - 2026-07-24
 
 > **Live databases (SNODAS grid change — action required):** the SNODAS grid
@@ -620,8 +647,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.0...HEAD
-[v0.4.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...v0.4.1
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.0...v0.5.1
+[v0.5.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.2...v0.3.0
 [v0.2.2]: https://github.com/PSU-CSAR/snowtool/compare/v0.2.1...v0.2.2

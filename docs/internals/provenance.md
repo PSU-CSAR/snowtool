@@ -130,14 +130,14 @@ the AOI check runs in the rasterize path (`Dataset.aoi_raster_is_current`) and,
 being shared with `doctor`, is a small set of typed checks — hash, grid
 transform/shape, and tile-bbox presence — rather than a single comparison (the
 band-decoding emptiness check is skipped on this path, as it is non-actionable
-for the writer). The format-version check surfaces in diagnostics.
+for the writer). The format-version check surfaces in the health checks.
 `stale_format_zone_layers` in
-`snowdb/diagnostics.py` compares each built zone-layer set's stamped format
+`snowdb/health_checks.py` compares each built zone-layer set's stamped format
 version (via `ZoneLayerSet.stored_format_version`) against the provider's
 current one and emits a `ZoneLayerFormat` finding for any mismatch, so
-`snowtool doctor` flags a set that needs regenerating after a format bump.
-`aoi_health_report` separately catches an AOI raster missing its
-`SNOWTOOL_TILE_BBOX` tag and points at a rebuild.
+`snowtool doctor` flags a set that needs regenerating after a format bump. The
+shared AOI check (`aoi_raster_issues`) separately catches an AOI raster missing
+its `SNOWTOOL_TILE_BBOX` tag and points at a rebuild.
 
 `parse_format_version` (`snowdb/provenance.py`) returns the integer version from
 a tag, or `None` for a missing value or one not in `v{int}:{digest}` form — an
