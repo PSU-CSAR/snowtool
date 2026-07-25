@@ -645,6 +645,25 @@ def test_aoi_raster_issues_clean_for_current_raster(dataset, pourpoint_geojson):
     assert result == []
 
 
+def test_aoi_raster_issues_check_empty_false_skips_the_band_decode(dataset, grid):
+    # The emptiness check is the only one that decodes the band; the writer opts
+    # out (check_empty=False) since emptiness is non-actionable. An all-zero
+    # raster is flagged EmptyArtifact by default but not when the decode is off.
+    _write_empty_aoi(dataset, grid, '99999:MT:USGS')
+    path = dataset.aoi_raster_path_from_triplet('99999:MT:USGS')
+
+    with_empty = aoi_raster_issues(path, grid=dataset.grid, expected_hash=None)
+    without = aoi_raster_issues(
+        path,
+        grid=dataset.grid,
+        expected_hash=None,
+        check_empty=False,
+    )
+
+    assert any(isinstance(i, issues_mod.EmptyArtifact) for i in with_empty)
+    assert not any(isinstance(i, issues_mod.EmptyArtifact) for i in without)
+
+
 def test_aoi_raster_issues_clean_for_offset_basin(dataset, tmp_path):
     # False-positive guard: a basin whose tile-bbox does NOT start at tile (0, 0)
     # must still be clean. Its UL-tile transform is offset from the grid origin,

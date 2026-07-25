@@ -297,6 +297,7 @@ def aoi_raster_issues(
     *,
     grid: TiledAffineGrid,
     expected_hash: str | None,
+    check_empty: bool = True,
 ) -> list[issues_mod.Issue]:
     """The health of the AOI raster at ``path``: freshness + structure + grid.
 
@@ -307,7 +308,11 @@ def aoi_raster_issues(
     corresponding issue), then checks each of the following independently and
     accumulates the results:
 
-    - an all-zero array (:class:`~snowtool.snowdb.issues.EmptyArtifact`);
+    - an all-zero array (:class:`~snowtool.snowdb.issues.EmptyArtifact`) -- the
+      *only* check that decodes the band; gate it off with ``check_empty=False``
+      when the caller does not need it. The writer does exactly that: emptiness
+      is non-actionable (rebuilding an empty-but-current raster reproduces it),
+      so ``aoi_raster_is_current`` skips the decode and reads the header alone;
     - grid + structure: the raster's own on-disk transform and shape against
       what ``grid`` expects for the raster's stored tile-bbox window -- the
       upper-left tile transform and the window's height/width (via
@@ -329,7 +334,9 @@ def aoi_raster_issues(
             actual_transform = ds.transform
             actual_shape = (ds.height, ds.width)
             tags = ds.tags()
-            array = ds.read(1)
+            # The band decode is only needed for the emptiness check; everything
+            # else is header-only, so skip it when the caller opted out.
+            array = ds.read(1) if check_empty else None
         # Resolves the stored tile-bbox against the *current* grid: the UL-tile
         # transform + window shape it yields are what an on-grid raster must
         # match. Raises IncompleteDatasetDataError when the tag is absent.
@@ -341,7 +348,7 @@ def aoi_raster_issues(
 
     result: list[issues_mod.Issue] = []
 
-    if not array.any():
+    if array is not None and not array.any():
         result.append(issues_mod.EmptyArtifact())
 
     result.extend(

@@ -297,7 +297,15 @@ class Dataset:
         if not path.is_file():
             return False
         expected_hash = aoi_provenance(pourpoint.geometry_hash, self.nodata_mask_hash)
-        found = aoi_raster_issues(path, grid=self.grid, expected_hash=expected_hash)
+        # Header-only: emptiness is non-actionable, so the writer never needs the
+        # band decode -- the actionable checks (hash, grid, tile-bbox) are all in
+        # the header.
+        found = aoi_raster_issues(
+            path,
+            grid=self.grid,
+            expected_hash=expected_hash,
+            check_empty=False,
+        )
         return not any(issue.actionable for issue in found)
 
     def remove_aoi_raster(
