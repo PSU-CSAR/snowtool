@@ -608,6 +608,35 @@ def _cog_grid_findings(
     ]
 
 
+def _full_grid_findings(
+    dataset: Dataset,
+    name: str,
+    path: Path,
+    target: str,
+) -> list[Finding]:
+    """The ``grid`` findings for one full-grid-sized raster (a zone layer or the
+    nodata mask), against the dataset's declared grid.
+
+    Unlike a COG (also full-grid) or an AOI raster (a windowed crop, checked
+    under ``pourpoints``), this is a plain full-grid comparison: the file's own
+    transform/shape against ``dataset.spec.grid_params`` and
+    ``dataset.grid.base_grid.transform``.
+    """
+    import rasterio
+
+    grid = dataset.spec.grid_params
+    with rasterio.open(path) as src:
+        actual_transform = src.transform
+        actual_shape = (src.height, src.width)
+    found = issues_mod.grid_issues(
+        declared_transform=dataset.grid.base_grid.transform,
+        actual_transform=actual_transform,
+        declared_shape=(grid.rows, grid.cols),
+        actual_shape=actual_shape,
+    )
+    return _findings_from_issues('grid', name, target, found)
+
+
 def _grid_steps(_snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
     name = dataset.spec.name
     steps = [
@@ -624,6 +653,35 @@ def _grid_steps(_snowdb: SnowDb, dataset: Dataset) -> list[CheckStep]:
             CheckStep(
                 f'{name} grid: {target}',
                 partial(_cog_grid_findings, dataset, name, cog, target),
+            ),
+        )
+    # One step per present zone-layer file (terrain: elevation/aspect, land
+    # cover: forest, ...) -- a missing layer is the `files` check's concern, not
+    # grid, so only files that actually exist on disk are validated here.
+    for provider_name, zone_set in dataset.zones.items():
+        for layer in zone_set.layers:
+            path = zone_set.layer_path(layer)
+            if not path.is_file():
+                continue
+            target = f'{provider_name}/{layer.filename}'
+            steps.append(
+                CheckStep(
+                    f'{name} grid: {target}',
+                    partial(_full_grid_findings, dataset, name, path, target),
+                ),
+            )
+    # The dataset's nodata mask (when configured) is also a full-grid raster.
+    if dataset.nodata_mask is not None and dataset.nodata_mask.is_file():
+        steps.append(
+            CheckStep(
+                f'{name} grid: nodata-mask.tif',
+                partial(
+                    _full_grid_findings,
+                    dataset,
+                    name,
+                    dataset.nodata_mask,
+                    'nodata-mask.tif',
+                ),
             ),
         )
     return steps

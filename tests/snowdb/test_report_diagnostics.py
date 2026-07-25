@@ -875,3 +875,88 @@ def test_grid_validation_flags_ingester_without_variables(tmp_path, spec):
     assert diagnostics.grid_validation_report(ds) == [
         'has an ingester but declares no variables',
     ]
+
+
+# --- grid check: zone layers + nodata mask -----------------------------------
+
+
+def test_grid_check_flags_misaligned_zone_layer(created_db):
+    # A present zone-layer file (terrain elevation) rewritten with a transform
+    # shifted a whole degree off the declared grid must be flagged, just like a
+    # misaligned COG -- same full-grid transform+shape comparison.
+    db, ds = created_db
+    write_terrain(ds)
+    write_landcover(ds)
+    path = ds.zones['terrain'].layer_path(ELEVATION)
+    with rasterio.open(path) as src:
+        array = src.read(1)
+        profile = src.profile
+    shifted = ds.grid.base_grid.transform
+    shifted = rasterio.Affine(
+        shifted.a,
+        shifted.b,
+        shifted.c + 1.0,
+        shifted.d,
+        shifted.e,
+        shifted.f,
+    )
+    write_cog(
+        path,
+        array,
+        transform=shifted,
+        crs=ds.grid_crs,
+        nodata=profile.get('nodata'),
+        tile_size=profile['blockxsize'],
+    )
+
+    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+
+    grid_findings = [f for f in findings if f['check'] == 'grid']
+    matching = [f for f in grid_findings if ELEVATION.filename in f['target']]
+    assert len(matching) == 1
+    assert 'declared grid transform' in matching[0]['issue']
+
+
+def test_grid_check_clean_for_aligned_zone_layers(created_db):
+    # Freshly built (on-grid) zone layers yield no grid-check findings.
+    db, ds = created_db
+    write_terrain(ds)
+    write_landcover(ds)
+
+    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+
+    assert [f for f in findings if f['check'] == 'grid'] == []
+
+
+def test_grid_check_flags_misaligned_nodata_mask(created_db, grid):
+    # A dataset with a configured nodata mask whose transform is shifted off the
+    # declared grid: the grid check must flag it, targeting `nodata-mask.tif`.
+    db, ds = created_db
+    mask_path = ds.path / 'nodata-mask.tif'
+    shifted = grid.base_grid.transform
+    shifted = rasterio.Affine(
+        shifted.a,
+        shifted.b,
+        shifted.c + 1.0,
+        shifted.d,
+        shifted.e,
+        shifted.f,
+    )
+    write_cog(
+        mask_path,
+        numpy.ones((512, 512), dtype=numpy.uint8),
+        transform=shifted,
+        crs=ds.grid_crs,
+        nodata=0,
+        tile_size=TILE,
+    )
+    ds.nodata_mask = mask_path
+    # nodata_mask_pair is a cached_property; the mask is used post-construction
+    # here so nothing else has forced it to cache the (now-stale) None state.
+
+    findings = diagnostics.run_health_checks(db, [ds], ['grid'])
+
+    grid_findings = [f for f in findings if f['check'] == 'grid']
+    matching = [f for f in grid_findings if f['target'] == 'nodata-mask.tif']
+    assert len(matching) == 1
+    assert 'declared grid transform' in matching[0]['issue']
