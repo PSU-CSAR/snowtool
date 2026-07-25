@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - `doctor grid` now validates **every** ingested COG's header (shape + transform)
   against the declared grid, not just the first present COG — a lattice drift on
   any date is caught, and the finding's `target` names the specific file.
+- Health/validation is now expressed as typed `Issue` objects shared by the write
+  path (skip-unless-issues, `force` to bypass) and `doctor` (report), replacing
+  prose-string matching. `doctor`'s grid check now validates the transform/shape of
+  COGs, zone layers, and the nodata mask against the declared grid (AOI-raster grid
+  compatibility is reported under the pourpoints check via the shared AOI health
+  check, which doctor now also uses to report AOI freshness). `aoi_raster_is_current`
+  / `pourpoint rasterize` now treat a grid mismatch (or a corrupt/unreadable raster)
+  as stale, so a grid change rebuilds AOI rasters on the next converge instead of
+  silently leaving them misaligned.
 - `doctor` now reports progress one increment per unit of work — per COG, per
   pourpoint basin (coverage), per AOI raster, per date, plus the atomic
   declaration/orphan/artifact steps — rather than one per (dataset, check). The
