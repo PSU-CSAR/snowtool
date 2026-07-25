@@ -17,6 +17,31 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.6.0] - 2026-07-24
+
+> **Live databases (SNODAS grid — reverts the v0.5.0 change):** the SNODAS grid
+> origin moves back from the product-header corner (`-124.73375 / 52.8745833`)
+> introduced in v0.5.0 to the rounded *nominal* corner (`-124.733333 / 52.875`).
+> Pixel size and dimensions (6935×3351) are unchanged. This is the grid the
+> project used before v0.5.0. As in v0.5.0, changing the built-in spec does
+> **not** move an existing dataset — its grid is persisted inline in
+> `data/<name>/dataset.json`, so that file's `grid.origin_x`/`origin_y` must be
+> restored to nominal (or the dataset re-created from the template). **If you
+> did not act on the v0.5.0 note** (never re-ingested onto the product-header
+> grid), your COGs, AOI rasters, zone layers, and nodata mask are still on the
+> nominal grid, so restoring `dataset.json` to nominal is the *only* step needed
+> and `doctor grid` goes green again. **If you did converge to the
+> product-header grid**, converge back to nominal the same way v0.5.0 described:
+> re-ingest the affected dates, rebuild AOI rasters with `pourpoint rasterize
+> --rebuild` (AOI provenance does not track the grid, so a plain converge will
+> not detect the shift), and regenerate the zone layers.
+
+### Changed
+
+- Reverted the SNODAS grid registration introduced in v0.5.0: the built-in spec
+  again declares the nominal corner (`-124.733333 / 52.875`) rather than the
+  product-header corner. See the live-databases note above.
+
 ## [v0.5.1] - 2026-07-24
 
 Internal refactor of the `doctor` health checks; no change to CLI behavior or
@@ -45,6 +70,10 @@ output.
   ['pourpoints'])`) in place of the removed helpers.
 
 ## [v0.5.0] - 2026-07-24
+
+> **⚠️ Reverted in v0.6.0 — do not follow the migration below.** The SNODAS
+> grid change described here was undone; the grid returns to the nominal corner.
+> See the v0.6.0 note above.
 
 > **Live databases (SNODAS grid change — action required):** the SNODAS grid
 > origin moves from the rounded *nominal* corner (`-124.733333 / 52.875`) to
@@ -647,7 +676,8 @@ output.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.3.0...v0.4.0
