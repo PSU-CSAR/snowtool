@@ -7,8 +7,10 @@ download. Rebuilding them unconditionally on every command would be wasteful;
 trusting whatever is already on disk would be wrong the moment an input changes.
 snowtool splits the difference by stamping each artifact with a **provenance
 tag** that captures exactly what it was built from, and reducing "is this still
-current?" to a single string comparison against what it *would* be built from
-now. The machinery is small, and every downstream check is one equality test.
+current?" to a string comparison against what it *would* be built from now. The
+machinery is small, and each check is a cheap header read plus an equality test
+(the AOI raster's check bundles a few — hash, grid, tile-bbox — since it is
+shared with `doctor`; see below).
 
 The tag is a **versioned hash**: `v{format_version}:{sha256}`, built by
 `versioned_hash(version, digest)` in `snowdb/provenance.py`. The digest covers
