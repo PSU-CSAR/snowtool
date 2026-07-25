@@ -507,8 +507,13 @@ SNODAS_VARIABLES = tuple(
 SNODAS_SPEC = DatasetSpec(
     name='snodas',
     grid_params=GridParams(
-        origin_x=-124.733333333333333,
-        origin_y=52.875000000000000,
+        # SNODAS's product-header (native) corner, not the rounded nominal
+        # (-124.733333 / 52.875): the header registration is ~0.05 px (~40 m) SW
+        # of nominal and is what the source .Hdr files declare, so COGs ingested
+        # onto this grid (and the AOI rasters / zone layers burned on it) sit on
+        # the data's true lattice rather than a rounded one.
+        origin_x=-124.73375,
+        origin_y=52.8745833333333,
         px_size=0.008333333333333,
         cols=6935,
         rows=3351,
