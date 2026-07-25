@@ -83,6 +83,27 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   target trips multiple issues (e.g. a basin that is both `no raster` and
   `partial coverage`), the issues are joined with `; ` into one row rather than
   emitting a separate row per issue, so a target never spans multiple lines.
+- The `pourpoint rasterize` skip-check (`Dataset.aoi_raster_is_current`) stays
+  header-only after being unified with `doctor`'s AOI check: it reads the COG
+  header (tags + transform + shape) and never decodes the band, because the only
+  band-decoding check — emptiness — is non-actionable for the writer. This keeps
+  a full-band decode out of the converge loop.
+
+### Added
+
+- A `doctor` reference documentation page (how to run it, its output, and a
+  table of every issue with its meaning and the converge command that fixes it).
+
+### Fixed
+
+- `doctor` no longer appears to hang at startup on a large store. The
+  AOI-validation steps resolved each raster's expected hash — parsing the basin
+  record — *eagerly while enumerating the step list*, before the progress bar
+  opened; that work is now deferred into each step so it shows as bar progress.
+  `doctor` also prints what it is about to check before enumerating.
+- `doctor`'s progress labels render station triplets literally, so a triplet
+  segment like `:id:` (in e.g. `15908000:...:USGS`) is no longer turned into an
+  emoji by the terminal's markup renderer.
 
 ## [v0.4.0] - 2026-07-24
 

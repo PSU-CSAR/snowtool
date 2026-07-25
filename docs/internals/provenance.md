@@ -53,11 +53,17 @@ one of the geometry tags.
 canonical little-endian WKB — only the basin polygon, never the point or the
 source properties, because only the polygon affects the burned raster —
 and `aoi_provenance` wraps it with `AOI_RASTER_FORMAT_VERSION`. When a
-`Dataset` rasterizes an AOI it decides whether to rebuild by reading just that
-one tag off the existing COG (`Dataset.aoi_raster_hash`, a header-only
-`tags()` read with no array decode) and comparing it to the current
-`aoi_provenance`. A changed basin *or* a format bump makes them differ, and
-`Dataset.rasterize_aoi` re-burns; a match skips the work entirely.
+`Dataset` rasterizes an AOI it decides whether to rebuild through the shared
+health check `aoi_raster_issues` (`snowdb/aoi_raster.py`) — the same check
+`doctor` reports with, so the writer's skip decision and the reader's report can
+never drift. `Dataset.aoi_raster_is_current` rebuilds when that check finds any
+*actionable* issue and skips otherwise. For the writer the check is header-only
+(a `tags()` read plus the transform/shape, no array decode): it compares the
+stored `SNOWTOOL_AOI_HASH` to the current `aoi_provenance` (a changed basin, a
+changed nodata mask, or a format bump), and *also* the raster's own transform
+against the grid and the presence of its tile-bbox tag — so a grid move or a
+corrupt/unreadable raster now forces a rebuild too, not just a hash mismatch. A
+clean check skips the work entirely; `--rebuild` forces it regardless.
 
 `SNOWTOOL_DEM_HASH` is the versioned hash of a terrain generation's
 mean-elevation array, stamped identically on every layer the pass writes
@@ -114,12 +120,16 @@ current at read time, decoupled from when any basin was last rasterized.
 
 ## Checking staleness in practice
 
-Every staleness check in the codebase is a header-only tag read — `rasterio`'s
-`tags()` without decoding the array — followed by one equality test, so the
-guard is orders of magnitude cheaper than the work it may avoid. The AOI check
-runs in the rasterize path (`Dataset.aoi_raster_is_current`); the source-hash
-check runs in the ingest skip (`Dataset.write_date_cogs`); the format-version
-check surfaces in diagnostics. `stale_format_zone_layers` in
+The staleness checks are header-only reads — `rasterio`'s `tags()` (plus, for
+the AOI check, the transform and shape) without decoding the array — so the
+guard is orders of magnitude cheaper than the work it may avoid. The source-hash
+check runs in the ingest skip (`Dataset.write_date_cogs`) as one equality test;
+the AOI check runs in the rasterize path (`Dataset.aoi_raster_is_current`) and,
+being shared with `doctor`, is a small set of typed checks — hash, grid
+transform/shape, and tile-bbox presence — rather than a single comparison (the
+band-decoding emptiness check is skipped on this path, as it is non-actionable
+for the writer). The format-version check surfaces in diagnostics.
+`stale_format_zone_layers` in
 `snowdb/diagnostics.py` compares each built zone-layer set's stamped format
 version (via `ZoneLayerSet.stored_format_version`) against the provider's
 current one and emits a `ZoneLayerFormat` finding for any mismatch, so
