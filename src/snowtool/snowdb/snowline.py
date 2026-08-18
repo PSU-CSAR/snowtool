@@ -1,8 +1,8 @@
 from datetime import date
 from itertools import pairwise
 
-from snowtool.api.models.snowline import SnowLine
 from snowtool.exceptions import SnowLineError
+from snowtool.snowdb.snowline_models import SnowLine
 from snowtool.snowdb.zonal_stat_models import BandZoneRef, CompactStats
 
 
