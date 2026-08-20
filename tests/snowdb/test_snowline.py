@@ -1,5 +1,8 @@
 from datetime import date
 
+import pytest
+
+from snowtool.snowdb.snowline import snow_line_elevation
 from snowtool.snowdb.zonal_stat_models import BandZoneRef, CompactStats, CompactZone
 
 
@@ -20,5 +23,25 @@ STATS = CompactStats(
         date(2026, 4, 15): [[71.2], [92.4], [98.1], [99.0]],
         date(2026, 5, 15): [[8.1], [41.6], [88.3], [96.7]],
         date(2026, 6, 15): [[0.0], [2.3], [19.4], [64.8]],
+        date(2026, 8, 15): [[0.0], [1.7], [7.3], [20.2]],
     },
 )
+
+
+def test_crossing_interpolates_between_band_centres():
+    lines = snow_line_elevation(STATS)
+    may = lines[date(2026, 5, 15)]
+    assert may is not None
+    assert may.elevation_ft == pytest.approx(6679.9, abs=1.0)
+    assert may.interpolation_span_ft == 1000
+
+
+def test_last_pairing_breakpoint():
+    june = snow_line_elevation(STATS)[date(2026, 6, 15)]
+    assert june is not None
+    assert june.elevation_ft == pytest.approx(8174.0, abs=1.0)
+
+
+def test_no_crossing_when_all_bands_above_or_below_threshold():
+    assert snow_line_elevation(STATS)[date(2026, 4, 15)] is None
+    assert snow_line_elevation(STATS)[date(2026, 8, 15)] is None
