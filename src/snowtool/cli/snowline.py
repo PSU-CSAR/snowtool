@@ -38,6 +38,12 @@ if TYPE_CHECKING:
     show_default=True,
     help='Snow fraction percent defining the snow line.',
 )
+@click.option(
+    '--allow-partial',
+    is_flag=True,
+    default=False,
+    help='Permit a clipped result over an AOI the grid only partially covers.',
+)
 @click.option('--variable', default='snow_fraction', show_default=True)
 @config_option
 @pass_snowdb
@@ -49,6 +55,7 @@ def snowline(
     years: str | None,
     band_step_ft: int,
     threshold: float,
+    allow_partial: bool,
     variable: str,
 ) -> None:
     date_query = parse_dates_query(dates, years)
@@ -61,6 +68,7 @@ def snowline(
                 dataset_name,
                 date_query,
                 variable_keys=(variable,),
+                allow_partial=allow_partial,
                 zones=(f'terrain.elevation:band_step_ft={band_step_ft}',),
             ),
         )
