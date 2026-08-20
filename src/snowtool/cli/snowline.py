@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+from typing import TYPE_CHECKING
+
 import click
 
 from snowtool.cli import _console
@@ -10,6 +12,9 @@ from snowtool.cli._context import config_option, pass_snowdb
 from snowtool.cli._dates import parse_dates_query
 from snowtool.snowdb.reader import SnowDbReader
 from snowtool.snowdb.snowline import snow_line_elevation
+
+if TYPE_CHECKING:
+    from snowtool.snowdb.db import SnowDb
 
 
 @click.command('snowline')
@@ -37,14 +42,14 @@ from snowtool.snowdb.snowline import snow_line_elevation
 @config_option
 @pass_snowdb
 def snowline(
-    snowdb,
-    dataset_name,
-    triplet,
-    dates,
-    years,
-    band_step_ft,
-    threshold,
-    variable,
+    snowdb: SnowDb,
+    dataset_name: str,
+    triplet: str,
+    dates: str | None,
+    years: str | None,
+    band_step_ft: int,
+    threshold: float,
+    variable: str,
 ) -> None:
     date_query = parse_dates_query(dates, years)
     reader = SnowDbReader(snowdb)
