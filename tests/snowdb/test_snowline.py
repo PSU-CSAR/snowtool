@@ -45,3 +45,15 @@ def test_last_pairing_breakpoint():
 def test_no_crossing_when_all_bands_above_or_below_threshold():
     assert snow_line_elevation(STATS)[date(2026, 4, 15)] is None
     assert snow_line_elevation(STATS)[date(2026, 8, 15)] is None
+
+
+def test_band_areas_not_swapped():
+    may = snow_line_elevation(STATS)[date(2026, 5, 15)]
+    assert may.lower_band_area_m2 == 8_874_120.5
+    assert may.higher_band_area_m2 == 6_218_904.2
+
+
+def test_custom_snowline_threshold():
+    may = snow_line_elevation(STATS, threshold=65.0)[date(2026, 5, 15)]
+    assert may is not None
+    assert may.elevation_ft == pytest.approx(7001.0, abs=1.0)
