@@ -17,7 +17,7 @@ router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/snowline')
 
 @router.get(
     '/{triplet}/date-range',
-    name='snowline-date-range',
+    name='snowline_date_range',
     response_model=SnowLineResponse,
     tags=[Tags.SNOWLINE],
 )
