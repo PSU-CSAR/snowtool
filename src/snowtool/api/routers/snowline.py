@@ -24,7 +24,6 @@ router: GazeboRouter = GazeboRouter(prefix='/datasets/{dataset}/snowline')
 )
 async def snowline_date_range(
     dataset: str,
-    variabe: str,
     triplet: types.StationTriplet,
     reader: ReaderDep,
     params: Annotated[SnowLineQuery, Query()],
