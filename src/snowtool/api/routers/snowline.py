@@ -33,8 +33,8 @@ async def snowline_date_range(
         triplet=triplet,
         dataset_name=dataset,
         query=query,
-        variable_keys=('snow_fraction'),
-        zones=(f'terrain.elevation:band_step_ft={params.band_step_ft}'),
+        variable_keys=('snow_fraction',),
+        zones=(f'terrain.elevation:band_step_ft={params.band_step_ft}',),
         allow_partial=params.allow_partial,
     )
 
