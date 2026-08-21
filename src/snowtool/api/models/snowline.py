@@ -23,11 +23,17 @@ if TYPE_CHECKING:
 
 class SnowLineQuery(BaseModel):
     datetime: DatetimeQuery = Field(default=None, examples=['2026-04-01/2026-07-01'])
+    variable: str = Field(
+        default='snow_fraction',
+        description='Variable to be used to calculate snowline',
+    )
     threshold: float = Field(
         default=50.0,
         gt=0.0,
-        lt=100.0,
         description='Threshold of snow fraction to define the snow line.',
+    )
+    threhold_unit: str = Field(
+        description='Measurement unit for threshold evaluation',
     )
     band_step_ft: int = Field(
         default=500,
@@ -43,6 +49,7 @@ class SnowLineResponse(BaseModel):
     dataset: str = Field(examples=['instarr'])
     query: PourPointQuery
     threshold: float
+    threshold_unit: str = Field(examples=['mm,percent'])
     band_step_ft: int
     results: dict[date, SnowLine | None]
     links: list[Link] = Field(default_factory=list)
@@ -55,6 +62,7 @@ class SnowLineResponse(BaseModel):
         dataset: str,
         query: DateRangeQuery | DOYQuery,
         threshold: float,
+        threshold_unit: str,
         band_step_ft: int,
         results: dict[date, SnowLine | None],
         alternates: Sequence[Link] = (),
@@ -64,6 +72,7 @@ class SnowLineResponse(BaseModel):
             dataset=dataset,
             query=query,
             threshold=threshold,
+            threshold_unit=threshold_unit,
             band_step_ft=band_step_ft,
             results=results,
             links=[
