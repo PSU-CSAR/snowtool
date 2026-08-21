@@ -1,7 +1,7 @@
 from datetime import date
 from itertools import pairwise
 
-from snowtool.exceptions import SnowLineError
+from snowtool.exceptions import QueryParameterError, SnowLineError
 from snowtool.snowdb.snowline_models import SnowLine
 from snowtool.snowdb.zonal_stat_models import BandZoneRef, CompactStats
 
@@ -21,7 +21,7 @@ def _variable_index(stats: CompactStats, variable: str | None) -> int:
     try:
         return stats.variables.index(variable)
     except ValueError:
-        raise SnowLineError(
+        raise QueryParameterError(
             f'Variable {variable} was not found in stats: '
             f'Available Stats: {stats.variables}',
         ) from None

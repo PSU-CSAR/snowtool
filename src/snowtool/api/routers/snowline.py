@@ -9,7 +9,7 @@ from snowtool import types
 from snowtool.api.dependencies import ReaderDep
 from snowtool.api.models.snowline import SnowLineQuery, SnowLineResponse
 from snowtool.api.tags import Tags
-from snowtool.exceptions import SnowLineError
+from snowtool.exceptions import QueryParameterError
 from snowtool.snowdb.query import DateRangeQuery
 from snowtool.snowdb.snowline import snow_line_elevation
 
@@ -34,7 +34,7 @@ async def snowline_date_range(
     try:
         unit = ds.spec.variables[params.variable].unit.name
     except KeyError:
-        raise SnowLineError(
+        raise QueryParameterError(
             f'Variable {params.variable!r} is not in dataset {dataset!r}: '
             f'Available Stats: {ds.spec.variables.keys()}',
         ) from None
