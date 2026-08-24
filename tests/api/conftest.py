@@ -47,3 +47,15 @@ def synthetic_settings(test_settings, spec, pourpoint_geojson):
 def synthetic_client(synthetic_settings) -> Iterator[TestClient]:
     with TestClient(get_app(settings=synthetic_settings)) as client:
         yield client
+
+
+@pytest.fixture
+def gradient_client(test_settings, spec, pourpoint_geojson) -> Iterator[TestClient]:
+    populate_synthetic_root(
+        test_settings.snowdb_config,
+        spec,
+        pourpoint_geojson,
+        terrain_gradient=True,
+    )
+    with TestClient(get_app(settings=test_settings)) as client:
+        yield client

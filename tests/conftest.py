@@ -113,6 +113,11 @@ NLCD_FOREST_CLASS = 42  # evergreen forest (in FOREST_CLASSES)
 NLCD_NONFOREST_CLASS = 81  # pasture/hay (not forest)
 FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
 
+# Snowline parameter stuff
+GRADIENT_ELEVATIONS_FT = (3250.0, 3750.0, 4250.0, 4750.0)  # Elevation bands
+GRADIENT_SWE_VALUES = (10, 40, 60, 90)  # Uniform SWE values for snowline threshold
+EXPECTED_SNOW_LINE_FT = 4000.0  # Expected snowline interpolation
+
 
 def synthetic_grid(**overrides):
     """The standard 512x512 / 2x2-tile synthetic grid (extent -120..-114.88,
@@ -207,6 +212,7 @@ def populate_bound_root(
     *,
     rasterize=True,
     ingest=True,
+    terrain_gradient=False,
 ):
     """Populate an already-initialized, dataset-bound ``manager`` for a query.
 
@@ -219,12 +225,18 @@ def populate_bound_root(
 
     manager.pourpoints.import_(pourpoint_geojson)
     dataset = manager.db[spec.name]
-    write_terrain(dataset)
+    write_terrain(
+        dataset,
+        elevation_stripes=GRADIENT_ELEVATIONS_FT if terrain_gradient else None,
+    )
     write_landcover(dataset)
     if rasterize:
         dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
     if ingest:
-        write_swe_cog(dataset)
+        write_swe_cog(
+            dataset,
+            stripe_values=GRADIENT_SWE_VALUES if terrain_gradient else None,
+        )
     return manager.db
 
 
@@ -235,6 +247,7 @@ def populate_synthetic_root(
     *,
     rasterize=True,
     ingest=True,
+    terrain_gradient=False,
 ):
     """Populate ``root`` end-to-end with the synthetic ``spec`` dataset.
 
@@ -255,6 +268,7 @@ def populate_synthetic_root(
         pourpoint_geojson,
         rasterize=rasterize,
         ingest=ingest,
+        terrain_gradient=terrain_gradient,
     )
 
 
