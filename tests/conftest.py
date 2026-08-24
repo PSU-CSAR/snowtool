@@ -48,6 +48,24 @@ from snowtool.snowdb.zones.terrain_layers import (
 pytest_plugins = ['gazebo.testing']
 
 
+def _elevation_stripes(shape, stripes, dtype):
+    """Horizontal bands of constant value, top to bottom."""
+    rows, _ = shape
+    array = numpy.empty(shape, dtype=dtype)
+    edges = numpy.linspace(
+        0,
+        rows,
+        len([ft * 0.3048 for ft in stripes]) + 1,
+    ).astype(int)
+    for value, (start, end) in zip(
+        [ft * 0.3048 for ft in stripes],
+        pairwise(edges),
+        strict=True,
+    ):
+        array[start:end, :] = value
+    return array
+
+
 def write_geotiff(path, array, *, transform, crs, nodata=None):
     """Write a single-band synthetic GeoTIFF for test source rasters.
 
@@ -355,20 +373,7 @@ def write_uniform_terrain(
     if elevation_stripes is None:
         elevation = numpy.full(shape, elevation_value, dtype='float32')
     else:
-        rows, _ = shape
-        array = numpy.empty(shape, dtype='float32')
-        edges = numpy.linspace(
-            0,
-            rows,
-            len([ft * 0.3048 for ft in elevation_stripes]) + 1,
-        ).astype(int)
-        for value, (start, end) in zip(
-            [ft * 0.3048 for ft in elevation_stripes],
-            pairwise(edges),
-            strict=True,
-        ):
-            array[start:end, :] = value
-        elevation = array
+        elevation = _elevation_stripes(shape, elevation_stripes, 'float32')
 
     dem_hash = versioned_hash(
         TERRAIN_FORMAT_VERSION,
@@ -622,14 +627,24 @@ def write_aoi_record(
     )
 
 
-def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):
+def write_swe_cog(
+    dataset,
+    date_str: str = '20180427',
+    value: int = SWE_VALUE,
+    stripe_values: Sequence[int] | None = None,
+):
     """Write a uniform int16 SWE COG for ``date_str`` into ``dataset``'s cogs dir."""
     out_dir = dataset._cogs / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f'{snodas_swe_name(date_str)}.tif'
+    array = (
+        numpy.full((SIZE, SIZE), value, dtype=numpy.int16)
+        if stripe_values is None
+        else _elevation_stripes((SIZE, SIZE), stripe_values, numpy.int16)
+    )
     write_cog(
         path,
-        numpy.full((SIZE, SIZE), value, dtype=numpy.int16),
+        array,
         transform=dataset.grid.base_grid.transform,
         tile_size=TILE,
     )
