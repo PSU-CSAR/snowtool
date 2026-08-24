@@ -2080,6 +2080,125 @@
         "title": "ProblemType",
         "type": "object"
       },
+      "SnowLine": {
+        "properties": {
+          "elevation_ft": {
+            "description": "Interpolated elevation where the variable crosses the threshold.",
+            "title": "Elevation Ft",
+            "type": "number"
+          },
+          "higher_band_area_m2": {
+            "description": "Higher bounding area above the crossing",
+            "title": "Higher Band Area M2",
+            "type": "number"
+          },
+          "interpolation_span_ft": {
+            "description": "Distance between the two band centers. Larger spanmeans a coarser result",
+            "title": "Interpolation Span Ft",
+            "type": "number"
+          },
+          "lower_band_area_m2": {
+            "description": "Lower bounding area below the crossing; lower values meanthat the interpolation rests on a few pixels",
+            "title": "Lower Band Area M2",
+            "type": "number"
+          }
+        },
+        "required": [
+          "elevation_ft",
+          "lower_band_area_m2",
+          "higher_band_area_m2",
+          "interpolation_span_ft"
+        ],
+        "title": "SnowLine",
+        "type": "object"
+      },
+      "SnowLineResponse": {
+        "properties": {
+          "band_step_ft": {
+            "title": "Band Step Ft",
+            "type": "integer"
+          },
+          "dataset": {
+            "examples": [
+              "instarr"
+            ],
+            "title": "Dataset",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "pourpoint": {
+            "examples": [
+              "12354500:MT:USGS"
+            ],
+            "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+            "title": "Pourpoint",
+            "type": "string"
+          },
+          "query": {
+            "discriminator": {
+              "mapping": {
+                "DateRange": "#/components/schemas/DateRangeQuery",
+                "DayOfYear": "#/components/schemas/DOYQuery"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateRangeQuery"
+              },
+              {
+                "$ref": "#/components/schemas/DOYQuery"
+              }
+            ],
+            "title": "Query"
+          },
+          "results": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SnowLine"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "propertyNames": {
+              "format": "date"
+            },
+            "title": "Results",
+            "type": "object"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_unit": {
+            "examples": [
+              "mm,percent"
+            ],
+            "title": "Threshold Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pourpoint",
+          "dataset",
+          "query",
+          "threshold",
+          "threshold_unit",
+          "band_step_ft",
+          "results"
+        ],
+        "title": "SnowLineResponse",
+        "type": "object"
+      },
       "StatsFormat": {
         "description": "The requested output format, as one of the supported representation keys. Takes precedence over the `Accept` header; an unsupported value returns a `400` problem. Supported keys: `json`, `csv`.",
         "enum": [
@@ -2464,6 +2583,134 @@
         "summary": "Get Dataset",
         "tags": [
           "datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset}/snowline/{triplet}/date-range": {
+      "get": {
+        "operationId": "snowline_date_range_datasets__dataset__snowline__triplet__date_range_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "title": "Dataset",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "triplet",
+            "required": true,
+            "schema": {
+              "examples": [
+                "12354500:MT:USGS"
+              ],
+              "pattern": "^[a-zA-Z0-9\\-]+:[a-zA-Z]{2}:[a-zA-Z]+$",
+              "title": "Triplet",
+              "type": "string"
+            }
+          },
+          {
+            "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+            "in": "query",
+            "name": "datetime",
+            "required": false,
+            "schema": {
+              "description": "An RFC 3339 instant, or a `start/end` interval where either side may be open using `..` (or empty). An instant matches a single timestamp; an interval matches a range. Malformed values return a `400` problem.",
+              "examples": [
+                "2026-04-01/2026-07-01"
+              ],
+              "title": "Datetime",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Variable to be used to calculate snowline",
+            "in": "query",
+            "name": "variable",
+            "required": false,
+            "schema": {
+              "default": "snow_fraction",
+              "description": "Variable to be used to calculate snowline",
+              "title": "Variable",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Threshold of snow fraction to define the snow line.",
+            "in": "query",
+            "name": "threshold",
+            "required": false,
+            "schema": {
+              "default": 50.0,
+              "description": "Threshold of snow fraction to define the snow line.",
+              "exclusiveMinimum": 0.0,
+              "title": "Threshold",
+              "type": "number"
+            }
+          },
+          {
+            "description": "Measurement unit for threshold evaluation",
+            "in": "query",
+            "name": "threhold_unit",
+            "required": true,
+            "schema": {
+              "description": "Measurement unit for threshold evaluation",
+              "title": "Threhold Unit",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Elevation band step. Smaller gives finer resolution but fewer pixels per band.",
+            "in": "query",
+            "name": "band_step_ft",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "description": "Elevation band step. Smaller gives finer resolution but fewer pixels per band.",
+              "exclusiveMinimum": 0,
+              "title": "Band Step Ft",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "allow_partial",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Partial",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnowLineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Snowline Date Range",
+        "tags": [
+          "snowline"
         ]
       }
     },
@@ -3056,6 +3303,9 @@
     },
     {
       "name": "stats"
+    },
+    {
+      "name": "snowline"
     }
   ]
 }
