@@ -9,7 +9,9 @@ These live at the top level so both the ``snowdb`` and ``cli`` suites reuse them
 import hashlib
 import json
 
+from collections.abc import Sequence
 from contextlib import contextmanager
+from itertools import pairwise
 
 import numpy
 import pytest
@@ -331,6 +333,7 @@ def write_uniform_terrain(
     crs,
     tile_size: int,
     elevation_value: float = DEM_ELEVATION_M,
+    elevation_stripes: Sequence[float] | None = None,
     northness_value: float = ASPECT_COMPONENT_NODATA,
     eastness_value: float = ASPECT_COMPONENT_NODATA,
 ) -> str:
@@ -349,7 +352,24 @@ def write_uniform_terrain(
     directory.mkdir(parents=True, exist_ok=True)
     shape = (base_grid.rows, base_grid.cols)
 
-    elevation = numpy.full(shape, elevation_value, dtype='float32')
+    if elevation_stripes is None:
+        elevation = numpy.full(shape, elevation_value, dtype='float32')
+    else:
+        rows, _ = shape
+        array = numpy.empty(shape, dtype='float32')
+        edges = numpy.linspace(
+            0,
+            rows,
+            len([ft * 0.3048 for ft in elevation_stripes]) + 1,
+        ).astype(int)
+        for value, (start, end) in zip(
+            [ft * 0.3048 for ft in elevation_stripes],
+            pairwise(edges),
+            strict=True,
+        ):
+            array[start:end, :] = value
+        elevation = array
+
     dem_hash = versioned_hash(
         TERRAIN_FORMAT_VERSION,
         hashlib.sha256(elevation.tobytes()).hexdigest(),
@@ -438,6 +458,7 @@ def write_uniform_landcover(
 def write_terrain(
     dataset,
     elevation_value: float = DEM_ELEVATION_M,
+    elevation_stripes: Sequence[float] | None = None,
     northness_value: float = ASPECT_COMPONENT_NODATA,
     eastness_value: float = ASPECT_COMPONENT_NODATA,
 ) -> str:
@@ -453,6 +474,7 @@ def write_terrain(
         crs=dataset.grid_crs,
         tile_size=dataset.spec.grid_params.tile_size,
         elevation_value=elevation_value,
+        elevation_stripes=elevation_stripes,
         northness_value=northness_value,
         eastness_value=eastness_value,
     )
