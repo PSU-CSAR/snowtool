@@ -55,10 +55,10 @@ def _elevation_stripes(shape, stripes, dtype):
     edges = numpy.linspace(
         0,
         rows,
-        len([ft * 0.3048 for ft in stripes]) + 1,
+        len(stripes) + 1,
     ).astype(int)
     for value, (start, end) in zip(
-        [ft * 0.3048 for ft in stripes],
+        stripes,
         pairwise(edges),
         strict=True,
     ):
@@ -373,7 +373,11 @@ def write_uniform_terrain(
     if elevation_stripes is None:
         elevation = numpy.full(shape, elevation_value, dtype='float32')
     else:
-        elevation = _elevation_stripes(shape, elevation_stripes, 'float32')
+        elevation = _elevation_stripes(
+            shape,
+            [ft * 0.3048 for ft in elevation_stripes],
+            'float32',
+        )
 
     dem_hash = versioned_hash(
         TERRAIN_FORMAT_VERSION,
