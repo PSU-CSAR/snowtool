@@ -65,10 +65,10 @@ def snow_line_elevation(
     variable: str | None = None,
 ) -> dict[date, SnowLine | None]:
 
-    if threshold >= 100.0 or threshold < 0.0:
+    if threshold <= 0.0:
         raise SnowLineError(
             'Invalid Snow line threshold passed: '
-            f'Expecting value between 0.0 and 100.0: got {threshold}',
+            f'Expecting positive value to interpolate: got {threshold}',
         )
 
     bands = _elevation_bands(stats)
