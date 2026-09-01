@@ -58,6 +58,7 @@ def snowline(
     allow_partial: bool,
     variable: str,
 ) -> None:
+    """Banded elevation stats for pourpoint TRIPLET over DATASET"""
     date_query = parse_dates_query(dates, years)
     reader = SnowDbReader(snowdb)
 
