@@ -2639,27 +2639,16 @@
             }
           },
           {
-            "description": "Threshold of snow fraction to define the snow line.",
+            "description": "Value at which snow line is drawn.",
             "in": "query",
             "name": "threshold",
             "required": false,
             "schema": {
               "default": 50.0,
-              "description": "Threshold of snow fraction to define the snow line.",
+              "description": "Value at which snow line is drawn.",
               "exclusiveMinimum": 0.0,
               "title": "Threshold",
               "type": "number"
-            }
-          },
-          {
-            "description": "Measurement unit for threshold evaluation",
-            "in": "query",
-            "name": "threhold_unit",
-            "required": true,
-            "schema": {
-              "description": "Measurement unit for threshold evaluation",
-              "title": "Threhold Unit",
-              "type": "string"
             }
           },
           {
