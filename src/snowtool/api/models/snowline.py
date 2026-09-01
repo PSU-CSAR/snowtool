@@ -30,10 +30,7 @@ class SnowLineQuery(BaseModel):
     threshold: float = Field(
         default=50.0,
         gt=0.0,
-        description='Threshold of snow fraction to define the snow line.',
-    )
-    threhold_unit: str = Field(
-        description='Measurement unit for threshold evaluation',
+        description='Value at which snow line is drawn.',
     )
     band_step_ft: int = Field(
         default=500,
