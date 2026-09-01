@@ -134,6 +134,7 @@ NLCD_NONFOREST_CLASS = 81  # pasture/hay (not forest)
 FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
 
 # Snowline parameter stuff
+GRADIENT_BOX = (-119.9, 40.0, -119.0, 44.9)
 GRADIENT_ELEVATIONS_FT = (3250.0, 3750.0, 4250.0, 4750.0)  # Elevation bands
 GRADIENT_SWE_VALUES = (10, 40, 60, 90)  # Uniform SWE values for snowline threshold
 EXPECTED_SNOW_LINE_FT = 4000.0  # Expected snowline interpolation
@@ -659,6 +660,16 @@ def write_swe_cog(
 def pourpoint_geojson(tmp_path):
     """A pourpoint with a polygon inside tile (0, 0)."""
     return write_pourpoint_record(tmp_path / 'pourpoint.geojson', '12345:MT:USGS')
+
+
+@pytest.fixture
+def gradient_pourpoint_geojson(tmp_path):
+    """A pourpoint with a basin that spans multiple elevation bands"""
+    return write_pourpoint_record(
+        tmp_path / 'gradient_pourpoint.geojson',
+        '12345:MT:USGS',
+        box=GRADIENT_BOX,
+    )
 
 
 def snodas_swe_name(date_str: str = '20180427') -> str:

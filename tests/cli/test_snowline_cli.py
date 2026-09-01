@@ -12,12 +12,12 @@ DATE = '20180427'
 
 
 @pytest.fixture
-def gradient_root(initialized_root, spec, pourpoint_geojson):
+def gradient_root(initialized_root, spec, gradient_pourpoint_geojson):
     manager = SnowDbManager.open(initialized_root)
     populate_bound_root(
         manager,
         spec,
-        pourpoint_geojson,
+        gradient_pourpoint_geojson,
         terrain_gradient=True,
     )
     return initialized_root

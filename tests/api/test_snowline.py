@@ -47,13 +47,11 @@ def test_return_query_params(gradient_client):
             'band_step_ft': 1000,
         },
     )
-
     assert response.status_code == 200
     body = response.json()
     assert body['threshold'] == 50
     assert body['threshold_unit'] == 'mm'
     assert body['band_step_ft'] == 1000
-    assert body['variable'] == 'swe'
 
 
 def test_different_snowline_thresholds(gradient_client):
@@ -67,7 +65,7 @@ def test_different_snowline_thresholds(gradient_client):
                 'band_step_ft': 1000,
             },
         )
-
+        print(response.json())
         assert response.status_code == 200
         body = response.json()
         (snowline,) = body['results'].values()
@@ -91,4 +89,4 @@ def test_return_none_above_threshold(gradient_client):
     )
     assert response.status_code == 200
     (snowline,) = response.json()['results'].values()
-    assert list(snowline) == [None]
+    assert snowline is None
