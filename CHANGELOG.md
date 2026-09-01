@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## [Unreleased]
 
 ### Added
+  - **Snow line Elevation:** A new `snowtool snowline` command and matching
+    `GET /datasets/{dataset}/snowline/{triplet}/date-range` endpoint. For each
+    date in a requested date range, the basin's elevation bands are walked from
+    low to high, and the first adjacent elevation pair that contains a value
+    crossing the `--threshold` is found. An elevation is interpolated between the two
+    centers of the bands. Dates with no crossing (fully bare or fully snowed in) report
+    `null` instead of some extrapolated figure. This is a derived product from the provided
+    variables from the data sources that reduces across elevation.
 
 ### Changed
 
