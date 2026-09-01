@@ -48,6 +48,7 @@ from snowtool.cli.dataset import dataset
 from snowtool.cli.doctor import doctor
 from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.root import init_snowdb, status
+from snowtool.cli.snowline import snowline
 from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
 from snowtool.exceptions import SnowtoolError
@@ -103,3 +104,4 @@ cli.add_command(pourpoint)
 cli.add_command(stats)
 cli.add_command(api)
 cli.add_command(windows)
+cli.add_command(snowline)

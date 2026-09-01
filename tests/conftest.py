@@ -9,7 +9,9 @@ These live at the top level so both the ``snowdb`` and ``cli`` suites reuse them
 import hashlib
 import json
 
+from collections.abc import Sequence
 from contextlib import contextmanager
+from itertools import pairwise
 
 import numpy
 import pytest
@@ -44,6 +46,24 @@ from snowtool.snowdb.zones.terrain_layers import (
 # gazebo's pytest plugin (assert_problem / assert_has_link / drive_pagination +
 # fixtures) is opt-in, not auto-registered.
 pytest_plugins = ['gazebo.testing']
+
+
+def _elevation_stripes(shape, stripes, dtype):
+    """Horizontal bands of constant value, top to bottom."""
+    rows, _ = shape
+    array = numpy.empty(shape, dtype=dtype)
+    edges = numpy.linspace(
+        0,
+        rows,
+        len(stripes) + 1,
+    ).astype(int)
+    for value, (start, end) in zip(
+        stripes,
+        pairwise(edges),
+        strict=True,
+    ):
+        array[start:end, :] = value
+    return array
 
 
 def write_geotiff(path, array, *, transform, crs, nodata=None):
@@ -112,6 +132,12 @@ SWE_VALUE = 50  # uniform int16 SWE value
 NLCD_FOREST_CLASS = 42  # evergreen forest (in FOREST_CLASSES)
 NLCD_NONFOREST_CLASS = 81  # pasture/hay (not forest)
 FOREST_PCT_VALUE = 100  # uniform all-forest synthetic land cover
+
+# Snowline parameter stuff
+GRADIENT_BOX = (-119.9, 40.0, -119.0, 44.9)
+GRADIENT_ELEVATIONS_FT = (3250.0, 3750.0, 4250.0, 4750.0)  # Elevation bands
+GRADIENT_SWE_VALUES = (10, 40, 60, 90)  # Uniform SWE values for snowline threshold
+EXPECTED_SNOW_LINE_FT = 4000.0  # Expected snowline interpolation
 
 
 def synthetic_grid(**overrides):
@@ -207,6 +233,7 @@ def populate_bound_root(
     *,
     rasterize=True,
     ingest=True,
+    terrain_gradient=False,
 ):
     """Populate an already-initialized, dataset-bound ``manager`` for a query.
 
@@ -219,12 +246,18 @@ def populate_bound_root(
 
     manager.pourpoints.import_(pourpoint_geojson)
     dataset = manager.db[spec.name]
-    write_terrain(dataset)
+    write_terrain(
+        dataset,
+        elevation_stripes=GRADIENT_ELEVATIONS_FT if terrain_gradient else None,
+    )
     write_landcover(dataset)
     if rasterize:
         dataset.rasterize_aoi(Pourpoint.from_geojson(pourpoint_geojson), rebuild=True)
     if ingest:
-        write_swe_cog(dataset)
+        write_swe_cog(
+            dataset,
+            stripe_values=GRADIENT_SWE_VALUES if terrain_gradient else None,
+        )
     return manager.db
 
 
@@ -235,6 +268,7 @@ def populate_synthetic_root(
     *,
     rasterize=True,
     ingest=True,
+    terrain_gradient=False,
 ):
     """Populate ``root`` end-to-end with the synthetic ``spec`` dataset.
 
@@ -255,6 +289,7 @@ def populate_synthetic_root(
         pourpoint_geojson,
         rasterize=rasterize,
         ingest=ingest,
+        terrain_gradient=terrain_gradient,
     )
 
 
@@ -317,6 +352,7 @@ def write_uniform_terrain(
     crs,
     tile_size: int,
     elevation_value: float = DEM_ELEVATION_M,
+    elevation_stripes: Sequence[float] | None = None,
     northness_value: float = ASPECT_COMPONENT_NODATA,
     eastness_value: float = ASPECT_COMPONENT_NODATA,
 ) -> str:
@@ -335,7 +371,15 @@ def write_uniform_terrain(
     directory.mkdir(parents=True, exist_ok=True)
     shape = (base_grid.rows, base_grid.cols)
 
-    elevation = numpy.full(shape, elevation_value, dtype='float32')
+    if elevation_stripes is None:
+        elevation = numpy.full(shape, elevation_value, dtype='float32')
+    else:
+        elevation = _elevation_stripes(
+            shape,
+            [ft * 0.3048 for ft in elevation_stripes],
+            'float32',
+        )
+
     dem_hash = versioned_hash(
         TERRAIN_FORMAT_VERSION,
         hashlib.sha256(elevation.tobytes()).hexdigest(),
@@ -424,6 +468,7 @@ def write_uniform_landcover(
 def write_terrain(
     dataset,
     elevation_value: float = DEM_ELEVATION_M,
+    elevation_stripes: Sequence[float] | None = None,
     northness_value: float = ASPECT_COMPONENT_NODATA,
     eastness_value: float = ASPECT_COMPONENT_NODATA,
 ) -> str:
@@ -439,6 +484,7 @@ def write_terrain(
         crs=dataset.grid_crs,
         tile_size=dataset.spec.grid_params.tile_size,
         elevation_value=elevation_value,
+        elevation_stripes=elevation_stripes,
         northness_value=northness_value,
         eastness_value=eastness_value,
     )
@@ -586,14 +632,24 @@ def write_aoi_record(
     )
 
 
-def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):
+def write_swe_cog(
+    dataset,
+    date_str: str = '20180427',
+    value: int = SWE_VALUE,
+    stripe_values: Sequence[int] | None = None,
+):
     """Write a uniform int16 SWE COG for ``date_str`` into ``dataset``'s cogs dir."""
     out_dir = dataset._cogs / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f'{snodas_swe_name(date_str)}.tif'
+    array = (
+        numpy.full((SIZE, SIZE), value, dtype=numpy.int16)
+        if stripe_values is None
+        else _elevation_stripes((SIZE, SIZE), stripe_values, numpy.int16)
+    )
     write_cog(
         path,
-        numpy.full((SIZE, SIZE), value, dtype=numpy.int16),
+        array,
         transform=dataset.grid.base_grid.transform,
         tile_size=TILE,
     )
@@ -604,6 +660,16 @@ def write_swe_cog(dataset, date_str: str = '20180427', value: int = SWE_VALUE):
 def pourpoint_geojson(tmp_path):
     """A pourpoint with a polygon inside tile (0, 0)."""
     return write_pourpoint_record(tmp_path / 'pourpoint.geojson', '12345:MT:USGS')
+
+
+@pytest.fixture
+def gradient_pourpoint_geojson(tmp_path):
+    """A pourpoint with a basin that spans multiple elevation bands"""
+    return write_pourpoint_record(
+        tmp_path / 'gradient_pourpoint.geojson',
+        '12345:MT:USGS',
+        box=GRADIENT_BOX,
+    )
 
 
 def snodas_swe_name(date_str: str = '20180427') -> str:
