@@ -11,7 +11,7 @@ listing.
 | `status` | Overview of every registered dataset: active flag, artifacts, date span. |
 | `doctor` | Run health checks (grid, dates, files, pourpoints) and exit 1 on any finding. |
 | `stats` | Crossed zonal statistics for one pourpoint/dataset, with an OGC `--dates`/`--years` interval. |
-| `snowline` | Banded elevation statistics for one pourpoint/dataset |
+| `snowline` | Interpolated snow line elevation for one pourpoint and dataset over a date interval. |
 | `dataset` | Register, ingest, and inspect gridded snow datasets. |
 | `pourpoint` | Manage pourpoints and their delineated basins. |
 | `api` | Run the read-only HTTP API server. |
