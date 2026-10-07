@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [v0.7.0] - 2026-10-07
+
 ### Added
   - **Snow line Elevation:** A new `snowtool snowline` command and matching
     `GET /datasets/{dataset}/snowline/{triplet}/date-range` endpoint. For each
@@ -22,14 +32,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   takes a list of sources (defaults to snodas, instarr and swann), a date (defaulting to current)
   and attempts to fetch the daily upload from those sources. `retry` is used to re-attempt a download
   of an upload in the event that it was not able to be obtained previously.
-
-### Changed
-
-### Removed
-
-### Fixed
-
-### Security
 
 ## [v0.6.0] - 2026-07-24
 
