@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
     `null` instead of some extrapolated figure. This is a derived product from the provided
     variables from the data sources that reduces across elevation.
 
+  - **Raw data downloads** A new `snowtool download` CLI command that is used to fetch
+  the daily raw data for any and all specified sources in the snowtool instance. The command
+  takes a list of sources (defaults to snodas, instarr and swann), a date (defaulting to current)
+  and attempts to fetch the daily upload from those sources. `retry` is used to re-attempt a download
+  of an upload in the event that it was not able to be obtained previously.
+
 ### Changed
 
 ### Removed
