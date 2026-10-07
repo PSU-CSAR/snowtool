@@ -22,3 +22,11 @@ of the library becomes a supported entry point.
 ## DatasetSpec
 
 ::: snowtool.snowdb.spec.DatasetSpec
+
+## snow_line_elevation
+
+::: snowtool.snowdb.snowline.snow_line_elevation
+
+## SnowLine
+
+::: snowtool.snowdb.snowline_models.SnowLine

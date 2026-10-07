@@ -31,6 +31,7 @@ from .routers.datasets import router as datasets_router
 from .routers.pourpoints import router as pourpoints_router
 from .routers.root import API_DESCRIPTION, API_TITLE
 from .routers.root import router as root_router
+from .routers.snowline import router as snowline_router
 from .routers.stats import router as stats_router
 from .tags import Tags
 
@@ -89,5 +90,6 @@ def get_app(
     app.include_router(datasets_router)
     app.include_router(pourpoints_router)
     app.include_router(stats_router)
+    app.include_router(snowline_router)
 
     return app

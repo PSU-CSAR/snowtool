@@ -46,8 +46,10 @@ from snowtool.cli._context import CliContext
 from snowtool.cli.api import api
 from snowtool.cli.dataset import dataset
 from snowtool.cli.doctor import doctor
+from snowtool.cli.download import download
 from snowtool.cli.pourpoint import pourpoint
 from snowtool.cli.root import init_snowdb, status
+from snowtool.cli.snowline import snowline
 from snowtool.cli.stats import stats
 from snowtool.cli.windows import windows
 from snowtool.exceptions import SnowtoolError
@@ -99,7 +101,9 @@ cli.add_command(init_snowdb)
 cli.add_command(status)
 cli.add_command(dataset)
 cli.add_command(doctor)
+cli.add_command(download)
 cli.add_command(pourpoint)
 cli.add_command(stats)
 cli.add_command(api)
 cli.add_command(windows)
+cli.add_command(snowline)

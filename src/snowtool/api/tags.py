@@ -12,3 +12,4 @@ class Tags(StrEnum):
     DATASETS = 'datasets'
     POURPOINTS = 'pourpoints'
     STATS = 'stats'
+    SNOWLINE = 'snowline'

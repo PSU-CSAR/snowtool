@@ -317,6 +317,10 @@ class RemoteSourceError(SnowtoolError):
     """
 
 
+class SnowLineError(SnowtoolError):
+    """Raised when stats are not shaped for a snow line interpolation."""
+
+
 class PourpointPruneDestinationRequiredError(SnowtoolError):
     """Raised when ``pourpoint sync`` would remove stored records but has no archive.
 

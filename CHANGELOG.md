@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-### Added
-
 ### Changed
 
 ### Removed
@@ -16,6 +14,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Fixed
 
 ### Security
+
+## [v0.7.0] - 2026-10-07
+
+### Added
+  - **Snow line Elevation:** A new `snowtool snowline` command and matching
+    `GET /datasets/{dataset}/snowline/{triplet}/date-range` endpoint. For each
+    date in a requested date range, the basin's elevation bands are walked from
+    low to high, and the first adjacent elevation pair that contains a value
+    crossing the `--threshold` is found. An elevation is interpolated between the two
+    centers of the bands. Dates with no crossing (fully bare or fully snowed in) report
+    `null` instead of some extrapolated figure. This is a derived product from the provided
+    variables from the data sources that reduces across elevation.
+
+  - **Raw data downloads** A new `snowtool download` CLI command that is used to fetch
+  the daily raw data for any and all specified sources in the snowtool instance. The command
+  takes a list of sources (defaults to snodas, instarr and swann), a date (defaulting to current)
+  and attempts to fetch the daily upload from those sources. `retry` is used to re-attempt a download
+  of an upload in the event that it was not able to be obtained previously.
 
 ## [v0.6.0] - 2026-07-24
 
