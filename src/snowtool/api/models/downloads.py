@@ -56,7 +56,7 @@ class INSTARRUrls(BaseUrl):
                 tile=tile,
                 year=target_date.year,
                 month=f'{target_date.month:02d}',
-                day=f'{target_date.day}',
+                day=f'{target_date.day:02d}',
             )
             dest = cls._build_dest(
                 'instarr',
