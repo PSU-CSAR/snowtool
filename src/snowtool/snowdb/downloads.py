@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import ClassVar, Protocol, Self
 
 
 @dataclass
@@ -17,11 +17,9 @@ class DownloadResult:
 
 
 class BaseUrl(ABC):
-    BASE_DEST: ClassVar[str] = '/d/projects/gisdata/{source}/unprocessed/{import_path}'
-
     @classmethod
-    def _build_dest(cls, source: str, import_path: str | Path) -> Path:
-        return Path(cls.BASE_DEST.format(source=source, import_path=import_path))
+    def _build_dest(cls, import_path: str | Path) -> Path:
+        return Path(import_path)
 
     @classmethod
     @abstractmethod
@@ -59,7 +57,6 @@ class INSTARRUrls(BaseUrl):
                 day=f'{target_date.day:02d}',
             )
             dest = cls._build_dest(
-                'instarr',
                 f'{tile}/{target_date.year}/{target_date.month:02d}/',
             )
             tile_downloads[download_url] = dest
@@ -103,7 +100,9 @@ class SWANNUrl(BaseUrl):
         )
         return cls(
             url=download_url,
-            dest=cls._build_dest('swann', f'{wy!s}/{target_date.month:02d}/'),
+            dest=cls._build_dest(
+                f'{wy!s}/{target_date.month:02d}/',
+            ),
         )
 
     def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
@@ -140,3 +139,31 @@ class SNODASUrl(BaseUrl):
 
     def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
         yield self.url, self.dest
+
+
+class StreamingResponse(Protocol):
+    """The slice of a streamed response ``_get_file`` consumes."""
+
+    def raise_for_status(self) -> object: ...
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
+class Downloader(Protocol):
+    """The slice of ``curl_cffi.requests.Session`` that ``_get_file`` needs.
+
+    Declared as a protocol so tests can inject a fake transport through the
+    ``session`` seam rather than patching the module or reaching the network.
+    """
+
+    def get(
+        self,
+        url: str,
+        *,
+        impersonate: str,
+        stream: bool,
+    ) -> StreamingResponse: ...
+
+    def close(self) -> None: ...

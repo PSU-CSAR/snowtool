@@ -58,17 +58,20 @@ import click
 from curl_cffi import requests
 from curl_cffi.requests.exceptions import HTTPError, RequestException
 
-from snowtool.api.models.downloads import (
+from snowtool.cli._context import config_option, pass_snowdb
+from snowtool.cli._dates import DATE
+from snowtool.snowdb import diagnostics
+from snowtool.snowdb.db import SnowDb
+from snowtool.snowdb.downloads import (
     BaseUrl,
+    Downloader,
     DownloadResult,
     INSTARRUrls,
     SNODASUrl,
     SWANNUrl,
 )
-from snowtool.cli._context import config_option, pass_snowdb
-from snowtool.cli._dates import DATE
-from snowtool.snowdb import diagnostics
-from snowtool.snowdb.db import SnowDb
+
+CHUNK_SIZE: int = 1024 * 1024
 
 DEFAULT_TIMEOUT_SECONDS: int = 60
 """
@@ -83,6 +86,8 @@ REQUEST_HEADERS: dict[str, str] = {
     ),
 }
 
+# NOTE: hand-maintained alongside the dataset registry in snowdb/datasets/.
+# A dataset registered there but missing here will KeyError in `download`.
 SOURCE_MODELS: dict[str, type[BaseUrl]] = {
     'swann': SWANNUrl,
     'instarr': INSTARRUrls,
@@ -90,47 +95,77 @@ SOURCE_MODELS: dict[str, type[BaseUrl]] = {
 }
 
 
-def _get_file(url: str, dest: Path) -> DownloadResult:
-    """
-    _get_file requests the file from the specified source
-    (http or ftp), and writes it to the desired destination
+def _get_file(
+    url: str,
+    dest: Path,
+    session: Downloader | None = None,
+) -> DownloadResult:
+    """Fetch one file over HTTP(S) or FTP and write it into ``dest``.
+
+    The body is streamed to a sibling ``.part`` file and renamed into place
+    only once it is complete, so an interrupted download never leaves a
+    truncated file that later runs would mistake for a good one.
 
     Args:
-        url (str): url for requested file
-        dest (Path): _description_
+        url: Fully-qualified URL of the file to fetch.
+        dest: Directory to write into. The filename is taken from ``url``.
+        session: Transport to fetch through. Defaults to a new
+            ``curl_cffi`` session, closed before returning; pass one in to
+            reuse a connection across several files, or to inject a fake.
 
     Returns:
-        DownloadResult: _description_
+        A ``DownloadResult`` whose ``status`` is ``True`` on success, or
+        ``False`` with the failure in ``detail``.
     """
     filename = Path(posixpath.basename(urlparse(url).path))
     dest = dest / filename
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_dest = dest.with_suffix(dest.suffix + '.part')
-    try:
-        response = requests.get(url, impersonate='chrome')
-        response.raise_for_status()
-        with tmp_dest.open('wb') as f:
-            for chunk in response.iter_content(1024 * 1024):
-                f.write(chunk)
-        tmp_dest.rename(dest)
-        status = True
-        detail = ''
-    except HTTPError as e:
-        tmp_dest.unlink(missing_ok=True)
-        status = False
-        detail = str(e)
-    except RequestException as e:
-        tmp_dest.unlink(missing_ok=True)
-        status = False
-        detail = str(e)
-    except OSError as e:
-        status = False
-        detail = str(e)
 
-    return DownloadResult(
-        status=status,
-        detail=detail,
-    )
+    owns_session = session is None
+    session = session if session is not None else requests.Session()
+    try:
+        response = session.get(url, impersonate='chrome', stream=True)
+        try:
+            response.raise_for_status()
+            with tmp_dest.open('wb') as f:
+                for chunk in response.iter_content(CHUNK_SIZE):
+                    f.write(chunk)
+        finally:
+            response.close()
+        tmp_dest.rename(dest)
+    except (HTTPError, RequestException, OSError) as e:
+        tmp_dest.unlink(missing_ok=True)
+        return DownloadResult(status=False, detail=str(e))
+    finally:
+        if owns_session:
+            session.close()
+
+    return DownloadResult(status=True, detail='')
+
+
+def _download_sources(
+    sources: list[str],
+    dates: list[date],
+    snowdb: SnowDb,
+    session: Downloader,
+) -> None:
+    """Fetch every file each source publishes for each date, logging outcomes."""
+    for source_iter in sources:
+        for d in dates:
+            model = SOURCE_MODELS[source_iter]._for_date(d)
+            download_root = snowdb.download_root(source_iter)
+            for url, dest in model._iter_downloads():
+                result = _get_file(url, download_root / dest, session)
+                if result.status:
+                    logger.info('[%s] %s downloaded', source_iter, d)
+                else:
+                    logger.warning(
+                        '[%s] %s failed: %s',
+                        source_iter,
+                        d,
+                        result.detail,
+                    )
 
 
 logger = logging.getLogger(__name__)
@@ -144,7 +179,10 @@ def download() -> None:
 @download.command('date')
 @click.argument('date', type=click.DateTime(formats=['%Y-%m-%d']), required=True)
 @click.option('--source', '-s', type=str, multiple=True)
+@config_option
+@pass_snowdb
 def download_dates(
+    snowdb: SnowDb,
     date: datetime,
     source: tuple[str, ...] | None,
 ) -> None:
@@ -159,19 +197,11 @@ def download_dates(
                                          Defaults to ['snodas', 'instarr', 'swann']
     """
     sources = list(source) if source else ['snodas', 'instarr', 'swann']
-    for source_iter in sources:
-        model = SOURCE_MODELS[source_iter]._for_date(date.date())
-        for url, dest in model._iter_downloads():
-            result = _get_file(url, dest)
-            if result.status:
-                logger.info('[%s] %s downloaded', source_iter, date.date())
-            else:
-                logger.warning(
-                    '[%s] %s failed: %s',
-                    source_iter,
-                    date.date(),
-                    result.detail,
-                )
+    session = requests.Session()
+    try:
+        _download_sources(sources, [date.date()], snowdb, session)
+    finally:
+        session.close()
 
 
 @download.command('retry')
@@ -203,20 +233,17 @@ def retry_download(
     retry_end = end if end else date.today()  # noqa: DTZ011
     sources = list(source) if source else ['snodas', 'instarr', 'swann']
 
-    for source_iter in sources:
-        ds = snowdb.registered_dataset(source_iter)
-        missing = diagnostics.missing_dates(ds, start=retry_start, end=retry_end)
+    session = requests.Session()
+    try:
+        for source_iter in sources:
+            ds = snowdb.registered_dataset(source_iter)
+            missing = diagnostics.missing_dates(ds, start=retry_start, end=retry_end)
 
-        if not missing:
-            logging.info('[%s] has no missing dates in range', source_iter)
-            continue
+            if not missing:
+                logger.info('[%s] has no missing dates in range', source_iter)
+                continue
 
-        click.echo(f'[{source_iter}] {len(missing)} missing date(s) found.')
-        for d in missing:
-            model = SOURCE_MODELS[source_iter]._for_date(d)
-            for url, dest in model._iter_downloads():
-                result = _get_file(url, Path(dest))
-                if result.status:
-                    logger.info('[%s] %s downloaded', source_iter, d)
-                else:
-                    logger.warning('[%s] %s failed: %s', source_iter, d, result.detail)
+            click.echo(f'[{source_iter}] {len(missing)} missing date(s) found.')
+            _download_sources([source_iter], list(missing), snowdb, session)
+    finally:
+        session.close()

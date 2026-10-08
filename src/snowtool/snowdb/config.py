@@ -50,6 +50,7 @@ DATASET_CONFIG_FILENAME = 'dataset.json'
 # (``data/<name>/``). The single name the layout, the read binder, and the
 # inline-dataset resolution convention all share.
 DATA_DIRNAME = 'data'
+DOWNLOADS_DIRNAME = 'downloads'
 
 
 def resolve_path(
@@ -331,6 +332,11 @@ class RootConfig(ResourceModel):
     # relative to this config). A provider absent here uses its default source
     # (3DEP for terrain, the MRLC bundle for land cover).
     sources: dict[str, Path] = Field(default_factory=dict)
+
+    # Per-source raw-download staging roots (source name -> directory; absolute,
+    # or relative to this config). A source absent here places downloads under
+    # ``downloads/<source>/`` in the root.
+    downloads: dict[str, Path] = Field(default_factory=dict)
 
     # Where this config lives on disk: set when loaded/saved, ``None`` when built
     # in code. It is the base every relative link resolves against, so a config
