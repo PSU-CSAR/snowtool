@@ -172,8 +172,8 @@ class SnowDb:
 
     def download_root(self: Self, source: str) -> Path:
         """
-        The download path for unproccessed data files that are to be ingested
-        into Snowdb. Declared per source in the root configs "downloads" map
+        The download path for unprocessed data files that are to be ingested
+        into Snowdb. Declared per source in the root config's "downloads" map
         and resolved like any other config path; an absent source defaults to
         "downloads/<source>"" in the root
         """

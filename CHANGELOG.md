@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 > **Live databases (raw download staging):** `snowtool download` previously
 > wrote to a hardcoded `/d/projects/gisdata/<source>/unprocessed/`. It now
 > stages under `downloads/<source>/` in the snowdb root, unless the root
-> config's new `downloads` map says otherwise.  Already-staged
+> config's new `downloads` map says otherwise. Decalre the current path
+> in the map before upgrading. Already-staged
 > files are not moved.
 
 ### Added
