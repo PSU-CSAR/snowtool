@@ -130,10 +130,10 @@ def test_an_injected_session_is_left_open(tmp_path):
 @pytest.mark.parametrize(
     ('target', 'expected_wy'),
     [
-        (date(2026, 9, 30), 2026, '20260930'),  # last day of WY2026
-        (date(2026, 10, 1), 2027, '20261001'),  # first day of WY2027
-        (date(2026, 10, 5), 2027, '20261005'),
-        (date(2027, 1, 15), 2027, '20270115'),
+        (date(2026, 9, 30), 2026),  # last day of WY2026
+        (date(2026, 10, 1), 2027),  # first day of WY2027
+        (date(2026, 10, 5), 2027),
+        (date(2027, 1, 15), 2027),
     ],
 )
 def test_swann_correct_water_year(target, expected_wy):
