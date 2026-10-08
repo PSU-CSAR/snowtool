@@ -152,9 +152,9 @@ def _download_sources(
 ) -> None:
     """Fetch every file each source publishes for each date, logging outcomes."""
     for source_iter in sources:
+        download_root = snowdb.download_root(source_iter)
         for d in dates:
             model = SOURCE_MODELS[source_iter]._for_date(d)
-            download_root = snowdb.download_root(source_iter)
             for url, dest in model._iter_downloads():
                 result = _get_file(url, download_root / dest, session)
                 if result.status:
