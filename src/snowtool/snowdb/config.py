@@ -50,6 +50,9 @@ DATASET_CONFIG_FILENAME = 'dataset.json'
 # (``data/<name>/``). The single name the layout, the read binder, and the
 # inline-dataset resolution convention all share.
 DATA_DIRNAME = 'data'
+
+# The conventional subdirectory of the root holding every dataset's
+# raw data files (``downloads/<name>/``).
 DOWNLOADS_DIRNAME = 'downloads'
 
 
