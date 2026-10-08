@@ -182,7 +182,7 @@ class SnowDb:
         if self.root is None:
             raise SnowDbConfigError(
                 None,
-                f'Cannot resolve the download root for {source}: This config'
+                f'Cannot resolve the download root for {source!r}: This config'
                 " has no location. Give an absolute path in the config's"
                 ' "downloads" map, or save the config first.',
             )
