@@ -48,10 +48,13 @@ from __future__ import annotations
 
 import logging
 import posixpath
+import shutil
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import click
 
@@ -74,17 +77,7 @@ from snowtool.snowdb.downloads import (
 CHUNK_SIZE: int = 1024 * 1024
 
 DEFAULT_TIMEOUT_SECONDS: int = 60
-"""
-Some servers (e.g. climate.arizona.edu) reject requests with no/generic
-User-Agent headers. Need to identify as a real browser to avoid spurious 403s.
-"""
-REQUEST_HEADERS: dict[str, str] = {
-    'User-Agent': (
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Safari/537.36'
-    ),
-}
+
 
 # NOTE: hand-maintained alongside the dataset registry in snowdb/datasets/.
 # A dataset registered there but missing here will KeyError in `download`.
@@ -95,6 +88,27 @@ SOURCE_MODELS: dict[str, type[BaseUrl]] = {
 }
 
 
+def _fetch_ftp(url: str, tmp_dest: Path) -> None:
+    """Stream an ``ftp://`` URL to ``tmp_dest`` using the standard library."""
+    with (
+        urlopen(url, timeout=DEFAULT_TIMEOUT_SECONDS) as response,  # noqa: S310
+        tmp_dest.open('wb') as f,
+    ):
+        shutil.copyfileobj(response, f, CHUNK_SIZE)
+
+
+def _fetch_http(url: str, tmp_dest: Path, session: Downloader) -> None:
+    """Stream an ``http(s)://`` URL to ``tmp_dest`` through ``session``."""
+    response = session.get(url, impersonate='chrome', stream=True)
+    try:
+        response.raise_for_status()
+        with tmp_dest.open('wb') as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                f.write(chunk)
+    finally:
+        response.close()
+
+
 def _get_file(
     url: str,
     dest: Path,
@@ -102,16 +116,11 @@ def _get_file(
 ) -> DownloadResult:
     """Fetch one file over HTTP(S) or FTP and write it into ``dest``.
 
-    The body is streamed to a sibling ``.part`` file and renamed into place
-    only once it is complete, so an interrupted download never leaves a
-    truncated file that later runs would mistake for a good one.
-
     Args:
         url: Fully-qualified URL of the file to fetch.
         dest: Directory to write into. The filename is taken from ``url``.
-        session: Transport to fetch through. Defaults to a new
-            ``curl_cffi`` session, closed before returning; pass one in to
-            reuse a connection across several files, or to inject a fake.
+        session: Transport for HTTP(S) fetches. Defaults to a new ``curl_cffi``
+            session, closed before returning. Unused for ``ftp://``.
 
     Returns:
         A ``DownloadResult`` whose ``status`` is ``True`` on success, or
@@ -122,23 +131,20 @@ def _get_file(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_dest = dest.with_suffix(dest.suffix + '.part')
 
-    owns_session = session is None
-    session = session if session is not None else requests.Session()
+    is_ftp = urlparse(url).scheme == 'ftp'
+    owns_session = session is None and not is_ftp
     try:
-        response = session.get(url, impersonate='chrome', stream=True)
-        try:
-            response.raise_for_status()
-            with tmp_dest.open('wb') as f:
-                for chunk in response.iter_content(CHUNK_SIZE):
-                    f.write(chunk)
-        finally:
-            response.close()
+        if is_ftp:
+            _fetch_ftp(url, tmp_dest)
+        else:
+            session = session if session is not None else requests.Session()
+            _fetch_http(url, tmp_dest, session)
         tmp_dest.rename(dest)
-    except (HTTPError, RequestException, OSError) as e:
+    except (HTTPError, RequestException, URLError, OSError) as e:
         tmp_dest.unlink(missing_ok=True)
         return DownloadResult(status=False, detail=str(e))
     finally:
-        if owns_session:
+        if owns_session and session is not None:
             session.close()
 
     return DownloadResult(status=True, detail='')
@@ -152,9 +158,9 @@ def _download_sources(
 ) -> None:
     """Fetch every file each source publishes for each date, logging outcomes."""
     for source_iter in sources:
+        download_root = snowdb.download_root(source_iter)
         for d in dates:
             model = SOURCE_MODELS[source_iter]._for_date(d)
-            download_root = snowdb.download_root(source_iter)
             for url, dest in model._iter_downloads():
                 result = _get_file(url, download_root / dest, session)
                 if result.status:
