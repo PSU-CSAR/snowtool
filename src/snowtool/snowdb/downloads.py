@@ -74,7 +74,7 @@ class SWANNUrl(BaseUrl):
     dest: Path
 
     BASE_URL: ClassVar[str] = (
-        'https://climate.arizona.edu/data/UA_SWE/DailyData_800m/WY{year}/UA_SWE_Depth_800m_v1_{year}{month}{day}_early.nc'
+        'https://climate.arizona.edu/data/UA_SWE/DailyData_800m/WY{water_year}/UA_SWE_Depth_800m_v1_{year}{month}{day}_early.nc'
     )
 
     @staticmethod
@@ -94,7 +94,8 @@ class SWANNUrl(BaseUrl):
     def _for_date(cls, target_date: date) -> SWANNUrl:
         wy = cls._water_year(target_date)
         download_url = cls.BASE_URL.format(
-            year=wy,
+            water_year=wy,
+            year=target_date.year,
             month=f'{target_date.month:02d}',
             day=f'{target_date.day:02d}',
         )
