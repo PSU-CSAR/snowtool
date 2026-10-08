@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Removed
+
+### Fixed
+
+### Security
+
+
+## [v0.8.0] - 2026-10-07
+
 > **Live databases (raw download staging):** `snowtool download` previously
 > wrote to a hardcoded `/d/projects/gisdata/<source>/unprocessed/`. It now
 > stages under `downloads/<source>/` in the snowdb root, unless the root
