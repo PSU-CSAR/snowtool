@@ -64,7 +64,24 @@ def snow_line_elevation(
     threshold: float = 50.0,
     variable: str | None = None,
 ) -> dict[date, SnowLine | None]:
+    """Interpolate the elevation at which ``variable`` crosses ``threshold``
 
+    Walks each date's elevation bands from low to high, finding the first adjacent
+    pair that straddles ``threshold``, then interpolates between the two band centers.
+    ``stats`` must be zoned on a single banded ``terrain.elevation`` axis.
+    Any other shape will raise ``SnowLineError``.
+
+    A date maps to ``None`` when no pair hits or crosses the threshold. Bands with
+    no value for a date are skipped, so a crossing could occur over a gap.
+
+    Args:
+        stats (CompactStats): Zonal stats body for a dataset
+        threshold (float, optional): Threshold to determine snowline. Defaults to 50.0.
+        variable (str | None, optional): Variable. Defaults to None.
+
+    Returns:
+        dict[date, SnowLine | None]: The snow line for a given date
+    """
     if threshold <= 0.0:
         raise SnowLineError(
             'Invalid Snow line threshold passed: '
