@@ -24,13 +24,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   from INSTARR's FTP server. This was an issue with the curl_cffi package not
   supporting FTP protocol. Created helper function to download files over FTP
 
+  - `snowtool download` requested the wrong SWANN file for any date in and after
+  October. The URL template used one `{year}` placeholder for both the water year
+  and the filename's calendar date, so a request for 2026-10-05 would resolve to
+  `WY2027/UA_SWE_Depth_800m_v1_20271005_early.nc` and return a 404. Fixed by creating
+  a separate placeholder for water year in building the request URL
 
 ## [v0.8.0] - 2026-10-08
 
 > **Live databases (raw download staging):** `snowtool download` previously
 > wrote to a hardcoded `/d/projects/gisdata/<source>/unprocessed/`. It now
 > stages under `downloads/<source>/` in the snowdb root, unless the root
-> config's new `downloads` map says otherwise. Decalre the current path
+> config's new `downloads` map says otherwise. Declare the current path
 > in the map before upgrading. Already-staged
 > files are not moved.
 
@@ -737,7 +742,9 @@ output.
 
 Initial release 🎉
 
-[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/PSU-CSAR/snowtool/compare/v0.8.1...HEAD
+[v0.8.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.8.0...v0.8.1
+[v0.8.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.6.0...v0.7.0
 [v0.6.0]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/PSU-CSAR/snowtool/compare/v0.5.0...v0.5.1
