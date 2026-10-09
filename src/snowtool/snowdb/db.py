@@ -170,19 +170,20 @@ class SnowDb:
         self._index: PourpointIndex | None = None
         self._index_mtime: int | None = None
 
-    # The download path for unproccessed data files that are to be ingested
-    # into Snowdb. Declared per source in the root configs "downloads" map
-    # and resolved like any other config path; an absent source defaults to
-    # "downloads/<source>"" in the root
     def download_root(self: Self, source: str) -> Path:
-
+        """
+        The download path for unprocessed data files that are to be ingested
+        into Snowdb. Declared per source in the root config's "downloads" map
+        and resolved like any other config path; an absent source defaults to
+        "downloads/<source>"" in the root
+        """
         configured = self.config.downloads.get(source)
         if configured is not None:
             return resolve_path(configured, root=self.root)
         if self.root is None:
             raise SnowDbConfigError(
                 None,
-                f'Cannot resolve the download root for {source}: This config'
+                f'Cannot resolve the download root for {source!r}: This config'
                 " has no location. Give an absolute path in the config's"
                 ' "downloads" map, or save the config first.',
             )

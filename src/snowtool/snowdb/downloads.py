@@ -118,7 +118,6 @@ class SNODASUrl(BaseUrl):
     BASE_URL: ClassVar[str] = (
         'https://noaadata.apps.nsidc.org/NOAA/G02158/masked/{year}/{month}_{month_abbr}/SNODAS_{year}{month}{day}.tar'
     )
-    BASE_DEST: ClassVar[str] = '/d/projects/gisdata/snodas/in_db/masked/{import_path}/'
 
     @classmethod
     def _for_date(cls, target_date: date) -> SNODASUrl:
@@ -128,14 +127,11 @@ class SNODASUrl(BaseUrl):
             month_abbr=calendar.month_abbr[target_date.month],
             day=f'{target_date.day:02d}',
         )
-        dest = Path(
-            cls.BASE_DEST.format(
-                import_path=f'{target_date.year}/{target_date.month:02d}',
-            ),
-        )
         return cls(
             url=download_url,
-            dest=dest,
+            dest=cls._build_dest(
+                f'{target_date.year}/{target_date.month:02d}',
+            ),
         )
 
     def _iter_downloads(self) -> Iterator[tuple[str, Path]]:

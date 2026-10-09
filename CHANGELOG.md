@@ -7,10 +7,51 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 > **Live databases (raw download staging):** `snowtool download` previously
 > wrote to a hardcoded `/d/projects/gisdata/<source>/unprocessed/`. It now
 > stages under `downloads/<source>/` in the snowdb root, unless the root
 > config's new `downloads` map says otherwise.  Already-staged
+> files are not moved.
+
+### Added
+
+  - The root config (`snowdb_conf.json`) has a new map for `downloads`: A per-source
+  directory for `snowtool download`, resolved like any other config path. A source absent
+  from the map defaults to `downloads/<source>` in the snowdb root. Existing configs without
+  the key keep working and accept default values
+
+=======
+### Added
+
+>>>>>>> main
+### Changed
+  - The dataset URL models have been moved from `snowtool.api.models.downloads` to
+  `snowtool.snowdb.downloads`. Nothing in the API served the models, so it was moved
+  for less confusing import structures
+  - `snowtool download` no longer writes to a hardcoded destination root. See above notes
+  about live databases
+
+### Removed
+
+### Fixed
+  - `snowtool download` was not able to fetch anything as the request was never opened
+  in streaming mode. This would raise an AssertionError about the stream mode not being
+  enabled before any bytes reached the disk.
+  - `snowtool download`'s destination was a hardcoded absolute path, rather than where a user would intend
+  - `snowtool download` will no longer leave a partial '.part' file in the event of an OSError. Only
+  HTTP and Transport failures would clean the path
+
+### Security
+
+
+## [v0.8.0] - 2026-10-08
+
+> **Live databases (raw download staging):** `snowtool download` previously
+> wrote to a hardcoded `/d/projects/gisdata/<source>/unprocessed/`. It now
+> stages under `downloads/<source>/` in the snowdb root, unless the root
+> config's new `downloads` map says otherwise. Decalre the current path
+> in the map before upgrading. Already-staged
 > files are not moved.
 
 ### Added

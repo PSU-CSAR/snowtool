@@ -10,6 +10,7 @@ listing.
 | `init` | Create an empty snowdb. |
 | `status` | Overview of every registered dataset: active flag, artifacts, date span. |
 | `doctor` | Run health checks (grid, dates, files, pourpoints) and exit 1 on any finding. |
+| `download` | Grabs raw data from online sources to be processed locally
 | `stats` | Crossed zonal statistics for one pourpoint/dataset, with an OGC `--dates`/`--years` interval. |
 | `snowline` | Interpolated snow line elevation for one pourpoint and dataset over a date interval. |
 | `dataset` | Register, ingest, and inspect gridded snow datasets. |

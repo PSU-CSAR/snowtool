@@ -78,7 +78,6 @@ CHUNK_SIZE: int = 1024 * 1024
 
 DEFAULT_TIMEOUT_SECONDS: int = 60
 
-
 # NOTE: hand-maintained alongside the dataset registry in snowdb/datasets/.
 # A dataset registered there but missing here will KeyError in `download`.
 SOURCE_MODELS: dict[str, type[BaseUrl]] = {

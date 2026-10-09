@@ -52,6 +52,10 @@ DATASET_CONFIG_FILENAME = 'dataset.json'
 DATA_DIRNAME = 'data'
 DOWNLOADS_DIRNAME = 'downloads'
 
+# The conventional subdirectory of the root holding every dataset's
+# raw data files (``downloads/<name>/``).
+DOWNLOADS_DIRNAME = 'downloads'
+
 
 def resolve_path(
     link: str | Path,
