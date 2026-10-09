@@ -6,11 +6,14 @@ atomic-rename, and failure-cleanup behavior is exercised with no network.
 ``test_download_network.py`` covers the real transport.
 """
 
+from datetime import date
+
 import pytest
 
 from curl_cffi.requests.exceptions import HTTPError, RequestException
 
 from snowtool.cli.download import _get_file
+from snowtool.snowdb.downloads import SWANNUrl
 
 URL = 'https://example.invalid/data/SNODAS_20260925.tar'
 FILENAME = 'SNODAS_20260925.tar'
@@ -122,3 +125,17 @@ def test_an_injected_session_is_left_open(tmp_path):
     _get_file(URL, tmp_path, session)
 
     assert session.closed is False
+
+
+@pytest.mark.parametrize(
+    ('target', 'expected_wy'),
+    [
+        (date(2026, 9, 30), 2026),  # last day of WY2026
+        (date(2026, 10, 1), 2027),  # first day of WY2027
+        (date(2026, 10, 5), 2027),
+        (date(2027, 1, 15), 2027),
+    ],
+)
+def test_swann_correct_water_year(target, expected_wy):
+    url = SWANNUrl._for_date(target).url
+    assert f'/WY{expected_wy}/' in url

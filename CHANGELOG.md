@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.8.1] - 2026-10-08
+
+### Fixed
+  - `snowtool download` was breaking when attempting to download data
+  from INSTARR's FTP server. This was an issue with the curl_cffi package not
+  supporting FTP protocol. Created helper function to download files over FTP
+
 
 ## [v0.8.0] - 2026-10-08
 
