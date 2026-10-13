@@ -17,6 +17,33 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Security
 
+## [v0.8.2] - 2026-10-12
+
+> **Live databases (SWANN revisions):** `snowtool dataset ingest swann` no longer
+> refuses `_provisional` and `_stable` files, so a SWANN dataset may now contain
+> dates from different processing revisions — whichever was published when each
+> date was fetched. This is a deliberate change, as UA will occasionally skip
+> versions for the next iteration of the set. This change is to address
+> `snowtool download retry` failing on uploaded sets that already exist as the next
+> iteration
+
+### Changed
+
+  - Modified `SwannIngester` Model to not pin strictly to '_early' SWANN files so re-attempted downloads/ingests
+  are not rejected
+
+  - `BaseUrl._iter_downloads` now yields `(urls, dest)` rather than
+  `(url, dest)`. A single destination can have several candidate URLs
+  (`SWANN`/`INSTARR`), and the downloader iterates over the tuple;
+  sources with one name per file yield a one-element tuple.
+
+### Fixed
+  - Due to SWANN's naming convention and upload cadence, missed upload(s) that `snowtool download retry`
+    may try to re-download could return 404 as the missing set might be uploaded as *provisional* or *stable*
+    instead of *early*. Since we won't know at that exact moment what version of a missing set that UA will
+    upload, `snowtool download` has been modified to try each qualifer when it runs
+
+
 ## [v0.8.1] - 2026-10-08
 
 ### Fixed
