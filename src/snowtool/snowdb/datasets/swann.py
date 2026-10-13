@@ -118,7 +118,9 @@ class SwannIngester:
 
     # Temporary policy gate: pin ingest to the `_early` stage so a dataset never
     # mixes revisions.
-    PINNED_STAGE = 'early'
+    # REVISED: UA will upload missing sets as the next stage (provisional/stable)
+    # Re-attempted downloads fail if only the early stage is pinned
+    PINNED_STAGE: ClassVar[str | None] = None
     filename_re = re.compile(
         r'UA_SWE_Depth_800m_v1_(?P<date>\d{8})_(?P<stage>early|provisional|stable)\.nc$',
     )
@@ -140,7 +142,7 @@ class SwannIngester:
                 f'Not a SWANN 800m file: {source.name!r} does not match '
                 f'{self.filename_re.pattern!r}.',
             )
-        if match['stage'] != self.PINNED_STAGE:
+        if self.PINNED_STAGE is not None and match['stage'] != self.PINNED_STAGE:
             raise SnowtoolError(
                 f'Refusing to ingest {match["stage"]!r}-stage SWANN file '
                 f'{source.name!r}: this dataset pins to the {self.PINNED_STAGE!r} '

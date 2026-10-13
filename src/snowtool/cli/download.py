@@ -71,7 +71,7 @@ from snowtool.snowdb.downloads import (
     DownloadResult,
     INSTARRUrls,
     SNODASUrl,
-    SWANNUrl,
+    SWANNUrls,
 )
 
 CHUNK_SIZE: int = 1024 * 1024
@@ -81,7 +81,7 @@ DEFAULT_TIMEOUT_SECONDS: int = 60
 # NOTE: hand-maintained alongside the dataset registry in snowdb/datasets/.
 # A dataset registered there but missing here will KeyError in `download`.
 SOURCE_MODELS: dict[str, type[BaseUrl]] = {
-    'swann': SWANNUrl,
+    'swann': SWANNUrls,
     'instarr': INSTARRUrls,
     'snodas': SNODASUrl,
 }
@@ -160,17 +160,18 @@ def _download_sources(
         download_root = snowdb.download_root(source_iter)
         for d in dates:
             model = SOURCE_MODELS[source_iter]._for_date(d)
-            for url, dest in model._iter_downloads():
-                result = _get_file(url, download_root / dest, session)
-                if result.status:
-                    logger.info('[%s] %s downloaded', source_iter, d)
-                else:
-                    logger.warning(
-                        '[%s] %s failed: %s',
-                        source_iter,
-                        d,
-                        result.detail,
-                    )
+            for urls, dest in model._iter_downloads():
+                for url in urls:
+                    result = _get_file(url, download_root / dest, session)
+                    if result.status:
+                        logger.info('[%s] %s downloaded', source_iter, d)
+                    else:
+                        logger.warning(
+                            '[%s] %s failed: %s',
+                            source_iter,
+                            d,
+                            result.detail,
+                        )
 
 
 logger = logging.getLogger(__name__)

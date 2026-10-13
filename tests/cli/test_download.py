@@ -13,7 +13,7 @@ import pytest
 from curl_cffi.requests.exceptions import HTTPError, RequestException
 
 from snowtool.cli.download import _get_file
-from snowtool.snowdb.downloads import SWANNUrl
+from snowtool.snowdb.downloads import SWANNUrls
 
 URL = 'https://example.invalid/data/SNODAS_20260925.tar'
 FILENAME = 'SNODAS_20260925.tar'
@@ -137,5 +137,13 @@ def test_an_injected_session_is_left_open(tmp_path):
     ],
 )
 def test_swann_correct_water_year(target, expected_wy):
-    url = SWANNUrl._for_date(target).url
-    assert f'/WY{expected_wy}/' in url
+    urls = SWANNUrls._for_date(target).urls
+    for url in urls:
+        assert f'/WY{expected_wy}/' in url
+
+
+def test_swann_uses_all_qualifiers():
+    urls = SWANNUrls._for_date(date(2026, 1, 15)).urls
+    assert any('provisional' in url for url in urls)
+    assert any('early' in url for url in urls)
+    assert any('stable' in url for url in urls)
