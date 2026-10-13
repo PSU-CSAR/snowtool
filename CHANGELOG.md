@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   sources with one name per file yield a one-element tuple.
 
 ### Fixed
+  - `snowtool download` now looks back in INSTARR's historical data for data to fetch. INSTARR marks all data before
+  2025-10-01 under SPIRES_HIST_V01, and the INSTARRUrls model was previously built only on SPIRES_NRT_V01
   - Due to SWANN's naming convention and upload cadence, missed upload(s) that `snowtool download retry`
     may try to re-download could return 404 as the missing set might be uploaded as *provisional* or *stable*
     instead of *early*. Since we won't know at that exact moment what version of a missing set that UA will
