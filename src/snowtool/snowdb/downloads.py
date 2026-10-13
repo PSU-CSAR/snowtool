@@ -27,7 +27,7 @@ class BaseUrl(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
+    def _iter_downloads(self) -> Iterator[tuple[tuple[str, ...], Path]]:
         raise NotImplementedError
 
 
@@ -64,18 +64,25 @@ class INSTARRUrls(BaseUrl):
             tile_downloads,
         )
 
-    def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
-        yield from self.urls.items()
+    def _iter_downloads(self) -> Iterator[tuple[tuple[str, ...], Path]]:
+        for url, dest in self.urls.items():
+            yield (url,), dest
 
 
 @dataclass
-class SWANNUrl(BaseUrl):
-    url: str
+class SWANNUrls(BaseUrl):
+    urls: tuple[str, ...]
     dest: Path
 
     BASE_URL: ClassVar[str] = (
-        'https://climate.arizona.edu/data/UA_SWE/DailyData_800m/WY{water_year}/UA_SWE_Depth_800m_v1_{year}{month}{day}_early.nc'
+        'https://climate.arizona.edu/data/UA_SWE/DailyData_800m/WY{water_year}/UA_SWE_Depth_800m_v1_{year}{month}{day}_{qualifier}.nc'
     )
+
+    # We don't know exactly what version of a daily upload UA will provide,
+    # so we need to iterate over every possible qualifier to get what we need
+    # Also useful for when snowtool download retry attempts to grab any missing
+    # uploads that only exist as provisional/stable versions
+    QUALIFIERS: ClassVar[tuple[str, ...]] = ('early', 'provisional', 'stable')
 
     @staticmethod
     def _water_year(d: date) -> int:
@@ -91,23 +98,28 @@ class SWANNUrl(BaseUrl):
         return d.year + 1 if d.month >= 10 else d.year
 
     @classmethod
-    def _for_date(cls, target_date: date) -> SWANNUrl:
+    def _for_date(cls, target_date: date) -> SWANNUrls:
+        swann_urls: tuple[str, ...] = ()
         wy = cls._water_year(target_date)
-        download_url = cls.BASE_URL.format(
-            water_year=wy,
-            year=target_date.year,
-            month=f'{target_date.month:02d}',
-            day=f'{target_date.day:02d}',
-        )
+        for qual in cls.QUALIFIERS:
+            swann_urls += (
+                cls.BASE_URL.format(
+                    water_year=wy,
+                    year=target_date.year,
+                    month=f'{target_date.month:02d}',
+                    day=f'{target_date.day:02d}',
+                    qualifier=qual,
+                ),
+            )
         return cls(
-            url=download_url,
+            urls=swann_urls,
             dest=cls._build_dest(
                 f'{wy!s}/{target_date.month:02d}/',
             ),
         )
 
-    def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
-        yield self.url, self.dest
+    def _iter_downloads(self) -> Iterator[tuple[tuple[str, ...], Path]]:
+        yield self.urls, self.dest
 
 
 @dataclass
@@ -134,8 +146,8 @@ class SNODASUrl(BaseUrl):
             ),
         )
 
-    def _iter_downloads(self) -> Iterator[tuple[str, Path]]:
-        yield self.url, self.dest
+    def _iter_downloads(self) -> Iterator[tuple[tuple[str, ...], Path]]:
+        yield (self.url,), self.dest
 
 
 class StreamingResponse(Protocol):
