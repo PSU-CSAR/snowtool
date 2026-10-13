@@ -43,7 +43,7 @@ class INSTARRUrls(BaseUrl):
         'h10v04',
     )
     BASE_URL: ClassVar[str] = (
-        'ftp://dtn.rc.colorado.edu/shares/snow-today/gridded_data/SPIRES_NRT_V01/{tile}/{year}/SPIRES_NRT_{tile}_MOD09GA061_{year}{month}{day}_V1.0.nc'
+        'ftp://dtn.rc.colorado.edu/shares/snow-today/gridded_data/SPIRES_{version}_V01/{tile}/{year}/SPIRES_{version}_{tile}_MOD09GA061_{year}{month}{day}_V1.0.nc'
     )
 
     @classmethod
@@ -51,6 +51,7 @@ class INSTARRUrls(BaseUrl):
         tile_downloads = {}
         for tile in cls.TILES:
             download_url = cls.BASE_URL.format(
+                version='NRT' if target_date > date(2025, 9, 30) else 'HIST',
                 tile=tile,
                 year=target_date.year,
                 month=f'{target_date.month:02d}',

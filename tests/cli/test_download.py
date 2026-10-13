@@ -13,7 +13,7 @@ import pytest
 from curl_cffi.requests.exceptions import HTTPError, RequestException
 
 from snowtool.cli.download import _get_file
-from snowtool.snowdb.downloads import SWANNUrls
+from snowtool.snowdb.downloads import INSTARRUrls, SWANNUrls
 
 URL = 'https://example.invalid/data/SNODAS_20260925.tar'
 FILENAME = 'SNODAS_20260925.tar'
@@ -125,6 +125,19 @@ def test_an_injected_session_is_left_open(tmp_path):
     _get_file(URL, tmp_path, session)
 
     assert session.closed is False
+
+
+@pytest.mark.parametrize(
+    ('target', 'expected_version'),
+    [
+        (date(2020, 10, 5), 'HIST'),
+        (date(2026, 1, 15), 'NRT'),
+    ],
+)
+def test_instarr_use_different_versions(target, expected_version):
+    urls = INSTARRUrls._for_date(target).urls
+    for url in urls:
+        assert expected_version in url
 
 
 @pytest.mark.parametrize(
