@@ -36,7 +36,7 @@ async def snowline_date_range(
     except KeyError:
         raise QueryParameterError(
             f'Variable {params.variable!r} is not in dataset {dataset!r}: '
-            f'Available Stats: {ds.spec.variables.keys()}',
+            f'Available Stats: {", ".join(sorted(ds.spec.variables))}',
         ) from None
 
     stats = await reader.zonal_stats(
